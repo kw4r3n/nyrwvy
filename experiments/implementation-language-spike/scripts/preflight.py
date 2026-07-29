@@ -3,22 +3,27 @@
 import argparse
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import re
+import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 
+sys.dont_write_bytecode = True
 EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(EXPERIMENT_ROOT))
 
-from evaluator.common import ExperimentConfig, load_config
+from evaluator.common import ExperimentConfig
 
 
 SCHEMA_VERSION = 1
@@ -54,9 +59,25 @@ _SMOKE_PROMPT = (
     "This is a harmless preflight smoke check. Do not create, edit, or delete files. "
     "Inspect the empty Git worktree and reply with PREFLIGHT_OK."
 )
+_TOOL_TIMEOUT_SECONDS = 30
+_SMOKE_TIMEOUT_SECONDS = 120
+_CONFIG_KEYS = frozenset(
+    {
+        "schema_version",
+        "model",
+        "sandbox",
+        "timeout_seconds",
+        "calibration_runs",
+        "scored_runs",
+        "languages",
+    }
+)
 
 ExecutableResolver = Callable[[str], str | None]
-CommandRunner = Callable[[tuple[str, ...], Path], subprocess.CompletedProcess[str]]
+CommandRunner = Callable[
+    [tuple[str, ...], Path, int],
+    subprocess.CompletedProcess[str],
+]
 
 
 class PreflightError(ValueError):
@@ -88,6 +109,21 @@ class PreflightManifest:
     baseline_sha256: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class _TreeEntry:
+    path: str
+    kind: str
+    mode: int
+    size: int
+    modified_ns: int
+    changed_ns: int
+    payload: bytes
+
+
+class _PersistenceFailure(ValueError):
+    """Internal precise failure while installing the manifest."""
+
+
 def run_preflight(
     config_path: Path,
     *,
@@ -97,9 +133,15 @@ def run_preflight(
     os_details: OsDetails | None = None,
 ) -> PreflightManifest:
     """Validate prerequisites and write the manifest only after complete success."""
-    config_path = config_path.resolve()
+    config_path = Path(os.path.abspath(config_path))
+    if config_path.name != "experiment.toml":
+        raise PreflightError(
+            [
+                "config path must name the canonical experiment.toml; "
+                f"received {config_path}"
+            ]
+        )
     experiment_root = config_path.parent
-    config = load_config(config_path)
     resolver = executable_resolver if executable_resolver is not None else shutil.which
     runner = command_runner if command_runner is not None else _run_command
     selected_python_version = (
@@ -108,6 +150,48 @@ def run_preflight(
         else (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
     )
 
+    try:
+        root_file_descriptor = _open_directory_path_no_symlinks(experiment_root)
+    except (OSError, ValueError) as error:
+        raise PreflightError(
+            [f"experiment root is not a stable real directory: {experiment_root}: {error}"]
+        ) from error
+    try:
+        try:
+            config_bytes = _read_regular_file_at(
+                root_file_descriptor,
+                ("experiment.toml",),
+                "experiment.toml",
+            )
+            config = _load_config_bytes(config_bytes)
+        except (OSError, UnicodeDecodeError, ValueError, tomllib.TOMLDecodeError) as error:
+            raise PreflightError([f"config snapshot failed: {error}"]) from error
+
+        manifest = _run_preflight_from_root(
+            experiment_root,
+            root_file_descriptor,
+            config,
+            config_bytes,
+            resolver,
+            runner,
+            selected_python_version,
+            os_details,
+        )
+        return manifest
+    finally:
+        os.close(root_file_descriptor)
+
+
+def _run_preflight_from_root(
+    experiment_root: Path,
+    root_file_descriptor: int,
+    config: ExperimentConfig,
+    config_bytes: bytes,
+    resolver: ExecutableResolver,
+    runner: CommandRunner,
+    selected_python_version: tuple[int, int, int],
+    os_details: OsDetails | None,
+) -> PreflightManifest:
     problems: list[str] = []
     if selected_python_version[0] != 3 or selected_python_version < (3, 13, 0):
         version_text = ".".join(str(component) for component in selected_python_version)
@@ -130,6 +214,7 @@ def run_preflight(
             (executables["dotnet"], "--version"),
             experiment_root,
             "dotnet --version",
+            _TOOL_TIMEOUT_SECONDS,
             problems,
         )
         if dotnet_version is not None and not dotnet_version.stdout.strip().startswith("10."):
@@ -144,6 +229,7 @@ def run_preflight(
             (executables["codex"], "exec", "--help"),
             experiment_root,
             "codex exec --help",
+            _TOOL_TIMEOUT_SECONDS,
             problems,
         )
         if codex_help is not None:
@@ -157,16 +243,21 @@ def run_preflight(
         language: experiment_root / language
         for language in SUPPORTED_LANGUAGES
     }
-    for baseline_path in baseline_paths.values():
-        if not baseline_path.is_dir() or baseline_path.is_symlink():
+    for language, baseline_path in baseline_paths.items():
+        if not _is_real_directory_at(root_file_descriptor, (language,)):
             problems.append(f"missing baseline directory: {baseline_path}")
 
     input_paths = {
         relative_path: experiment_root / relative_path
         for relative_path in INPUT_PATHS
     }
-    for input_path in input_paths.values():
-        if not input_path.is_file() or input_path.is_symlink():
+    for relative_path, input_path in input_paths.items():
+        if relative_path == "experiment.toml":
+            continue
+        if not _is_real_regular_file_at(
+            root_file_descriptor,
+            tuple(Path(relative_path).parts),
+        ):
             problems.append(f"missing required input file: {input_path}")
 
     if problems:
@@ -177,6 +268,7 @@ def run_preflight(
         (executables["codex"], "--version"),
         experiment_root,
         "codex --version",
+        _TOOL_TIMEOUT_SECONDS,
         problems,
     )
     dotnet_info_result = _invoke(
@@ -184,6 +276,7 @@ def run_preflight(
         (executables["dotnet"], "--info"),
         experiment_root,
         "dotnet --info",
+        _TOOL_TIMEOUT_SECONDS,
         problems,
     )
     codex_version = _required_output(codex_version_result, "codex --version", problems)
@@ -191,9 +284,55 @@ def run_preflight(
     if problems:
         raise PreflightError(problems)
 
+    try:
+        input_sha256, baseline_sha256 = _capture_input_hashes(
+            root_file_descriptor
+        )
+    except (OSError, ValueError) as error:
+        raise PreflightError([f"input snapshot failed: {error}"]) from error
+    initial_config_digest = hashlib.sha256(config_bytes).hexdigest()
+    if input_sha256["experiment.toml"] != initial_config_digest:
+        raise PreflightError(
+            ["input snapshot failed: experiment.toml changed after it was loaded"]
+        )
+
     smoke_problem = _run_model_smoke(config, executables, runner)
     if smoke_problem is not None:
         raise PreflightError([smoke_problem])
+
+    try:
+        final_input_sha256, final_baseline_sha256 = _capture_input_hashes(
+            root_file_descriptor
+        )
+    except (OSError, ValueError) as error:
+        raise PreflightError(
+            [f"experiment inputs changed during preflight: {error}"]
+        ) from error
+    if (
+        final_input_sha256 != input_sha256
+        or final_baseline_sha256 != baseline_sha256
+    ):
+        changed_inputs = sorted(
+            key
+            for key in set(input_sha256) | set(final_input_sha256)
+            if input_sha256.get(key) != final_input_sha256.get(key)
+        )
+        changed_languages = sorted(
+            key
+            for key in set(baseline_sha256) | set(final_baseline_sha256)
+            if baseline_sha256.get(key) != final_baseline_sha256.get(key)
+        )
+        details = []
+        if changed_inputs:
+            details.append(f"files={changed_inputs}")
+        if changed_languages:
+            details.append(f"baselines={changed_languages}")
+        raise PreflightError(
+            [
+                "experiment inputs changed during preflight: "
+                + ", ".join(details)
+            ]
+        )
 
     selected_os_details = os_details if os_details is not None else _current_os_details()
     manifest = PreflightManifest(
@@ -204,60 +343,618 @@ def run_preflight(
         codex_cli_version=codex_version,
         dotnet_info=dotnet_info,
         os=selected_os_details,
-        input_sha256={
-            relative_path: digest_file(path)
-            for relative_path, path in input_paths.items()
-        },
-        baseline_sha256={
-            language: digest_tree(path)
-            for language, path in baseline_paths.items()
-        },
+        input_sha256=input_sha256,
+        baseline_sha256=baseline_sha256,
     )
     _validate_manifest(asdict(manifest))
-    _write_manifest(experiment_root / "results/preflight/manifest.json", manifest)
+    _write_manifest(
+        root_file_descriptor,
+        experiment_root,
+        manifest,
+    )
     return manifest
 
 
 def digest_file(path: Path) -> str:
     """Return the SHA-256 digest of one regular file's exact bytes."""
-    if not path.is_file() or path.is_symlink():
-        raise ValueError(f"cannot hash non-regular file: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    absolute_path = Path(os.path.abspath(path))
+    parent_file_descriptor = _open_directory_path_no_symlinks(
+        absolute_path.parent
+    )
+    try:
+        contents = _read_regular_file_at(
+            parent_file_descriptor,
+            (absolute_path.name,),
+            str(absolute_path),
+        )
+    finally:
+        os.close(parent_file_descriptor)
+    return hashlib.sha256(contents).hexdigest()
 
 
 def digest_tree(root: Path) -> str:
     """Hash included relative paths and bytes in stable lexical order."""
-    if not root.is_dir() or root.is_symlink():
-        raise ValueError(f"cannot hash non-directory tree: {root}")
-
-    included_files: list[Path] = []
-    for directory, directory_names, file_names in os.walk(root, topdown=True, followlinks=False):
-        directory_path = Path(directory)
-        directory_names[:] = sorted(
-            name
-            for name in directory_names
-            if name not in _EXCLUDED_DIRECTORIES
-            and not (directory_path / name).is_symlink()
+    absolute_root = Path(os.path.abspath(root))
+    parent_file_descriptor = _open_directory_path_no_symlinks(
+        absolute_root.parent
+    )
+    tree_file_descriptor: int | None = None
+    try:
+        tree_file_descriptor = os.open(
+            absolute_root.name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW,
+            dir_fd=parent_file_descriptor,
         )
-        for file_name in sorted(file_names):
-            path = directory_path / file_name
-            if path.is_symlink() or file_name.endswith(_EXCLUDED_FILE_SUFFIXES):
-                continue
-            included_files.append(path)
+        entries = _stable_tree_entries(
+            tree_file_descriptor,
+            exclusions=True,
+            include_symlinks=False,
+        )
+        return _hash_tree_entries(entries)
+    except OSError as error:
+        raise ValueError(f"cannot hash non-directory tree: {absolute_root}: {error}") from error
+    finally:
+        if tree_file_descriptor is not None:
+            os.close(tree_file_descriptor)
+        os.close(parent_file_descriptor)
 
+
+def _open_directory_path_no_symlinks(path: Path) -> int:
+    absolute_path = Path(os.path.abspath(path))
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_CLOEXEC
+        | os.O_NOFOLLOW
+    )
+    file_descriptor = os.open(absolute_path.anchor, flags)
+    try:
+        for component in absolute_path.parts[1:]:
+            next_file_descriptor = os.open(
+                component,
+                flags,
+                dir_fd=file_descriptor,
+            )
+            os.close(file_descriptor)
+            file_descriptor = next_file_descriptor
+        return file_descriptor
+    except BaseException:
+        os.close(file_descriptor)
+        raise
+
+
+def _open_relative_directory(
+    root_file_descriptor: int,
+    parts: tuple[str, ...],
+) -> int:
+    file_descriptor = os.dup(root_file_descriptor)
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_CLOEXEC
+        | os.O_NOFOLLOW
+    )
+    try:
+        for part in parts:
+            next_file_descriptor = os.open(
+                part,
+                flags,
+                dir_fd=file_descriptor,
+            )
+            os.close(file_descriptor)
+            file_descriptor = next_file_descriptor
+        return file_descriptor
+    except BaseException:
+        os.close(file_descriptor)
+        raise
+
+
+def _is_real_directory_at(
+    root_file_descriptor: int,
+    parts: tuple[str, ...],
+) -> bool:
+    try:
+        file_descriptor = _open_relative_directory(
+            root_file_descriptor,
+            parts,
+        )
+    except OSError:
+        return False
+    os.close(file_descriptor)
+    return True
+
+
+def _is_real_regular_file_at(
+    root_file_descriptor: int,
+    parts: tuple[str, ...],
+) -> bool:
+    if not parts:
+        return False
+    try:
+        parent_file_descriptor = _open_relative_directory(
+            root_file_descriptor,
+            parts[:-1],
+        )
+        try:
+            details = os.stat(
+                parts[-1],
+                dir_fd=parent_file_descriptor,
+                follow_symlinks=False,
+            )
+        finally:
+            os.close(parent_file_descriptor)
+    except OSError:
+        return False
+    return stat.S_ISREG(details.st_mode)
+
+
+def _read_regular_file_at(
+    root_file_descriptor: int,
+    parts: tuple[str, ...],
+    label: str,
+) -> bytes:
+    if not parts:
+        raise ValueError(f"not a stable regular file: {label}")
+    parent_file_descriptor = _open_relative_directory(
+        root_file_descriptor,
+        parts[:-1],
+    )
+    file_descriptor: int | None = None
+    try:
+        initial = os.stat(
+            parts[-1],
+            dir_fd=parent_file_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISREG(initial.st_mode):
+            raise ValueError(f"not a stable regular file: {label}")
+        file_descriptor = os.open(
+            parts[-1],
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=parent_file_descriptor,
+        )
+        opened = os.fstat(file_descriptor)
+        if not _same_file_state(initial, opened):
+            raise ValueError(f"file changed while hashing: {label}")
+        contents = _read_all(file_descriptor)
+        after_read = os.fstat(file_descriptor)
+        final = os.stat(
+            parts[-1],
+            dir_fd=parent_file_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _same_file_state(opened, after_read)
+            or not _same_file_state(after_read, final)
+        ):
+            raise ValueError(f"file changed while hashing: {label}")
+        return contents
+    except OSError as error:
+        raise ValueError(f"not a stable regular file: {label}: {error}") from error
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        os.close(parent_file_descriptor)
+
+
+def _read_regular_entry_at(
+    directory_file_descriptor: int,
+    name: str,
+    initial: os.stat_result,
+    label: str,
+) -> bytes:
+    file_descriptor: int | None = None
+    try:
+        file_descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=directory_file_descriptor,
+        )
+        opened = os.fstat(file_descriptor)
+        if not _same_file_state(initial, opened):
+            raise ValueError(f"file changed while hashing: {label}")
+        contents = _read_all(file_descriptor)
+        after_read = os.fstat(file_descriptor)
+        final = os.stat(
+            name,
+            dir_fd=directory_file_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _same_file_state(opened, after_read)
+            or not _same_file_state(after_read, final)
+        ):
+            raise ValueError(f"file changed while hashing: {label}")
+        return contents
+    except OSError as error:
+        raise ValueError(f"file changed while hashing: {label}: {error}") from error
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+
+
+def _read_all(file_descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        try:
+            chunk = os.read(file_descriptor, 1024 * 1024)
+        except InterruptedError:
+            continue
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _same_file_state(
+    first: os.stat_result,
+    second: os.stat_result,
+) -> bool:
+    return (
+        first.st_dev,
+        first.st_ino,
+        first.st_mode,
+        first.st_nlink,
+        first.st_size,
+        first.st_mtime_ns,
+        first.st_ctime_ns,
+    ) == (
+        second.st_dev,
+        second.st_ino,
+        second.st_mode,
+        second.st_nlink,
+        second.st_size,
+        second.st_mtime_ns,
+        second.st_ctime_ns,
+    )
+
+
+def _directory_names(directory_file_descriptor: int) -> tuple[str, ...]:
+    with os.scandir(directory_file_descriptor) as entries:
+        return tuple(sorted(entry.name for entry in entries))
+
+
+def _stable_tree_entries(
+    directory_file_descriptor: int,
+    *,
+    exclusions: bool,
+    include_symlinks: bool,
+) -> tuple[_TreeEntry, ...]:
+    first = _capture_tree_entries_once(
+        directory_file_descriptor,
+        prefix="",
+        exclusions=exclusions,
+        include_symlinks=include_symlinks,
+        include_root=True,
+    )
+    second = _capture_tree_entries_once(
+        directory_file_descriptor,
+        prefix="",
+        exclusions=exclusions,
+        include_symlinks=include_symlinks,
+        include_root=True,
+    )
+    if first != second:
+        raise ValueError("tree changed while hashing")
+    return first
+
+
+def _capture_tree_entries_once(
+    directory_file_descriptor: int,
+    *,
+    prefix: str,
+    exclusions: bool,
+    include_symlinks: bool,
+    include_root: bool,
+) -> tuple[_TreeEntry, ...]:
+    initial_directory = os.fstat(directory_file_descriptor)
+    before_names = _directory_names(directory_file_descriptor)
+    captured: list[_TreeEntry] = []
+    if include_root:
+        captured.append(
+            _tree_entry(
+                "." if not prefix else prefix,
+                "directory",
+                initial_directory,
+                b"",
+            )
+        )
+
+    for name in before_names:
+        relative_path = name if not prefix else f"{prefix}/{name}"
+        initial = os.stat(
+            name,
+            dir_fd=directory_file_descriptor,
+            follow_symlinks=False,
+        )
+        if stat.S_ISLNK(initial.st_mode):
+            if include_symlinks:
+                target = os.fsencode(
+                    os.readlink(
+                        name,
+                        dir_fd=directory_file_descriptor,
+                    )
+                )
+                final = os.stat(
+                    name,
+                    dir_fd=directory_file_descriptor,
+                    follow_symlinks=False,
+                )
+                if not _same_file_state(initial, final):
+                    raise ValueError(
+                        f"symlink changed while hashing: {relative_path}"
+                    )
+                captured.append(
+                    _tree_entry(
+                        relative_path,
+                        "symlink",
+                        initial,
+                        target,
+                    )
+                )
+            else:
+                final = os.stat(
+                    name,
+                    dir_fd=directory_file_descriptor,
+                    follow_symlinks=False,
+                )
+                if not _same_file_state(initial, final):
+                    raise ValueError(
+                        f"symlink changed while hashing: {relative_path}"
+                    )
+            continue
+
+        if stat.S_ISDIR(initial.st_mode):
+            if exclusions and name in _EXCLUDED_DIRECTORIES:
+                final = os.stat(
+                    name,
+                    dir_fd=directory_file_descriptor,
+                    follow_symlinks=False,
+                )
+                if not _same_file_state(initial, final):
+                    raise ValueError(
+                        f"excluded directory changed while hashing: {relative_path}"
+                    )
+                continue
+            child_file_descriptor: int | None = None
+            try:
+                child_file_descriptor = os.open(
+                    name,
+                    os.O_RDONLY
+                    | os.O_DIRECTORY
+                    | os.O_CLOEXEC
+                    | os.O_NOFOLLOW,
+                    dir_fd=directory_file_descriptor,
+                )
+                opened = os.fstat(child_file_descriptor)
+                if not _same_file_state(initial, opened):
+                    raise ValueError(
+                        f"directory changed while hashing: {relative_path}"
+                    )
+                captured.append(
+                    _tree_entry(
+                        relative_path,
+                        "directory",
+                        initial,
+                        b"",
+                    )
+                )
+                captured.extend(
+                    _capture_tree_entries_once(
+                        child_file_descriptor,
+                        prefix=relative_path,
+                        exclusions=exclusions,
+                        include_symlinks=include_symlinks,
+                        include_root=False,
+                    )
+                )
+                after_scan = os.fstat(child_file_descriptor)
+                final = os.stat(
+                    name,
+                    dir_fd=directory_file_descriptor,
+                    follow_symlinks=False,
+                )
+                if (
+                    not _same_file_state(opened, after_scan)
+                    or not _same_file_state(after_scan, final)
+                ):
+                    raise ValueError(
+                        f"directory changed while hashing: {relative_path}"
+                    )
+            except OSError as error:
+                raise ValueError(
+                    f"directory changed while hashing: {relative_path}: {error}"
+                ) from error
+            finally:
+                if child_file_descriptor is not None:
+                    os.close(child_file_descriptor)
+            continue
+
+        if stat.S_ISREG(initial.st_mode):
+            if exclusions and name.endswith(_EXCLUDED_FILE_SUFFIXES):
+                final = os.stat(
+                    name,
+                    dir_fd=directory_file_descriptor,
+                    follow_symlinks=False,
+                )
+                if not _same_file_state(initial, final):
+                    raise ValueError(
+                        f"excluded file changed while hashing: {relative_path}"
+                    )
+                continue
+            contents = _read_regular_entry_at(
+                directory_file_descriptor,
+                name,
+                initial,
+                relative_path,
+            )
+            final = os.stat(
+                name,
+                dir_fd=directory_file_descriptor,
+                follow_symlinks=False,
+            )
+            captured.append(
+                _tree_entry(
+                    relative_path,
+                    "file",
+                    final,
+                    contents,
+                )
+            )
+            continue
+
+        raise ValueError(f"unsupported path type while hashing: {relative_path}")
+
+    after_names = _directory_names(directory_file_descriptor)
+    final_directory = os.fstat(directory_file_descriptor)
+    if before_names != after_names:
+        label = prefix or "."
+        raise ValueError(f"directory changed while hashing: {label}")
+    if not _same_file_state(initial_directory, final_directory):
+        label = prefix or "."
+        raise ValueError(f"directory changed while hashing: {label}")
+    return tuple(sorted(captured, key=lambda entry: entry.path))
+
+
+def _tree_entry(
+    path: str,
+    kind: str,
+    details: os.stat_result,
+    payload: bytes,
+) -> _TreeEntry:
+    return _TreeEntry(
+        path=path,
+        kind=kind,
+        mode=stat.S_IMODE(details.st_mode),
+        size=details.st_size,
+        modified_ns=details.st_mtime_ns,
+        changed_ns=details.st_ctime_ns,
+        payload=payload,
+    )
+
+
+def _hash_tree_entries(entries: tuple[_TreeEntry, ...]) -> str:
     digest = hashlib.sha256()
-    for path in sorted(included_files, key=lambda candidate: candidate.relative_to(root).as_posix()):
-        relative_bytes = path.relative_to(root).as_posix().encode("utf-8")
-        contents = path.read_bytes()
+    for entry in entries:
+        if entry.kind != "file":
+            continue
+        relative_bytes = entry.path.encode("utf-8")
         digest.update(len(relative_bytes).to_bytes(8, "big"))
         digest.update(relative_bytes)
-        digest.update(len(contents).to_bytes(8, "big"))
-        digest.update(contents)
+        digest.update(len(entry.payload).to_bytes(8, "big"))
+        digest.update(entry.payload)
     return digest.hexdigest()
+
+
+def _capture_input_hashes(
+    root_file_descriptor: int,
+) -> tuple[dict[str, str], dict[str, str]]:
+    first = _capture_input_hashes_once(root_file_descriptor)
+    second = _capture_input_hashes_once(root_file_descriptor)
+    if first != second:
+        raise ValueError("experiment inputs changed while hashing")
+    return first
+
+
+def _capture_input_hashes_once(
+    root_file_descriptor: int,
+) -> tuple[dict[str, str], dict[str, str]]:
+    input_sha256: dict[str, str] = {}
+    for relative_path in INPUT_PATHS:
+        contents = _read_regular_file_at(
+            root_file_descriptor,
+            tuple(Path(relative_path).parts),
+            relative_path,
+        )
+        input_sha256[relative_path] = hashlib.sha256(contents).hexdigest()
+
+    baseline_sha256: dict[str, str] = {}
+    for language in SUPPORTED_LANGUAGES:
+        directory_file_descriptor = _open_relative_directory(
+            root_file_descriptor,
+            (language,),
+        )
+        try:
+            entries = _stable_tree_entries(
+                directory_file_descriptor,
+                exclusions=True,
+                include_symlinks=False,
+            )
+            baseline_sha256[language] = _hash_tree_entries(entries)
+        finally:
+            os.close(directory_file_descriptor)
+    return input_sha256, baseline_sha256
+
+
+def _load_config_bytes(config_bytes: bytes) -> ExperimentConfig:
+    values = tomllib.loads(config_bytes.decode("utf-8"))
+    actual_keys = set(values)
+    unknown_keys = actual_keys - _CONFIG_KEYS
+    missing_keys = _CONFIG_KEYS - actual_keys
+    if unknown_keys or missing_keys:
+        details: list[str] = []
+        if unknown_keys:
+            details.append(f"unknown keys: {sorted(unknown_keys)}")
+        if missing_keys:
+            details.append(f"missing keys: {sorted(missing_keys)}")
+        raise ValueError("; ".join(details))
+
+    schema_version = _config_integer(values, "schema_version")
+    model = _config_string(values, "model")
+    sandbox = _config_string(values, "sandbox")
+    timeout_seconds = _config_positive_integer(values, "timeout_seconds")
+    calibration_runs = _config_positive_integer(values, "calibration_runs")
+    scored_runs = _config_positive_integer(values, "scored_runs")
+    languages = values["languages"]
+    if (
+        type(languages) is not list
+        or any(type(language) is not str for language in languages)
+        or tuple(languages) != SUPPORTED_LANGUAGES
+    ):
+        raise ValueError(
+            "languages must be ['fsharp', 'csharp'] without duplicates"
+        )
+    if schema_version != 1:
+        raise ValueError("schema_version must be 1")
+    if not model:
+        raise ValueError("model must not be empty")
+    if sandbox != "workspace-write":
+        raise ValueError("sandbox must be workspace-write")
+    return ExperimentConfig(
+        schema_version=schema_version,
+        model=model,
+        sandbox=sandbox,
+        timeout_seconds=timeout_seconds,
+        calibration_runs=calibration_runs,
+        scored_runs=scored_runs,
+        languages=tuple(languages),
+    )
+
+
+def _config_integer(values: dict[str, object], key: str) -> int:
+    value = values[key]
+    if type(value) is not int:
+        raise ValueError(f"{key} must be an integer")
+    return value
+
+
+def _config_positive_integer(
+    values: dict[str, object],
+    key: str,
+) -> int:
+    value = _config_integer(values, key)
+    if value <= 0:
+        raise ValueError(f"{key} must be positive")
+    return value
+
+
+def _config_string(values: dict[str, object], key: str) -> str:
+    value = values[key]
+    if type(value) is not str:
+        raise ValueError(f"{key} must be a string")
+    return value
 
 
 def load_manifest(path: Path) -> PreflightManifest:
@@ -285,18 +982,33 @@ def _invoke(
     command: tuple[str, ...],
     cwd: Path,
     label: str,
+    timeout_seconds: int,
     problems: list[str],
 ) -> subprocess.CompletedProcess[str] | None:
     try:
-        completed = runner(command, cwd)
-    except (OSError, subprocess.SubprocessError) as error:
+        completed = runner(command, cwd, timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        problems.append(
+            f"{label} timed out after {_format_timeout(error.timeout)} seconds"
+        )
+        return None
+    except OSError as error:
         problems.append(f"{label} could not run: {error}")
+        return None
+    except subprocess.SubprocessError as error:
+        problems.append(f"{label} failed to execute: {error}")
         return None
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip() or "no diagnostic output"
         problems.append(f"{label} failed (exit {completed.returncode}): {detail}")
         return None
     return completed
+
+
+def _format_timeout(timeout: float | None) -> str:
+    if timeout is None:
+        return "unknown"
+    return f"{timeout:g}"
 
 
 def _required_output(
@@ -325,10 +1037,16 @@ def _run_model_smoke(
             (executables["git"], "init", "--quiet"),
             repository,
             "temporary Git initialization",
+            _TOOL_TIMEOUT_SECONDS,
             problems,
         )
         if initialized is None:
             return problems[0]
+
+        try:
+            before_smoke = _snapshot_complete_tree(repository)
+        except (OSError, ValueError) as error:
+            return f"temporary repository snapshot failed before model smoke: {error}"
 
         smoke = _invoke(
             runner,
@@ -344,10 +1062,25 @@ def _run_model_smoke(
             ),
             repository,
             "model smoke",
+            _SMOKE_TIMEOUT_SECONDS,
             problems,
         )
         if smoke is None:
             return problems[0]
+
+        try:
+            after_smoke = _snapshot_complete_tree(repository)
+        except (OSError, ValueError) as error:
+            return f"temporary repository snapshot failed after model smoke: {error}"
+        if before_smoke != after_smoke:
+            return (
+                "model smoke modified temporary repository: "
+                + _describe_tree_change(before_smoke, after_smoke)
+            )
+
+        token_problem = _validate_smoke_output(smoke.stdout)
+        if token_problem is not None:
+            return token_problem
 
         status = _invoke(
             runner,
@@ -359,6 +1092,7 @@ def _run_model_smoke(
             ),
             repository,
             "temporary Git status",
+            _TOOL_TIMEOUT_SECONDS,
             problems,
         )
         if status is None:
@@ -366,6 +1100,74 @@ def _run_model_smoke(
         if status.stdout.strip():
             return f"model smoke modified temporary repository: {status.stdout.strip()}"
     return None
+
+
+def _snapshot_complete_tree(root: Path) -> tuple[_TreeEntry, ...]:
+    directory_file_descriptor = _open_directory_path_no_symlinks(root)
+    try:
+        return _stable_tree_entries(
+            directory_file_descriptor,
+            exclusions=False,
+            include_symlinks=True,
+        )
+    finally:
+        os.close(directory_file_descriptor)
+
+
+def _describe_tree_change(
+    before: tuple[_TreeEntry, ...],
+    after: tuple[_TreeEntry, ...],
+) -> str:
+    before_by_path = {entry.path: entry for entry in before}
+    after_by_path = {entry.path: entry for entry in after}
+    added = sorted(set(after_by_path) - set(before_by_path))
+    if added:
+        return f"added {added[0]}"
+    removed = sorted(set(before_by_path) - set(after_by_path))
+    if removed:
+        return f"removed {removed[0]}"
+    changed = sorted(
+        path
+        for path in set(before_by_path) & set(after_by_path)
+        if before_by_path[path] != after_by_path[path]
+    )
+    if changed:
+        first_non_root = next(
+            (path for path in changed if path != "."),
+            changed[0],
+        )
+        return f"changed {first_non_root}"
+    return "inventory differs"
+
+
+def _validate_smoke_output(stdout: str) -> str | None:
+    values: list[object] = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            values.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            return (
+                "model smoke returned malformed JSONL "
+                f"at line {line_number}: {error.msg}"
+            )
+    if any(_contains_exact_smoke_token(value) for value in values):
+        return None
+    return "model smoke did not return exact PREFLIGHT_OK"
+
+
+def _contains_exact_smoke_token(value: object) -> bool:
+    if type(value) is str:
+        return value.strip() == "PREFLIGHT_OK"
+    if type(value) is list:
+        return any(_contains_exact_smoke_token(item) for item in value)
+    if type(value) is dict:
+        return any(
+            _contains_exact_smoke_token(item)
+            for item in value.values()
+        )
+    return False
 
 
 def _current_os_details() -> OsDetails:
@@ -381,6 +1183,7 @@ def _current_os_details() -> OsDetails:
 def _run_command(
     command: tuple[str, ...],
     cwd: Path,
+    timeout_seconds: int,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -389,14 +1192,254 @@ def _run_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        timeout=120,
+        timeout=timeout_seconds,
     )
 
 
-def _write_manifest(path: Path, manifest: PreflightManifest) -> None:
+def _write_manifest(
+    root_file_descriptor: int,
+    experiment_root: Path,
+    manifest: PreflightManifest,
+) -> None:
     manifest_bytes = (json.dumps(asdict(manifest), indent=2, sort_keys=True) + "\n").encode("utf-8")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(manifest_bytes)
+    results_file_descriptor: int | None = None
+    preflight_file_descriptor: int | None = None
+    temporary_file_descriptor: int | None = None
+    temporary_name: str | None = None
+    created_results = False
+    created_preflight = False
+    replaced = False
+    try:
+        results_file_descriptor, created_results = _open_or_create_manifest_directory(
+            root_file_descriptor,
+            "results",
+            experiment_root / "results",
+        )
+        preflight_file_descriptor, created_preflight = _open_or_create_manifest_directory(
+            results_file_descriptor,
+            "preflight",
+            experiment_root / "results/preflight",
+        )
+        destination = experiment_root / "results/preflight/manifest.json"
+        _validate_manifest_destination(
+            preflight_file_descriptor,
+            destination,
+        )
+        temporary_name, temporary_file_descriptor = _create_manifest_temporary(
+            preflight_file_descriptor
+        )
+        _write_all(temporary_file_descriptor, manifest_bytes)
+        os.fsync(temporary_file_descriptor)
+        os.close(temporary_file_descriptor)
+        temporary_file_descriptor = None
+        _validate_manifest_destination(
+            preflight_file_descriptor,
+            destination,
+        )
+        os.replace(
+            temporary_name,
+            "manifest.json",
+            src_dir_fd=preflight_file_descriptor,
+            dst_dir_fd=preflight_file_descriptor,
+        )
+        replaced = True
+        temporary_name = None
+        os.fsync(preflight_file_descriptor)
+    except _PersistenceFailure as error:
+        _cleanup_manifest_temporary(
+            preflight_file_descriptor,
+            temporary_name,
+            temporary_file_descriptor,
+        )
+        temporary_file_descriptor = None
+        temporary_name = None
+        _close_and_cleanup_manifest_directories(
+            root_file_descriptor,
+            results_file_descriptor,
+            preflight_file_descriptor,
+            created_results,
+            created_preflight,
+            replaced,
+        )
+        results_file_descriptor = None
+        preflight_file_descriptor = None
+        raise PreflightError([str(error)]) from error
+    except OSError as error:
+        _cleanup_manifest_temporary(
+            preflight_file_descriptor,
+            temporary_name,
+            temporary_file_descriptor,
+        )
+        temporary_file_descriptor = None
+        temporary_name = None
+        _close_and_cleanup_manifest_directories(
+            root_file_descriptor,
+            results_file_descriptor,
+            preflight_file_descriptor,
+            created_results,
+            created_preflight,
+            replaced,
+        )
+        results_file_descriptor = None
+        preflight_file_descriptor = None
+        raise PreflightError(
+            [f"could not persist preflight manifest: {error}"]
+        ) from error
+    finally:
+        if temporary_file_descriptor is not None:
+            os.close(temporary_file_descriptor)
+        if preflight_file_descriptor is not None:
+            os.close(preflight_file_descriptor)
+        if results_file_descriptor is not None:
+            os.close(results_file_descriptor)
+
+
+def _open_or_create_manifest_directory(
+    parent_file_descriptor: int,
+    name: str,
+    display_path: Path,
+) -> tuple[int, bool]:
+    created = False
+    try:
+        os.mkdir(name, mode=0o755, dir_fd=parent_file_descriptor)
+        created = True
+    except FileExistsError:
+        pass
+    try:
+        file_descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | os.O_DIRECTORY
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW,
+            dir_fd=parent_file_descriptor,
+        )
+    except OSError as error:
+        if created:
+            try:
+                os.rmdir(name, dir_fd=parent_file_descriptor)
+            except OSError:
+                pass
+        raise _PersistenceFailure(
+            "manifest directory component is not a real directory: "
+            f"{display_path}"
+        ) from error
+    return file_descriptor, created
+
+
+def _validate_manifest_destination(
+    preflight_file_descriptor: int,
+    destination: Path,
+) -> None:
+    try:
+        details = os.stat(
+            "manifest.json",
+            dir_fd=preflight_file_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(details.st_mode):
+        raise _PersistenceFailure(
+            f"manifest destination is a symlink: {destination}"
+        )
+    if not stat.S_ISREG(details.st_mode):
+        raise _PersistenceFailure(
+            f"manifest destination is not a regular file: {destination}"
+        )
+
+
+def _create_manifest_temporary(
+    preflight_file_descriptor: int,
+) -> tuple[str, int]:
+    for _ in range(128):
+        name = f".manifest.json.{secrets.token_hex(12)}.tmp"
+        try:
+            file_descriptor = os.open(
+                name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=preflight_file_descriptor,
+            )
+            return name, file_descriptor
+        except FileExistsError:
+            continue
+    raise OSError(
+        errno.EEXIST,
+        "could not allocate exclusive manifest temporary",
+    )
+
+
+def _write_all(file_descriptor: int, contents: bytes) -> None:
+    remaining = memoryview(contents)
+    while remaining:
+        try:
+            written = os.write(file_descriptor, remaining)
+        except InterruptedError:
+            continue
+        if written <= 0:
+            raise OSError(errno.EIO, "manifest temporary write made no progress")
+        remaining = remaining[written:]
+
+
+def _cleanup_manifest_temporary(
+    preflight_file_descriptor: int | None,
+    temporary_name: str | None,
+    temporary_file_descriptor: int | None,
+) -> None:
+    if temporary_file_descriptor is not None:
+        try:
+            os.close(temporary_file_descriptor)
+        except OSError:
+            pass
+    if (
+        preflight_file_descriptor is not None
+        and temporary_name is not None
+    ):
+        try:
+            os.unlink(
+                temporary_name,
+                dir_fd=preflight_file_descriptor,
+            )
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+
+def _close_and_cleanup_manifest_directories(
+    root_file_descriptor: int,
+    results_file_descriptor: int | None,
+    preflight_file_descriptor: int | None,
+    created_results: bool,
+    created_preflight: bool,
+    replaced: bool,
+) -> None:
+    if preflight_file_descriptor is not None:
+        os.close(preflight_file_descriptor)
+    if (
+        created_preflight
+        and not replaced
+        and results_file_descriptor is not None
+    ):
+        try:
+            os.rmdir(
+                "preflight",
+                dir_fd=results_file_descriptor,
+            )
+        except OSError:
+            pass
+    if results_file_descriptor is not None:
+        os.close(results_file_descriptor)
+    if created_results and not replaced:
+        try:
+            os.rmdir("results", dir_fd=root_file_descriptor)
+        except OSError:
+            pass
 
 
 def _validate_manifest(values: object) -> None:

@@ -2,11 +2,14 @@ from contextlib import redirect_stderr
 from dataclasses import asdict
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 EXPERIMENT_ROOT = Path(__file__).parents[1]
@@ -31,8 +34,15 @@ class FakeCommands:
             name: f"/test-tools/{name}"
             for name in ("codex", "dotnet", "git", "node", "npm")
         }
-        self.calls: list[tuple[tuple[str, ...], Path]] = []
+        self.calls: list[tuple[tuple[str, ...], Path, int | None]] = []
         self.overrides: dict[tuple[str, ...], subprocess.CompletedProcess[str]] = {}
+        self.before_command = None
+        self.on_smoke = None
+        self.failure_for: str | None = None
+        self.failure: BaseException | None = None
+        self.smoke_stdout = (
+            '{"type":"item.completed","item":{"content":[{"text":" PREFLIGHT_OK "}]}}\n'
+        )
 
     def resolve(self, name: str) -> str | None:
         return self.executables.get(name)
@@ -41,8 +51,15 @@ class FakeCommands:
         self,
         command: tuple[str, ...],
         cwd: Path,
+        timeout_seconds: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        self.calls.append((command, cwd))
+        self.calls.append((command, cwd, timeout_seconds))
+        if self.before_command is not None:
+            self.before_command(command, cwd)
+        command_kind = self._command_kind(command)
+        if command_kind == self.failure_for:
+            assert self.failure is not None
+            raise self.failure
         if command in self.overrides:
             return self.overrides[command]
         if command == ("/test-tools/dotnet", "--version"):
@@ -54,9 +71,14 @@ class FakeCommands:
         if command == ("/test-tools/dotnet", "--info"):
             return self._completed(command, stdout=".NET SDK:\n Version: 10.0.100\n")
         if command == ("/test-tools/git", "init", "--quiet"):
+            (cwd / ".git/info").mkdir(parents=True)
+            (cwd / ".git/config").write_text("[core]\n", encoding="utf-8")
+            (cwd / ".git/info/exclude").write_text("ignored.tmp\n", encoding="utf-8")
             return self._completed(command)
         if command[:2] == ("/test-tools/codex", "exec"):
-            return self._completed(command, stdout='{"type":"result","status":"ok"}\n')
+            if self.on_smoke is not None:
+                self.on_smoke(cwd)
+            return self._completed(command, stdout=self.smoke_stdout)
         if command == (
             "/test-tools/git",
             "status",
@@ -65,6 +87,29 @@ class FakeCommands:
         ):
             return self._completed(command)
         raise AssertionError(f"unexpected command: {command!r}")
+
+    @staticmethod
+    def _command_kind(command: tuple[str, ...]) -> str:
+        if command == ("/test-tools/dotnet", "--version"):
+            return "dotnet-version"
+        if command == ("/test-tools/codex", "exec", "--help"):
+            return "codex-help"
+        if command == ("/test-tools/codex", "--version"):
+            return "codex-version"
+        if command == ("/test-tools/dotnet", "--info"):
+            return "dotnet-info"
+        if command == ("/test-tools/git", "init", "--quiet"):
+            return "git-init"
+        if command[:2] == ("/test-tools/codex", "exec"):
+            return "codex-smoke"
+        if command == (
+            "/test-tools/git",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ):
+            return "git-status"
+        return "unknown"
 
     @staticmethod
     def _completed(
@@ -145,7 +190,7 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(set(manifest.baseline_sha256), {"fsharp", "csharp"})
             smoke_commands = [
                 command
-                for command, _ in commands.calls
+                for command, _, _ in commands.calls
                 if command[:2] == ("/test-tools/codex", "exec")
                 and command[-1] != "--help"
             ]
@@ -161,6 +206,9 @@ class PreflightTests(unittest.TestCase):
                     smoke_commands[0][-1],
                 ),
             )
+            for _, _, timeout_seconds in commands.calls:
+                self.assertIs(type(timeout_seconds), int)
+                self.assertGreater(timeout_seconds, 0)
 
     def test_rejects_unsupported_python_versions_without_writing(self) -> None:
         for version in ((3, 12, 9), (4, 0, 0)):
@@ -317,6 +365,388 @@ class PreflightTests(unittest.TestCase):
                     self._run(experiment, commands)
                 self.assertFalse((experiment / "results/preflight").exists())
 
+    def test_smoke_requires_exact_success_token_in_valid_jsonl(self) -> None:
+        cases = (
+            ("empty", "", "did not return exact PREFLIGHT_OK"),
+            ("blank", "\n\n", "did not return exact PREFLIGHT_OK"),
+            ("malformed", "{not json}\n", "returned malformed JSONL"),
+            (
+                "token plus malformed",
+                '{"text":"PREFLIGHT_OK"}\nnot-json\n',
+                "returned malformed JSONL",
+            ),
+            (
+                "refusal",
+                '{"type":"message","text":"I cannot perform that task"}\n',
+                "did not return exact PREFLIGHT_OK",
+            ),
+            (
+                "near token",
+                '{"type":"message","text":"PREFLIGHT_OK!"}\n',
+                "did not return exact PREFLIGHT_OK",
+            ),
+        )
+        for name, stdout, message in cases:
+            with self.subTest(name=name), _synthetic_experiment() as experiment:
+                commands = FakeCommands()
+                commands.smoke_stdout = stdout
+                with self.assertRaisesRegex(preflight.PreflightError, message):
+                    self._run(experiment, commands)
+                self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_smoke_detects_ignored_worktree_write_even_when_git_reports_clean(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            commands.on_smoke = lambda repository: (
+                repository / "ignored.tmp"
+            ).write_text("changed\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                r"model smoke modified temporary repository:.*ignored\.tmp",
+            ):
+                self._run(experiment, commands)
+            self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_smoke_detects_git_metadata_mutation(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            commands.on_smoke = lambda repository: (
+                repository / ".git/config"
+            ).write_text("[core]\nchanged = true\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                r"model smoke modified temporary repository:.*\.git/config",
+            ):
+                self._run(experiment, commands)
+            self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_manifest_replace_interruption_preserves_prior_manifest_and_cleans_temp(self) -> None:
+        with _synthetic_experiment() as experiment:
+            destination = experiment / "results/preflight/manifest.json"
+            destination.parent.mkdir(parents=True)
+            prior_bytes = b'{"prior":"complete"}\n'
+            destination.write_bytes(prior_bytes)
+            commands = FakeCommands()
+            with mock.patch.object(
+                preflight.os,
+                "replace",
+                side_effect=OSError("simulated replace interruption"),
+            ):
+                with self.assertRaisesRegex(
+                    preflight.PreflightError,
+                    "could not persist preflight manifest: simulated replace interruption",
+                ):
+                    self._run(experiment, commands)
+            self.assertEqual(destination.read_bytes(), prior_bytes)
+            self.assertEqual(
+                {path.name for path in destination.parent.iterdir()},
+                {"manifest.json"},
+            )
+
+    def test_manifest_replace_interruption_removes_new_empty_result_directories(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            with mock.patch.object(
+                preflight.os,
+                "replace",
+                side_effect=OSError("simulated replace interruption"),
+            ):
+                with self.assertRaisesRegex(
+                    preflight.PreflightError,
+                    "could not persist preflight manifest: simulated replace interruption",
+                ):
+                    self._run(experiment, commands)
+            self.assertFalse((experiment / "results").exists())
+
+    def test_manifest_directory_open_interruption_removes_just_created_directories(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            original_open = os.open
+            failed = False
+
+            def failing_open(
+                path,
+                flags,
+                mode=0o777,
+                *,
+                dir_fd=None,
+            ):
+                nonlocal failed
+                if (
+                    path == "preflight"
+                    and flags & os.O_DIRECTORY
+                    and not failed
+                ):
+                    failed = True
+                    raise OSError("simulated directory open interruption")
+                return original_open(
+                    path,
+                    flags,
+                    mode,
+                    dir_fd=dir_fd,
+                )
+
+            with mock.patch.object(
+                preflight.os,
+                "open",
+                side_effect=failing_open,
+            ):
+                with self.assertRaisesRegex(
+                    preflight.PreflightError,
+                    "manifest directory component is not a real directory",
+                ):
+                    self._run(experiment, commands)
+            self.assertFalse((experiment / "results").exists())
+
+    def test_rejects_symlinked_results_directory_without_writing_target(self) -> None:
+        with _synthetic_experiment() as experiment, tempfile.TemporaryDirectory() as outside_temp:
+            outside = Path(outside_temp)
+            (experiment / "results").symlink_to(outside, target_is_directory=True)
+            commands = FakeCommands()
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "manifest directory component is not a real directory",
+            ):
+                self._run(experiment, commands)
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_rejects_symlinked_preflight_directory_without_writing_target(self) -> None:
+        with _synthetic_experiment() as experiment, tempfile.TemporaryDirectory() as outside_temp:
+            outside = Path(outside_temp)
+            (experiment / "results").mkdir()
+            (experiment / "results/preflight").symlink_to(
+                outside,
+                target_is_directory=True,
+            )
+            commands = FakeCommands()
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "manifest directory component is not a real directory",
+            ):
+                self._run(experiment, commands)
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_rejects_symlinked_manifest_without_overwriting_target(self) -> None:
+        with _synthetic_experiment() as experiment, tempfile.TemporaryDirectory() as outside_temp:
+            outside_target = Path(outside_temp) / "outside.json"
+            outside_target.write_bytes(b"outside sentinel\n")
+            destination = experiment / "results/preflight/manifest.json"
+            destination.parent.mkdir(parents=True)
+            destination.symlink_to(outside_target)
+            commands = FakeCommands()
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "manifest destination is a symlink",
+            ):
+                self._run(experiment, commands)
+            self.assertEqual(outside_target.read_bytes(), b"outside sentinel\n")
+
+    def test_rejects_noncanonical_config_instead_of_hashing_a_different_file(self) -> None:
+        with _synthetic_experiment() as experiment:
+            alternate = experiment / "alternate.toml"
+            alternate.write_text(
+                (experiment / "experiment.toml")
+                .read_text(encoding="utf-8")
+                .replace("gpt-5.6-sol", "different-model"),
+                encoding="utf-8",
+            )
+            commands = FakeCommands()
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                r"config path must name the canonical experiment\.toml",
+            ):
+                preflight.run_preflight(
+                    alternate,
+                    executable_resolver=commands.resolve,
+                    command_runner=commands.run,
+                    python_version=(3, 13, 7),
+                    os_details=preflight.OsDetails(
+                        "TestOS",
+                        "release",
+                        "version",
+                        "machine",
+                    ),
+                )
+            self.assertFalse(self._smoke_was_called(commands))
+            self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_symlink_swap_before_hashing_fails_before_smoke(self) -> None:
+        with _synthetic_experiment() as experiment, tempfile.TemporaryDirectory() as outside_temp:
+            outside = Path(outside_temp) / "outside.md"
+            outside.write_text("outside\n", encoding="utf-8")
+            input_path = experiment / "shared/public/AGENTS.md"
+            swapped = False
+
+            def swap_before_metadata(
+                command: tuple[str, ...],
+                cwd: Path,
+            ) -> None:
+                nonlocal swapped
+                if command == ("/test-tools/codex", "--version") and not swapped:
+                    input_path.unlink()
+                    input_path.symlink_to(outside)
+                    swapped = True
+
+            commands = FakeCommands()
+            commands.before_command = swap_before_metadata
+            with self.assertRaises(ValueError) as caught:
+                self._run(experiment, commands)
+            self.assertIsInstance(caught.exception, preflight.PreflightError)
+            self.assertIn("input snapshot failed", str(caught.exception))
+            self.assertFalse(self._smoke_was_called(commands))
+            self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_input_drift_during_smoke_refuses_manifest(self) -> None:
+        def change(path: Path) -> None:
+            path.write_text("changed\n", encoding="utf-8")
+
+        def add(path: Path) -> None:
+            (path.parent / "added.txt").write_text("added\n", encoding="utf-8")
+
+        def remove(path: Path) -> None:
+            path.unlink()
+
+        for name, mutation in (("change", change), ("add", add), ("remove", remove)):
+            with self.subTest(name=name), _synthetic_experiment() as experiment:
+                commands = FakeCommands()
+                source = experiment / "fsharp/source.txt"
+                commands.on_smoke = lambda _, source=source, mutation=mutation: mutation(source)
+                with self.assertRaisesRegex(
+                    preflight.PreflightError,
+                    "experiment inputs changed during preflight",
+                ):
+                    self._run(experiment, commands)
+                self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_config_drift_during_smoke_refuses_manifest(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            config_path = experiment / "experiment.toml"
+            commands.on_smoke = lambda _: config_path.write_text(
+                config_path.read_text(encoding="utf-8").replace(
+                    "gpt-5.6-sol",
+                    "changed-model",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "experiment inputs changed during preflight",
+            ):
+                self._run(experiment, commands)
+            self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_tree_digest_rejects_concurrent_directory_addition_on_rescan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source.txt").write_text("source\n", encoding="utf-8")
+            original_scandir = os.scandir
+            scan_count = 0
+
+            def changing_scandir(path):
+                nonlocal scan_count
+                scan_count += 1
+                if scan_count == 2:
+                    (root / "late.txt").write_text("late\n", encoding="utf-8")
+                return original_scandir(path)
+
+            with mock.patch.object(
+                preflight.os,
+                "scandir",
+                side_effect=changing_scandir,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "directory changed while hashing",
+                ):
+                    preflight.digest_tree(root)
+
+    def test_command_timeouts_and_os_errors_are_precise_and_never_write(self) -> None:
+        labels = {
+            "dotnet-version": "dotnet --version",
+            "codex-help": "codex exec --help",
+            "codex-version": "codex --version",
+            "dotnet-info": "dotnet --info",
+            "git-init": "temporary Git initialization",
+            "codex-smoke": "model smoke",
+            "git-status": "temporary Git status",
+        }
+        for kind, label in labels.items():
+            for failure_name, failure, expected in (
+                (
+                    "timeout",
+                    subprocess.TimeoutExpired(("fake",), 7),
+                    f"{label} timed out after 7 seconds",
+                ),
+                (
+                    "os error",
+                    OSError("blocked"),
+                    f"{label} could not run: blocked",
+                ),
+            ):
+                with (
+                    self.subTest(kind=kind, failure=failure_name),
+                    _synthetic_experiment() as experiment,
+                ):
+                    commands = FakeCommands()
+                    commands.failure_for = kind
+                    commands.failure = failure
+                    with self.assertRaises(preflight.PreflightError) as caught:
+                        self._run(experiment, commands)
+                    self.assertIn(expected, str(caught.exception))
+                    self.assertFalse(
+                        (experiment / "results/preflight/manifest.json").exists()
+                    )
+
+    def test_missing_baseline_cli_subprocess_creates_no_bytecode(self) -> None:
+        with _synthetic_experiment(baselines=False) as experiment:
+            scripts = experiment / "scripts"
+            evaluator = experiment / "evaluator"
+            fake_bin = experiment / "fake-bin"
+            scripts.mkdir()
+            evaluator.mkdir()
+            fake_bin.mkdir()
+            shutil.copyfile(preflight.__file__, scripts / "preflight.py")
+            shutil.copyfile(
+                EXPERIMENT_ROOT / "evaluator/common.py",
+                evaluator / "common.py",
+            )
+            _write_fake_tool(
+                fake_bin / "dotnet",
+                'if [ "$1" = "--version" ]; then printf "10.0.100\\n"; fi\n',
+            )
+            _write_fake_tool(
+                fake_bin / "codex",
+                'if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then '
+                'printf "%s\\n" "usage: codex exec --json --model --sandbox"; fi\n',
+            )
+            for name in ("git", "node", "npm"):
+                _write_fake_tool(fake_bin / name, "exit 0\n")
+            environment = os.environ.copy()
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            environment.pop("PYTHONPYCACHEPREFIX", None)
+            environment["PATH"] = str(fake_bin)
+            completed = subprocess.run(
+                (
+                    sys.executable,
+                    str(scripts / "preflight.py"),
+                    "--config",
+                    str(experiment / "experiment.toml"),
+                ),
+                cwd=experiment,
+                env=environment,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn(str(experiment / "fsharp"), completed.stderr)
+            self.assertIn(str(experiment / "csharp"), completed.stderr)
+            self.assertEqual(list(experiment.rglob("__pycache__")), [])
+            self.assertFalse((experiment / "results/preflight").exists())
+
     def test_tree_digest_is_order_independent_and_sensitive_to_paths_and_content(self) -> None:
         with tempfile.TemporaryDirectory() as first_temp, tempfile.TemporaryDirectory() as second_temp:
             first = Path(first_temp)
@@ -434,7 +864,7 @@ class PreflightTests(unittest.TestCase):
     def _smoke_was_called(commands: FakeCommands) -> bool:
         return any(
             command[:2] == ("/test-tools/codex", "exec") and command[-1] != "--help"
-            for command, _ in commands.calls
+            for command, _, _ in commands.calls
         )
 
 
@@ -446,11 +876,15 @@ def _failing_smoke_runner(
 ):
     default_run = commands.run
 
-    def run(command: tuple[str, ...], cwd: Path) -> subprocess.CompletedProcess[str]:
+    def run(
+        command: tuple[str, ...],
+        cwd: Path,
+        timeout_seconds: int | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         if command[:2] == ("/test-tools/codex", "exec") and command[-1] != "--help":
-            commands.calls.append((command, cwd))
+            commands.calls.append((command, cwd, timeout_seconds))
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
-        return default_run(command, cwd)
+        return default_run(command, cwd, timeout_seconds)
 
     return run
 
@@ -478,6 +912,11 @@ def _valid_manifest_values() -> dict[str, object]:
             "csharp": "d" * 64,
         },
     }
+
+
+def _write_fake_tool(path: Path, body: str) -> None:
+    path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    path.chmod(0o755)
 
 
 def _synthetic_experiment(*, baselines: bool = True):
