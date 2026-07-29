@@ -1,17 +1,16 @@
 """Prepare an isolated language-spike workspace without starting a trial."""
 
 import argparse
+import ctypes
 from dataclasses import dataclass
-import io
+import errno
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
+import secrets
 import stat
 import subprocess
 import sys
-import tarfile
-import tempfile
 
 
 EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +27,7 @@ GIT_COMMIT_TIMESTAMP = "2000-01-01T00:00:00+00:00"
 _EXCLUDED_PATH_PARTS = frozenset({".git", "bin", "obj", "__pycache__", "evaluator", "results"})
 _EXCLUDED_SUFFIXES = (".pyc",)
 _SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\Z")
+_RENAME_NOREPLACE = 1
 
 
 class WorkspacePreparationError(ValueError):
@@ -48,57 +48,78 @@ class _CommittedSource:
 
 
 @dataclass(frozen=True, slots=True)
-class _DestinationReservation:
+class _ParentAnchor:
     path: Path
+    file_descriptor: int
     device: int
     inode: int
-    created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _TreeEntry:
+    mode: str
+    object_type: str
+    object_id: str
+    path: PurePosixPath
 
 
 def prepare_workspace(source: Path, language: str, destination: Path) -> Path:
     """Export one committed baseline and public bundle into a fresh Git repository."""
     source = source.resolve()
-    destination = Path(os.path.abspath(destination))
+    requested_destination = Path(os.path.abspath(destination))
     if language not in SUPPORTED_LANGUAGES:
         raise WorkspacePreparationError(
             f"unsupported language: {language!r}; expected one of: {', '.join(SUPPORTED_LANGUAGES)}"
         )
-    if destination.is_symlink():
-        raise WorkspacePreparationError(f"destination must not be a symlink: {destination}")
-    resolved_destination = destination.resolve(strict=False)
-    if resolved_destination == source or resolved_destination.is_relative_to(source):
+    if not requested_destination.name:
+        raise WorkspacePreparationError(f"destination must name a new directory: {requested_destination}")
+    requested_destination.parent.mkdir(parents=True, exist_ok=True)
+    resolved_parent = requested_destination.parent.resolve(strict=True)
+    destination = resolved_parent / requested_destination.name
+    if destination == source or destination.is_relative_to(source):
         raise WorkspacePreparationError(f"destination must be outside source experiment tree: {destination}")
 
-    committed_source = _inspect_committed_source(source, language)
-    reservation = _reserve_destination(destination)
-    staging: Path | None = None
+    parent_anchor = _open_parent_anchor(resolved_parent)
+    staging_name: str | None = None
+    staging_file_descriptor: int | None = None
+    installed = False
     try:
-        staging = Path(
-            tempfile.mkdtemp(
-                prefix=f".{destination.name}.prepare-",
-                dir=destination.parent,
-            )
+        _require_destination_absent(parent_anchor, destination)
+        committed_source = _inspect_committed_source(source, language)
+        _verify_parent_anchor(parent_anchor)
+        _require_destination_absent(parent_anchor, destination)
+
+        staging_name = _create_private_staging(parent_anchor, destination.name)
+        staging_file_descriptor = os.open(
+            staging_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=parent_anchor.file_descriptor,
         )
-        _extract_archive(
-            _git_archive(committed_source.repository, committed_source.baseline_tree),
-            staging,
+        _export_committed_tree(
+            committed_source.repository,
+            committed_source.baseline_tree,
+            staging_file_descriptor,
         )
-        _extract_archive(
-            _git_archive(
-                committed_source.repository,
-                committed_source.public_tree,
-                prefix="shared/public/",
-            ),
-            staging,
+        _export_committed_tree(
+            committed_source.repository,
+            committed_source.public_tree,
+            staging_file_descriptor,
+            prefix="shared/public",
         )
-        _initialize_repository(staging)
-        _install_staging(staging, reservation)
-        staging = None
+        _initialize_repository(staging_file_descriptor)
+        _install_staging(
+            parent_anchor,
+            staging_name,
+            destination,
+        )
+        installed = True
         return destination
     finally:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging)
-        _restore_absent_destination(reservation)
+        if staging_file_descriptor is not None:
+            os.close(staging_file_descriptor)
+        if staging_name is not None and not installed:
+            _remove_tree_at(parent_anchor.file_descriptor, staging_name)
+        os.close(parent_anchor.file_descriptor)
 
 
 def load_prompt(workspace: Path) -> bytes:
@@ -215,124 +236,321 @@ def _git_object_type(repository: Path, object_name: str) -> str | None:
     return completed.stdout.strip()
 
 
-def _git_archive(repository: Path, tree: str, *, prefix: str | None = None) -> bytes:
-    arguments = ["archive", "--format=tar"]
-    if prefix is not None:
-        arguments.append(f"--prefix={prefix}")
-    arguments.append(tree)
-    completed = _run_git_process(repository, *arguments, text=False)
+def _git_ls_tree(repository: Path, tree: str) -> bytes:
+    completed = _run_git_process(
+        repository,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--full-tree",
+        tree,
+        text=False,
+    )
     assert isinstance(completed.stdout, bytes)
     return completed.stdout
 
 
-def _extract_archive(archive_bytes: bytes, destination: Path) -> None:
-    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
-        members = archive.getmembers()
-        for member in members:
-            archive_path = _safe_archive_path(member)
-            if _is_excluded_archive_path(archive_path):
-                continue
-            output_path = destination.joinpath(*archive_path.parts)
-            if member.isdir():
-                output_path.mkdir(parents=True, exist_ok=True)
-                continue
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                source_file = archive.extractfile(member)
-                if source_file is None:
-                    raise WorkspacePreparationError(f"archive file has no contents: {member.name!r}")
-                with source_file, output_path.open("xb") as output_file:
-                    shutil.copyfileobj(source_file, output_file)
-            except FileExistsError as error:
-                raise WorkspacePreparationError(f"archive member collides with existing path: {member.name!r}") from error
-            output_path.chmod(0o755 if member.mode & 0o111 else 0o644)
+def _export_committed_tree(
+    repository: Path,
+    tree: str,
+    staging_file_descriptor: int,
+    *,
+    prefix: str | None = None,
+) -> None:
+    prefix_path = PurePosixPath(prefix) if prefix is not None else None
+    for entry in _parse_tree_entries(_git_ls_tree(repository, tree)):
+        output_path = prefix_path / entry.path if prefix_path is not None else entry.path
+        if _is_excluded_committed_path(output_path):
+            continue
+        blob = _git_cat_blob(repository, entry.object_id)
+        _write_blob(
+            staging_file_descriptor,
+            output_path,
+            blob,
+            executable=entry.mode == "100755",
+        )
 
 
-def _safe_archive_path(member: tarfile.TarInfo) -> PurePosixPath:
-    name = member.name.rstrip("/")
+def _parse_tree_entries(tree_bytes: bytes) -> tuple[_TreeEntry, ...]:
+    entries = []
+    for record in tree_bytes.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, raw_path = record.split(b"\t", 1)
+            raw_mode, raw_object_type, raw_object_id = metadata.split(b" ")
+            mode = raw_mode.decode("ascii")
+            object_type = raw_object_type.decode("ascii")
+            object_id = raw_object_id.decode("ascii")
+        except (UnicodeDecodeError, ValueError) as error:
+            raise WorkspacePreparationError("committed tree contains malformed ls-tree output") from error
+        path = _safe_committed_path(os.fsdecode(raw_path))
+        if mode not in {"100644", "100755"} or object_type != "blob":
+            raise WorkspacePreparationError(
+                f"committed tree contains unsafe mode {mode} and type {object_type} for {path.as_posix()!r}"
+            )
+        if len(object_id) not in {40, 64} or any(character not in "0123456789abcdef" for character in object_id):
+            raise WorkspacePreparationError(
+                f"committed tree contains malformed object ID for {path.as_posix()!r}"
+            )
+        entries.append(
+            _TreeEntry(
+                mode=mode,
+                object_type=object_type,
+                object_id=object_id,
+                path=path,
+            )
+        )
+    return tuple(entries)
+
+
+def _safe_committed_path(name: str) -> PurePosixPath:
     parts = name.split("/")
     if (
         not name
-        or member.name.startswith("/")
-        or "\\" in member.name
+        or name.startswith("/")
+        or "\\" in name
         or any(part in {"", ".", ".."} for part in parts)
     ):
-        raise WorkspacePreparationError(f"archive contains unsafe path: {member.name!r}")
-    if not member.isdir() and not member.isfile():
-        raise WorkspacePreparationError(f"archive contains unsafe member type: {member.name!r}")
+        raise WorkspacePreparationError(f"committed tree contains unsafe path: {name!r}")
     return PurePosixPath(*parts)
 
 
-def _is_excluded_archive_path(path: PurePosixPath) -> bool:
+def _is_excluded_committed_path(path: PurePosixPath) -> bool:
     return any(part in _EXCLUDED_PATH_PARTS for part in path.parts) or path.name.endswith(_EXCLUDED_SUFFIXES)
 
 
-def _reserve_destination(destination: Path) -> _DestinationReservation:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.is_symlink():
-        raise WorkspacePreparationError(f"destination must not be a symlink: {destination}")
+def _git_cat_blob(repository: Path, object_id: str) -> bytes:
+    completed = _run_git_process(
+        repository,
+        "cat-file",
+        "blob",
+        object_id,
+        text=False,
+    )
+    assert isinstance(completed.stdout, bytes)
+    return completed.stdout
 
-    created = False
-    if destination.exists():
-        if not destination.is_dir() or any(destination.iterdir()):
-            raise WorkspacePreparationError(f"destination must be new or empty: {destination}")
-    else:
+
+def _write_blob(
+    staging_file_descriptor: int,
+    path: PurePosixPath,
+    contents: bytes,
+    *,
+    executable: bool,
+) -> None:
+    parent_file_descriptor = _open_or_create_directories(
+        staging_file_descriptor,
+        path.parts[:-1],
+    )
+    try:
         try:
-            destination.mkdir(mode=0o700)
-            created = True
+            file_descriptor = os.open(
+                path.name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                0o755 if executable else 0o644,
+                dir_fd=parent_file_descriptor,
+            )
         except FileExistsError as error:
-            raise WorkspacePreparationError(f"destination changed before preparation: {destination}") from error
+            raise WorkspacePreparationError(
+                f"committed tree path collides during export: {path.as_posix()!r}"
+            ) from error
+        try:
+            remaining = memoryview(contents)
+            while remaining:
+                written = os.write(file_descriptor, remaining)
+                remaining = remaining[written:]
+            os.fchmod(file_descriptor, 0o755 if executable else 0o644)
+        finally:
+            os.close(file_descriptor)
+    finally:
+        os.close(parent_file_descriptor)
 
-    metadata = os.lstat(destination)
-    if not stat.S_ISDIR(metadata.st_mode):
-        raise WorkspacePreparationError(f"destination must be new or empty: {destination}")
-    return _DestinationReservation(
-        path=destination,
+
+def _open_or_create_directories(root_file_descriptor: int, parts: tuple[str, ...]) -> int:
+    current_file_descriptor = os.dup(root_file_descriptor)
+    try:
+        for part in parts:
+            try:
+                os.mkdir(part, mode=0o755, dir_fd=current_file_descriptor)
+            except FileExistsError:
+                pass
+            next_file_descriptor = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=current_file_descriptor,
+            )
+            os.close(current_file_descriptor)
+            current_file_descriptor = next_file_descriptor
+        return current_file_descriptor
+    except BaseException:
+        os.close(current_file_descriptor)
+        raise
+
+
+def _open_parent_anchor(parent: Path) -> _ParentAnchor:
+    file_descriptor = os.open(
+        parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+    )
+    metadata = os.fstat(file_descriptor)
+    try:
+        path_metadata = os.stat(parent, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(path_metadata.st_mode)
+            or path_metadata.st_dev != metadata.st_dev
+            or path_metadata.st_ino != metadata.st_ino
+        ):
+            raise WorkspacePreparationError(f"destination parent changed during preparation: {parent}")
+    except BaseException:
+        os.close(file_descriptor)
+        raise
+    return _ParentAnchor(
+        path=parent,
+        file_descriptor=file_descriptor,
         device=metadata.st_dev,
         inode=metadata.st_ino,
-        created=created,
     )
 
 
-def _reservation_is_unchanged_empty(reservation: _DestinationReservation) -> bool:
+def _verify_parent_anchor(parent_anchor: _ParentAnchor) -> None:
     try:
-        metadata = os.lstat(reservation.path)
-    except FileNotFoundError:
-        return False
-    return (
-        stat.S_ISDIR(metadata.st_mode)
-        and metadata.st_dev == reservation.device
-        and metadata.st_ino == reservation.inode
-        and not any(reservation.path.iterdir())
-    )
-
-
-def _install_staging(staging: Path, reservation: _DestinationReservation) -> None:
-    if not _reservation_is_unchanged_empty(reservation):
-        raise WorkspacePreparationError(f"destination changed during preparation: {reservation.path}")
-    try:
-        os.replace(staging, reservation.path)
-    except OSError as error:
+        metadata = os.stat(parent_anchor.path, follow_symlinks=False)
+    except FileNotFoundError as error:
         raise WorkspacePreparationError(
-            f"could not atomically install prepared workspace at {reservation.path}: {error}"
+            f"destination parent changed during preparation: {parent_anchor.path}"
         ) from error
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_dev != parent_anchor.device
+        or metadata.st_ino != parent_anchor.inode
+    ):
+        raise WorkspacePreparationError(
+            f"destination parent changed during preparation: {parent_anchor.path}"
+        )
 
 
-def _restore_absent_destination(reservation: _DestinationReservation) -> None:
-    if reservation.created and _reservation_is_unchanged_empty(reservation):
-        reservation.path.rmdir()
+def _require_destination_absent(parent_anchor: _ParentAnchor, destination: Path) -> None:
+    try:
+        os.stat(
+            destination.name,
+            dir_fd=parent_anchor.file_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return
+    raise WorkspacePreparationError(f"destination must not exist: {destination}")
 
 
-def _initialize_repository(destination: Path) -> None:
-    _git_no_output(destination, "init", "--initial-branch=main", "--template=")
-    _git_no_output(destination, "config", "--local", "user.name", GIT_AUTHOR_NAME)
-    _git_no_output(destination, "config", "--local", "user.email", GIT_AUTHOR_EMAIL)
-    _git_no_output(destination, "config", "--local", "core.autocrlf", "false")
-    _git_no_output(destination, "config", "--local", "core.hooksPath", os.devnull)
-    _git_no_output(destination, "config", "--local", "core.excludesFile", os.devnull)
-    _git_no_output(destination, "add", "--force", "--all")
+def _create_private_staging(parent_anchor: _ParentAnchor, destination_name: str) -> str:
+    prefix = f".{destination_name[:64]}.prepare-"
+    for _ in range(128):
+        staging_name = prefix + secrets.token_hex(8)
+        try:
+            os.mkdir(
+                staging_name,
+                mode=0o700,
+                dir_fd=parent_anchor.file_descriptor,
+            )
+            return staging_name
+        except FileExistsError:
+            continue
+    raise WorkspacePreparationError("could not allocate a private staging directory")
+
+
+def _install_staging(
+    parent_anchor: _ParentAnchor,
+    staging_name: str,
+    destination: Path,
+) -> None:
+    _verify_parent_anchor(parent_anchor)
+    try:
+        _rename_noreplace(
+            parent_anchor.file_descriptor,
+            staging_name,
+            destination.name,
+        )
+    except FileExistsError as error:
+        raise WorkspacePreparationError(
+            f"destination appeared during preparation: {destination}"
+        ) from error
+    try:
+        _verify_parent_anchor(parent_anchor)
+    except WorkspacePreparationError:
+        _remove_tree_at(parent_anchor.file_descriptor, destination.name)
+        raise
+
+
+def _rename_noreplace(
+    parent_file_descriptor: int,
+    source_name: str,
+    destination_name: str,
+) -> None:
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError as error:
+        raise WorkspacePreparationError("atomic no-replace install is unavailable") from error
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        parent_file_descriptor,
+        os.fsencode(source_name),
+        parent_file_descriptor,
+        os.fsencode(destination_name),
+        _RENAME_NOREPLACE,
+    )
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number in {errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP}:
+        raise WorkspacePreparationError("atomic no-replace install is unavailable")
+    raise OSError(error_number, os.strerror(error_number), destination_name)
+
+
+def _remove_tree_at(parent_file_descriptor: int, name: str) -> None:
+    try:
+        directory_file_descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=parent_file_descriptor,
+        )
+    except FileNotFoundError:
+        return
+    except NotADirectoryError:
+        os.unlink(name, dir_fd=parent_file_descriptor)
+        return
+    try:
+        for child_name in os.listdir(directory_file_descriptor):
+            child_metadata = os.stat(
+                child_name,
+                dir_fd=directory_file_descriptor,
+                follow_symlinks=False,
+            )
+            if stat.S_ISDIR(child_metadata.st_mode):
+                _remove_tree_at(directory_file_descriptor, child_name)
+            else:
+                os.unlink(child_name, dir_fd=directory_file_descriptor)
+    finally:
+        os.close(directory_file_descriptor)
+    os.rmdir(name, dir_fd=parent_file_descriptor)
+
+
+def _initialize_repository(staging_file_descriptor: int) -> None:
+    _git_no_output(staging_file_descriptor, "init", "--initial-branch=main", "--template=")
+    _git_no_output(staging_file_descriptor, "config", "--local", "user.name", GIT_AUTHOR_NAME)
+    _git_no_output(staging_file_descriptor, "config", "--local", "user.email", GIT_AUTHOR_EMAIL)
+    _git_no_output(staging_file_descriptor, "config", "--local", "core.autocrlf", "false")
+    _git_no_output(staging_file_descriptor, "config", "--local", "core.hooksPath", os.devnull)
+    _git_no_output(staging_file_descriptor, "config", "--local", "core.excludesFile", os.devnull)
+    _git_no_output(staging_file_descriptor, "add", "--force", "--all")
     _git_no_output(
-        destination,
+        staging_file_descriptor,
         "-c",
         "commit.gpgSign=false",
         "commit",
@@ -341,23 +559,23 @@ def _initialize_repository(destination: Path) -> None:
         BASELINE_COMMIT_MESSAGE,
         commit_identity=True,
     )
-    if _git_text(destination, "branch", "--show-current") != "main":
+    if _git_text(staging_file_descriptor, "branch", "--show-current") != "main":
         raise WorkspacePreparationError("prepared repository branch is not main")
-    if _git_text(destination, "rev-list", "--all", "--count") != "1":
+    if _git_text(staging_file_descriptor, "rev-list", "--all", "--count") != "1":
         raise WorkspacePreparationError("prepared repository does not contain exactly one commit")
-    status = _git_text(destination, "status", "--porcelain")
+    status = _git_text(staging_file_descriptor, "status", "--porcelain")
     if status:
         raise WorkspacePreparationError(f"prepared repository is dirty:\n{status}")
 
 
-def _git_text(repository: Path, *arguments: str) -> str:
+def _git_text(repository: Path | int, *arguments: str) -> str:
     completed = _run_git_process(repository, *arguments, text=True)
     assert isinstance(completed.stdout, str)
     return completed.stdout.strip()
 
 
 def _git_no_output(
-    repository: Path,
+    repository: Path | int,
     *arguments: str,
     commit_identity: bool = False,
 ) -> None:
@@ -370,24 +588,35 @@ def _git_no_output(
 
 
 def _run_git_process(
-    repository: Path,
+    repository: Path | int,
     *arguments: str,
     check: bool = True,
     text: bool,
     commit_identity: bool = False,
 ) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
     command = ("git", *arguments)
+    if isinstance(repository, int):
+        working_directory = f"/proc/self/fd/{repository}"
+        if not Path(working_directory).exists():
+            raise WorkspacePreparationError("fd-anchored Git working directories are unavailable")
+        pass_file_descriptors = (repository,)
+    else:
+        working_directory = repository
+        pass_file_descriptors = ()
     try:
         completed = subprocess.run(
             command,
-            cwd=repository,
+            cwd=working_directory,
             check=check,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=text,
             env=_git_environment(commit_identity=commit_identity),
+            pass_fds=pass_file_descriptors,
         )
     except FileNotFoundError as error:
+        if isinstance(repository, int):
+            raise WorkspacePreparationError("fd-anchored Git working directory became unavailable") from error
         raise WorkspacePreparationError("git executable was not found") from error
     except subprocess.CalledProcessError as error:
         stderr = error.stderr.decode("utf-8", errors="replace") if isinstance(error.stderr, bytes) else error.stderr

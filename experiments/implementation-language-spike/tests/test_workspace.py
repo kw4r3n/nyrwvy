@@ -1,9 +1,8 @@
-import io
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
-import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -31,11 +30,15 @@ class WorkspacePreparationTests(unittest.TestCase):
                 self._workspace_files(destination),
                 {
                     ".editorconfig",
+                    ".gitattributes",
                     ".gitignore",
                     "README.md",
                     "diagnostic.log",
+                    "export-ignored.txt",
                     "history.jsonl",
                     "src/core.txt",
+                    "substituted.txt",
+                    "tools/run.sh",
                     "shared/public/.editorconfig",
                     "shared/public/AGENTS.md",
                     "shared/public/acceptance.md",
@@ -66,7 +69,34 @@ class WorkspacePreparationTests(unittest.TestCase):
                 (destination / "shared/public/audit.jsonl").read_text(encoding="utf-8"),
                 '{"public":true}\n',
             )
+            self.assertTrue((destination / "tools/run.sh").stat().st_mode & stat.S_IXUSR)
             self.assertFalse(any(path.is_symlink() for path in destination.rglob("*")))
+
+    def test_preserves_export_ignored_tracked_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            destination = temporary_root / "workspace"
+
+            workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(
+                (destination / "export-ignored.txt").read_bytes(),
+                b"tracked despite export-ignore\n",
+            )
+
+    def test_preserves_export_subst_placeholder_as_exact_committed_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            destination = temporary_root / "workspace"
+
+            workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(
+                (destination / "substituted.txt").read_bytes(),
+                b"commit=$Format:%H$\n",
+            )
 
     def test_initializes_one_clean_main_branch_baseline_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -229,27 +259,33 @@ class WorkspacePreparationTests(unittest.TestCase):
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
             destination = temporary_root / "workspace"
-            original_git_archive = workspace._git_archive
-            archive_count = 0
+            original_export = getattr(workspace, "_export_committed_tree", None)
+            export_count = 0
 
-            def archive_then_advance_head(
+            def export_then_advance_head(
                 repository: Path,
                 tree: str,
-                *,
+                staging: object,
                 prefix: str | None = None,
-            ) -> bytes:
-                nonlocal archive_count
-                archive_bytes = original_git_archive(repository, tree, prefix=prefix)
-                archive_count += 1
-                if archive_count == 1:
+            ) -> None:
+                nonlocal export_count
+                if original_export is None:
+                    raise AssertionError("production did not expose committed-object export")
+                original_export(repository, tree, staging, prefix=prefix)
+                export_count += 1
+                if export_count == 1:
                     (source / "shared/public/acceptance.md").write_text(
                         "Changed after preparation started\n",
                         encoding="utf-8",
                     )
                     self._commit_source(source, "test: advance source during archive")
-                return archive_bytes
 
-            with mock.patch.object(workspace, "_git_archive", side_effect=archive_then_advance_head):
+            with mock.patch.object(
+                workspace,
+                "_export_committed_tree",
+                side_effect=export_then_advance_head,
+                create=True,
+            ):
                 workspace.prepare_workspace(source, "fsharp", destination)
 
             self.assertEqual(
@@ -270,23 +306,31 @@ class WorkspacePreparationTests(unittest.TestCase):
 
             self.assertFalse(destination.exists())
 
-    def test_rejects_nonempty_destination_without_changing_it(self) -> None:
+    def test_rejects_any_existing_destination_without_changing_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
-            destination = temporary_root / "workspace"
-            destination.mkdir()
-            sentinel = destination / "keep.txt"
-            sentinel.write_text("keep", encoding="utf-8")
+            for contents in (None, "keep"):
+                with self.subTest(contents=contents):
+                    destination = temporary_root / f"workspace-{contents or 'empty'}"
+                    destination.mkdir()
+                    if contents is not None:
+                        (destination / "keep.txt").write_text(contents, encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                workspace.WorkspacePreparationError,
-                rf"^destination must be new or empty: {str(destination.resolve())}$",
-            ):
-                workspace.prepare_workspace(source, "fsharp", destination)
+                    with self.assertRaisesRegex(
+                        workspace.WorkspacePreparationError,
+                        rf"^destination must not exist: {str(destination.resolve())}$",
+                    ):
+                        workspace.prepare_workspace(source, "fsharp", destination)
 
-            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
-            self.assertEqual(list(destination.iterdir()), [sentinel])
+                    self.assertTrue(destination.is_dir())
+                    if contents is None:
+                        self.assertEqual(list(destination.iterdir()), [])
+                    else:
+                        self.assertEqual(
+                            (destination / "keep.txt").read_text(encoding="utf-8"),
+                            contents,
+                        )
 
     def test_rejects_source_symlink_instead_of_following_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -302,7 +346,7 @@ class WorkspacePreparationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 workspace.WorkspacePreparationError,
-                r"^archive contains unsafe member type: 'unsafe-link'$",
+                r"^committed tree contains unsafe ",
             ):
                 workspace.prepare_workspace(source, "fsharp", destination)
 
@@ -321,40 +365,47 @@ class WorkspacePreparationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 workspace.WorkspacePreparationError,
-                rf"^destination must not be a symlink: {str(destination.absolute())}$",
+                rf"^destination must not exist: {str(destination.absolute())}$",
             ):
                 workspace.prepare_workspace(source, "fsharp", destination)
 
             self.assertTrue(destination.is_symlink())
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
-    def test_rejects_destination_changed_while_private_staging_is_prepared(self) -> None:
+    def test_no_replace_install_preserves_destination_created_during_preparation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
             destination = temporary_root / "workspace"
-            destination.mkdir()
-            original_initialize = workspace._initialize_repository
+            competitor_target = temporary_root / "competitor-target"
+            competitor_target.mkdir()
+            sentinel = competitor_target / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            original_rename = getattr(workspace, "_rename_noreplace", None)
 
-            def initialize_then_change_destination(staging: Path) -> None:
-                original_initialize(staging)
-                (destination / "intruder.txt").write_text("external change", encoding="utf-8")
+            def compete_then_rename(parent_fd: int, staging_name: str, destination_name: str) -> None:
+                destination.symlink_to(competitor_target, target_is_directory=True)
+                if original_rename is None:
+                    raise AssertionError("production did not expose no-replace install")
+                original_rename(parent_fd, staging_name, destination_name)
 
             with mock.patch.object(
                 workspace,
-                "_initialize_repository",
-                side_effect=initialize_then_change_destination,
+                "_rename_noreplace",
+                side_effect=compete_then_rename,
+                create=True,
             ):
                 with self.assertRaisesRegex(
                     workspace.WorkspacePreparationError,
-                    rf"^destination changed during preparation: {str(destination.absolute())}$",
+                    rf"^destination appeared during preparation: {str(destination.absolute())}$",
                 ):
                     workspace.prepare_workspace(source, "fsharp", destination)
 
-            self.assertEqual((destination / "intruder.txt").read_text(encoding="utf-8"), "external change")
+            self.assertTrue(destination.is_symlink())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
             self._assert_no_staging_directories(destination)
 
-    def test_archive_failure_removes_private_staging_and_absent_reservation(self) -> None:
+    def test_unavailable_no_replace_install_fails_without_exposing_destination(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
@@ -362,32 +413,93 @@ class WorkspacePreparationTests(unittest.TestCase):
 
             with mock.patch.object(
                 workspace,
-                "_git_archive",
-                side_effect=OSError("archive fault"),
+                "_rename_noreplace",
+                side_effect=workspace.WorkspacePreparationError(
+                    "atomic no-replace install is unavailable"
+                ),
                 create=True,
             ):
-                with self.assertRaisesRegex(OSError, "^archive fault$"):
+                with self.assertRaisesRegex(
+                    workspace.WorkspacePreparationError,
+                    "^atomic no-replace install is unavailable$",
+                ):
                     workspace.prepare_workspace(source, "fsharp", destination)
 
             self.assertFalse(destination.exists())
             self._assert_no_staging_directories(destination)
 
-    def test_copy_failure_leaves_caller_supplied_empty_destination_empty(self) -> None:
+    def test_parent_swap_cannot_redirect_staging_or_git_subprocesses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            parent = temporary_root / "workspace-parent"
+            parent.mkdir()
+            destination = parent / "workspace"
+            displaced_parent = temporary_root / "displaced-parent"
+            original_initialize = workspace._initialize_repository
+
+            def swap_parent_then_initialize(staging: object) -> None:
+                parent.rename(displaced_parent)
+                parent.mkdir()
+                destination.mkdir()
+                (destination / "competitor.txt").write_text("preserve", encoding="utf-8")
+                original_initialize(staging)
+
+            with mock.patch.object(
+                workspace,
+                "_initialize_repository",
+                side_effect=swap_parent_then_initialize,
+            ):
+                with self.assertRaisesRegex(
+                    workspace.WorkspacePreparationError,
+                    rf"^destination parent changed during preparation: {str(parent.resolve())}$",
+                ):
+                    workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(
+                (destination / "competitor.txt").read_text(encoding="utf-8"),
+                "preserve",
+            )
+            self._assert_no_staging_directories(destination)
+            self._assert_no_staging_directories(displaced_parent / destination.name)
+
+    def test_object_listing_failure_removes_private_staging(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
             destination = temporary_root / "workspace"
-            destination.mkdir()
 
-            with mock.patch.object(workspace.shutil, "copyfileobj", side_effect=OSError("copy fault")):
-                with self.assertRaisesRegex(OSError, "^copy fault$"):
+            with mock.patch.object(
+                workspace,
+                "_git_ls_tree",
+                side_effect=OSError("object listing fault"),
+                create=True,
+            ):
+                with self.assertRaisesRegex(OSError, "^object listing fault$"):
                     workspace.prepare_workspace(source, "fsharp", destination)
 
-            self.assertTrue(destination.is_dir())
-            self.assertEqual(list(destination.iterdir()), [])
+            self.assertFalse(destination.exists())
             self._assert_no_staging_directories(destination)
 
-    def test_git_failure_removes_private_staging_and_absent_reservation(self) -> None:
+    def test_blob_copy_failure_leaves_destination_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            destination = temporary_root / "workspace"
+
+            with mock.patch.object(
+                workspace,
+                "_write_blob",
+                side_effect=OSError("blob copy fault"),
+                create=True,
+            ):
+                with self.assertRaisesRegex(OSError, "^blob copy fault$"):
+                    workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertFalse(destination.exists())
+            self._assert_no_staging_directories(destination)
+
+    def test_git_failure_removes_private_staging_and_leaves_destination_absent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             source = self._create_fake_source(temporary_root)
@@ -404,13 +516,15 @@ class WorkspacePreparationTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self._assert_no_staging_directories(destination)
 
-    def test_rejects_unsafe_archive_paths_and_special_members(self) -> None:
+    def test_rejects_unsafe_committed_paths_and_special_modes(self) -> None:
+        object_id = "0" * 40
         cases = (
-            ("path traversal", self._tar_bytes("../escape.txt", contents=b"escape")),
-            ("absolute path", self._tar_bytes("/escape.txt", contents=b"escape")),
-            ("special member", self._tar_bytes("unsafe-pipe", member_type=tarfile.FIFOTYPE)),
+            ("path traversal", f"100644 blob {object_id}\t../escape.txt\0".encode()),
+            ("absolute path", f"100644 blob {object_id}\t/escape.txt\0".encode()),
+            ("submodule", f"160000 commit {object_id}\tsubmodule\0".encode()),
+            ("special mode", f"100600 blob {object_id}\tunsafe-special\0".encode()),
         )
-        for label, archive_bytes in cases:
+        for label, tree_bytes in cases:
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
                 temporary_root = Path(directory)
                 source = self._create_fake_source(temporary_root)
@@ -418,13 +532,13 @@ class WorkspacePreparationTests(unittest.TestCase):
 
                 with mock.patch.object(
                     workspace,
-                    "_git_archive",
-                    return_value=archive_bytes,
+                    "_git_ls_tree",
+                    return_value=tree_bytes,
                     create=True,
                 ):
                     with self.assertRaisesRegex(
                         workspace.WorkspacePreparationError,
-                        "^archive contains unsafe ",
+                        "^committed tree contains unsafe ",
                     ):
                         workspace.prepare_workspace(source, "fsharp", destination)
 
@@ -500,11 +614,18 @@ class WorkspacePreparationTests(unittest.TestCase):
         source = repository / "experiments" / "implementation-language-spike"
         tracked_files = {
             "fsharp/.editorconfig": b"root = true\n",
+            "fsharp/.gitattributes": (
+                b"export-ignored.txt export-ignore\n"
+                b"substituted.txt export-subst\n"
+            ),
             "fsharp/.gitignore": b"bin/\nobj/\n__pycache__/\n*.pyc\n",
             "fsharp/README.md": b"fsharp baseline\r\n",
             "fsharp/diagnostic.log": b"tracked log\n",
+            "fsharp/export-ignored.txt": b"tracked despite export-ignore\n",
             "fsharp/history.jsonl": b'{"tracked":true}\n',
             "fsharp/src/core.txt": b"selected",
+            "fsharp/substituted.txt": b"commit=$Format:%H$\n",
+            "fsharp/tools/run.sh": b"#!/bin/sh\nexit 0\n",
             "fsharp/evaluator/hidden.py": b"hidden",
             "fsharp/results/old.txt": b"old",
             "csharp/README.md": b"csharp baseline\n",
@@ -522,6 +643,7 @@ class WorkspacePreparationTests(unittest.TestCase):
             path = source / relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(contents)
+        (source / "fsharp/tools/run.sh").chmod(0o755)
         WorkspacePreparationTests._git(repository, "init", "--initial-branch=main")
         WorkspacePreparationTests._git(repository, "config", "--local", "user.name", "Test Source")
         WorkspacePreparationTests._git(
@@ -582,21 +704,6 @@ class WorkspacePreparationTests(unittest.TestCase):
         staging_directories = list(destination.parent.glob(pattern))
         if staging_directories:
             raise AssertionError(f"private staging directories remain: {staging_directories}")
-
-    @staticmethod
-    def _tar_bytes(
-        name: str,
-        *,
-        contents: bytes = b"",
-        member_type: bytes = tarfile.REGTYPE,
-    ) -> bytes:
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w") as archive:
-            member = tarfile.TarInfo(name)
-            member.type = member_type
-            member.size = len(contents) if member_type == tarfile.REGTYPE else 0
-            archive.addfile(member, io.BytesIO(contents) if member.size else None)
-        return buffer.getvalue()
 
     @staticmethod
     def _remove_empty_tree_contents(root: Path) -> None:
