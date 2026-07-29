@@ -59,9 +59,38 @@ both functions and types. Add:
 TypeRenamed(type_id, old_name, new_name)
 ```
 
-A type rename preserves its type ID and every reference to it. A successful
-rename produces one rename change in its semantic diff. `renameSymbol` returns
-`NoChange` for same-name function and type renames.
+Use the closed target representation:
+
+```text
+RenameTarget:
+  Function(function_id: FunctionId)
+  Type(type_id: TypeId)
+```
+
+The exact language-neutral operation input order is:
+
+```text
+renameSymbol(snapshot, base_snapshot_id, transaction_id, target, new_name)
+```
+
+Implement the minimal F# or C# public spelling frozen under **Frozen
+post-maintenance rename surface** in `semantic-contract.md`; a hidden evaluator
+will call that surface directly. Do not replace the target with a string
+discriminator, general stable ID, enum plus separate ID, or open hierarchy.
+
+Stale-base validation precedes target dispatch, target lookup, and same-name
+handling. A missing function or type target is rejected without a candidate.
+Same-name comparison is ordinal and case-sensitive; it returns
+`NoChange(base_snapshot_id, semantic_diff)` with an empty semantic diff and no
+candidate snapshot.
+
+A successful function rename preserves its function ID and every call edge and
+emits exactly one `FunctionRenamed` change. A successful type rename preserves
+its type ID and every parameter `type_id` reference and emits exactly one
+`TypeRenamed` change. A rename candidate uses the transaction-derived snapshot
+ID and is `Incomplete` with ordinally sorted blocking obligation IDs when open
+blocking obligations exist; otherwise it is `Executable`. Existing snapshots
+are never mutated.
 
 ## Phase 4: Schema v2 migration
 

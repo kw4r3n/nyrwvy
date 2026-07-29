@@ -73,9 +73,31 @@ Schema-aware checks must parse that output and verify:
 
 The post-maintenance operation surface is `renameSymbol` for both functions and
 types, plus `addParameter`. The former function-only rename entry point has been
-replaced and is not required in this mode. All cumulative maintenance semantics,
-including `NoChange`, type-reference preservation, conflict and missing-argument
-obligations, and semantic-diff ordering, remain required.
+replaced and is not required in this mode. `renameSymbol` uses exactly the
+closed `RenameTarget` alternatives `Function(function_id: FunctionId)` and
+`Type(type_id: TypeId)`; no string discriminator, general stable ID, enum plus
+separate ID, or open target hierarchy is accepted. Its observable argument
+order is exactly:
+
+```text
+renameSymbol(snapshot, base_snapshot_id, transaction_id, target, new_name)
+```
+
+The evaluator calls the minimal F# `Operations.renameSymbol` or C#
+`Operations.RenameSymbol` spelling and the `RenameTarget` representation frozen
+under **Frozen post-maintenance rename surface** in `semantic-contract.md`.
+Stale-base rejection precedes target dispatch, lookup, and same-name handling.
+A missing target is rejected without a candidate. Same-name function and type
+targets return `NoChange(base_snapshot_id, semantic_diff)` with an empty diff
+and no candidate. Successful renames use the transaction-derived snapshot ID,
+preserve the target ID and all function-call or parameter-type references,
+emit exactly one target-appropriate rename change, and return `Incomplete` with
+ordinally sorted blocking IDs when open obligations remain or `Executable`
+otherwise. The input snapshot remains unchanged.
+
+All cumulative maintenance semantics, including type-reference preservation,
+conflict and missing-argument obligations, and semantic-diff ordering, remain
+required.
 
 For the obligation-free public initial fixture, the post-maintenance summary
 must emit:

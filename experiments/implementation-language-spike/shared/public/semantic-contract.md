@@ -100,6 +100,103 @@ The v1 semantic-change alternatives are therefore:
 - `ParameterAdded(function_id, parameter_id)`
 - `ObligationCreated(obligation_id)`
 
+## Frozen post-maintenance rename surface
+
+Phase 3 of `maintenance-task.md` replaces `renameFunction` with one public
+`renameSymbol` entry point. Its target is this closed representation:
+
+```text
+RenameTarget:
+  Function(function_id: FunctionId)
+  Type(type_id: TypeId)
+```
+
+No string discriminator, untyped or general stable ID, enum plus separate ID,
+or open-ended target representation is part of the public contract. The exact
+language-neutral call shape, including input order, is:
+
+```text
+renameSymbol(snapshot, base_snapshot_id, transaction_id, target, new_name)
+  -> TransactionResult
+```
+
+The minimal evaluator-callable public spelling is frozen as follows. All types
+are in namespace `Nayamnyam.Spike`.
+
+F#:
+
+```fsharp
+type RenameTarget =
+    | Function of functionId: FunctionId
+    | Type of typeId: TypeId
+
+module Operations =
+    val renameSymbol:
+        snapshot: Snapshot ->
+        baseSnapshotId: SnapshotId ->
+        transactionId: TransactionId ->
+        target: RenameTarget ->
+        newName: string ->
+        TransactionResult
+```
+
+C# (the stable-ID aliases are expanded because C# source aliases are not public
+metadata):
+
+```csharp
+public abstract record RenameTarget
+{
+    private RenameTarget() { }
+
+    public sealed record Function(StableId<FunctionTag> FunctionId)
+        : RenameTarget;
+    public sealed record Type(StableId<TypeTag> TypeId)
+        : RenameTarget;
+}
+
+public static class Operations
+{
+    public static TransactionResult RenameSymbol(
+        Snapshot snapshot,
+        StableId<SnapshotTag> baseSnapshotId,
+        StableId<TransactionTag> transactionId,
+        RenameTarget target,
+        string newName);
+}
+```
+
+Observable processing order and results are:
+
+1. Validate `base_snapshot_id` against `snapshot.id` before inspecting
+   `target`. A stale base returns `Rejected(base_snapshot_id, diagnostics)`,
+   creates no candidate snapshot, and does not perform target lookup or
+   same-name handling.
+2. Dispatch the closed target. `Function(function_id)` looks up exactly that
+   function; `Type(type_id)` looks up exactly that type. A missing target uses
+   the existing rejected-transaction behavior and creates no candidate
+   snapshot.
+3. Compare `new_name` with the target's current display name ordinally and
+   case-sensitively. Equality returns
+   `NoChange(base_snapshot_id, semantic_diff)` with an empty semantic diff,
+   creates no candidate snapshot, and does not derive a snapshot ID from
+   `transaction_id`.
+4. Otherwise create an immutable candidate whose ID is derived from
+   `transaction_id` by the existing snapshot-ID rule. A function target changes
+   only that function's display name, preserves its `FunctionId` and every call
+   edge, and emits exactly
+   `FunctionRenamed(function_id, old_name, new_name)`. A type target changes
+   only that type's display name, preserves its `TypeId` and every parameter
+   `type_id` reference, and emits exactly
+   `TypeRenamed(type_id, old_name, new_name)`.
+5. Return `Incomplete(candidate, semantic_diff, blocking_obligation_ids)` when
+   the candidate contains open blocking obligations, with blocking IDs sorted
+   by ordinal stable-ID text; otherwise return
+   `Executable(candidate, semantic_diff)`. The semantic diff contains only the
+   one rename change described above.
+
+The input snapshot and every object reachable from it remain unchanged for
+every result alternative.
+
 For a transaction with ID `transaction:<transaction-tail>`, the candidate
 snapshot ID is:
 
