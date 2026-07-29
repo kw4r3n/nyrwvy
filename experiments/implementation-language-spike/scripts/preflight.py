@@ -25,6 +25,11 @@ sys.path.insert(0, str(EXPERIMENT_ROOT))
 
 from evaluator.common import ExperimentConfig
 
+try:
+    from . import committed_inventory
+except ImportError:
+    import committed_inventory
+
 
 SCHEMA_VERSION = 1
 SUPPORTED_LANGUAGES = ("fsharp", "csharp")
@@ -285,8 +290,9 @@ def _run_preflight_from_root(
         raise PreflightError(problems)
 
     try:
-        input_sha256, baseline_sha256 = _capture_input_hashes(
-            root_file_descriptor
+        input_sha256, baseline_sha256, source_commit = _capture_input_hashes(
+            experiment_root,
+            root_file_descriptor,
         )
     except (OSError, ValueError) as error:
         raise PreflightError([f"input snapshot failed: {error}"]) from error
@@ -301,8 +307,13 @@ def _run_preflight_from_root(
         raise PreflightError([smoke_problem])
 
     try:
-        final_input_sha256, final_baseline_sha256 = _capture_input_hashes(
-            root_file_descriptor
+        (
+            final_input_sha256,
+            final_baseline_sha256,
+            final_source_commit,
+        ) = _capture_input_hashes(
+            experiment_root,
+            root_file_descriptor,
         )
     except (OSError, ValueError) as error:
         raise PreflightError(
@@ -311,6 +322,7 @@ def _run_preflight_from_root(
     if (
         final_input_sha256 != input_sha256
         or final_baseline_sha256 != baseline_sha256
+        or final_source_commit != source_commit
     ):
         changed_inputs = sorted(
             key
@@ -327,6 +339,8 @@ def _run_preflight_from_root(
             details.append(f"files={changed_inputs}")
         if changed_languages:
             details.append(f"baselines={changed_languages}")
+        if final_source_commit != source_commit:
+            details.append("source_commit")
         raise PreflightError(
             [
                 "experiment inputs changed during preflight: "
@@ -849,18 +863,26 @@ def _hash_tree_entries(entries: tuple[_TreeEntry, ...]) -> str:
 
 
 def _capture_input_hashes(
+    experiment_root: Path,
     root_file_descriptor: int,
-) -> tuple[dict[str, str], dict[str, str]]:
-    first = _capture_input_hashes_once(root_file_descriptor)
-    second = _capture_input_hashes_once(root_file_descriptor)
+) -> tuple[dict[str, str], dict[str, str], str]:
+    first = _capture_input_hashes_once(
+        experiment_root,
+        root_file_descriptor,
+    )
+    second = _capture_input_hashes_once(
+        experiment_root,
+        root_file_descriptor,
+    )
     if first != second:
         raise ValueError("experiment inputs changed while hashing")
     return first
 
 
 def _capture_input_hashes_once(
+    experiment_root: Path,
     root_file_descriptor: int,
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], str]:
     input_sha256: dict[str, str] = {}
     for relative_path in INPUT_PATHS:
         contents = _read_regular_file_at(
@@ -870,22 +892,19 @@ def _capture_input_hashes_once(
         )
         input_sha256[relative_path] = hashlib.sha256(contents).hexdigest()
 
-    baseline_sha256: dict[str, str] = {}
-    for language in SUPPORTED_LANGUAGES:
-        directory_file_descriptor = _open_relative_directory(
-            root_file_descriptor,
-            (language,),
+    source_commit, inventories = (
+        committed_inventory.capture_selected_inventories(
+            experiment_root,
+            SUPPORTED_LANGUAGES,
         )
-        try:
-            entries = _stable_tree_entries(
-                directory_file_descriptor,
-                exclusions=True,
-                include_symlinks=False,
-            )
-            baseline_sha256[language] = _hash_tree_entries(entries)
-        finally:
-            os.close(directory_file_descriptor)
-    return input_sha256, baseline_sha256
+    )
+    baseline_sha256 = {
+        language: committed_inventory.digest_inventory(
+            inventories[language]
+        )
+        for language in SUPPORTED_LANGUAGES
+    }
+    return input_sha256, baseline_sha256, source_commit
 
 
 def _load_config_bytes(config_bytes: bytes) -> ExperimentConfig:

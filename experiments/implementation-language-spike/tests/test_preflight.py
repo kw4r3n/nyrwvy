@@ -1,10 +1,12 @@
 from contextlib import redirect_stderr
 from dataclasses import asdict
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -16,6 +18,7 @@ EXPERIMENT_ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(EXPERIMENT_ROOT))
 
 from scripts import preflight
+from scripts import prepare_workspace
 
 
 PUBLIC_INPUTS = {
@@ -144,8 +147,8 @@ class PreflightTests(unittest.TestCase):
             manifest_bytes = manifest_path.read_bytes()
             expected_values = {
                 "baseline_sha256": {
-                    "csharp": "b13b26f732b88047ea85013216463050118fb3e78a9020b02d34b252562afae4",
-                    "fsharp": "bd5f65f64eb35cfc6a631944c358607bf82be05e12181149af0711e0490f358d",
+                    "csharp": "e44913efd7261ea42a4df91763860681afb9eace83cec51ae79cea45509d7897",
+                    "fsharp": "6966ec370ffbc5cd842236723741b21362c0eefb908456fca7d28b4e86c943cf",
                 },
                 "codex_cli_version": "codex-cli 1.2.3",
                 "dotnet_info": ".NET SDK:\n Version: 10.0.100",
@@ -210,6 +213,109 @@ class PreflightTests(unittest.TestCase):
             for _, _, timeout_seconds in commands.calls:
                 self.assertIs(type(timeout_seconds), int)
                 self.assertGreater(timeout_seconds, 0)
+
+    def test_baseline_digest_matches_the_exact_prepared_workspace_inventory(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            manifest = self._run(experiment, commands)
+            destination = experiment.parents[2] / "prepared-fsharp"
+
+            prepare_workspace.prepare_workspace(
+                experiment,
+                "fsharp",
+                destination,
+            )
+
+            self.assertEqual(
+                manifest.baseline_sha256["fsharp"],
+                _digest_exported_inventory(destination),
+            )
+
+    def test_committed_log_jsonl_and_mode_changes_affect_inventory_but_build_outputs_do_not(
+        self,
+    ) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            initial = self._run(experiment, commands).baseline_sha256["fsharp"]
+
+            history = experiment / "fsharp/history.jsonl"
+            history.write_bytes(b'{"tracked":true}\n')
+            _commit_paths(experiment, "test: add tracked JSONL", history)
+            with_jsonl = self._run(
+                experiment,
+                FakeCommands(),
+            ).baseline_sha256["fsharp"]
+            self.assertNotEqual(initial, with_jsonl)
+
+            diagnostic = experiment / "fsharp/diagnostic.log"
+            diagnostic.write_bytes(b"tracked diagnostic\n")
+            _commit_paths(experiment, "test: add tracked log", diagnostic)
+            with_log = self._run(
+                experiment,
+                FakeCommands(),
+            ).baseline_sha256["fsharp"]
+            self.assertNotEqual(with_jsonl, with_log)
+
+            source = experiment / "fsharp/source.txt"
+            source.chmod(source.stat().st_mode | stat.S_IXUSR)
+            _commit_paths(experiment, "test: make source executable", source)
+            executable = self._run(
+                experiment,
+                FakeCommands(),
+            ).baseline_sha256["fsharp"]
+            self.assertNotEqual(with_log, executable)
+
+            build_output = experiment / "fsharp/bin/generated.dll"
+            build_output.parent.mkdir()
+            build_output.write_bytes(b"tracked generated output\n")
+            _commit_paths(
+                experiment,
+                "test: add excluded build output",
+                build_output,
+                force=True,
+            )
+            with_build_output = self._run(
+                experiment,
+                FakeCommands(),
+            ).baseline_sha256["fsharp"]
+            self.assertEqual(executable, with_build_output)
+
+    def test_rejects_dirty_tracked_baseline_instead_of_hashing_worktree_bytes(self) -> None:
+        with _synthetic_experiment() as experiment:
+            (experiment / "fsharp/source.txt").write_text(
+                "dirty worktree bytes\n",
+                encoding="utf-8",
+            )
+            commands = FakeCommands()
+
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "tracked source inputs are dirty",
+            ):
+                self._run(experiment, commands)
+
+            self.assertFalse(self._smoke_was_called(commands))
+            self.assertFalse(
+                (experiment / "results/preflight/manifest.json").exists()
+            )
+
+    def test_rejects_unsafe_committed_symlink_before_smoke(self) -> None:
+        with _synthetic_experiment() as experiment:
+            link = experiment / "fsharp/unsafe-link"
+            link.symlink_to("source.txt")
+            _commit_paths(experiment, "test: add unsafe symlink", link)
+            commands = FakeCommands()
+
+            with self.assertRaisesRegex(
+                preflight.PreflightError,
+                "committed tree contains unsafe mode 120000",
+            ):
+                self._run(experiment, commands)
+
+            self.assertFalse(self._smoke_was_called(commands))
+            self.assertFalse(
+                (experiment / "results/preflight/manifest.json").exists()
+            )
 
     def test_rejects_unsupported_python_versions_without_writing(self) -> None:
         for version in ((3, 12, 9), (4, 0, 0)):
@@ -669,13 +775,10 @@ class PreflightTests(unittest.TestCase):
         def change(path: Path) -> None:
             path.write_text("changed\n", encoding="utf-8")
 
-        def add(path: Path) -> None:
-            (path.parent / "added.txt").write_text("added\n", encoding="utf-8")
-
         def remove(path: Path) -> None:
             path.unlink()
 
-        for name, mutation in (("change", change), ("add", add), ("remove", remove)):
+        for name, mutation in (("change", change), ("remove", remove)):
             with self.subTest(name=name), _synthetic_experiment() as experiment:
                 commands = FakeCommands()
                 source = experiment / "fsharp/source.txt"
@@ -686,6 +789,22 @@ class PreflightTests(unittest.TestCase):
                 ):
                     self._run(experiment, commands)
                 self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_untracked_baseline_artifact_during_smoke_does_not_change_committed_inventory(
+        self,
+    ) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            commands.on_smoke = lambda _: (
+                experiment / "fsharp/untracked.txt"
+            ).write_text("untracked\n", encoding="utf-8")
+
+            manifest = self._run(experiment, commands)
+
+            self.assertEqual(set(manifest.baseline_sha256), {"fsharp", "csharp"})
+            self.assertTrue(
+                (experiment / "results/preflight/manifest.json").is_file()
+            )
 
     def test_config_drift_during_smoke_refuses_manifest(self) -> None:
         with _synthetic_experiment() as experiment:
@@ -776,6 +895,10 @@ class PreflightTests(unittest.TestCase):
             evaluator.mkdir()
             fake_bin.mkdir()
             shutil.copyfile(preflight.__file__, scripts / "preflight.py")
+            shutil.copyfile(
+                EXPERIMENT_ROOT / "scripts/committed_inventory.py",
+                scripts / "committed_inventory.py",
+            )
             shutil.copyfile(
                 EXPERIMENT_ROOT / "evaluator/common.py",
                 evaluator / "common.py",
@@ -990,7 +1113,10 @@ def _write_fake_tool(path: Path, body: str) -> None:
 
 def _synthetic_experiment(*, baselines: bool = True):
     directory = tempfile.TemporaryDirectory()
-    root = Path(directory.name).resolve()
+    temporary_root = Path(directory.name).resolve()
+    repository = temporary_root / "repository"
+    root = repository / "experiments/implementation-language-spike"
+    root.mkdir(parents=True)
     (root / "experiment.toml").write_text(
         "schema_version = 1\n"
         'model = "gpt-5.6-sol"\n'
@@ -1010,7 +1136,67 @@ def _synthetic_experiment(*, baselines: bool = True):
             baseline = root / language
             baseline.mkdir()
             (baseline / "source.txt").write_text(f"{language}\n", encoding="utf-8")
+    _git(repository, "init", "--quiet", "--initial-branch=main")
+    _git(repository, "config", "--local", "user.name", "Preflight Test")
+    _git(
+        repository,
+        "config",
+        "--local",
+        "user.email",
+        "preflight-test@example.invalid",
+    )
+    _git(repository, "add", "--all")
+    _git(repository, "commit", "--quiet", "--message", "test: create experiment")
     return _TemporaryDirectory(directory, root)
+
+
+def _commit_paths(
+    experiment: Path,
+    message: str,
+    *paths: Path,
+    force: bool = False,
+) -> None:
+    repository = experiment.parents[1]
+    arguments = ["add"]
+    if force:
+        arguments.append("--force")
+    arguments.extend(str(path) for path in paths)
+    _git(repository, *arguments)
+    _git(repository, "commit", "--quiet", "--message", message)
+
+
+def _digest_exported_inventory(workspace: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"nayamnyam-spike-committed-inventory-v1\0")
+    files = sorted(
+        (
+            path.relative_to(workspace).as_posix(),
+            path,
+        )
+        for path in workspace.rglob("*")
+        if path.is_file()
+        and ".git" not in path.relative_to(workspace).parts
+    )
+    for relative_path, path in files:
+        mode = b"100755" if path.stat().st_mode & 0o111 else b"100644"
+        relative_bytes = relative_path.encode("utf-8")
+        contents = path.read_bytes()
+        for field in (mode, relative_bytes, contents):
+            digest.update(len(field).to_bytes(8, "big"))
+            digest.update(field)
+    return digest.hexdigest()
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", *arguments),
+        cwd=repository,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return completed.stdout.strip()
 
 
 class _TemporaryDirectory:
