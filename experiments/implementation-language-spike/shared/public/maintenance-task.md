@@ -36,9 +36,11 @@ obligation:<transaction-tail>:<function-tail>:<existing-parameter-tail>:<added-p
 ```
 
 ID tail derivation removes exactly one required domain prefix. Missing or
-wrong-domain prefixes are invalid. The semantic diff begins with
-`ParameterAdded`, followed by every `ObligationCreated` change sorted by
-obligation-ID text.
+wrong-domain prefixes, empty tails, and tails containing a colon are invalid.
+The derived conflict obligation ID contains exactly four nonempty atomic tail
+components separated by the colons shown in the formula. The semantic diff
+begins with `ParameterAdded`, followed by every `ObligationCreated` change
+sorted by obligation-ID text.
 
 ## Phase 2: No-change transaction result
 

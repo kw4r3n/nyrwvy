@@ -18,10 +18,13 @@ The v1 stable-ID domains are:
 - `SnapshotId`, serialized with the required prefix `snapshot:`
 - `TransactionId`, serialized with the required prefix `transaction:`
 
-Stable IDs are compared and sorted as ordinal, case-sensitive text. Whenever a
-rule below derives an ID tail, it removes exactly one required domain prefix.
-A value with a missing prefix or a prefix from the wrong domain is invalid; it
-must not be silently truncated or accepted.
+Except for a derived obligation ID as described below, a stable ID is exactly
+`<domain>:<tail>`. The tail is nonempty atomic text: it contains no colon, CR,
+or LF. Stable IDs are compared and sorted as ordinal, case-sensitive text.
+Whenever a rule below derives an ID tail, it removes exactly one required
+domain prefix and obtains that one atomic tail. A value with an empty or
+non-atomic tail, a missing prefix, or a prefix from the wrong domain is invalid;
+it must not be silently truncated or accepted.
 
 ## Semantic model
 
@@ -110,6 +113,12 @@ For a missing argument on `call:<call-tail>` for
 ```text
 obligation:<transaction-tail>:<call-tail>:<parameter-tail>
 ```
+
+A derived v1 obligation ID is the `obligation:` domain prefix followed by
+exactly those three nonempty atomic tail components. The colons shown in the
+formula are component separators; no component itself may contain a colon.
+This makes the derivation reversible and prevents distinct source-ID tuples
+from producing the same obligation ID.
 
 ## Canonical JSON
 

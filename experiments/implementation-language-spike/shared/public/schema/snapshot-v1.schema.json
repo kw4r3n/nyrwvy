@@ -46,27 +46,27 @@
   "$defs": {
     "snapshotId": {
       "type": "string",
-      "pattern": "^snapshot:[^\\r\\n]+$"
+      "pattern": "^snapshot:[^:\\r\\n]+$"
     },
     "typeId": {
       "type": "string",
-      "pattern": "^type:[^\\r\\n]+$"
+      "pattern": "^type:[^:\\r\\n]+$"
     },
     "functionId": {
       "type": "string",
-      "pattern": "^function:[^\\r\\n]+$"
+      "pattern": "^function:[^:\\r\\n]+$"
     },
     "parameterId": {
       "type": "string",
-      "pattern": "^parameter:[^\\r\\n]+$"
+      "pattern": "^parameter:[^:\\r\\n]+$"
     },
     "callId": {
       "type": "string",
-      "pattern": "^call:[^\\r\\n]+$"
+      "pattern": "^call:[^:\\r\\n]+$"
     },
     "obligationId": {
       "type": "string",
-      "pattern": "^obligation:[^\\r\\n]+$"
+      "pattern": "^obligation:[^:\\r\\n]+:[^:\\r\\n]+:[^:\\r\\n]+$"
     },
     "typeEntity": {
       "type": "object",

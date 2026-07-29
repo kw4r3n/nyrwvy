@@ -6,12 +6,13 @@ surfaces below. Acceptance is language-neutral: the isolated trial workspace
 contains the selected baseline at its root and the public contract under
 `shared/public`.
 
-## Required v1 behavior
+## Required behavior
 
 - Parse every valid snapshot described by
   `shared/public/schema/snapshot-v1.schema.json`.
-- Reject invalid stable-ID domains, stale base snapshots, and unknown JSON
-  properties without producing a candidate snapshot.
+- Reject stable IDs with invalid domains, empty tails, or colon-containing
+  atomic tails; reject stale base snapshots and unknown JSON properties without
+  producing a candidate snapshot.
 - Implement `renameFunction` and `addParameter` with the transaction results,
   stable-ID derivation, immutable input snapshots, blocking obligations, and
   semantic diffs defined in `semantic-contract.md`.
@@ -22,8 +23,23 @@ contains the selected baseline at its root and the public contract under
   byte-order mark, two-space indentation, LF line endings, and exactly one
   trailing LF.
 
-For the public initial fixture, `canonical` must emit bytes identical to
-`shared/public/fixtures/initial-snapshot-v1.json`. `summary` must emit:
+The object-property and collection orders in `semantic-contract.md` are part of
+the observable acceptance contract, not formatting suggestions.
+
+## Acceptance modes
+
+Acceptance uses the mode appropriate to the implementation state. These modes
+are intentionally distinct so the schema v2 migration does not weaken or
+silently replace the untouched-baseline check.
+
+### Untouched baseline mode
+
+Before the maintenance task, the writer is a v1 writer. For the public initial
+fixture, `canonical` must emit bytes identical to
+`shared/public/fixtures/initial-snapshot-v1.json`. Byte comparison with the v1
+fixture or copied `initial-canonical.json` is required in this mode.
+
+`summary` must emit:
 
 ```json
 {
@@ -36,8 +52,40 @@ For the public initial fixture, `canonical` must emit bytes identical to
 }
 ```
 
-The object-property and collection orders in `semantic-contract.md` are part of
-the observable acceptance contract, not formatting suggestions.
+### Post-maintenance mode
+
+After all four maintenance phases, the implementation must still read the
+public v1 fixture, but phase 4 makes the writer v2-only. `canonical` must
+therefore emit canonical schema v2 JSON, not bytes identical to the v1 fixture.
+Schema-aware checks must parse that output and verify:
+
+- `schema_version` is `2`;
+- the snapshot ID and the semantic content and order of `types`, `functions`,
+  `calls`, and `obligations` are preserved;
+- every native v2 obligation has its creating transaction ID in
+  `origin_transaction_id`;
+- every obligation migrated from v1 has
+  `origin_transaction_id` equal to `transaction:migrated`; and
+- canonical formatting and ordering remain deterministic.
+
+For the obligation-free public initial fixture, the post-maintenance summary
+must emit:
+
+```json
+{
+  "schema_version": 2,
+  "snapshot_id": "snapshot:initial",
+  "type_count": 3,
+  "function_count": 2,
+  "call_count": 1,
+  "obligation_count": 0
+}
+```
+
+Post-maintenance evaluation is schema-aware. It must not compare v2 canonical
+output to the v1 fixture or v1 `initial-canonical.json` bytes. If a copied
+schema-appropriate v2 expected artifact exists, a byte comparison with that v2
+artifact may additionally be performed.
 
 ## Required public commands
 
@@ -66,10 +114,9 @@ dotnet run --project src/Nayamnyam.Spike.Cli -- canonical shared/public/fixtures
 dotnet run --project src/Nayamnyam.Spike.Cli -- summary shared/public/fixtures/initial-snapshot-v1.json
 ```
 
-Every command must exit successfully. If the isolated workspace includes a
-copied expected artifact, compare CLI output byte-for-byte with that artifact.
-The evaluator does not require `shared/expected` to be visible in a future
-trial workspace.
+Every command must exit successfully and be evaluated in the applicable mode
+above. The evaluator does not require `shared/expected` to be visible in a
+future trial workspace.
 
 ## Forbidden escape hatches
 
