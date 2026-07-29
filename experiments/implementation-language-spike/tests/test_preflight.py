@@ -41,7 +41,8 @@ class FakeCommands:
         self.failure_for: str | None = None
         self.failure: BaseException | None = None
         self.smoke_stdout = (
-            '{"type":"item.completed","item":{"content":[{"text":" PREFLIGHT_OK "}]}}\n'
+            '{"type":"item.completed","item":{"type":"agent_message",'
+            '"text":" PREFLIGHT_OK "}}\n'
         )
 
     def resolve(self, name: str) -> str | None:
@@ -367,23 +368,34 @@ class PreflightTests(unittest.TestCase):
 
     def test_smoke_requires_exact_success_token_in_valid_jsonl(self) -> None:
         cases = (
-            ("empty", "", "did not return exact PREFLIGHT_OK"),
-            ("blank", "\n\n", "did not return exact PREFLIGHT_OK"),
+            (
+                "empty",
+                "",
+                "final completed agent message was not exact PREFLIGHT_OK",
+            ),
+            (
+                "blank",
+                "\n\n",
+                "final completed agent message was not exact PREFLIGHT_OK",
+            ),
             ("malformed", "{not json}\n", "returned malformed JSONL"),
             (
                 "token plus malformed",
-                '{"text":"PREFLIGHT_OK"}\nnot-json\n',
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"PREFLIGHT_OK"}}\nnot-json\n',
                 "returned malformed JSONL",
             ),
             (
                 "refusal",
-                '{"type":"message","text":"I cannot perform that task"}\n',
-                "did not return exact PREFLIGHT_OK",
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"I cannot perform that task"}}\n',
+                "final completed agent message was not exact PREFLIGHT_OK",
             ),
             (
                 "near token",
-                '{"type":"message","text":"PREFLIGHT_OK!"}\n',
-                "did not return exact PREFLIGHT_OK",
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"PREFLIGHT_OK!"}}\n',
+                "final completed agent message was not exact PREFLIGHT_OK",
             ),
         )
         for name, stdout, message in cases:
@@ -393,6 +405,63 @@ class PreflightTests(unittest.TestCase):
                 with self.assertRaisesRegex(preflight.PreflightError, message):
                     self._run(experiment, commands)
                 self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_smoke_token_in_wrong_or_nonfinal_event_never_proves_success(self) -> None:
+        cases = (
+            (
+                "command token then refusal",
+                '{"type":"item.completed","item":{"type":"command_execution",'
+                '"text":"PREFLIGHT_OK"}}\n'
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"I refuse"}}\n',
+            ),
+            (
+                "earlier assistant token then refusal",
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"PREFLIGHT_OK"}}\n'
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"I refuse"}}\n',
+            ),
+            (
+                "unknown event token",
+                '{"type":"future.event","payload":{"text":"PREFLIGHT_OK"}}\n',
+            ),
+            (
+                "missing item type",
+                '{"type":"item.completed","item":{"text":"PREFLIGHT_OK"}}\n',
+            ),
+            (
+                "non-string assistant text",
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":{"nested":"PREFLIGHT_OK"}}}\n',
+            ),
+        )
+        for name, stdout in cases:
+            with self.subTest(name=name), _synthetic_experiment() as experiment:
+                commands = FakeCommands()
+                commands.smoke_stdout = stdout
+                with self.assertRaisesRegex(
+                    preflight.PreflightError,
+                    "final completed agent message was not exact PREFLIGHT_OK",
+                ):
+                    self._run(experiment, commands)
+                self.assertFalse((experiment / "results/preflight").exists())
+
+    def test_smoke_uses_last_completed_agent_message_and_ignores_later_unknown_events(self) -> None:
+        with _synthetic_experiment() as experiment:
+            commands = FakeCommands()
+            commands.smoke_stdout = (
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"not yet"}}\n'
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":" PREFLIGHT_OK "}}\n'
+                '{"type":"future.event","payload":{"text":"ignored"}}\n'
+            )
+            manifest = self._run(experiment, commands)
+            self.assertEqual(manifest.model, "gpt-5.6-sol")
+            self.assertTrue(
+                (experiment / "results/preflight/manifest.json").is_file()
+            )
 
     def test_smoke_detects_ignored_worktree_write_even_when_git_reports_clean(self) -> None:
         with _synthetic_experiment() as experiment:

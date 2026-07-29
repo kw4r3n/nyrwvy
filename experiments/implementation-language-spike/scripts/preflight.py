@@ -1141,33 +1141,36 @@ def _describe_tree_change(
 
 
 def _validate_smoke_output(stdout: str) -> str | None:
-    values: list[object] = []
+    last_agent_message: str | None = None
     for line_number, line in enumerate(stdout.splitlines(), start=1):
         if not line.strip():
             continue
         try:
-            values.append(json.loads(line))
+            event = json.loads(line)
         except json.JSONDecodeError as error:
             return (
                 "model smoke returned malformed JSONL "
                 f"at line {line_number}: {error.msg}"
             )
-    if any(_contains_exact_smoke_token(value) for value in values):
+        if type(event) is not dict or event.get("type") != "item.completed":
+            continue
+        item = event.get("item")
+        if type(item) is not dict or item.get("type") != "agent_message":
+            continue
+        text = item.get("text")
+        if type(text) is not str:
+            last_agent_message = None
+            continue
+        last_agent_message = text
+    if (
+        last_agent_message is not None
+        and last_agent_message.strip() == "PREFLIGHT_OK"
+    ):
         return None
-    return "model smoke did not return exact PREFLIGHT_OK"
-
-
-def _contains_exact_smoke_token(value: object) -> bool:
-    if type(value) is str:
-        return value.strip() == "PREFLIGHT_OK"
-    if type(value) is list:
-        return any(_contains_exact_smoke_token(item) for item in value)
-    if type(value) is dict:
-        return any(
-            _contains_exact_smoke_token(item)
-            for item in value.values()
-        )
-    return False
+    return (
+        "model smoke final completed agent message was not exact "
+        "PREFLIGHT_OK"
+    )
 
 
 def _current_os_details() -> OsDetails:
