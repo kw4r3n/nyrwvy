@@ -13,9 +13,9 @@ contains the selected baseline at its root and the public contract under
 - Reject stable IDs with invalid domains, empty tails, or colon-containing
   atomic tails; reject stale base snapshots and unknown JSON properties without
   producing a candidate snapshot.
-- Implement `renameFunction` and `addParameter` with the transaction results,
-  stable-ID derivation, immutable input snapshots, blocking obligations, and
-  semantic diffs defined in `semantic-contract.md`.
+- Implement the operation surface required by the applicable acceptance mode
+  with the specified transaction results, stable-ID derivation, immutable input
+  snapshots, blocking obligations, and semantic diffs.
 - Preserve function parameter order and call argument order.
 - Sort all snapshot-level ID-keyed collections by ordinal, case-sensitive
   stable-ID text.
@@ -38,6 +38,9 @@ Before the maintenance task, the writer is a v1 writer. For the public initial
 fixture, `canonical` must emit bytes identical to
 `shared/public/fixtures/initial-snapshot-v1.json`. Byte comparison with the v1
 fixture or copied `initial-canonical.json` is required in this mode.
+
+The untouched baseline operation surface is `renameFunction` for functions and
+`addParameter`, with the v1 semantics defined in `semantic-contract.md`.
 
 `summary` must emit:
 
@@ -67,6 +70,12 @@ Schema-aware checks must parse that output and verify:
 - every obligation migrated from v1 has
   `origin_transaction_id` equal to `transaction:migrated`; and
 - canonical formatting and ordering remain deterministic.
+
+The post-maintenance operation surface is `renameSymbol` for both functions and
+types, plus `addParameter`. The former function-only rename entry point has been
+replaced and is not required in this mode. All cumulative maintenance semantics,
+including `NoChange`, type-reference preservation, conflict and missing-argument
+obligations, and semantic-diff ordering, remain required.
 
 For the obligation-free public initial fixture, the post-maintenance summary
 must emit:
