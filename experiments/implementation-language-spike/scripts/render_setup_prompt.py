@@ -7,7 +7,13 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
-import tomllib
+import sys
+
+
+EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(EXPERIMENT_ROOT))
+
+from evaluator.common import load_config
 
 
 SCHEMA_VERSION = 1
@@ -104,12 +110,7 @@ def _validate_prompt_references(prompt_bytes: bytes) -> None:
 
 def _load_model(repository_root: Path) -> str:
     config_path = repository_root / "experiments/implementation-language-spike/experiment.toml"
-    with config_path.open("rb") as config_file:
-        values = tomllib.load(config_file)
-    model = values.get("model")
-    if type(model) is not str or not model:
-        raise ValueError("experiment.toml model must be a non-empty string")
-    return model
+    return load_config(config_path).model
 
 
 def _run_command(command: tuple[str, ...], repository_root: Path) -> str:

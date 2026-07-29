@@ -109,6 +109,57 @@ class SetupPromptRendererTests(unittest.TestCase):
                 )
             self.assertFalse(output_directory.exists())
 
+    def test_rejects_unknown_experiment_config_field_before_rendering(self) -> None:
+        with self._temporary_repository() as repository_root, tempfile.TemporaryDirectory() as directory:
+            config_path = (
+                repository_root
+                / "experiments"
+                / "implementation-language-spike"
+                / "experiment.toml"
+            )
+            config_path.write_text(
+                config_path.read_text(encoding="utf-8") + "unexpected = true\n",
+                encoding="utf-8",
+            )
+            output_directory = Path(directory) / "session"
+
+            with self.assertRaisesRegex(ValueError, r"unknown keys: \['unexpected'\]"):
+                renderer.render_setup_prompt(
+                    repository_root,
+                    SESSIONS[0],
+                    output_directory,
+                    command_runner=_FakeCommandRunner(),
+                )
+
+            self.assertFalse(output_directory.exists())
+
+    def test_rejects_missing_experiment_config_field_before_rendering(self) -> None:
+        with self._temporary_repository() as repository_root, tempfile.TemporaryDirectory() as directory:
+            config_path = (
+                repository_root
+                / "experiments"
+                / "implementation-language-spike"
+                / "experiment.toml"
+            )
+            config_path.write_text(
+                config_path.read_text(encoding="utf-8").replace(
+                    "scored_runs = 3\n",
+                    "",
+                ),
+                encoding="utf-8",
+            )
+            output_directory = Path(directory) / "session"
+
+            with self.assertRaisesRegex(ValueError, r"missing keys: \['scored_runs'\]"):
+                renderer.render_setup_prompt(
+                    repository_root,
+                    SESSIONS[0],
+                    output_directory,
+                    command_runner=_FakeCommandRunner(),
+                )
+
+            self.assertFalse(output_directory.exists())
+
     def test_rejects_prompt_without_main_plan_reference(self) -> None:
         with self._temporary_repository() as repository_root, tempfile.TemporaryDirectory() as directory:
             prompt_path = self._prompt_path(repository_root, SESSIONS[0])
