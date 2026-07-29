@@ -945,6 +945,27 @@ class TrialInvocationHelperTests(unittest.TestCase):
             self.assertFalse(paths.stdout.is_relative_to(workspace_root.resolve()))
             self.assertFalse(paths.stderr.is_relative_to(workspace_root.resolve()))
 
+    def test_derived_trial_logs_are_ignored_by_experiment_rules(self) -> None:
+        ignored_paths = (
+            EXPERIMENT_ROOT / "results/scored/fsharp-1/events.jsonl",
+            EXPERIMENT_ROOT / "results/scored/fsharp-1/stderr.log",
+        )
+        for path in ignored_paths:
+            with self.subTest(path=path):
+                completed = subprocess.run(
+                    ("git", "check-ignore", "--quiet", "--no-index", str(path)),
+                    cwd=EXPERIMENT_ROOT,
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    msg=completed.stderr,
+                )
+
     def test_rejects_unsafe_run_ids(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)

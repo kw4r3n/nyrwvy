@@ -3,6 +3,7 @@ results/workspaces/
 results/**/*.jsonl
 results/**/*.jsonl.gz
 results/**/*.stderr.log
+results/**/stderr.log
 **/bin/
 **/obj/
 __pycache__/
