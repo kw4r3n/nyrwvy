@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "snapshot:initial",
+  "types": [
+    {
+      "id": "type:raw-user-input",
+      "name": "raw_user_input"
+    },
+    {
+      "id": "type:string",
+      "name": "string"
+    },
+    {
+      "id": "type:valid-user",
+      "name": "valid_user"
+    }
+  ],
+  "functions": [
+    {
+      "id": "function:main",
+      "name": "main",
+      "parameters": []
+    },
+    {
+      "id": "function:validate-user",
+      "name": "validate_user",
+      "parameters": [
+        {
+          "id": "parameter:input",
+          "name": "input",
+          "type_id": "type:raw-user-input"
+        }
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "id": "call:main-validate",
+      "callee_id": "function:validate-user",
+      "arguments": [
+        {
+          "parameter_id": "parameter:input",
+          "value_ref": "local:raw-input"
+        }
+      ]
+    }
+  ],
+  "obligations": []
+}
