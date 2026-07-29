@@ -372,6 +372,86 @@ class WorkspacePreparationTests(unittest.TestCase):
             self.assertTrue(destination.is_symlink())
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
+    def test_rejects_destination_parent_symlink_without_writing_through_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            target_parent = temporary_root / "target-parent"
+            target_parent.mkdir()
+            sentinel = target_parent / "keep.txt"
+            sentinel.write_bytes(b"keep exactly")
+            linked_parent = temporary_root / "linked-parent"
+            linked_parent.symlink_to(target_parent, target_is_directory=True)
+            destination = linked_parent / "workspace"
+
+            with self.assertRaisesRegex(
+                workspace.WorkspacePreparationError,
+                rf"^destination parent path must not contain symlinks: {str(linked_parent)}$",
+            ):
+                workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(sentinel.read_bytes(), b"keep exactly")
+            self.assertFalse((target_parent / "workspace").exists())
+            self._assert_no_staging_directories(target_parent / destination.name)
+
+    def test_parent_ancestor_swap_between_lstat_and_open_fails_without_writing_replacement(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            target_ancestor = temporary_root / "destination-root"
+            (target_ancestor / "nested").mkdir(parents=True)
+            displaced_ancestor = temporary_root / "displaced-destination-root"
+            destination = target_ancestor / "nested" / "workspace"
+            replacement_marker = target_ancestor / "nested" / "marker.txt"
+            original_open_component = getattr(
+                workspace,
+                "_open_verified_directory_component",
+                None,
+            )
+            swapped = False
+
+            def swap_then_open(
+                parent_fd: int,
+                component: str,
+                expected_metadata: os.stat_result,
+                display_path: Path,
+            ) -> int:
+                nonlocal swapped
+                if display_path == target_ancestor and not swapped:
+                    swapped = True
+                    target_ancestor.rename(displaced_ancestor)
+                    (target_ancestor / "nested").mkdir(parents=True)
+                    replacement_marker.write_bytes(b"replacement remains exact")
+                if original_open_component is None:
+                    raise AssertionError("production did not verify each parent component")
+                return original_open_component(
+                    parent_fd,
+                    component,
+                    expected_metadata,
+                    display_path,
+                )
+
+            with mock.patch.object(
+                workspace,
+                "_open_verified_directory_component",
+                side_effect=swap_then_open,
+                create=True,
+            ):
+                with self.assertRaisesRegex(
+                    workspace.WorkspacePreparationError,
+                    rf"^destination parent changed while opening: {str(target_ancestor)}$",
+                ):
+                    workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertTrue(swapped)
+            self.assertEqual(replacement_marker.read_bytes(), b"replacement remains exact")
+            self.assertFalse(destination.exists())
+            self.assertFalse((displaced_ancestor / "nested" / "workspace").exists())
+            self._assert_no_staging_directories(destination)
+            self._assert_no_staging_directories(displaced_ancestor / "nested" / "workspace")
+
     def test_no_replace_install_preserves_destination_created_during_preparation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
@@ -427,6 +507,81 @@ class WorkspacePreparationTests(unittest.TestCase):
 
             self.assertFalse(destination.exists())
             self._assert_no_staging_directories(destination)
+
+    def test_post_install_destination_replacement_is_preserved_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            destination = temporary_root / "workspace"
+            moved_installed = temporary_root / "moved-installed"
+            competitor = b"competitor remains byte-identical"
+            original_rename = workspace._rename_noreplace
+
+            def move_install_and_compete(
+                parent_fd: int,
+                staging_name: str,
+                destination_name: str,
+            ) -> None:
+                original_rename(parent_fd, staging_name, destination_name)
+                destination.rename(moved_installed)
+                destination.write_bytes(competitor)
+
+            with mock.patch.object(
+                workspace,
+                "_rename_noreplace",
+                side_effect=move_install_and_compete,
+            ):
+                with self.assertRaisesRegex(
+                    workspace.WorkspacePreparationError,
+                    rf"^installed destination identity changed during verification: {str(destination)}$",
+                ):
+                    workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(destination.read_bytes(), competitor)
+            self.assertTrue((moved_installed / ".git").is_dir())
+
+    def test_post_install_parent_swap_preserves_all_competitors_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            source = self._create_fake_source(temporary_root)
+            parent = temporary_root / "workspace-parent"
+            parent.mkdir()
+            destination = parent / "workspace"
+            displaced_parent = temporary_root / "displaced-parent"
+            original_parent_competitor = b"original parent competitor remains exact"
+            visible_parent_competitor = b"visible parent competitor remains exact"
+            original_rename = workspace._rename_noreplace
+
+            def swap_after_install(
+                parent_fd: int,
+                staging_name: str,
+                destination_name: str,
+            ) -> None:
+                original_rename(parent_fd, staging_name, destination_name)
+                destination.rename(parent / "moved-installed")
+                destination.write_bytes(original_parent_competitor)
+                parent.rename(displaced_parent)
+                parent.mkdir()
+                destination.write_bytes(visible_parent_competitor)
+
+            with mock.patch.object(
+                workspace,
+                "_rename_noreplace",
+                side_effect=swap_after_install,
+            ):
+                with self.assertRaisesRegex(
+                    workspace.WorkspacePreparationError,
+                    r"^(?:installed destination identity changed during verification|"
+                    r"destination parent changed during preparation):",
+                ):
+                    workspace.prepare_workspace(source, "fsharp", destination)
+
+            self.assertEqual(
+                (displaced_parent / "workspace").read_bytes(),
+                original_parent_competitor,
+            )
+            self.assertEqual(destination.read_bytes(), visible_parent_competitor)
+            self.assertTrue((displaced_parent / "moved-installed" / ".git").is_dir())
 
     def test_parent_swap_cannot_redirect_staging_or_git_subprocesses(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -55,6 +55,11 @@ class _ParentAnchor:
     inode: int
 
 
+@dataclass(slots=True)
+class _InstallState:
+    renamed: bool = False
+
+
 @dataclass(frozen=True, slots=True)
 class _TreeEntry:
     mode: str
@@ -73,16 +78,14 @@ def prepare_workspace(source: Path, language: str, destination: Path) -> Path:
         )
     if not requested_destination.name:
         raise WorkspacePreparationError(f"destination must name a new directory: {requested_destination}")
-    requested_destination.parent.mkdir(parents=True, exist_ok=True)
-    resolved_parent = requested_destination.parent.resolve(strict=True)
-    destination = resolved_parent / requested_destination.name
+    destination = requested_destination
     if destination == source or destination.is_relative_to(source):
         raise WorkspacePreparationError(f"destination must be outside source experiment tree: {destination}")
 
-    parent_anchor = _open_parent_anchor(resolved_parent)
+    parent_anchor = _open_parent_anchor(requested_destination.parent, create_missing=True)
     staging_name: str | None = None
     staging_file_descriptor: int | None = None
-    installed = False
+    install_state = _InstallState()
     try:
         _require_destination_absent(parent_anchor, destination)
         committed_source = _inspect_committed_source(source, language)
@@ -110,14 +113,15 @@ def prepare_workspace(source: Path, language: str, destination: Path) -> Path:
         _install_staging(
             parent_anchor,
             staging_name,
+            staging_file_descriptor,
             destination,
+            install_state,
         )
-        installed = True
         return destination
     finally:
         if staging_file_descriptor is not None:
             os.close(staging_file_descriptor)
-        if staging_name is not None and not installed:
+        if staging_name is not None and not install_state.renamed:
             _remove_tree_at(parent_anchor.file_descriptor, staging_name)
         os.close(parent_anchor.file_descriptor)
 
@@ -388,20 +392,71 @@ def _open_or_create_directories(root_file_descriptor: int, parts: tuple[str, ...
         raise
 
 
-def _open_parent_anchor(parent: Path) -> _ParentAnchor:
-    file_descriptor = os.open(
-        parent,
-        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
-    )
-    metadata = os.fstat(file_descriptor)
+def _open_parent_anchor(parent: Path, *, create_missing: bool) -> _ParentAnchor:
+    if not parent.is_absolute():
+        raise WorkspacePreparationError(f"destination parent must be absolute: {parent}")
+    open_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    file_descriptor = os.open(parent.anchor, open_flags)
     try:
-        path_metadata = os.stat(parent, follow_symlinks=False)
+        root_metadata = os.stat(parent.anchor, follow_symlinks=False)
+        descriptor_metadata = os.fstat(file_descriptor)
         if (
-            not stat.S_ISDIR(path_metadata.st_mode)
-            or path_metadata.st_dev != metadata.st_dev
-            or path_metadata.st_ino != metadata.st_ino
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_dev != descriptor_metadata.st_dev
+            or root_metadata.st_ino != descriptor_metadata.st_ino
         ):
-            raise WorkspacePreparationError(f"destination parent changed during preparation: {parent}")
+            raise WorkspacePreparationError(
+                f"destination parent changed while opening: {Path(parent.anchor)}"
+            )
+
+        display_path = Path(parent.anchor)
+        for component in parent.parts[1:]:
+            display_path /= component
+            try:
+                expected_metadata = os.stat(
+                    component,
+                    dir_fd=file_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                if not create_missing:
+                    raise WorkspacePreparationError(
+                        f"destination parent component is missing: {display_path}"
+                    ) from None
+                try:
+                    os.mkdir(component, mode=0o755, dir_fd=file_descriptor)
+                except FileExistsError:
+                    pass
+                try:
+                    expected_metadata = os.stat(
+                        component,
+                        dir_fd=file_descriptor,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError as error:
+                    raise WorkspacePreparationError(
+                        f"destination parent changed while opening: {display_path}"
+                    ) from error
+
+            if stat.S_ISLNK(expected_metadata.st_mode):
+                raise WorkspacePreparationError(
+                    f"destination parent path must not contain symlinks: {display_path}"
+                )
+            if not stat.S_ISDIR(expected_metadata.st_mode):
+                raise WorkspacePreparationError(
+                    f"destination parent component is not a directory: {display_path}"
+                )
+
+            next_file_descriptor = _open_verified_directory_component(
+                file_descriptor,
+                component,
+                expected_metadata,
+                display_path,
+            )
+            os.close(file_descriptor)
+            file_descriptor = next_file_descriptor
+
+        metadata = os.fstat(file_descriptor)
     except BaseException:
         os.close(file_descriptor)
         raise
@@ -413,21 +468,55 @@ def _open_parent_anchor(parent: Path) -> _ParentAnchor:
     )
 
 
+def _open_verified_directory_component(
+    parent_file_descriptor: int,
+    component: str,
+    expected_metadata: os.stat_result,
+    display_path: Path,
+) -> int:
+    try:
+        file_descriptor = os.open(
+            component,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            dir_fd=parent_file_descriptor,
+        )
+    except OSError as error:
+        raise WorkspacePreparationError(
+            f"destination parent changed while opening: {display_path}"
+        ) from error
+    try:
+        actual_metadata = os.fstat(file_descriptor)
+        if (
+            not stat.S_ISDIR(actual_metadata.st_mode)
+            or actual_metadata.st_dev != expected_metadata.st_dev
+            or actual_metadata.st_ino != expected_metadata.st_ino
+        ):
+            raise WorkspacePreparationError(
+                f"destination parent changed while opening: {display_path}"
+            )
+        return file_descriptor
+    except BaseException:
+        os.close(file_descriptor)
+        raise
+
+
 def _verify_parent_anchor(parent_anchor: _ParentAnchor) -> None:
     try:
-        metadata = os.stat(parent_anchor.path, follow_symlinks=False)
-    except FileNotFoundError as error:
+        reopened_anchor = _open_parent_anchor(parent_anchor.path, create_missing=False)
+    except (OSError, WorkspacePreparationError) as error:
         raise WorkspacePreparationError(
             f"destination parent changed during preparation: {parent_anchor.path}"
         ) from error
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or metadata.st_dev != parent_anchor.device
-        or metadata.st_ino != parent_anchor.inode
-    ):
-        raise WorkspacePreparationError(
-            f"destination parent changed during preparation: {parent_anchor.path}"
-        )
+    try:
+        if (
+            reopened_anchor.device != parent_anchor.device
+            or reopened_anchor.inode != parent_anchor.inode
+        ):
+            raise WorkspacePreparationError(
+                f"destination parent changed during preparation: {parent_anchor.path}"
+            )
+    finally:
+        os.close(reopened_anchor.file_descriptor)
 
 
 def _require_destination_absent(parent_anchor: _ParentAnchor, destination: Path) -> None:
@@ -461,7 +550,9 @@ def _create_private_staging(parent_anchor: _ParentAnchor, destination_name: str)
 def _install_staging(
     parent_anchor: _ParentAnchor,
     staging_name: str,
+    staging_file_descriptor: int,
     destination: Path,
+    install_state: _InstallState,
 ) -> None:
     _verify_parent_anchor(parent_anchor)
     try:
@@ -474,11 +565,47 @@ def _install_staging(
         raise WorkspacePreparationError(
             f"destination appeared during preparation: {destination}"
         ) from error
+    install_state.renamed = True
+    _verify_installed_destination(
+        parent_anchor.file_descriptor,
+        destination.name,
+        staging_file_descriptor,
+        destination,
+    )
+    _verify_parent_anchor(parent_anchor)
+    _verify_installed_destination(
+        parent_anchor.file_descriptor,
+        destination.name,
+        staging_file_descriptor,
+        destination,
+    )
+
+
+def _verify_installed_destination(
+    parent_file_descriptor: int,
+    destination_name: str,
+    staging_file_descriptor: int,
+    destination: Path,
+) -> None:
+    installed_metadata = os.fstat(staging_file_descriptor)
     try:
-        _verify_parent_anchor(parent_anchor)
-    except WorkspacePreparationError:
-        _remove_tree_at(parent_anchor.file_descriptor, destination.name)
-        raise
+        destination_metadata = os.stat(
+            destination_name,
+            dir_fd=parent_file_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError as error:
+        raise WorkspacePreparationError(
+            f"installed destination identity changed during verification: {destination}"
+        ) from error
+    if (
+        not stat.S_ISDIR(destination_metadata.st_mode)
+        or destination_metadata.st_dev != installed_metadata.st_dev
+        or destination_metadata.st_ino != installed_metadata.st_ino
+    ):
+        raise WorkspacePreparationError(
+            f"installed destination identity changed during verification: {destination}"
+        )
 
 
 def _rename_noreplace(
