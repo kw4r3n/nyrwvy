@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nayamnyam.Spike.Core", "src/Nayamnyam.Spike.Core/Nayamnyam.Spike.Core.fsproj", "{A7FCB8D2-2D2E-4B9C-8CC0-74DE1CA8F97D}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nayamnyam.Spike.Cli", "src/Nayamnyam.Spike.Cli/Nayamnyam.Spike.Cli.fsproj", "{4C9D61A8-268D-4383-BA14-0A74EC6F3D69}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nayamnyam.Spike.Tests", "tests/Nayamnyam.Spike.Tests/Nayamnyam.Spike.Tests.fsproj", "{3D0EAA1C-6176-46E3-9B7D-63D5EE1460C2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A7FCB8D2-2D2E-4B9C-8CC0-74DE1CA8F97D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A7FCB8D2-2D2E-4B9C-8CC0-74DE1CA8F97D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A7FCB8D2-2D2E-4B9C-8CC0-74DE1CA8F97D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A7FCB8D2-2D2E-4B9C-8CC0-74DE1CA8F97D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C9D61A8-268D-4383-BA14-0A74EC6F3D69}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C9D61A8-268D-4383-BA14-0A74EC6F3D69}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C9D61A8-268D-4383-BA14-0A74EC6F3D69}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C9D61A8-268D-4383-BA14-0A74EC6F3D69}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D0EAA1C-6176-46E3-9B7D-63D5EE1460C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D0EAA1C-6176-46E3-9B7D-63D5EE1460C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D0EAA1C-6176-46E3-9B7D-63D5EE1460C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D0EAA1C-6176-46E3-9B7D-63D5EE1460C2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

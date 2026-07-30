@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Ids.fs" />
+    <Compile Include="Domain.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="Operations.fs" />
+    <Compile Include="CanonicalJson.fs" />
+    <Compile Include="Scenarios.fs" />
+  </ItemGroup>
+</Project>
