@@ -15,17 +15,22 @@ EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(EXPERIMENT_ROOT))
 
 from scripts.run_public_checks import (  # noqa: E402
+    PUBLIC_CHECK_NAMES,
     PublicCheckError,
+    atomic_write_bytes,
     capture_command,
+    check_artifact_paths,
+    read_artifact_bytes,
     resolve_workspace,
     run_public_checks,
+    validate_artifact_paths,
     write_json,
 )
 
 
 _EXPECTED_HIDDEN_PASSES = (
     "duplicate-name parameter obligations",
-    "same-name rename is no change",
+    "same-name function and type renames are no change",
     "schema v2 migration and canonical stability",
     "type rename preserves identity and references",
 )
@@ -45,13 +50,34 @@ def evaluate(
             f"hidden evaluation requires regular marker file: {marker}"
         )
 
+    public_output = layout.workspace / "public-checks.json"
+    hidden_output = layout.workspace / "hidden-checks.json"
+    evaluation_output = output_path or layout.workspace / "evaluation.json"
+    public_artifact_root = (
+        layout.workspace / ".nayamnyam-evaluation" / "public"
+    )
+    hidden_artifact_root = (
+        layout.workspace / ".nayamnyam-evaluation" / "hidden"
+    )
+    validate_artifact_paths(
+        (
+            public_output,
+            hidden_output,
+            evaluation_output,
+            *check_artifact_paths(public_artifact_root, PUBLIC_CHECK_NAMES),
+            *check_artifact_paths(
+                hidden_artifact_root,
+                ("hidden_semantic_checks",),
+            ),
+        )
+    )
     public_result = run_public_checks(
         language,
         layout.workspace,
-        output_path=layout.workspace / "public-checks.json",
+        output_path=public_output,
     )
     hidden_result = _run_hidden_checks(language, layout.workspace, layout.core_project)
-    write_json(layout.workspace / "hidden-checks.json", hidden_result)
+    write_json(hidden_output, hidden_result)
 
     result: dict[str, object] = {
         "schema_version": 1,
@@ -65,8 +91,7 @@ def evaluate(
             public_result["modified_protected_files"]
         ),
     }
-    output = (output_path or layout.workspace / "evaluation.json").resolve()
-    write_json(output, result)
+    write_json(evaluation_output, result)
     return result
 
 
@@ -85,7 +110,6 @@ def _run_hidden_checks(
         raise PublicCheckError(f"hidden evaluator project is missing: {source_project}")
 
     artifact_root = workspace / ".nayamnyam-evaluation" / "hidden"
-    artifact_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=".nayamnyam-hidden-",
         dir=workspace,
@@ -133,12 +157,13 @@ def _run_hidden_checks(
 
     stdout_path = workspace / str(check["stdout_path"])
     stderr_path = workspace / str(check["stderr_path"])
-    stdout_lines = stdout_path.read_text(
-        encoding="utf-8",
+    stdout_lines = read_artifact_bytes(stdout_path).decode(
+        "utf-8",
         errors="replace",
     ).splitlines()
-    stderr_lines = stderr_path.read_text(
-        encoding="utf-8",
+    stderr_bytes = read_artifact_bytes(stderr_path)
+    stderr_lines = stderr_bytes.decode(
+        "utf-8",
         errors="replace",
     ).splitlines()
     reported_passes = sorted(
@@ -160,8 +185,10 @@ def _run_hidden_checks(
             details.append("missing PASS lines: " + ", ".join(missing))
         if unexpected:
             details.append("unexpected PASS lines: " + ", ".join(unexpected))
-        with stderr_path.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write("; ".join(details) + "\n")
+        atomic_write_bytes(
+            stderr_path,
+            stderr_bytes + ("; ".join(details) + "\n").encode("utf-8"),
+        )
         check["passed"] = False
     checks = [check]
     checks.sort(key=lambda item: str(item["name"]))
@@ -202,11 +229,13 @@ def main(arguments: list[str] | None = None) -> int:
             parsed.workspace,
             output_path=parsed.output,
         )
+        output = parsed.output or parsed.workspace.resolve() / "evaluation.json"
+        sys.stdout.write(
+            read_artifact_bytes(output).decode("utf-8")
+        )
     except PublicCheckError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    output = parsed.output or parsed.workspace.resolve() / "evaluation.json"
-    sys.stdout.write(output.resolve().read_text(encoding="utf-8"))
     return (
         0
         if bool(result["public_passed"]) and bool(result["hidden_passed"])

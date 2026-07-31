@@ -4,6 +4,7 @@ using Nayamnyam.Spike;
 
 using CallId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.CallTag>;
 using FunctionId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.FunctionTag>;
+using ObligationId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.ObligationTag>;
 using ParameterId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.ParameterTag>;
 using TransactionId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.TransactionTag>;
 using TypeId = Nayamnyam.Spike.StableId<Nayamnyam.Spike.TypeTag>;
@@ -22,7 +23,9 @@ internal static class Program
             (
                 "duplicate-name parameter obligations",
                 DuplicateNameParameterObligations),
-            ("same-name rename is no change", SameNameRenameIsNoChange),
+            (
+                "same-name function and type renames are no change",
+                SameNameRenameIsNoChange),
             (
                 "type rename preserves identity and references",
                 TypeRenamePreservesIdentityAndReferences),
@@ -54,18 +57,36 @@ internal static class Program
         var functionId = new FunctionId("function:validate-user");
         var existingParameterId = new ParameterId("parameter:input");
         var addedParameterId = new ParameterId("parameter:duplicate-input");
+        var expectedConflictId = new ObligationId(
+            "obligation:duplicate-name:validate-user:input:duplicate-input");
+        var expectedMissingId = new ObligationId(
+            "obligation:duplicate-name:main-validate:duplicate-input");
+        ObligationId[] expectedObligationIds =
+        [
+            expectedMissingId,
+            expectedConflictId,
+        ];
+        var parameter = new Parameter(
+            addedParameterId,
+            "input",
+            new TypeId("type:string"));
         var result = Operations.AddParameter(
             snapshot,
             snapshot.Id,
             new TransactionId("transaction:duplicate-name"),
             functionId,
-            new Parameter(
-                addedParameterId,
-                "input",
-                new TypeId("type:string")));
+            parameter);
         var incomplete = RequireType<TransactionResult.Incomplete>(
             result,
             "Duplicate-name add must return Incomplete.");
+        var originalFunction = snapshot.Functions.Single(
+            function => function.Id == functionId);
+        var changedFunction = incomplete.Snapshot.Functions.Single(
+            function => function.Id == functionId);
+        SequenceEqual(
+            originalFunction.Parameters.Append(parameter),
+            changedFunction.Parameters,
+            "Duplicate-name add did not append the requested parameter.");
 
         var conflicts = incomplete.Snapshot.Obligations
             .Where(obligation =>
@@ -90,6 +111,10 @@ internal static class Program
             addedParameterId,
             conflict.AddedParameterId,
             "Conflict has the wrong added parameter ID.");
+        Equal(
+            expectedConflictId,
+            conflicts.Single().Id,
+            "Conflict obligation has the wrong derived ID.");
 
         var missing = RequireType<ObligationKind.MissingArgument>(
             missingArguments.Single().Kind,
@@ -102,32 +127,76 @@ internal static class Program
             addedParameterId,
             missing.ParameterId,
             "Missing argument has the wrong parameter ID.");
-        Equal(3, incomplete.Diff.Count, "Duplicate-name add diff has the wrong size.");
-        Ensure(
-            conflicts.Concat(missingArguments).All(item =>
-                incomplete.Blocking.Contains(item.Id)),
-            "Created obligations are not all blocking.");
+        Equal(
+            expectedMissingId,
+            missingArguments.Single().Id,
+            "Missing-argument obligation has the wrong derived ID.");
+        SequenceEqual(
+            expectedObligationIds,
+            incomplete.Snapshot.Obligations.Select(obligation => obligation.Id),
+            "Candidate obligations are not exactly the derived obligations in "
+                + "ordinal order.");
+        SequenceEqual(
+            expectedObligationIds,
+            incomplete.Blocking,
+            "Blocking obligation IDs are not exact and ordinally sorted.");
+        SemanticChange[] expectedDiff =
+        [
+            new SemanticChange.ParameterAdded(functionId, addedParameterId),
+            new SemanticChange.ObligationCreated(expectedMissingId),
+            new SemanticChange.ObligationCreated(expectedConflictId),
+        ];
+        SequenceEqual(
+            expectedDiff,
+            incomplete.Diff,
+            "Duplicate-name semantic diff is not ParameterAdded followed by "
+                + "ordinal ObligationCreated changes.");
     }
 
     private static void SameNameRenameIsNoChange()
     {
         var snapshot = LoadInitial();
+        AssertSameNameNoChange(
+            snapshot,
+            new TransactionId("transaction:unused-function-no-change"),
+            new RenameTarget.Function(
+                new FunctionId("function:validate-user")),
+            "validate_user",
+            "Function");
+        AssertSameNameNoChange(
+            snapshot,
+            new TransactionId("transaction:unused-type-no-change"),
+            new RenameTarget.Type(
+                new TypeId("type:raw-user-input")),
+            "raw_user_input",
+            "Type");
+    }
+
+    private static void AssertSameNameNoChange(
+        Snapshot snapshot,
+        TransactionId transactionId,
+        RenameTarget target,
+        string currentName,
+        string targetLabel)
+    {
         var result = Operations.RenameSymbol(
             snapshot,
             snapshot.Id,
-            new TransactionId("transaction:unused-no-change"),
-            new RenameTarget.Function(
-                new FunctionId("function:validate-user")),
-            "validate_user");
+            transactionId,
+            target,
+            currentName);
         var noChange = RequireType<TransactionResult.NoChange>(
             result,
-            "Same-name rename must return NoChange.");
+            $"{targetLabel} same-name rename must return NoChange.");
 
         Equal(
             snapshot.Id,
             noChange.BaseSnapshotId,
-            "NoChange did not preserve the base snapshot ID.");
-        Equal(0, noChange.Diff.Count, "NoChange semantic diff must be empty.");
+            $"{targetLabel} NoChange did not preserve the base snapshot ID.");
+        Equal(
+            0,
+            noChange.Diff.Count,
+            $"{targetLabel} NoChange semantic diff must be empty.");
     }
 
     private static void TypeRenamePreservesIdentityAndReferences()
@@ -214,6 +283,10 @@ internal static class Program
             ["transaction:migrated"],
             ObligationOrigins(migrated),
             "Migrated obligation has the wrong origin transaction.");
+        SequenceEqual(
+            ["id,kind,status,origin_transaction_id"],
+            ObligationPropertyOrders(migrated),
+            "Migrated obligation properties are not in canonical order.");
         var reloaded = CanonicalJson.WriteSnapshot(
             CanonicalJson.ReadSnapshot(migrated));
         SequenceEqual(
@@ -234,10 +307,15 @@ internal static class Program
         var incomplete = RequireType<TransactionResult.Incomplete>(
             nativeResult,
             "Native obligation setup must return Incomplete.");
+        var nativeJson = CanonicalJson.WriteSnapshot(incomplete.Snapshot);
         SequenceEqual(
             ["transaction:native"],
-            ObligationOrigins(CanonicalJson.WriteSnapshot(incomplete.Snapshot)),
+            ObligationOrigins(nativeJson),
             "Native v2 obligation lost its creating transaction.");
+        SequenceEqual(
+            ["id,kind,status,origin_transaction_id"],
+            ObligationPropertyOrders(nativeJson),
+            "Native obligation properties are not in canonical order.");
     }
 
     private static Snapshot LoadInitial()
@@ -255,6 +333,18 @@ internal static class Program
                 obligation.GetProperty("origin_transaction_id").GetString()
                 ?? throw new InvalidOperationException(
                     "origin_transaction_id must not be null."))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ObligationPropertyOrders(byte[] json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement
+            .GetProperty("obligations")
+            .EnumerateArray()
+            .Select(obligation => string.Join(
+                ",",
+                obligation.EnumerateObject().Select(property => property.Name)))
             .ToArray();
     }
 
@@ -281,14 +371,6 @@ internal static class Program
         where T : class
     {
         return value as T ?? throw new InvalidOperationException(message);
-    }
-
-    private static void Ensure(bool condition, string message)
-    {
-        if (!condition)
-        {
-            throw new InvalidOperationException(message);
-        }
     }
 
     private static void Equal<T>(T expected, T actual, string message)

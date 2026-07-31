@@ -46,6 +46,22 @@ module Program =
         let functionId = FunctionId.create "function:validate-user"
         let existingParameterId = ParameterId.create "parameter:input"
         let addedParameterId = ParameterId.create "parameter:duplicate-input"
+        let transactionId = TransactionId.create "transaction:duplicate-name"
+        let expectedConflictId =
+            ObligationId.create
+                "obligation:duplicate-name:validate-user:input:duplicate-input"
+
+        let expectedMissingId =
+            ObligationId.create
+                "obligation:duplicate-name:main-validate:duplicate-input"
+
+        let expectedObligationIds =
+            [ expectedConflictId; expectedMissingId ]
+            |> List.sortWith (fun left right ->
+                StringComparer.Ordinal.Compare(
+                    StableId.value left,
+                    StableId.value right
+                ))
 
         let parameter: Parameter =
             {
@@ -58,12 +74,27 @@ module Program =
             Operations.addParameter
                 snapshot
                 snapshot.Id
-                (TransactionId.create "transaction:duplicate-name")
+                transactionId
                 functionId
                 parameter
 
         match result with
         | Incomplete (candidate, diff, blocking) ->
+            let originalFunction =
+                snapshot.Functions
+                |> List.find (fun functionEntity ->
+                    functionEntity.Id = functionId)
+
+            let changedFunction =
+                candidate.Functions
+                |> List.find (fun functionEntity ->
+                    functionEntity.Id = functionId)
+
+            equal
+                (originalFunction.Parameters @ [ parameter ])
+                changedFunction.Parameters
+                "Duplicate-name add did not append the requested parameter."
+
             let conflictIds =
                 candidate.Obligations
                 |> List.choose (fun obligation ->
@@ -117,11 +148,33 @@ module Program =
 
             equal 1 (List.length conflictIds) "Expected one conflict obligation."
             equal 1 (List.length missingIds) "Expected one missing-argument obligation."
-            equal 3 (List.length diff) "Duplicate-name add diff has the wrong size."
+            equal
+                [ expectedConflictId ]
+                conflictIds
+                "Conflict obligation has the wrong derived ID."
 
-            ensure
-                (List.forall (fun id -> List.contains id blocking) (conflictIds @ missingIds))
-                "Created obligations are not all blocking."
+            equal
+                [ expectedMissingId ]
+                missingIds
+                "Missing-argument obligation has the wrong derived ID."
+
+            equal
+                expectedObligationIds
+                (candidate.Obligations
+                 |> List.map (fun obligation -> obligation.Id))
+                "Candidate obligations are not exactly the derived obligations in ordinal order."
+
+            equal
+                expectedObligationIds
+                blocking
+                "Blocking obligation IDs are not exact and ordinally sorted."
+
+            equal
+                (ParameterAdded(functionId, addedParameterId)
+                 :: (expectedObligationIds
+                     |> List.map ObligationCreated))
+                diff
+                "Duplicate-name semantic diff is not ParameterAdded followed by ordinal ObligationCreated changes."
         | Rejected (baseSnapshotId, diagnostics) ->
             fail
                 $"Duplicate-name add was rejected for {StableId.value baseSnapshotId} with {List.length diagnostics} diagnostics."
@@ -135,33 +188,51 @@ module Program =
     let private sameNameRenameIsNoChange () =
         let snapshot = loadInitial ()
 
-        let result =
-            Operations.renameSymbol
-                snapshot
-                snapshot.Id
-                (TransactionId.create "transaction:unused-no-change")
-                (RenameTarget.Function(
-                    FunctionId.create "function:validate-user"
-                ))
-                "validate_user"
+        let check target currentName transactionId targetLabel =
+            let result =
+                Operations.renameSymbol
+                    snapshot
+                    snapshot.Id
+                    transactionId
+                    target
+                    currentName
 
-        match result with
-        | NoChange (baseSnapshotId, diff) ->
-            equal
-                snapshot.Id
-                baseSnapshotId
-                "NoChange did not preserve the base snapshot ID."
+            match result with
+            | NoChange (baseSnapshotId, diff) ->
+                equal
+                    snapshot.Id
+                    baseSnapshotId
+                    $"{targetLabel} NoChange did not preserve the base snapshot ID."
 
-            equal 0 (List.length diff) "NoChange semantic diff must be empty."
-        | Rejected (baseSnapshotId, diagnostics) ->
-            fail
-                $"Same-name rename was rejected for {StableId.value baseSnapshotId} with {List.length diagnostics} diagnostics."
-        | Incomplete (candidate, diff, blocking) ->
-            fail
-                $"Same-name rename produced incomplete snapshot {StableId.value candidate.Id} with {List.length diff} changes and {List.length blocking} blockers."
-        | Executable (candidate, diff) ->
-            fail
-                $"Same-name rename produced executable snapshot {StableId.value candidate.Id} with {List.length diff} changes."
+                equal
+                    0
+                    (List.length diff)
+                    $"{targetLabel} NoChange semantic diff must be empty."
+            | Rejected (baseSnapshotId, diagnostics) ->
+                fail
+                    $"{targetLabel} same-name rename was rejected for {StableId.value baseSnapshotId} with {List.length diagnostics} diagnostics."
+            | Incomplete (candidate, diff, blocking) ->
+                fail
+                    $"{targetLabel} same-name rename produced incomplete snapshot {StableId.value candidate.Id} with {List.length diff} changes and {List.length blocking} blockers."
+            | Executable (candidate, diff) ->
+                fail
+                    $"{targetLabel} same-name rename produced executable snapshot {StableId.value candidate.Id} with {List.length diff} changes."
+
+        check
+            (RenameTarget.Function(
+                FunctionId.create "function:validate-user"
+            ))
+            "validate_user"
+            (TransactionId.create "transaction:unused-function-no-change")
+            "Function"
+
+        check
+            (RenameTarget.Type(
+                TypeId.create "type:raw-user-input"
+            ))
+            "raw_user_input"
+            (TransactionId.create "transaction:unused-type-no-change")
+            "Type"
 
     let private typeRenamePreservesIdentityAndReferences () =
         let snapshot = loadInitial ()
@@ -321,6 +392,16 @@ module Program =
             obligation.GetProperty("origin_transaction_id").GetString())
         |> Seq.toList
 
+    let private obligationPropertyOrders (json: string) =
+        use document = JsonDocument.Parse json
+
+        document.RootElement.GetProperty("obligations").EnumerateArray()
+        |> Seq.map (fun obligation ->
+            obligation.EnumerateObject()
+            |> Seq.map (fun property -> property.Name)
+            |> String.concat ",")
+        |> Seq.toList
+
     let private schemaV2MigrationAndCanonicalStability () =
         let migrated =
             CanonicalJson.readSnapshot migrationFixture
@@ -337,6 +418,11 @@ module Program =
             [ "transaction:migrated" ]
             (obligationOrigins migrated)
             "Migrated obligation has the wrong origin transaction."
+
+        equal
+            [ "id,kind,status,origin_transaction_id" ]
+            (obligationPropertyOrders migrated)
+            "Migrated obligation properties are not in canonical order."
 
         let reloaded =
             CanonicalJson.readSnapshot migrated
@@ -362,12 +448,17 @@ module Program =
         | Incomplete (candidate, diff, blocking) ->
             ignore diff
             ignore blocking
+            let nativeJson = CanonicalJson.writeSnapshot candidate
 
             equal
                 [ "transaction:native" ]
-                (CanonicalJson.writeSnapshot candidate
-                 |> obligationOrigins)
+                (obligationOrigins nativeJson)
                 "Native v2 obligation lost its creating transaction."
+
+            equal
+                [ "id,kind,status,origin_transaction_id" ]
+                (obligationPropertyOrders nativeJson)
+                "Native obligation properties are not in canonical order."
         | Rejected (baseSnapshotId, diagnostics) ->
             fail
                 $"Native obligation setup was rejected for {StableId.value baseSnapshotId} with {List.length diagnostics} diagnostics."
@@ -381,7 +472,7 @@ module Program =
     let private tests =
         [
             "duplicate-name parameter obligations", duplicateNameParameterObligations
-            "same-name rename is no change", sameNameRenameIsNoChange
+            "same-name function and type renames are no change", sameNameRenameIsNoChange
             "type rename preserves identity and references", typeRenamePreservesIdentityAndReferences
             "schema v2 migration and canonical stability", schemaV2MigrationAndCanonicalStability
         ]
