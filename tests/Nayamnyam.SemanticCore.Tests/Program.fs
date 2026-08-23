@@ -31,6 +31,9 @@ module Program =
     let private valueId (value: string) : ValueId =
         requireId<ValueIdTag> value
 
+    let private obligationId (value: string) : ObligationId =
+        requireId<ObligationIdTag> value
+
     let private requireSnapshot result =
         match result with
         | Ok snapshot ->
@@ -61,9 +64,15 @@ module Program =
             { Id = parameterId "parameter:raw-input"
               DisplayName = "raw_input" }
 
+        let rawValue: ValueEntity =
+            { Id = valueId "value:raw-input" }
+
+        let policyValue: ValueEntity =
+            { Id = valueId "value:policy" }
+
         let rawBinding: ArgumentBinding =
             { ParameterId = rawInput.Id
-              ValueId = valueId "value:raw-input" }
+              ValueId = rawValue.Id }
 
         let validateUser: FunctionEntity =
             { Id = functionId "function:validate-user"
@@ -83,7 +92,11 @@ module Program =
               Calls = [ validateCall ] }
 
         let snapshot =
-            Snapshot.create (snapshotId "snapshot:0") 0 [ validateUser; main ]
+            Snapshot.create
+                (snapshotId "snapshot:0")
+                0
+                [ rawValue; policyValue ]
+                [ validateUser; main ]
             |> requireSnapshot
 
         snapshot, validateUser.Id, rawInput.Id, validateCall.Id
@@ -113,6 +126,19 @@ module Program =
           FunctionId = targetFunctionId
           Parameter = parameter }
 
+    let private createResolveMissingArgumentRequest
+        baseSnapshot
+        proposedSnapshotId
+        obligationId
+        valueId
+        requestTransactionId
+        : ResolveMissingArgumentRequest =
+        { TransactionId = requestTransactionId
+          BaseSnapshot = baseSnapshot
+          ProposedSnapshotId = proposedSnapshotId
+          ObligationId = obligationId
+          ValueId = valueId }
+
     let private testBlankStableIdIsRejected () =
         match StableId.create<FunctionIdTag> "   " with
         | Error StableIdError.BlankValue ->
@@ -139,6 +165,7 @@ module Program =
             Snapshot.create
                 (snapshotId "snapshot:duplicate")
                 0
+                []
                 [ firstFunction; secondFunction ]
         with
         | Error(SnapshotError.DuplicateFunctionId foundId) ->
@@ -154,6 +181,19 @@ module Program =
         | Ok createdSnapshot ->
             failwith
                 $"Duplicate function IDs were accepted in {StableId.value (Snapshot.id createdSnapshot)}."
+
+    let private testDuplicateValueIdsAreRejected () =
+        let duplicateValue: ValueEntity =
+            { Id = valueId "value:duplicate" }
+
+        assertSnapshotError
+            (SnapshotError.DuplicateValueId duplicateValue.Id)
+            (Snapshot.create
+                (snapshotId "snapshot:duplicate-value")
+                0
+                [ duplicateValue; duplicateValue ]
+                [])
+            "Duplicate value IDs were accepted."
 
     let private testDuplicateParameterIdsAcrossFunctionsAreRejected () =
         let duplicateParameter: Parameter =
@@ -177,6 +217,7 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:duplicate-parameter")
                 0
+                []
                 [ firstFunction; secondFunction ])
             "Duplicate parameter IDs across functions were accepted."
 
@@ -199,6 +240,7 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:unknown-target")
                 0
+                []
                 [ unknownTargetCaller ])
             "A call with an unknown target function was accepted."
 
@@ -246,6 +288,7 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:mismatched-key")
                 0
+                []
                 [ targetFunction; otherFunction; mismatchedKeyCaller ])
             "An argument binding whose key disagreed with its payload was accepted."
 
@@ -273,6 +316,7 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:wrong-owner")
                 0
+                []
                 [ targetFunction; otherFunction; wrongOwnerCaller ])
             "An argument binding for a different target function was accepted."
 
@@ -298,8 +342,35 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:unknown-parameter")
                 0
+                []
                 [ targetFunction; unknownParameterCaller ])
             "A call with an unknown argument parameter was accepted."
+
+        let unknownValueId = valueId "value:unknown"
+
+        let unknownValueBinding: ArgumentBinding =
+            { ParameterId = targetParameter.Id
+              ValueId = unknownValueId }
+
+        let unknownValueCall: Call =
+            { Id = callId "call:unknown-value"
+              TargetFunctionId = targetFunction.Id
+              ArgumentBindings = Map.ofList [ (targetParameter.Id, unknownValueBinding) ] }
+
+        let unknownValueCaller: FunctionEntity =
+            { Id = functionId "function:unknown-value-caller"
+              DisplayName = "unknown_value_caller"
+              Parameters = []
+              Calls = [ unknownValueCall ] }
+
+        assertSnapshotError
+            (SnapshotError.UnknownArgumentValue(unknownValueCall.Id, unknownValueId))
+            (Snapshot.create
+                (snapshotId "snapshot:unknown-value")
+                0
+                []
+                [ targetFunction; unknownValueCaller ])
+            "A call with an unknown argument value was accepted."
 
         let missingArgumentCall: Call =
             { Id = callId "call:missing-argument"
@@ -317,6 +388,7 @@ module Program =
             (Snapshot.create
                 (snapshotId "snapshot:missing-argument")
                 0
+                []
                 [ targetFunction; missingArgumentCaller ])
             "A call with a missing required argument was accepted."
 
@@ -801,7 +873,11 @@ module Program =
 
             match semanticDiff with
             | [ SemanticChange.ParameterAdded(changedFunctionId, changedParameterId)
-                SemanticChange.ObligationCreated createdObligationId ] ->
+                SemanticChange.ObligationCreated createdObligationId
+                SemanticChange.ExecutionReadinessChanged(
+                    ExecutionReadiness.Executable,
+                    ExecutionReadiness.Incomplete
+                ) ] ->
                 assertEqual
                     validateUserId
                     changedFunctionId
@@ -829,6 +905,442 @@ module Program =
                 $"Adding a parameter unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
         | TransactionResult.Rejected operationError ->
             failwith $"Adding a parameter was rejected: {operationError}."
+
+    let private createIncompletePolicySnapshot () =
+        let snapshot, validateUserId, _, validateCallId = createBaseline ()
+
+        let policyParameter: Parameter =
+            { Id = parameterId "parameter:policy"
+              DisplayName = "policy" }
+
+        let addRequest =
+            createAddParameterRequest
+                (Snapshot.reference snapshot)
+                (snapshotId "snapshot:policy-incomplete")
+                validateUserId
+                (transactionId "transaction:add-policy")
+                policyParameter
+
+        match Transactions.addParameter addRequest snapshot with
+        | TransactionResult.Incomplete(committedSnapshot, _, [ obligation ]) ->
+            committedSnapshot, policyParameter, validateCallId, obligation
+        | TransactionResult.Incomplete(_, _, blockingObligations) ->
+            failwith $"Expected one blocking obligation, found {blockingObligations}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Adding the policy parameter unexpectedly committed executable snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Adding the policy parameter unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+        | TransactionResult.Rejected operationError ->
+            failwith $"Adding the policy parameter was rejected: {operationError}."
+
+    let private assertCallHasNoArgumentBinding
+        (callId: CallId)
+        (parameterId: ParameterId)
+        (snapshot: Snapshot)
+        message
+        =
+        let matchingCalls =
+            Snapshot.allCalls snapshot
+            |> List.map snd
+            |> List.filter (fun call -> call.Id = callId)
+
+        match matchingCalls with
+        | [ call ] ->
+            assertEqual None (Map.tryFind parameterId call.ArgumentBindings) message
+        | [] ->
+            failwith $"Expected call {StableId.value callId} to remain in the base snapshot."
+        | firstCall :: remainingCalls ->
+            failwith
+                $"Expected one call {StableId.value callId}, found {firstCall}; {remainingCalls}."
+
+    let private testResolveMissingArgumentRestoresExecutable () =
+        let incompleteSnapshot, policyParameter, validateCallId, obligation =
+            createIncompletePolicySnapshot ()
+
+        let policyValueId = valueId "value:policy"
+        let resolveTransactionId = transactionId "transaction:resolve-policy"
+
+        let request =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference incompleteSnapshot)
+                (snapshotId "snapshot:policy-resolved")
+                obligation.Id
+                policyValueId
+                resolveTransactionId
+
+        match Transactions.resolveMissingArgument request incompleteSnapshot with
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            assertEqual
+                2
+                (Snapshot.revision committedSnapshot)
+                "Resolving the final obligation did not increment the revision."
+
+            assertEqual
+                []
+                (Snapshot.openObligations committedSnapshot)
+                "Resolving the final obligation left a blocking obligation open."
+
+            let matchingCalls =
+                Snapshot.allCalls committedSnapshot
+                |> List.map snd
+                |> List.filter (fun call -> call.Id = validateCallId)
+
+            match matchingCalls with
+            | [ resolvedCall ] ->
+                assertEqual
+                    (Some
+                        { ParameterId = policyParameter.Id
+                          ValueId = policyValueId })
+                    (Map.tryFind policyParameter.Id resolvedCall.ArgumentBindings)
+                    "Resolution did not attach the requested value to the missing parameter."
+            | [] ->
+                failwith "Resolution removed the affected call."
+            | firstCall :: remainingCalls ->
+                failwith
+                    $"Expected one affected call after resolution, found {firstCall}; {remainingCalls}."
+
+            match Snapshot.tryFindObligation obligation.Id committedSnapshot with
+            | Some resolvedObligation ->
+                match resolvedObligation.Status with
+                | ObligationStatus.Open ->
+                    failwith "Resolution left the obligation open."
+                | ObligationStatus.Resolved resolution ->
+                    assertEqual
+                        resolveTransactionId
+                        resolution.TransactionId
+                        "Resolution provenance recorded the wrong transaction."
+
+                    assertEqual
+                        policyValueId
+                        resolution.ValueId
+                        "Resolution provenance recorded the wrong value."
+            | None ->
+                failwith "Resolution removed the obligation instead of retaining its history."
+
+            assertEqual
+                [ SemanticChange.ArgumentBound(
+                      validateCallId,
+                      policyParameter.Id,
+                      policyValueId
+                  )
+                  SemanticChange.ObligationResolved obligation.Id
+                  SemanticChange.ExecutionReadinessChanged(
+                      ExecutionReadiness.Incomplete,
+                      ExecutionReadiness.Executable
+                  ) ]
+                semanticDiff
+                "Resolution produced the wrong semantic diff."
+
+            match Snapshot.tryFindObligation obligation.Id incompleteSnapshot with
+            | Some originalObligation ->
+                assertEqual
+                    ObligationStatus.Open
+                    originalObligation.Status
+                    "Resolution mutated the base snapshot obligation."
+            | None ->
+                failwith "The base snapshot lost its obligation during resolution."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Resolving the final obligation left incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Resolving an open obligation unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+        | TransactionResult.Rejected operationError ->
+            failwith $"Resolving an open obligation was rejected: {operationError}."
+
+    let private testResolveMissingArgumentRejectsUnknownValue () =
+        let incompleteSnapshot, policyParameter, validateCallId, obligation =
+            createIncompletePolicySnapshot ()
+
+        let request =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference incompleteSnapshot)
+                (snapshotId "snapshot:policy-unknown-value")
+                obligation.Id
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-unknown-value")
+
+        match Transactions.resolveMissingArgument request incompleteSnapshot with
+        | TransactionResult.Rejected(OperationError.ValueNotFound missingValueId) ->
+            assertEqual
+                (valueId "value:unknown")
+                missingValueId
+                "Unknown-value rejection reported the wrong value ID."
+
+            assertEqual
+                [ obligation ]
+                (Snapshot.openObligations incompleteSnapshot)
+                "Unknown-value resolution mutated the base snapshot."
+
+            assertCallHasNoArgumentBinding
+                validateCallId
+                policyParameter.Id
+                incompleteSnapshot
+                "Unknown-value resolution added an argument binding to the base snapshot."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Unknown-value resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Unknown-value resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Unknown-value resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Unknown-value resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+
+    let private testResolveMissingArgumentRejectsUnknownObligation () =
+        let incompleteSnapshot, policyParameter, validateCallId, obligation =
+            createIncompletePolicySnapshot ()
+
+        let missingObligationId = obligationId "obligation:missing"
+
+        let request =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference incompleteSnapshot)
+                (Snapshot.id incompleteSnapshot)
+                missingObligationId
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-missing-obligation")
+
+        match Transactions.resolveMissingArgument request incompleteSnapshot with
+        | TransactionResult.Rejected(OperationError.ObligationNotFound reportedObligationId) ->
+            assertEqual
+                missingObligationId
+                reportedObligationId
+                "Unknown-obligation rejection reported the wrong obligation ID."
+
+            assertEqual
+                [ obligation ]
+                (Snapshot.openObligations incompleteSnapshot)
+                "Unknown-obligation resolution mutated the base snapshot."
+
+            assertCallHasNoArgumentBinding
+                validateCallId
+                policyParameter.Id
+                incompleteSnapshot
+                "Unknown-obligation resolution added an argument binding to the base snapshot."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Unknown-obligation resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Unknown-obligation resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Unknown-obligation resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Unknown-obligation resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+
+    let private testResolveMissingArgumentRejectsReusedSnapshotId () =
+        let incompleteSnapshot, policyParameter, validateCallId, obligation =
+            createIncompletePolicySnapshot ()
+
+        let request =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference incompleteSnapshot)
+                (Snapshot.id incompleteSnapshot)
+                obligation.Id
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-reused-snapshot")
+
+        match Transactions.resolveMissingArgument request incompleteSnapshot with
+        | TransactionResult.Rejected(OperationError.ReusedSnapshotId reportedSnapshotId) ->
+            assertEqual
+                (Snapshot.id incompleteSnapshot)
+                reportedSnapshotId
+                "Reused-snapshot resolution reported the wrong snapshot ID."
+
+            assertEqual
+                [ obligation ]
+                (Snapshot.openObligations incompleteSnapshot)
+                "Reused-snapshot resolution mutated the base snapshot."
+
+            assertCallHasNoArgumentBinding
+                validateCallId
+                policyParameter.Id
+                incompleteSnapshot
+                "Reused-snapshot resolution added an argument binding to the base snapshot."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Reused-snapshot resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Reused-snapshot resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Reused-snapshot resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Reused-snapshot resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+
+    let private testResolveMissingArgumentRejectsResolvedObligation () =
+        let incompleteSnapshot, _, _, obligation = createIncompletePolicySnapshot ()
+        let policyValueId = valueId "value:policy"
+
+        let firstRequest =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference incompleteSnapshot)
+                (snapshotId "snapshot:policy-first-resolution")
+                obligation.Id
+                policyValueId
+                (transactionId "transaction:resolve-first")
+
+        let resolvedSnapshot =
+            match Transactions.resolveMissingArgument firstRequest incompleteSnapshot with
+            | TransactionResult.Executable(committedSnapshot, _) ->
+                committedSnapshot
+            | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+                failwith
+                    $"Resolving the only obligation left incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+            | TransactionResult.NoChange unchangedSnapshot ->
+                failwith
+                    $"Resolving the only obligation unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+            | TransactionResult.Rejected operationError ->
+                failwith $"Resolving the only obligation was rejected: {operationError}."
+
+        let repeatedRequest =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference resolvedSnapshot)
+                (Snapshot.id resolvedSnapshot)
+                obligation.Id
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-second")
+
+        match Transactions.resolveMissingArgument repeatedRequest resolvedSnapshot with
+        | TransactionResult.Rejected(OperationError.ObligationAlreadyResolved resolvedObligationId) ->
+            assertEqual
+                obligation.Id
+                resolvedObligationId
+                "Resolved-obligation rejection reported the wrong obligation."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Resolved-obligation resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Resolved-obligation resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Resolved-obligation resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Resolved-obligation resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+
+    let private testResolveMissingArgumentRejectsStaleBase () =
+        let incompleteSnapshot, _, _, obligation = createIncompletePolicySnapshot ()
+
+        let staleBase =
+            { Snapshot.reference incompleteSnapshot with
+                Revision = 0 }
+
+        let request =
+            createResolveMissingArgumentRequest
+                staleBase
+                (snapshotId "snapshot:policy-stale")
+                obligation.Id
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-stale")
+
+        match Transactions.resolveMissingArgument request incompleteSnapshot with
+        | TransactionResult.Rejected(OperationError.StaleBaseSnapshot(requested, actual)) ->
+            assertEqual staleBase requested "Stale resolution reported the wrong base reference."
+
+            assertEqual
+                (Snapshot.reference incompleteSnapshot)
+                actual
+                "Stale resolution reported the wrong current reference."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Stale resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Stale resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Stale resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Stale resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+
+    let private testResolveMissingArgumentRejectsRevisionLimit () =
+        let baselineSnapshot, validateUserId, _, validateCallId = createBaseline ()
+
+        let nearLimitSnapshot =
+            Snapshot.create
+                (snapshotId "snapshot:policy-near-limit")
+                (Int32.MaxValue - 1)
+                (Snapshot.values baselineSnapshot)
+                (Snapshot.functions baselineSnapshot)
+            |> requireSnapshot
+
+        let policyParameter: Parameter =
+            { Id = parameterId "parameter:policy"
+              DisplayName = "policy" }
+
+        let maximumRevisionSnapshot, obligation =
+            match
+                Transactions.addParameter
+                    (createAddParameterRequest
+                        (Snapshot.reference nearLimitSnapshot)
+                        (snapshotId "snapshot:policy-at-limit")
+                        validateUserId
+                        (transactionId "transaction:add-policy-at-limit")
+                        policyParameter)
+                    nearLimitSnapshot
+            with
+            | TransactionResult.Incomplete(committedSnapshot, _, [ createdObligation ]) ->
+                committedSnapshot, createdObligation
+            | TransactionResult.Incomplete(_, _, blockingObligations) ->
+                failwith $"Expected one blocking obligation at the revision limit, found {blockingObligations}."
+            | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+                failwith
+                    $"Adding the limit parameter unexpectedly committed executable snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+            | TransactionResult.NoChange unchangedSnapshot ->
+                failwith
+                    $"Adding the limit parameter unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+            | TransactionResult.Rejected operationError ->
+                failwith $"Adding the limit parameter was rejected: {operationError}."
+
+        assertEqual
+            Int32.MaxValue
+            (Snapshot.revision maximumRevisionSnapshot)
+            "Adding the parameter did not reach the maximum revision."
+
+        let request =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference maximumRevisionSnapshot)
+                (snapshotId "snapshot:policy-overflow")
+                obligation.Id
+                (valueId "value:unknown")
+                (transactionId "transaction:resolve-policy-overflow")
+
+        match Transactions.resolveMissingArgument request maximumRevisionSnapshot with
+        | TransactionResult.Rejected(OperationError.RevisionLimitReached revision) ->
+            assertEqual
+                Int32.MaxValue
+                revision
+                "Revision-limit resolution reported the wrong revision."
+
+            assertEqual
+                [ obligation ]
+                (Snapshot.openObligations maximumRevisionSnapshot)
+                "Revision-limit resolution mutated the base snapshot."
+
+            assertCallHasNoArgumentBinding
+                validateCallId
+                policyParameter.Id
+                maximumRevisionSnapshot
+                "Revision-limit resolution added an argument binding to the base snapshot."
+        | TransactionResult.Rejected otherError ->
+            failwith $"Revision-limit resolution produced the wrong error: {otherError}."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Revision-limit resolution committed {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            failwith
+                $"Revision-limit resolution committed incomplete snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff} and {blockingObligations}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Revision-limit resolution produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
 
     let private testAddParameterRejectsDuplicateId () =
         let snapshot, validateUserId, rawInputId, _ = createBaseline ()
@@ -895,6 +1407,9 @@ module Program =
                 $"Global duplicate parameter produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
 
     let private createObligationCollisionBaseline () =
+        let resolutionValue: ValueEntity =
+            { Id = valueId "value:resolution" }
+
         let firstTarget: FunctionEntity =
             { Id = functionId "function:first-target"
               DisplayName = "first_target"
@@ -933,6 +1448,7 @@ module Program =
             Snapshot.create
                 (snapshotId "snapshot:obligation-collision")
                 0
+                [ resolutionValue ]
                 [ firstTarget; secondTarget; firstCaller; secondCaller ]
             |> requireSnapshot
 
@@ -1005,6 +1521,93 @@ module Program =
             failwith
                 $"Expected two obligations, found {firstObligation}; {secondObligation}; {remainingObligations}."
 
+    let private testResolvingOneOfSeveralObligationsRemainsIncomplete () =
+        let snapshot, firstTargetId, secondTargetId, firstCallId, secondCallId =
+            createObligationCollisionBaseline ()
+
+        let firstParameter: Parameter =
+            { Id = parameterId "c"
+              DisplayName = "first" }
+
+        let afterFirst =
+            Transactions.addParameter
+                (createAddParameterRequest
+                    (Snapshot.reference snapshot)
+                    (snapshotId "snapshot:resolve-first")
+                    firstTargetId
+                    (transactionId "transaction:resolve-first")
+                    firstParameter)
+                snapshot
+            |> requireCommittedSnapshot
+
+        let secondParameter: Parameter =
+            { Id = parameterId "b:c"
+              DisplayName = "second" }
+
+        let afterSecond =
+            Transactions.addParameter
+                (createAddParameterRequest
+                    (Snapshot.reference afterFirst)
+                    (snapshotId "snapshot:resolve-second")
+                    secondTargetId
+                    (transactionId "transaction:resolve-second")
+                    secondParameter)
+                afterFirst
+            |> requireCommittedSnapshot
+
+        let firstObligation =
+            Snapshot.openObligations afterSecond
+            |> List.find (fun obligation ->
+                obligation.CallId = firstCallId
+                && obligation.ParameterId = firstParameter.Id)
+
+        let resolveTransactionId = transactionId "transaction:resolve-one-of-many"
+
+        let resolveRequest =
+            createResolveMissingArgumentRequest
+                (Snapshot.reference afterSecond)
+                (snapshotId "snapshot:resolve-one-of-many")
+                firstObligation.Id
+                (valueId "value:resolution")
+                resolveTransactionId
+
+        match Transactions.resolveMissingArgument resolveRequest afterSecond with
+        | TransactionResult.Incomplete(committedSnapshot, semanticDiff, blockingObligations) ->
+            match blockingObligations with
+            | [ remainingObligation ] ->
+                assertEqual
+                    secondCallId
+                    remainingObligation.CallId
+                    "Resolving one obligation removed the wrong remaining obligation."
+
+                assertEqual
+                    secondParameter.Id
+                    remainingObligation.ParameterId
+                    "Resolving one obligation changed the remaining obligation parameter."
+            | [] ->
+                failwith "Resolving one of two obligations incorrectly restored executability."
+            | firstObligation :: secondObligation :: remainingObligations ->
+                failwith
+                    $"Expected one remaining obligation, found {firstObligation}; {secondObligation}; {remainingObligations}."
+
+            assertEqual
+                [ SemanticChange.ArgumentBound(
+                      firstCallId,
+                      firstParameter.Id,
+                      valueId "value:resolution"
+                  )
+                  SemanticChange.ObligationResolved firstObligation.Id ]
+                semanticDiff
+                "Resolving one of several obligations produced the wrong semantic diff."
+        | TransactionResult.Executable(committedSnapshot, semanticDiff) ->
+            failwith
+                $"Resolving one of two obligations unexpectedly committed executable snapshot {StableId.value (Snapshot.id committedSnapshot)} with {semanticDiff}."
+        | TransactionResult.NoChange unchangedSnapshot ->
+            failwith
+                $"Resolving one of two obligations unexpectedly produced no change at {StableId.value (Snapshot.id unchangedSnapshot)}."
+        | TransactionResult.Rejected operationError ->
+            failwith $"Resolving one of two obligations was rejected: {operationError}."
+
     let private testObligationChangesAreSorted () =
         let targetFunction: FunctionEntity =
             { Id = functionId "function:ordered-target"
@@ -1032,6 +1635,7 @@ module Program =
             Snapshot.create
                 (snapshotId "snapshot:ordered-obligations")
                 0
+                []
                 [ targetFunction; caller ]
             |> requireSnapshot
 
@@ -1055,7 +1659,13 @@ module Program =
                     | SemanticChange.ParameterAdded _ ->
                         None
                     | SemanticChange.ObligationCreated obligationId ->
-                        Some obligationId)
+                        Some obligationId
+                    | SemanticChange.ArgumentBound _ ->
+                        None
+                    | SemanticChange.ObligationResolved _ ->
+                        None
+                    | SemanticChange.ExecutionReadinessChanged _ ->
+                        None)
 
             let sortedObligationIds =
                 createdObligationIds
@@ -1084,6 +1694,7 @@ module Program =
             Snapshot.create
                 (snapshotId "snapshot:maximum-revision")
                 Int32.MaxValue
+                (Snapshot.values baselineSnapshot)
                 (Snapshot.functions baselineSnapshot)
             |> requireSnapshot
 
@@ -1123,6 +1734,7 @@ module Program =
         let tests =
             [ "blank stable ID is rejected", testBlankStableIdIsRejected
               "duplicate function IDs are rejected", testDuplicateFunctionIdsAreRejected
+              "duplicate value IDs are rejected", testDuplicateValueIdsAreRejected
               "duplicate parameter IDs across functions are rejected",
               testDuplicateParameterIdsAcrossFunctionsAreRejected
               "call graph edges are validated", testCallEdgesAreValidated
@@ -1138,10 +1750,19 @@ module Program =
               "reused snapshot ID is rejected", testReusedSnapshotIdIsRejected
               "adding a parameter creates a missing-argument obligation",
               testAddParameterCreatesMissingArgumentObligation
+              "resolving a missing argument restores executability", testResolveMissingArgumentRestoresExecutable
+              "resolving a missing argument rejects unknown values", testResolveMissingArgumentRejectsUnknownValue
+              "resolving a missing argument rejects unknown obligations", testResolveMissingArgumentRejectsUnknownObligation
+              "resolving a missing argument rejects reused snapshot IDs", testResolveMissingArgumentRejectsReusedSnapshotId
+              "resolving a missing argument rejects resolved obligations", testResolveMissingArgumentRejectsResolvedObligation
+              "resolving a missing argument rejects stale bases", testResolveMissingArgumentRejectsStaleBase
+              "resolving a missing argument rejects revision limits", testResolveMissingArgumentRejectsRevisionLimit
               "adding a parameter rejects duplicate IDs", testAddParameterRejectsDuplicateId
               "adding a parameter rejects global duplicate IDs",
               testAddParameterRejectsGlobalDuplicateId
               "obligation IDs do not collide", testObligationIdsDoNotCollide
+              "resolving one of several obligations remains incomplete",
+              testResolvingOneOfSeveralObligationsRemainsIncomplete
               "equivalent operations derive deterministic obligation IDs",
               testEquivalentOperationsDeriveDeterministicObligationIds
               "obligation changes are sorted", testObligationChangesAreSorted

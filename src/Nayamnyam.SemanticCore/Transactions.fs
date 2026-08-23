@@ -11,7 +11,18 @@ type OperationError =
     | BlankParameterDisplayName of parameterId: ParameterId
     | ParameterAlreadyExists of parameterId: ParameterId
     | ObligationIdAlreadyExists of obligationId: ObligationId
+    | ObligationNotFound of obligationId: ObligationId
+    | ObligationAlreadyResolved of obligationId: ObligationId
+    | CallNotFound of callId: CallId
+    | ParameterNotOwnedByCallTarget of callId: CallId * parameterId: ParameterId
+    | ArgumentAlreadyBound of callId: CallId * parameterId: ParameterId
+    | ValueNotFound of valueId: ValueId
     | RevisionLimitReached of revision: int
+
+[<RequireQualifiedAccess>]
+type ExecutionReadiness =
+    | Executable
+    | Incomplete
 
 [<RequireQualifiedAccess>]
 type SemanticChange =
@@ -21,6 +32,11 @@ type SemanticChange =
         nextDisplayName: string
     | ParameterAdded of functionId: FunctionId * parameterId: ParameterId
     | ObligationCreated of obligationId: ObligationId
+    | ArgumentBound of callId: CallId * parameterId: ParameterId * valueId: ValueId
+    | ObligationResolved of obligationId: ObligationId
+    | ExecutionReadinessChanged of
+        previous: ExecutionReadiness *
+        next: ExecutionReadiness
 
 [<RequireQualifiedAccess>]
 type TransactionResult =
@@ -45,6 +61,13 @@ type AddParameterRequest =
       ProposedSnapshotId: SnapshotId
       FunctionId: FunctionId
       Parameter: Parameter }
+
+type ResolveMissingArgumentRequest =
+    { TransactionId: TransactionId
+      BaseSnapshot: SnapshotReference
+      ProposedSnapshotId: SnapshotId
+      ObligationId: ObligationId
+      ValueId: ValueId }
 
 [<RequireQualifiedAccess>]
 module Transactions =
@@ -81,6 +104,26 @@ module Transactions =
             None
         else
             Some(OperationError.StaleBaseSnapshot(requested, actual))
+
+    let private readiness (snapshot: Snapshot) =
+        match Snapshot.openObligations snapshot with
+        | [] ->
+            ExecutionReadiness.Executable
+        | _ ->
+            ExecutionReadiness.Incomplete
+
+    let private appendReadinessChange
+        (previousReadiness: ExecutionReadiness)
+        (snapshot: Snapshot)
+        (semanticDiff: SemanticChange list)
+        =
+        let nextReadiness = readiness snapshot
+
+        if previousReadiness = nextReadiness then
+            semanticDiff
+        else
+            semanticDiff
+            @ [ SemanticChange.ExecutionReadinessChanged(previousReadiness, nextReadiness) ]
 
     let private classify
         (snapshot: Snapshot)
@@ -146,6 +189,7 @@ module Transactions =
         (snapshot: Snapshot)
         : TransactionResult =
         let currentSnapshotId = Snapshot.id snapshot
+        let previousReadiness = readiness snapshot
 
         match validateBaseSnapshot request.BaseSnapshot snapshot with
         | Some error ->
@@ -236,4 +280,114 @@ module Transactions =
                                         |> List.map (fun obligation ->
                                             SemanticChange.ObligationCreated obligation.Id))
 
+                                let semanticDiff =
+                                    appendReadinessChange
+                                        previousReadiness
+                                        committedSnapshot
+                                        semanticDiff
+
                                 classify committedSnapshot semanticDiff
+
+    let resolveMissingArgument
+        (request: ResolveMissingArgumentRequest)
+        (snapshot: Snapshot)
+        : TransactionResult =
+        let currentSnapshotId = Snapshot.id snapshot
+        let previousReadiness = readiness snapshot
+
+        match validateBaseSnapshot request.BaseSnapshot snapshot with
+        | Some error ->
+            TransactionResult.Rejected error
+        | None ->
+            match Snapshot.tryFindObligation request.ObligationId snapshot with
+            | None ->
+                TransactionResult.Rejected(OperationError.ObligationNotFound request.ObligationId)
+            | Some obligation ->
+                match obligation.Kind with
+                | ObligationKind.MissingArgument ->
+                    match obligation.Status with
+                    | ObligationStatus.Resolved _ ->
+                        TransactionResult.Rejected(
+                            OperationError.ObligationAlreadyResolved request.ObligationId
+                        )
+                    | ObligationStatus.Open ->
+                        if request.ProposedSnapshotId = currentSnapshotId then
+                            TransactionResult.Rejected(
+                                OperationError.ReusedSnapshotId request.ProposedSnapshotId
+                            )
+                        elif Snapshot.revision snapshot = Int32.MaxValue then
+                            TransactionResult.Rejected(
+                                OperationError.RevisionLimitReached(Snapshot.revision snapshot)
+                            )
+                        else
+                            match
+                                Snapshot.allCalls snapshot
+                                |> List.tryFind (fun (_, call) -> call.Id = obligation.CallId)
+                            with
+                            | None ->
+                                TransactionResult.Rejected(
+                                    OperationError.CallNotFound obligation.CallId
+                                )
+                            | Some(callerFunctionId, call) ->
+                                match Snapshot.tryFindFunction call.TargetFunctionId snapshot with
+                                | None ->
+                                    TransactionResult.Rejected(
+                                        OperationError.FunctionNotFound call.TargetFunctionId
+                                    )
+                                | Some targetFunction ->
+                                    let parameterBelongsToTarget =
+                                        targetFunction.Parameters
+                                        |> List.exists (fun parameter ->
+                                            parameter.Id = obligation.ParameterId)
+
+                                    if not parameterBelongsToTarget then
+                                        TransactionResult.Rejected(
+                                            OperationError.ParameterNotOwnedByCallTarget(
+                                                call.Id,
+                                                obligation.ParameterId
+                                            )
+                                        )
+                                    elif Map.containsKey obligation.ParameterId call.ArgumentBindings then
+                                        TransactionResult.Rejected(
+                                            OperationError.ArgumentAlreadyBound(
+                                                call.Id,
+                                                obligation.ParameterId
+                                            )
+                                        )
+                                    else
+                                        match Snapshot.tryFindValue request.ValueId snapshot with
+                                        | None ->
+                                            TransactionResult.Rejected(
+                                                OperationError.ValueNotFound request.ValueId
+                                            )
+                                        | Some _ ->
+                                            match
+                                                Snapshot.resolveMissingArgument
+                                                    request.ProposedSnapshotId
+                                                    request.TransactionId
+                                                    callerFunctionId
+                                                    call.Id
+                                                    request.ObligationId
+                                                    request.ValueId
+                                                    snapshot
+                                            with
+                                            | None ->
+                                                TransactionResult.Rejected(
+                                                    OperationError.ObligationNotFound request.ObligationId
+                                                )
+                                            | Some committedSnapshot ->
+                                                let semanticDiff =
+                                                    [ SemanticChange.ArgumentBound(
+                                                          call.Id,
+                                                          obligation.ParameterId,
+                                                          request.ValueId
+                                                      )
+                                                      SemanticChange.ObligationResolved request.ObligationId ]
+
+                                                let semanticDiff =
+                                                    appendReadinessChange
+                                                        previousReadiness
+                                                        committedSnapshot
+                                                        semanticDiff
+
+                                                classify committedSnapshot semanticDiff

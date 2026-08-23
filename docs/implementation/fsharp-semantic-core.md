@@ -32,7 +32,7 @@ build artifacts and must not become authoritative inputs.
 
 The current bootstrap establishes:
 
-- typed stable IDs and immutable snapshots;
+- typed stable IDs, authoritative value entities, and immutable snapshots;
 - duplicate function, parameter, and call ID validation plus call-edge integrity checks;
 - functions with parameter lists and calls whose arguments are keyed by
   parameter identity;
@@ -40,12 +40,15 @@ The current bootstrap establishes:
   transaction identity;
 - transactional function rename with stale-base, reused-snapshot, and no-change
   handling;
-- transactional parameter addition;
+- transactional parameter addition and MissingArgument resolution with provenance;
 - collision-free deterministic MissingArgument obligations for calls affected by
   a new parameter;
-- Executable versus Incomplete transaction classification;
+- Executable versus Incomplete classification with explicit readiness transitions;
 - semantic-diff output and dependency-free executable tests on .NET 10.
 
-It remains deliberately smaller than Milestone 0. Persistence, obligation
-resolution, broader graph operations, backend-neutral IR, the read-only viewer,
-and the C# emitter are follow-up slices.
+The bootstrap validates value identity but deliberately defers value typing and
+type compatibility until the typed semantic-model slice.
+
+It remains deliberately smaller than Milestone 0. Persistence, broader graph
+operations, backend-neutral IR, the read-only viewer, and the C# emitter are
+follow-up slices.
