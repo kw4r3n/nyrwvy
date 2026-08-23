@@ -88,6 +88,7 @@ RAST remains external to this repository. Any rule, test, or implementation conc
 - Direction: established
 - Architecture: high-level boundaries accepted
 - Detailed representation and storage formats: under investigation
-- Implementation: not started
+- Semantic-core implementation language: F#
+- Implementation: F# semantic-core bootstrap in progress
 - First execution backend: C#/.NET
 - First human interface: read-only graph exploration and change review
