@@ -1,0 +1,33 @@
+name: Verify
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build semantic-core tests
+        run: >-
+          dotnet build
+          tests/Nayamnyam.SemanticCore.Tests/Nayamnyam.SemanticCore.Tests.fsproj
+          --configuration Release
+
+      - name: Run semantic-core tests
+        run: >-
+          dotnet run
+          --project tests/Nayamnyam.SemanticCore.Tests/Nayamnyam.SemanticCore.Tests.fsproj
+          --configuration Release
+          --no-build
