@@ -360,3 +360,58 @@ English provides consistent terminology for implementation tools, AI agents, ext
 ### Revisit conditions
 
 None expected. Additional translated guides may be added as non-canonical projections.
+
+---
+
+## D-015 — F# is the initial semantic-core implementation language
+
+- **Status:** Accepted
+- **Date:** 2026-08-23
+- **Evidence:** Architecture review and product decision on 2026-08-23. This decision does not claim that the planned controlled F# versus C# spike has been completed.
+
+### Decision
+
+The authoritative semantic graph, validation and operation engine, transaction model,
+obligation model, semantic diff model, and backend-neutral IR are initially
+implemented in F#.
+
+C#/.NET remains the first execution target. The initial C# emitter may be
+implemented in F# and produces deterministic C# source. If a separately compiled
+C# backend component is introduced later, it must consume an explicit backend
+contract or canonical execution-IR format rather than internal F# union
+representations.
+
+### Reason
+
+The semantic core is primarily a closed, immutable domain with typed alternatives:
+graph entities, operation requests, transaction outcomes, obligations, diagnostics,
+semantic diffs, and IR nodes. F# records, discriminated unions, Option, Result, and
+explicit pattern matching model these concepts directly and make unhandled cases
+visible during maintenance.
+
+The execution target and the semantic-core implementation language are independent
+under the accepted backend-neutral IR boundary. Choosing F# for the core therefore
+does not reduce access to .NET compilation, C# interoperability, generated C#
+runtime adapters, or future Native AOT experiments for generated programs.
+
+### Consequences
+
+- Core code uses immutable records at public domain boundaries and discriminated
+  unions for closed semantic states.
+- Domain pattern matches enumerate cases explicitly; wildcard branches must not
+  absorb unknown domain cases.
+- Custom operators, active patterns, dense point-free code, and hidden
+  serialization conventions are not part of the core style.
+- Canonical graph and IR persistence use explicit, versioned codecs rather than
+  automatic serialization of internal F# representations.
+- C#-facing component boundaries must not expose F# discriminated unions directly.
+- Generated C# and its runtime support remain build artifacts and must not depend
+  on F# types unless a future backend decision explicitly accepts that dependency.
+
+### Revisit conditions
+
+Revisit this choice if implementation evidence shows that F# causes repeated
+maintenance failures that cannot be addressed by the core style constraints, if
+C#-facing boundary adapters become a dominant cost, or if the core becomes
+substantially dominated by performance-sensitive mutable infrastructure that cannot
+remain safely encapsulated behind a functional interface.
