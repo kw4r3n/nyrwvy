@@ -4,8 +4,19 @@ namespace Nayamnyam.SemanticCore
 type SnapshotError =
     | NegativeRevision of revision: int
     | DuplicateFunctionId of functionId: FunctionId
-    | DuplicateParameterId of functionId: FunctionId * parameterId: ParameterId
+    | DuplicateParameterId of parameterId: ParameterId
     | DuplicateCallId of callId: CallId
+    | UnknownTargetFunction of callId: CallId * targetFunctionId: FunctionId
+    | ArgumentBindingKeyMismatch of
+        callId: CallId *
+        bindingKey: ParameterId *
+        bindingParameterId: ParameterId
+    | UnknownArgumentParameter of callId: CallId * parameterId: ParameterId
+    | ArgumentParameterTargetsWrongFunction of
+        callId: CallId *
+        targetFunctionId: FunctionId *
+        parameterId: ParameterId
+    | MissingArgument of callId: CallId * parameterId: ParameterId
 
 type Parameter =
     { Id: ParameterId
@@ -43,10 +54,16 @@ type Obligation =
       OriginTransactionId: TransactionId
       Status: ObligationStatus }
 
+type SnapshotReference =
+    { Id: SnapshotId
+      Revision: int
+      CommitTransactionId: TransactionId option }
+
 type Snapshot =
     private
         { Id: SnapshotId
           Revision: int
+          CommitTransactionId: TransactionId option
           Functions: Map<FunctionId, FunctionEntity>
           Obligations: Map<ObligationId, Obligation> }
 
@@ -60,16 +77,85 @@ module Snapshot =
 
     let private findDuplicateParameterId (functions: FunctionEntity list) =
         functions
-        |> List.tryPick (fun functionEntity ->
-            functionEntity.Parameters
-            |> List.countBy (fun parameter -> parameter.Id)
-            |> List.tryFind (fun (_, count) -> count > 1)
-            |> Option.map (fun (parameterId, _) -> functionEntity.Id, parameterId))
+        |> List.collect (fun functionEntity -> functionEntity.Parameters)
+        |> List.countBy (fun parameter -> parameter.Id)
+        |> List.tryFind (fun (_, count) -> count > 1)
+        |> Option.map fst
 
     let private findDuplicateCallId (functions: FunctionEntity list) =
         functions
         |> List.collect (fun functionEntity -> functionEntity.Calls)
         |> List.countBy (fun call -> call.Id)
+        |> List.tryFind (fun (_, count) -> count > 1)
+        |> Option.map fst
+
+    let private findInvalidCall (functions: FunctionEntity list) =
+        let functionsById =
+            functions
+            |> List.map (fun functionEntity -> functionEntity.Id, functionEntity)
+            |> Map.ofList
+
+        let parameterOwners =
+            functions
+            |> List.collect (fun functionEntity ->
+                functionEntity.Parameters
+                |> List.map (fun parameter -> parameter.Id, functionEntity.Id))
+            |> Map.ofList
+
+        functions
+        |> List.collect (fun functionEntity -> functionEntity.Calls)
+        |> List.tryPick (fun call ->
+            match Map.tryFind call.TargetFunctionId functionsById with
+            | None ->
+                Some(SnapshotError.UnknownTargetFunction(call.Id, call.TargetFunctionId))
+            | Some targetFunction ->
+                let invalidBinding =
+                    call.ArgumentBindings
+                    |> Map.toList
+                    |> List.tryPick (fun (bindingKey, binding) ->
+                        if bindingKey <> binding.ParameterId then
+                            Some(
+                                SnapshotError.ArgumentBindingKeyMismatch(
+                                    call.Id,
+                                    bindingKey,
+                                    binding.ParameterId
+                                )
+                            )
+                        else
+                            match Map.tryFind binding.ParameterId parameterOwners with
+                            | None ->
+                                Some(
+                                    SnapshotError.UnknownArgumentParameter(
+                                        call.Id,
+                                        binding.ParameterId
+                                    )
+                                )
+                            | Some ownerFunctionId ->
+                                if ownerFunctionId = call.TargetFunctionId then
+                                    None
+                                else
+                                    Some(
+                                        SnapshotError.ArgumentParameterTargetsWrongFunction(
+                                            call.Id,
+                                            call.TargetFunctionId,
+                                            binding.ParameterId
+                                        )
+                                    ))
+
+                match invalidBinding with
+                | Some error ->
+                    Some error
+                | None ->
+                    targetFunction.Parameters
+                    |> List.tryPick (fun parameter ->
+                        if Map.containsKey parameter.Id call.ArgumentBindings then
+                            None
+                        else
+                            Some(SnapshotError.MissingArgument(call.Id, parameter.Id))))
+
+    let private findDuplicateObligationId (obligations: Obligation list) =
+        obligations
+        |> List.countBy (fun obligation -> obligation.Id)
         |> List.tryFind (fun (_, count) -> count > 1)
         |> Option.map fst
 
@@ -86,32 +172,37 @@ module Snapshot =
                 Error(SnapshotError.DuplicateFunctionId duplicateFunctionId)
             | None ->
                 match findDuplicateParameterId functions with
-                | Some(duplicateFunctionId, duplicateParameterId) ->
-                    Error(
-                        SnapshotError.DuplicateParameterId(
-                            duplicateFunctionId,
-                            duplicateParameterId
-                        )
-                    )
+                | Some duplicateParameterId ->
+                    Error(SnapshotError.DuplicateParameterId duplicateParameterId)
                 | None ->
                     match findDuplicateCallId functions with
                     | Some duplicateCallId ->
                         Error(SnapshotError.DuplicateCallId duplicateCallId)
                     | None ->
-                        let functionsById =
-                            functions
-                            |> List.map (fun functionEntity -> functionEntity.Id, functionEntity)
-                            |> Map.ofList
+                        match findInvalidCall functions with
+                        | Some error ->
+                            Error error
+                        | None ->
+                            let functionsById =
+                                functions
+                                |> List.map (fun functionEntity -> functionEntity.Id, functionEntity)
+                                |> Map.ofList
 
-                        Ok
-                            { Id = id
-                              Revision = revision
-                              Functions = functionsById
-                              Obligations = Map.empty }
+                            Ok
+                                { Id = id
+                                  Revision = revision
+                                  CommitTransactionId = None
+                                  Functions = functionsById
+                                  Obligations = Map.empty }
 
     let id (snapshot: Snapshot) = snapshot.Id
 
     let revision (snapshot: Snapshot) = snapshot.Revision
+
+    let reference (snapshot: Snapshot) =
+        { Id = snapshot.Id
+          Revision = snapshot.Revision
+          CommitTransactionId = snapshot.CommitTransactionId }
 
     let functions (snapshot: Snapshot) =
         snapshot.Functions
@@ -148,6 +239,7 @@ module Snapshot =
 
     let internal renameFunction
         (proposedSnapshotId: SnapshotId)
+        (commitTransactionId: TransactionId)
         (functionId: FunctionId)
         (newDisplayName: string)
         (snapshot: Snapshot)
@@ -166,11 +258,13 @@ module Snapshot =
             Some
                 { Id = proposedSnapshotId
                   Revision = snapshot.Revision + 1
+                  CommitTransactionId = Some commitTransactionId
                   Functions = renamedFunctions
                   Obligations = snapshot.Obligations }
 
     let internal addParameter
         (proposedSnapshotId: SnapshotId)
+        (commitTransactionId: TransactionId)
         (functionId: FunctionId)
         (parameter: Parameter)
         (snapshot: Snapshot)
@@ -189,19 +283,30 @@ module Snapshot =
             Some
                 { Id = proposedSnapshotId
                   Revision = snapshot.Revision + 1
+                  CommitTransactionId = Some commitTransactionId
                   Functions = updatedFunctions
                   Obligations = snapshot.Obligations }
 
     let internal addObligations
         (newObligations: Obligation list)
         (snapshot: Snapshot)
-        : Snapshot =
-        let updatedObligations =
-            newObligations
-            |> List.fold
-                (fun obligations obligation ->
-                    Map.add obligation.Id obligation obligations)
-                snapshot.Obligations
+        : Result<Snapshot, ObligationId> =
+        let existingObligations =
+            snapshot.Obligations
+            |> Map.toList
+            |> List.map snd
 
-        { snapshot with
-            Obligations = updatedObligations }
+        match findDuplicateObligationId (existingObligations @ newObligations) with
+        | Some duplicateObligationId ->
+            Error duplicateObligationId
+        | None ->
+            let updatedObligations =
+                newObligations
+                |> List.fold
+                    (fun obligations obligation ->
+                        Map.add obligation.Id obligation obligations)
+                    snapshot.Obligations
+
+            Ok
+                { snapshot with
+                    Obligations = updatedObligations }

@@ -33,14 +33,16 @@ build artifacts and must not become authoritative inputs.
 The current bootstrap establishes:
 
 - typed stable IDs and immutable snapshots;
-- duplicate function, parameter, and call ID validation;
+- duplicate function, parameter, and call ID validation plus call-edge integrity checks;
 - functions with parameter lists and calls whose arguments are keyed by
   parameter identity;
+- immutable base references containing snapshot ID, revision, and commit
+  transaction identity;
 - transactional function rename with stale-base, reused-snapshot, and no-change
   handling;
 - transactional parameter addition;
-- deterministic MissingArgument obligations for calls affected by a new
-  parameter;
+- collision-free deterministic MissingArgument obligations for calls affected by
+  a new parameter;
 - Executable versus Incomplete transaction classification;
 - semantic-diff output and dependency-free executable tests on .NET 10.
 
