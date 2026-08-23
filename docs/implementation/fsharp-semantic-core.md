@@ -30,7 +30,20 @@ build artifacts and must not become authoritative inputs.
 
 ## Initial bootstrap
 
-The first slice establishes typed stable IDs, immutable snapshots, duplicate-ID
-validation, and the transactional symbol.rename behavior for functions. It is
-deliberately smaller than Milestone 0 and exists to prove the implementation
-shape before adding storage, obligations, IR, or the C# emitter.
+The current bootstrap establishes:
+
+- typed stable IDs and immutable snapshots;
+- duplicate function, parameter, and call ID validation;
+- functions with parameter lists and calls whose arguments are keyed by
+  parameter identity;
+- transactional function rename with stale-base, reused-snapshot, and no-change
+  handling;
+- transactional parameter addition;
+- deterministic MissingArgument obligations for calls affected by a new
+  parameter;
+- Executable versus Incomplete transaction classification;
+- semantic-diff output and dependency-free executable tests on .NET 10.
+
+It remains deliberately smaller than Milestone 0. Persistence, obligation
+resolution, broader graph operations, backend-neutral IR, the read-only viewer,
+and the C# emitter are follow-up slices.
