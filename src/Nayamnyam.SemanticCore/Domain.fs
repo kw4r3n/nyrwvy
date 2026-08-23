@@ -57,7 +57,7 @@ module Snapshot =
     let tryFindFunction (functionId: FunctionId) (snapshot: Snapshot) =
         Map.tryFind functionId snapshot.Functions
 
-    let renameFunction
+    let internal renameFunction
         (proposedSnapshotId: SnapshotId)
         (functionId: FunctionId)
         (newDisplayName: string)
