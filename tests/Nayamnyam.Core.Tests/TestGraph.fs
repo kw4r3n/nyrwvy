@@ -4,7 +4,7 @@ open Nayamnyam.Core
 
 type GraphFixture =
     { Snapshot: Snapshot
-      StringTypeId: TypeId
+      StringType: TypeRef
       PolicyTypeId: TypeId
       ValidateFunctionId: FunctionId
       ValidateInputParameterId: ParameterId
@@ -19,7 +19,7 @@ type GraphFixture =
 [<RequireQualifiedAccess>]
 module TestGraph =
     let create (): GraphFixture =
-        let stringTypeId = StableId.createForTesting<TypeTag> "type-string"
+        let stringType = TypeRef.Primitive PrimitiveType.String
         let policyTypeId = StableId.createForTesting<TypeTag> "type-policy"
         let validateFunctionId = StableId.createForTesting<FunctionTag> "function-validate"
         let validateInputParameterId = StableId.createForTesting<ParameterTag> "parameter-validate-input"
@@ -31,13 +31,15 @@ module TestGraph =
         let runPolicyNodeId = StableId.createForTesting<GraphNodeTag> "node-run-policy"
         let runCallNodeId = StableId.createForTesting<GraphNodeTag> "node-run-call"
 
-        let stringType: SemanticType = { Id = stringTypeId; DisplayName = "String" }
-        let policyType: SemanticType = { Id = policyTypeId; DisplayName = "ValidationPolicy" }
+        let policyType: SemanticType =
+            { Id = policyTypeId
+              DisplayName = "ValidationPolicy"
+              Kind = SemanticTypeKind.Product [] }
 
         let validateInput: SemanticParameter =
             { Id = validateInputParameterId
               DisplayName = "input"
-              TypeId = stringTypeId }
+              Type = stringType }
 
         let validateInputNode: SemanticNode =
             { Id = validateInputNodeId
@@ -47,19 +49,20 @@ module TestGraph =
             { Id = validateFunctionId
               DisplayName = "validate_user"
               Parameters = [ validateInput ]
-              ResultTypeId = stringTypeId
-              Nodes = [ validateInputNode ]
-              ResultNodeId = validateInputNodeId }
+              ResultType = stringType
+              Body =
+                { Nodes = [ validateInputNode ]
+                  ResultNodeId = validateInputNodeId } }
 
         let runInput: SemanticParameter =
             { Id = runInputParameterId
               DisplayName = "input"
-              TypeId = stringTypeId }
+              Type = stringType }
 
         let runPolicy: SemanticParameter =
             { Id = runPolicyParameterId
               DisplayName = "policy"
-              TypeId = policyTypeId }
+              Type = TypeRef.Named policyTypeId }
 
         let runInputNode: SemanticNode =
             { Id = runInputNodeId
@@ -81,19 +84,20 @@ module TestGraph =
             { Id = runFunctionId
               DisplayName = "run"
               Parameters = [ runInput; runPolicy ]
-              ResultTypeId = stringTypeId
-              Nodes = [ runInputNode; runPolicyNode; runCallNode ]
-              ResultNodeId = runCallNodeId }
+              ResultType = stringType
+              Body =
+                { Nodes = [ runInputNode; runPolicyNode; runCallNode ]
+                  ResultNodeId = runCallNodeId } }
 
         let snapshot: Snapshot =
             { Id = StableId.createForTesting<SnapshotTag> "snapshot-base"
               ParentId = Some(StableId.createForTesting<SnapshotTag> "snapshot-ancestor")
-              Types = [ stringType; policyType ]
+              Types = [ policyType ]
               Functions = [ validateFunction; runFunction ]
               Obligations = [] }
 
         { Snapshot = snapshot
-          StringTypeId = stringTypeId
+          StringType = stringType
           PolicyTypeId = policyTypeId
           ValidateFunctionId = validateFunctionId
           ValidateInputParameterId = validateInputParameterId
