@@ -38,20 +38,22 @@ module SnapshotCodecTests =
         let reserialized = SnapshotCodec.serialize restored |> unwrap
         let expectedTypes = original.Types |> List.sortBy (fun item -> StableId.value item.Id)
         let expectedFunctions = original.Functions |> List.sortBy (fun item -> StableId.value item.Id)
-        let typesAreCanonical =
-            canonical.IndexOf("type-a", System.StringComparison.Ordinal)
-            < canonical.IndexOf("type-b", System.StringComparison.Ordinal)
-        let functionsAreCanonical =
-            canonical.IndexOf("function-a", System.StringComparison.Ordinal)
-            < canonical.IndexOf("function-b", System.StringComparison.Ordinal)
+        let typeAIndex = canonical.IndexOf("type-a", System.StringComparison.Ordinal)
+        let typeBIndex = canonical.IndexOf("type-b", System.StringComparison.Ordinal)
+        let functionAIndex = canonical.IndexOf("function-a", System.StringComparison.Ordinal)
+        let functionBIndex = canonical.IndexOf("function-b", System.StringComparison.Ordinal)
 
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
         Assert.True(expectedTypes = restored.Types)
         Assert.True(expectedFunctions = restored.Functions)
-        Assert.True(typesAreCanonical)
-        Assert.True(functionsAreCanonical)
+        Assert.True(typeAIndex >= 0)
+        Assert.True(typeBIndex >= 0)
+        Assert.True(functionAIndex >= 0)
+        Assert.True(functionBIndex >= 0)
+        Assert.True(System.Math.Sign(typeAIndex - typeBIndex) = -1)
+        Assert.True(System.Math.Sign(functionAIndex - functionBIndex) = -1)
 
     [<Fact>]
     let ``snapshot codec rejects unknown fields instead of discarding them`` () =
