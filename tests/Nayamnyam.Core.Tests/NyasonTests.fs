@@ -1,6 +1,9 @@
 namespace Nayamnyam.Core.Tests
 
 open System
+open System.Globalization
+open System.IO
+open System.Text
 open Nayamnyam.Core
 open Xunit
 
@@ -100,3 +103,30 @@ module NyasonTests =
 
         Assert.Equal(snapshotId, decoded.Id)
         Assert.Contains("snapshot:snapshot%20with%20%2F%20slash%20and%20%25%20sign", encoded)
+
+    [<Fact>]
+    let ``encoding comparison writes reproducible transport-size metrics`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let nyason = NyasonCodec.serialize fixture.Snapshot |> unwrap
+        let json =
+            match SnapshotCodec.serialize fixture.Snapshot with
+            | Ok value -> value
+            | Error error -> failwithf "Unexpected JSON codec error: %A" error
+
+        let jsonBytes = Encoding.UTF8.GetByteCount json
+        let nyasonBytes = Encoding.UTF8.GetByteCount nyason
+        let ratio = float nyasonBytes / float jsonBytes
+        let ratioText = ratio.ToString("F3", CultureInfo.InvariantCulture)
+        let metrics =
+            String.concat
+                Environment.NewLine
+                [ $"json-bytes={jsonBytes}"
+                  $"nyason-bytes={nyasonBytes}"
+                  $"nyason-to-json-byte-ratio={ratioText}"
+                  $"json-chars={json.Length}"
+                  $"nyason-chars={nyason.Length}" ]
+
+        let path = Path.Combine(Path.GetTempPath(), "nayamnyam-encoding-comparison.txt")
+        File.WriteAllText(path, metrics + Environment.NewLine)
+        Assert.True(jsonBytes > 0)
+        Assert.True(nyasonBytes > 0)
