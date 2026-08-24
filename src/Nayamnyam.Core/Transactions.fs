@@ -92,13 +92,13 @@ module Transaction =
     let private reject code message =
         Rejected [ { Code = code; Message = message } ]
 
-    let private emptyChanges =
+    let private emptyChanges: ChangeAccumulator =
         { ParametersAdded = []
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = [] }
 
-    let private renameType id newDisplayName snapshot =
+    let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
         | None -> Error("TargetNotFound", $"Type '{StableId.value id}' was not found.")
         | Some _ ->
@@ -108,7 +108,7 @@ module Transaction =
                     if item.Id = id then { item with DisplayName = newDisplayName } else item)
             Ok { snapshot with Types = types }
 
-    let private renameFunction id newDisplayName snapshot =
+    let private renameFunction id newDisplayName (snapshot: Snapshot) =
         match snapshot.Functions |> List.tryFind (fun item -> item.Id = id) with
         | None -> Error("TargetNotFound", $"Function '{StableId.value id}' was not found.")
         | Some _ ->
@@ -132,7 +132,12 @@ module Transaction =
                     Some(owner.Id, node.Id)
                 | _ -> None))
 
-    let private addFunctionParameter transactionId request snapshot changes =
+    let private addFunctionParameter
+        (transactionId: TransactionId)
+        (request: AddFunctionParameterRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
         if String.IsNullOrWhiteSpace request.DisplayName then
             Error("InvalidDisplayName", "A parameter display name cannot be blank.")
         elif not (snapshot.Types |> List.exists (fun item -> item.Id = request.TypeId)) then
@@ -186,7 +191,7 @@ module Transaction =
                                 else
                                     functionEntity)
 
-                        let mutable attached = []
+                        let mutable attached: ArgumentAttached list = []
 
                         let updatedFunctions =
                             functionsWithParameter
@@ -199,16 +204,16 @@ module Transaction =
                                             let binding: ArgumentBinding =
                                                 { TargetParameterId = request.ParameterId
                                                   ValueNodeId = valueNodeId }
-                                            attached <-
+                                            let change: ArgumentAttached =
                                                 { CallNodeId = node.Id
                                                   TargetParameterId = request.ParameterId
                                                   ValueNodeId = valueNodeId }
-                                                :: attached
+                                            attached <- change :: attached
                                             { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
                                         | _ -> node)
                                 { owner with Nodes = nodes })
 
-                        let createdObligations =
+                        let createdObligations: MissingArgumentObligation list =
                             request.CallPlans
                             |> List.choose (function
                                 | LeaveMissing(callNodeId, obligationId) ->
@@ -220,32 +225,38 @@ module Transaction =
                                           Status = ObligationStatus.Open }
                                 | BindExistingValue _ -> None)
 
-                        let createdDiff =
+                        let createdDiff: MissingArgumentCreated list =
                             createdObligations
                             |> List.map (fun obligation ->
                                 { ObligationId = obligation.Id
                                   CallNodeId = obligation.CallNodeId
                                   ParameterId = obligation.ParameterId })
 
-                        let updatedSnapshot =
+                        let updatedSnapshot: Snapshot =
                             { snapshot with
                                 Functions = updatedFunctions
                                 Obligations = snapshot.Obligations @ createdObligations }
 
-                        let updatedChanges =
+                        let parameterChange: ParameterAdded =
+                            { FunctionId = request.FunctionId
+                              ParameterId = request.ParameterId
+                              DisplayName = request.DisplayName
+                              TypeId = request.TypeId }
+
+                        let updatedChanges: ChangeAccumulator =
                             { changes with
-                                ParametersAdded =
-                                    { FunctionId = request.FunctionId
-                                      ParameterId = request.ParameterId
-                                      DisplayName = request.DisplayName
-                                      TypeId = request.TypeId }
-                                    :: changes.ParametersAdded
+                                ParametersAdded = parameterChange :: changes.ParametersAdded
                                 ArgumentsAttached = attached @ changes.ArgumentsAttached
                                 ObligationsCreated = createdDiff @ changes.ObligationsCreated }
 
                         Ok(updatedSnapshot, updatedChanges)
 
-    let private resolveMissingArgument transactionId request snapshot changes =
+    let private resolveMissingArgument
+        (transactionId: TransactionId)
+        (request: ResolveMissingArgumentRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
         match snapshot.Obligations |> List.tryFind (fun item -> item.Id = request.ObligationId) with
         | None -> Error("ObligationNotOpen", "The missing-argument obligation does not exist.")
         | Some obligation ->
@@ -278,7 +289,7 @@ module Transaction =
                 if not attached then
                     Error("ObligationTargetMismatch", "The obligated direct-call node no longer exists.")
                 else
-                    let updatedObligations =
+                    let updatedObligations: MissingArgumentObligation list =
                         snapshot.Obligations
                         |> List.map (fun item ->
                             if item.Id = obligation.Id then
@@ -290,7 +301,7 @@ module Transaction =
                             else
                                 item)
 
-                    let updatedSnapshot =
+                    let updatedSnapshot: Snapshot =
                         { snapshot with
                             Functions = updatedFunctions
                             Obligations = updatedObligations }
@@ -306,14 +317,18 @@ module Transaction =
                           ParameterId = obligation.ParameterId
                           ValueNodeId = request.ValueNodeId }
 
-                    Ok(
-                        updatedSnapshot,
+                    let updatedChanges: ChangeAccumulator =
                         { changes with
                             ArgumentsAttached = attachedDiff :: changes.ArgumentsAttached
                             ObligationsResolved = resolvedDiff :: changes.ObligationsResolved }
-                    )
 
-    let private applyOperation transactionId (snapshot, changes) operation =
+                    Ok(updatedSnapshot, updatedChanges)
+
+    let private applyOperation
+        (transactionId: TransactionId)
+        ((snapshot, changes): Snapshot * ChangeAccumulator)
+        (operation: SemanticOperation)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
         match operation with
         | RenameDisplayName(_, newDisplayName) when String.IsNullOrWhiteSpace newDisplayName ->
             Error("InvalidDisplayName", "A display name cannot be blank.")
@@ -324,7 +339,7 @@ module Transaction =
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
 
-    let private netRenames baseSnapshot proposedSnapshot =
+    let private netRenames (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
         let typeNames = baseSnapshot.Types |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
         let functionNames = baseSnapshot.Functions |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
 
@@ -347,7 +362,7 @@ module Transaction =
             | TypeRenamed(id, _, _) -> "type:" + StableId.value id
             | FunctionRenamed(id, _, _) -> "function:" + StableId.value id)
 
-    let private sortChanges changes =
+    let private sortChanges (changes: ChangeAccumulator): ChangeAccumulator =
         { changes with
             ParametersAdded =
                 changes.ParametersAdded
@@ -382,7 +397,7 @@ module Transaction =
             match applied with
             | Error(code, message) -> reject code message
             | Ok(changed, accumulatedChanges) ->
-                let proposed =
+                let proposed: Snapshot =
                     { changed with
                         Id = request.ProposedSnapshotId
                         ParentId = Some baseSnapshot.Id }
@@ -392,7 +407,7 @@ module Transaction =
                 | [] ->
                     let changes = sortChanges accumulatedChanges
                     let renames = netRenames baseSnapshot proposed
-                    let diff =
+                    let diff: SemanticDiff =
                         { Renames = renames
                           ParametersAdded = changes.ParametersAdded
                           ArgumentsAttached = changes.ArgumentsAttached
