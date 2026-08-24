@@ -2,20 +2,21 @@
 
 ## Status
 
-**Verified representative Milestone 0 semantic program.**
+**Representative Milestone 0 semantic program established. Compile-backed verification was corrected and completed during the Nyason validation phase.**
 
-The exact test branch tree at `cc69c531bd0e0c438ff30781e50bf048b000fdd7` was exercised through pull-request GitHub Actions on 2026-08-25. The PR merge test commit was `c4e75ae32175532949f3f22f1da87f6d2bd6bc0e` against the Phase E rebuild base.
+The original Phase F document recorded a `33 passed` test result. That statement was inaccurate: `MilestoneZeroGraph.fs` existed on the Phase F branch, but `MilestoneZeroTests.fs` was not present and the F# test project did not compile the Milestone 0 fixture as a test source. The graph fixture itself was merged, but the claimed Phase F test count was not evidence for the full scenario.
 
-Verification result:
+This was detected while bringing the Nyason experiment under the real compiler boundary. The test project was repaired so that both `MilestoneZeroGraph.fs` and a real `MilestoneZeroTests.fs` are explicit compile inputs. The later validation run on 2026-08-25 used .NET SDK `10.0.400` and produced:
 
 ```text
-.NET SDK: 10.0.400
 restore:  success
 build:    success, 0 warnings, 0 errors
-tests:    33 passed, 0 failed, 0 skipped
+tests:    42 passed, 0 failed, 0 skipped
 ```
 
-Phase F adds no new semantic-core construct. Its purpose is to prove that the structures verified through Phase E are sufficient to represent the complete Milestone 0 semantic demonstration program before IR or backend work begins.
+That 42-test run includes the four compile-backed Milestone 0 scenario tests plus the Nyason tests and supersedes the earlier `33 passed` claim. This correction is intentionally recorded rather than silently rewriting history.
+
+Phase F itself adds no new semantic-core construct. Its purpose is to prove that the structures verified through Phase E are sufficient to represent the complete Milestone 0 semantic demonstration program before IR or backend work begins.
 
 ## Representative graph
 
@@ -82,11 +83,11 @@ The function performs an explicit `MatchResult`.
 - `Err` converts the error binding to a graph value with `PatternReference`, then performs an exhaustive `MatchUnion` over `ValidationError`.
 - `EmptyName` and `InvalidEmail` each use an explicit Console capability invocation.
 
-There is no wildcard error branch. Adding a new `ValidationError` variant will therefore make this graph fail exhaustiveness validation until the semantic change is addressed.
+There is no wildcard error branch. Adding a new `ValidationError` variant therefore makes this graph fail exhaustiveness validation until the semantic change is addressed.
 
 ## `main`
 
-The fixture models a small orchestration function:
+The fixture models:
 
 ```text
 main(
@@ -100,16 +101,24 @@ requires ConsoleOutput
 `main`:
 
 1. calls `validate_user(input)` through one authoritative `DirectCall` node;
-2. passes the returned Result value and Console capability to `report_validation` through another `DirectCall`;
+2. passes the returned `Result` value and Console capability to `report_validation` through another `DirectCall`;
 3. explicitly carries the `ConsoleOutput` effect required by `report_validation`.
 
 The policy parameter is initially unused by `validate_user`; it exists as a real caller-owned semantic value for the required signature-evolution demonstration.
 
-## Signature-evolution proof on the real graph
+## Compile-backed scenario tests
 
-The fixture re-runs the required Milestone 0 semantic-operation sequence against the representative graph.
+The corrected test suite now proves the following against this exact representative graph.
 
-### Rename
+### Semantic completeness
+
+The initial graph passes `SnapshotValidator.validate` and evaluates to `SemanticReadiness.Complete`.
+
+### Reference JSON round-trip
+
+The complete graph round-trips through strict JSON schema version 4 and reserializes byte-for-byte identically.
+
+### Rename identity continuity
 
 A transaction renames:
 
@@ -117,9 +126,9 @@ A transaction renames:
 validate_user -> validate_profile
 ```
 
-The function keeps the same `FunctionId`, and `main`'s direct-call target remains that same stable ID. The semantic diff contains one rename rather than delete/create churn.
+The function retains its original `FunctionId`, and `main` continues to target that stable ID through the same `DirectCall` node. The semantic diff reports a rename rather than delete/create churn.
 
-### Add parameter
+### Signature evolution and obligation resolution
 
 A second transaction adds:
 
@@ -127,32 +136,13 @@ A second transaction adds:
 policy: ValidationPolicy
 ```
 
-to the validation function.
+The existing `main -> validate_*` call is intentionally submitted with `LeaveMissing`, even though `main` already owns a possible policy value. Nayamnyam therefore does not guess that the available value is the intended repair.
 
-The existing `main -> validate_*` call is intentionally submitted with `LeaveMissing`, even though `main` owns a possible policy value. This proves that Nayamnyam does not guess that the available value is the intended repair.
-
-The resulting snapshot remains structurally valid with one explicit blocking `MissingArgument` obligation and becomes semantically incomplete.
-
-### Resolve obligation
-
-A follow-up transaction explicitly selects `main`'s policy value node as the repair.
-
-The transaction:
-
-- updates the same authoritative direct-call node;
-- attaches the new parameter edge by stable `ParameterId`;
-- marks the obligation resolved with transaction provenance;
-- restores semantic completeness.
-
-## Reference persistence proof
-
-The complete representative graph round-trips through strict JSON schema version 4 and reserializes byte-for-byte identically.
-
-This provides a realistic reference fixture for comparing Nyason with JSON. The JSON result remains a baseline, not a persistence-format decision.
+The proposed snapshot remains structurally valid with one blocking `MissingArgument` obligation and evaluates as incomplete. A follow-up transaction explicitly selects `main`'s policy value node, updates the same authoritative direct-call node, resolves the obligation with transaction provenance, and restores semantic completeness.
 
 ## Architectural result
 
-The main Phase F result is negative in a useful sense: **no additional semantic node kind was required to express the Milestone 0 program.**
+The important Phase F result is negative in a useful sense: **no additional semantic node kind was required to express the Milestone 0 program.**
 
 The current combination of:
 
@@ -172,9 +162,9 @@ That is evidence to stop expanding the semantic model and move to derived repres
 
 ## Next gate
 
-The representative fixture should now serve as the shared input for two derived-layer tasks:
+The representative fixture is now the shared input for:
 
-1. **Nyason v0 prototype and comparison** — test a dedicated AI-oriented semantic encoding against the strict JSON baseline using a realistic graph rather than toy objects.
-2. **Typed Semantic IR** — define the first backend-neutral typed projection from a fully validated snapshot without adding editing/storage concerns to the IR.
+1. **Nyason v0 prototype and comparison** — compare a dedicated AI-oriented semantic encoding with the strict JSON baseline using the real graph;
+2. **Typed Semantic IR** — define the first backend-neutral typed projection from a fully validated snapshot without adding editing or storage concerns to the IR.
 
-Nyason can be explored first because it does not alter graph semantics and the user has explicitly chosen to investigate a dedicated Nayamnyam encoding. Typed Semantic IR should consume the same verified semantic fixture after the encoding experiment or in the immediately following phase.
+The Nyason mechanical experiment is recorded separately. The persistence-format choice remains open until AI comprehension/editing reliability and focused-slice costs are measured, not merely byte size.
