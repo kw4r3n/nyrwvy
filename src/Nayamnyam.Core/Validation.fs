@@ -17,8 +17,12 @@ module SnapshotValidator =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.OptionNone _ -> []
+        | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
+        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
+            capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
         | SemanticNodeKind.ProductConstruct(_, fields)
         | SemanticNodeKind.UnionConstruct(_, fields) ->
             fields |> List.map (fun field -> field.ValueNodeId)
@@ -37,8 +41,12 @@ module SnapshotValidator =
 
     let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
+        | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
+        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
+            capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
         | SemanticNodeKind.ProductConstruct(_, fields)
         | SemanticNodeKind.UnionConstruct(_, fields) ->
             fields |> List.map (fun field -> field.ValueNodeId)
@@ -93,7 +101,10 @@ module SnapshotValidator =
             | SemanticNodeKind.StringLiteral _
             | SemanticNodeKind.BoolLiteral _
             | SemanticNodeKind.UnitLiteral
+            | SemanticNodeKind.StringIsEmpty _
+            | SemanticNodeKind.StringContains _
             | SemanticNodeKind.DirectCall _
+            | SemanticNodeKind.CapabilityInvoke _
             | SemanticNodeKind.ProductConstruct _
             | SemanticNodeKind.FieldAccess _
             | SemanticNodeKind.UnionConstruct _
@@ -119,31 +130,36 @@ module SnapshotValidator =
         snapshot.Types
         |> List.countBy (fun (item: SemanticType) -> item.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateTypeId" $"Type ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateTypeId" $"Type ID '{StableId.value id}' occurs more than once.")
+
+        snapshot.Effects
+        |> List.countBy (fun (item: SemanticEffect) -> item.Id)
+        |> List.filter (fun (_, count) -> count > 1)
+        |> List.iter (fun (id, _) -> add "DuplicateEffectId" $"Effect ID '{StableId.value id}' occurs more than once.")
+
+        snapshot.Capabilities
+        |> List.countBy (fun (item: SemanticCapability) -> item.Id)
+        |> List.filter (fun (_, count) -> count > 1)
+        |> List.iter (fun (id, _) -> add "DuplicateCapabilityId" $"Capability ID '{StableId.value id}' occurs more than once.")
 
         snapshot.Functions
         |> List.countBy (fun (item: SemanticFunction) -> item.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateFunctionId" $"Function ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateFunctionId" $"Function ID '{StableId.value id}' occurs more than once.")
 
         let fieldEntries: (TypeId * VariantId option * SemanticField) list =
             snapshot.Types
             |> List.collect (fun owner ->
                 match owner.Kind with
-                | SemanticTypeKind.Product fields ->
-                    fields |> List.map (fun field -> owner.Id, None, field)
+                | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> owner.Id, None, field)
                 | SemanticTypeKind.Union variants ->
                     variants
-                    |> List.collect (fun variant ->
-                        variant.Fields |> List.map (fun field -> owner.Id, Some variant.Id, field)))
+                    |> List.collect (fun variant -> variant.Fields |> List.map (fun field -> owner.Id, Some variant.Id, field)))
 
         fieldEntries
         |> List.countBy (fun (_, _, field) -> field.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateFieldId" $"Field ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateFieldId" $"Field ID '{StableId.value id}' occurs more than once.")
 
         let variantEntries: (TypeId * SemanticVariant) list =
             snapshot.Types
@@ -155,8 +171,25 @@ module SnapshotValidator =
         variantEntries
         |> List.countBy (fun (_, variant) -> variant.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateVariantId" $"Variant ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateVariantId" $"Variant ID '{StableId.value id}' occurs more than once.")
+
+        let capabilityOperationEntries: (CapabilityId * SemanticCapabilityOperation) list =
+            snapshot.Capabilities
+            |> List.collect (fun owner -> owner.Operations |> List.map (fun operation -> owner.Id, operation))
+
+        capabilityOperationEntries
+        |> List.countBy (fun (_, operation) -> operation.Id)
+        |> List.filter (fun (_, count) -> count > 1)
+        |> List.iter (fun (id, _) -> add "DuplicateCapabilityOperationId" $"Capability operation ID '{StableId.value id}' occurs more than once.")
+
+        let capabilityParameterEntries: (CapabilityOperationId * SemanticCapabilityParameter) list =
+            capabilityOperationEntries
+            |> List.collect (fun (_, operation) -> operation.Parameters |> List.map (fun parameter -> operation.Id, parameter))
+
+        capabilityParameterEntries
+        |> List.countBy (fun (_, parameter) -> parameter.Id)
+        |> List.filter (fun (_, count) -> count > 1)
+        |> List.iter (fun (id, _) -> add "DuplicateCapabilityParameterId" $"Capability parameter ID '{StableId.value id}' occurs more than once.")
 
         let parameterEntries: (FunctionId * SemanticParameter) list =
             snapshot.Functions
@@ -165,85 +198,93 @@ module SnapshotValidator =
         parameterEntries
         |> List.countBy (fun (_, parameter) -> parameter.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateParameterId" $"Parameter ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateParameterId" $"Parameter ID '{StableId.value id}' occurs more than once.")
 
         let nodeEntries: (FunctionId * SemanticNode) list =
             snapshot.Functions
-            |> List.collect (fun owner ->
-                ValueGraph.collectNodes owner.Body |> List.map (fun node -> owner.Id, node))
+            |> List.collect (fun owner -> ValueGraph.collectNodes owner.Body |> List.map (fun node -> owner.Id, node))
 
         nodeEntries
         |> List.countBy (fun (_, node) -> node.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateGraphNodeId" $"Graph node ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateGraphNodeId" $"Graph node ID '{StableId.value id}' occurs more than once.")
 
         let patternEntries: (FunctionId * PatternBinding) list =
             snapshot.Functions
-            |> List.collect (fun owner ->
-                collectPatternBindings owner.Body |> List.map (fun binding -> owner.Id, binding))
+            |> List.collect (fun owner -> collectPatternBindings owner.Body |> List.map (fun binding -> owner.Id, binding))
 
         patternEntries
         |> List.countBy (fun (_, binding) -> binding.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicatePatternBindingId" $"Pattern binding ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicatePatternBindingId" $"Pattern binding ID '{StableId.value id}' occurs more than once.")
 
         snapshot.Obligations
         |> List.countBy (fun obligation -> obligation.Id)
         |> List.filter (fun (_, count) -> count > 1)
-        |> List.iter (fun (id, _) ->
-            add "DuplicateObligationId" $"Obligation ID '{StableId.value id}' occurs more than once.")
+        |> List.iter (fun (id, _) -> add "DuplicateObligationId" $"Obligation ID '{StableId.value id}' occurs more than once.")
 
         snapshot.Obligations
         |> List.filter (fun obligation -> obligation.Status = ObligationStatus.Open)
         |> List.countBy (fun obligation -> obligation.CallNodeId, obligation.ParameterId)
         |> List.filter (fun (_, count) -> count > 1)
         |> List.iter (fun ((callNodeId, parameterId), _) ->
-            add
-                "DuplicateOpenMissingArgumentObligation"
-                $"Call '{StableId.value callNodeId}' has more than one open obligation for parameter '{StableId.value parameterId}'.")
+            add "DuplicateOpenMissingArgumentObligation" $"Call '{StableId.value callNodeId}' has more than one open obligation for parameter '{StableId.value parameterId}'.")
 
         snapshot.Types
         |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
-        |> List.iter (fun item ->
-            add "BlankTypeDisplayName" $"Type '{StableId.value item.Id}' has a blank display name.")
+        |> List.iter (fun item -> add "BlankTypeDisplayName" $"Type '{StableId.value item.Id}' has a blank display name.")
+
+        snapshot.Effects
+        |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
+        |> List.iter (fun item -> add "BlankEffectDisplayName" $"Effect '{StableId.value item.Id}' has a blank display name.")
+
+        snapshot.Capabilities
+        |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
+        |> List.iter (fun item -> add "BlankCapabilityDisplayName" $"Capability '{StableId.value item.Id}' has a blank display name.")
+
+        capabilityOperationEntries
+        |> List.map snd
+        |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
+        |> List.iter (fun item -> add "BlankCapabilityOperationDisplayName" $"Capability operation '{StableId.value item.Id}' has a blank display name.")
+
+        capabilityParameterEntries
+        |> List.map snd
+        |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
+        |> List.iter (fun item -> add "BlankCapabilityParameterDisplayName" $"Capability parameter '{StableId.value item.Id}' has a blank display name.")
 
         fieldEntries
         |> List.map (fun (_, _, field) -> field)
         |> List.filter (fun field -> String.IsNullOrWhiteSpace field.DisplayName)
-        |> List.iter (fun field ->
-            add "BlankFieldDisplayName" $"Field '{StableId.value field.Id}' has a blank display name.")
+        |> List.iter (fun field -> add "BlankFieldDisplayName" $"Field '{StableId.value field.Id}' has a blank display name.")
 
         variantEntries
         |> List.map snd
         |> List.filter (fun variant -> String.IsNullOrWhiteSpace variant.DisplayName)
-        |> List.iter (fun variant ->
-            add "BlankVariantDisplayName" $"Variant '{StableId.value variant.Id}' has a blank display name.")
+        |> List.iter (fun variant -> add "BlankVariantDisplayName" $"Variant '{StableId.value variant.Id}' has a blank display name.")
 
         snapshot.Functions
         |> List.filter (fun item -> String.IsNullOrWhiteSpace item.DisplayName)
-        |> List.iter (fun item ->
-            add "BlankFunctionDisplayName" $"Function '{StableId.value item.Id}' has a blank display name.")
+        |> List.iter (fun item -> add "BlankFunctionDisplayName" $"Function '{StableId.value item.Id}' has a blank display name.")
 
         parameterEntries
         |> List.map snd
         |> List.filter (fun parameter -> String.IsNullOrWhiteSpace parameter.DisplayName)
-        |> List.iter (fun parameter ->
-            add "BlankParameterDisplayName" $"Parameter '{StableId.value parameter.Id}' has a blank display name.")
+        |> List.iter (fun parameter -> add "BlankParameterDisplayName" $"Parameter '{StableId.value parameter.Id}' has a blank display name.")
 
         patternEntries
         |> List.map snd
         |> List.choose (fun binding -> binding.DisplayName |> Option.map (fun displayName -> binding.Id, displayName))
         |> List.filter (fun (_, displayName) -> String.IsNullOrWhiteSpace displayName)
-        |> List.iter (fun (id, _) ->
-            add "BlankPatternBindingDisplayName" $"Pattern binding '{StableId.value id}' has a blank display name.")
+        |> List.iter (fun (id, _) -> add "BlankPatternBindingDisplayName" $"Pattern binding '{StableId.value id}' has a blank display name.")
 
         let typeIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList
+        let effectIds = snapshot.Effects |> List.map (fun item -> item.Id) |> Set.ofList
+        let capabilityIds = snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
         let typesById = snapshot.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let functionsById = snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList
         let variantsById = variantEntries |> List.map (fun (ownerId, variant) -> variant.Id, (ownerId, variant)) |> Map.ofList
+        let capabilityOperationsById: Map<CapabilityOperationId, CapabilityId * SemanticCapabilityOperation> =
+            capabilityOperationEntries |> List.map (fun (ownerId, operation) -> operation.Id, (ownerId, operation)) |> Map.ofList
         let productFieldsById: Map<FieldId, TypeId * SemanticField> =
             fieldEntries
             |> List.choose (fun (ownerId, variantId, field) ->
@@ -259,6 +300,9 @@ module SnapshotValidator =
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then
                     add "UnknownNamedType" $"{context} references unknown type '{StableId.value typeId}'."
+            | TypeRef.Capability capabilityId ->
+                if not (Set.contains capabilityId capabilityIds) then
+                    add "UnknownCapabilityType" $"{context} references unknown capability '{StableId.value capabilityId}'."
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
                 if arguments.Length <> 1 then
                     add "BuiltinGenericArityMismatch" $"{context} uses Option with {arguments.Length} type arguments; exactly 1 is required."
@@ -278,7 +322,26 @@ module SnapshotValidator =
                     for field in variant.Fields do
                         validateTypeRef $"Field '{StableId.value field.Id}'" field.Type
 
+        for _, operation in capabilityOperationEntries do
+            if not (Set.contains operation.EffectId effectIds) then
+                add "UnknownCapabilityEffect" $"Capability operation '{StableId.value operation.Id}' references unknown effect '{StableId.value operation.EffectId}'."
+            operation.Parameters
+            |> List.iter (fun parameter -> validateTypeRef $"Capability parameter '{StableId.value parameter.Id}'" parameter.Type)
+            validateTypeRef $"Capability operation '{StableId.value operation.Id}' result" operation.ResultType
+            operation.FailureType
+            |> Option.iter (validateTypeRef $"Capability operation '{StableId.value operation.Id}' failure")
+
         for functionEntity in snapshot.Functions do
+            functionEntity.RequiredEffects
+            |> List.countBy id
+            |> List.filter (fun (_, count) -> count > 1)
+            |> List.iter (fun (effectId, _) ->
+                add "DuplicateFunctionEffectRequirement" $"Function '{StableId.value functionEntity.Id}' lists effect '{StableId.value effectId}' more than once.")
+
+            for effectId in functionEntity.RequiredEffects do
+                if not (Set.contains effectId effectIds) then
+                    add "UnknownFunctionEffectRequirement" $"Function '{StableId.value functionEntity.Id}' requires unknown effect '{StableId.value effectId}'."
+
             validateTypeRef $"Function '{StableId.value functionEntity.Id}' result" functionEntity.ResultType
             for parameter in functionEntity.Parameters do
                 validateTypeRef $"Parameter '{StableId.value parameter.Id}'" parameter.Type
@@ -301,6 +364,7 @@ module SnapshotValidator =
                 collectPatternBindings functionEntity.Body
                 |> List.map (fun binding -> binding.Id, binding)
                 |> Map.ofList
+            let requiredEffects = Set.ofList functionEntity.RequiredEffects
 
             let rec tryNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
                 if Set.contains nodeId visiting then
@@ -319,8 +383,12 @@ module SnapshotValidator =
                         | SemanticNodeKind.StringLiteral _ -> Some(TypeRef.Primitive PrimitiveType.String)
                         | SemanticNodeKind.BoolLiteral _ -> Some(TypeRef.Primitive PrimitiveType.Bool)
                         | SemanticNodeKind.UnitLiteral -> Some(TypeRef.Primitive PrimitiveType.Unit)
+                        | SemanticNodeKind.StringIsEmpty _
+                        | SemanticNodeKind.StringContains _ -> Some(TypeRef.Primitive PrimitiveType.Bool)
                         | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
                             Map.tryFind targetFunctionId functionsById |> Option.map (fun target -> target.ResultType)
+                        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
+                            Map.tryFind operationId capabilityOperationsById |> Option.map (fun (_, operation) -> operation.ResultType)
                         | SemanticNodeKind.ProductConstruct(typeId, _) -> Some(TypeRef.Named typeId)
                         | SemanticNodeKind.FieldAccess(_, fieldId) ->
                             Map.tryFind fieldId productFieldsById |> Option.map (fun (_, field) -> field.Type)
@@ -348,6 +416,12 @@ module SnapshotValidator =
 
             let nodeType nodeId = tryNodeType Set.empty nodeId
 
+            let requireNodeType code message expectedType nodeId =
+                match nodeType nodeId with
+                | Some actualType when actualType <> expectedType -> add code message
+                | Some _
+                | None -> ()
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -356,8 +430,7 @@ module SnapshotValidator =
                 bindings
                 |> List.countBy (fun binding -> binding.TargetFieldId)
                 |> List.filter (fun (_, count) -> count > 1)
-                |> List.iter (fun (fieldId, _) ->
-                    add "DuplicateFieldBinding" $"{context} binds field '{StableId.value fieldId}' more than once.")
+                |> List.iter (fun (fieldId, _) -> add "DuplicateFieldBinding" $"{context} binds field '{StableId.value fieldId}' more than once.")
 
                 let expectedIds: Set<FieldId> = expectedFields |> List.map (fun field -> field.Id) |> Set.ofList
                 let actualIds: Set<FieldId> = bindings |> List.map (fun binding -> binding.TargetFieldId) |> Set.ofList
@@ -388,54 +461,52 @@ module SnapshotValidator =
                 for node in graph.Nodes do
                     for referencedNodeId in directValueReferences node do
                         if not (Set.contains referencedNodeId visibleNodes) then
-                            add
-                                "ValueNodeOutOfScope"
-                                $"Graph node '{StableId.value node.Id}' references value node '{StableId.value referencedNodeId}' outside its lexical value-graph scope."
+                            add "ValueNodeOutOfScope" $"Graph node '{StableId.value node.Id}' references value node '{StableId.value referencedNodeId}' outside its lexical value-graph scope."
 
                     match node.Kind with
                     | SemanticNodeKind.ParameterReference parameterId ->
                         if not (Map.containsKey parameterId parametersById) then
-                            add
-                                "UnknownParameterReference"
-                                $"Graph node '{StableId.value node.Id}' references parameter '{StableId.value parameterId}' outside its owning function."
+                            add "UnknownParameterReference" $"Graph node '{StableId.value node.Id}' references parameter '{StableId.value parameterId}' outside its owning function."
                     | SemanticNodeKind.PatternReference bindingId ->
                         if not (Set.contains bindingId visiblePatterns) then
-                            add
-                                "UnknownPatternReference"
-                                $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical match scope."
+                            add "UnknownPatternReference" $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical match scope."
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.BoolLiteral _
                     | SemanticNodeKind.UnitLiteral -> ()
+                    | SemanticNodeKind.StringIsEmpty valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringIsEmpty node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                    | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringContains node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringContains node '{StableId.value node.Id}' requires a String substring."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            substringNodeId
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
-                            add
-                                "UnknownCallTarget"
-                                $"Call node '{StableId.value node.Id}' references unknown function '{StableId.value targetFunctionId}'."
+                            add "UnknownCallTarget" $"Call node '{StableId.value node.Id}' references unknown function '{StableId.value targetFunctionId}'."
                         | Some targetFunction ->
                             arguments
                             |> List.countBy (fun argument -> argument.TargetParameterId)
                             |> List.filter (fun (_, count) -> count > 1)
-                            |> List.iter (fun (parameterId, _) ->
-                                add
-                                    "DuplicateArgumentTarget"
-                                    $"Call node '{StableId.value node.Id}' binds parameter '{StableId.value parameterId}' more than once.")
+                            |> List.iter (fun (parameterId, _) -> add "DuplicateArgumentTarget" $"Call node '{StableId.value node.Id}' binds parameter '{StableId.value parameterId}' more than once.")
 
                             for argument in arguments do
-                                let targetParameter =
-                                    targetFunction.Parameters
-                                    |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId)
-
+                                let targetParameter = targetFunction.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId)
                                 if Option.isNone targetParameter then
-                                    add
-                                        "UnknownArgumentTargetParameter"
-                                        $"Call node '{StableId.value node.Id}' targets parameter '{StableId.value argument.TargetParameterId}' not owned by its callee."
-
+                                    add "UnknownArgumentTargetParameter" $"Call node '{StableId.value node.Id}' targets parameter '{StableId.value argument.TargetParameterId}' not owned by its callee."
                                 match targetParameter, nodeType argument.ValueNodeId with
                                 | Some parameter, Some valueType when parameter.Type <> valueType ->
-                                    add
-                                        "ArgumentTypeMismatch"
-                                        $"Call node '{StableId.value node.Id}' binds a value with the wrong type to parameter '{StableId.value parameter.Id}'."
+                                    add "ArgumentTypeMismatch" $"Call node '{StableId.value node.Id}' binds a value with the wrong type to parameter '{StableId.value parameter.Id}'."
                                 | Some _, Some _
                                 | Some _, None
                                 | None, _ -> ()
@@ -444,33 +515,61 @@ module SnapshotValidator =
                                 let hasBinding = arguments |> List.exists (fun argument -> argument.TargetParameterId = parameter.Id)
                                 let hasOpenObligation = Set.contains (node.Id, parameter.Id) openObligationPairs
                                 if not hasBinding && not hasOpenObligation then
-                                    add
-                                        "MissingArgument"
-                                        $"Call node '{StableId.value node.Id}' has no binding or open obligation for parameter '{StableId.value parameter.Id}'."
+                                    add "MissingArgument" $"Call node '{StableId.value node.Id}' has no binding or open obligation for parameter '{StableId.value parameter.Id}'."
+
+                            for effectId in targetFunction.RequiredEffects do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' calls '{StableId.value targetFunction.Id}' but does not declare required effect '{StableId.value effectId}'."
+                    | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, operationId, arguments) ->
+                        match Map.tryFind operationId capabilityOperationsById with
+                        | None ->
+                            add "UnknownCapabilityOperation" $"Capability-invoke node '{StableId.value node.Id}' references unknown operation '{StableId.value operationId}'."
+                        | Some(ownerCapabilityId, operation) ->
+                            match nodeType capabilityValueNodeId with
+                            | Some(TypeRef.Capability capabilityId) when capabilityId = ownerCapabilityId -> ()
+                            | Some _ ->
+                                add "CapabilityValueTypeMismatch" $"Capability-invoke node '{StableId.value node.Id}' does not receive the capability that owns operation '{StableId.value operationId}'."
+                            | None -> ()
+
+                            arguments
+                            |> List.countBy (fun argument -> argument.TargetCapabilityParameterId)
+                            |> List.filter (fun (_, count) -> count > 1)
+                            |> List.iter (fun (parameterId, _) -> add "DuplicateCapabilityArgumentTarget" $"Capability-invoke node '{StableId.value node.Id}' binds capability parameter '{StableId.value parameterId}' more than once.")
+
+                            let expectedParameterIds = operation.Parameters |> List.map (fun parameter -> parameter.Id) |> Set.ofList
+                            let actualParameterIds = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId) |> Set.ofList
+                            if expectedParameterIds <> actualParameterIds then
+                                add "CapabilityArgumentSetMismatch" $"Capability-invoke node '{StableId.value node.Id}' must bind exactly the parameters declared by operation '{StableId.value operationId}'."
+
+                            for argument in arguments do
+                                let targetParameter = operation.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetCapabilityParameterId)
+                                match targetParameter, nodeType argument.ValueNodeId with
+                                | Some parameter, Some valueType when parameter.Type <> valueType ->
+                                    add "CapabilityArgumentTypeMismatch" $"Capability-invoke node '{StableId.value node.Id}' binds a value with the wrong type to capability parameter '{StableId.value parameter.Id}'."
+                                | Some _, Some _
+                                | Some _, None
+                                | None, _ -> ()
+
+                            if not (Set.contains operation.EffectId requiredEffects) then
+                                add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' invokes capability operation '{StableId.value operation.Id}' but does not declare required effect '{StableId.value operation.EffectId}'."
                     | SemanticNodeKind.ProductConstruct(typeId, fields) ->
                         match Map.tryFind typeId typesById with
                         | Some { Kind = SemanticTypeKind.Product expectedFields } ->
                             validateFieldBindings $"Product node '{StableId.value node.Id}'" expectedFields fields
-                        | Some _ ->
-                            add "InvalidProductConstructTarget" $"Product node '{StableId.value node.Id}' targets a non-product type."
-                        | None ->
-                            add "UnknownProductConstructType" $"Product node '{StableId.value node.Id}' targets unknown type '{StableId.value typeId}'."
+                        | Some _ -> add "InvalidProductConstructTarget" $"Product node '{StableId.value node.Id}' targets a non-product type."
+                        | None -> add "UnknownProductConstructType" $"Product node '{StableId.value node.Id}' targets unknown type '{StableId.value typeId}'."
                     | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) ->
                         match Map.tryFind fieldId productFieldsById with
-                        | None ->
-                            add "UnknownProductField" $"Field-access node '{StableId.value node.Id}' references a field that is not owned by a product type."
+                        | None -> add "UnknownProductField" $"Field-access node '{StableId.value node.Id}' references a field that is not owned by a product type."
                         | Some(ownerTypeId, _) ->
                             match nodeType sourceNodeId with
                             | Some(TypeRef.Named sourceTypeId) when sourceTypeId = ownerTypeId -> ()
-                            | Some _ ->
-                                add "FieldAccessTypeMismatch" $"Field-access node '{StableId.value node.Id}' reads a field from the wrong source type."
+                            | Some _ -> add "FieldAccessTypeMismatch" $"Field-access node '{StableId.value node.Id}' reads a field from the wrong source type."
                             | None -> ()
                     | SemanticNodeKind.UnionConstruct(variantId, fields) ->
                         match Map.tryFind variantId variantsById with
-                        | None ->
-                            add "UnknownUnionVariant" $"Union node '{StableId.value node.Id}' references unknown variant '{StableId.value variantId}'."
-                        | Some(_, variant) ->
-                            validateFieldBindings $"Union node '{StableId.value node.Id}'" variant.Fields fields
+                        | None -> add "UnknownUnionVariant" $"Union node '{StableId.value node.Id}' references unknown variant '{StableId.value variantId}'."
+                        | Some(_, variant) -> validateFieldBindings $"Union node '{StableId.value node.Id}'" variant.Fields fields
                     | SemanticNodeKind.OptionNone itemType ->
                         validateTypeRef $"Option.None node '{StableId.value node.Id}'" itemType
                     | SemanticNodeKind.OptionSome _ -> ()
@@ -495,8 +594,7 @@ module SnapshotValidator =
                                 arms
                                 |> List.countBy (fun arm -> arm.VariantId)
                                 |> List.filter (fun (_, count) -> count > 1)
-                                |> List.iter (fun (variantId, _) ->
-                                    add "DuplicateUnionMatchArm" $"Union match node '{StableId.value node.Id}' has duplicate arm for variant '{StableId.value variantId}'.")
+                                |> List.iter (fun (variantId, _) -> add "DuplicateUnionMatchArm" $"Union match node '{StableId.value node.Id}' has duplicate arm for variant '{StableId.value variantId}'.")
 
                                 let expectedVariantIds = variants |> List.map (fun variant -> variant.Id) |> Set.ofList
                                 let actualVariantIds = arms |> List.map (fun arm -> arm.VariantId) |> Set.ofList
@@ -565,16 +663,13 @@ module SnapshotValidator =
         for obligation in snapshot.Obligations do
             match Map.tryFind obligation.CallNodeId nodeOwners with
             | None ->
-                add
-                    "InvalidObligationTarget"
-                    $"Obligation '{StableId.value obligation.Id}' targets unknown graph node '{StableId.value obligation.CallNodeId}'."
+                add "InvalidObligationTarget" $"Obligation '{StableId.value obligation.Id}' targets unknown graph node '{StableId.value obligation.CallNodeId}'."
             | Some(ownerFunctionId, callNode) ->
                 match callNode.Kind with
                 | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                     let targetParameter =
                         Map.tryFind targetFunctionId functionsById
-                        |> Option.bind (fun target ->
-                            target.Parameters |> List.tryFind (fun parameter -> parameter.Id = obligation.ParameterId))
+                        |> Option.bind (fun target -> target.Parameters |> List.tryFind (fun parameter -> parameter.Id = obligation.ParameterId))
 
                     if Option.isNone targetParameter then
                         add "InvalidObligationParameter" $"Obligation '{StableId.value obligation.Id}' targets a parameter not owned by the call's callee."
@@ -591,13 +686,15 @@ module SnapshotValidator =
                         match Map.tryFind resolution.ValueNodeId nodeOwners with
                         | Some(valueOwnerId, _) when valueOwnerId = ownerFunctionId -> ()
                         | Some _
-                        | None ->
-                            add "InvalidObligationResolutionValue" $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
+                        | None -> add "InvalidObligationResolutionValue" $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
                 | SemanticNodeKind.UnionConstruct _

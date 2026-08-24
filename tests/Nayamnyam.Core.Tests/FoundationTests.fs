@@ -29,6 +29,9 @@ module FoundationTests =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
                 | SemanticNodeKind.UnionConstruct _
@@ -52,6 +55,8 @@ module FoundationTests =
         let snapshot = Snapshot.empty id
 
         Assert.Empty(snapshot.Types)
+        Assert.Empty(snapshot.Effects)
+        Assert.Empty(snapshot.Capabilities)
         Assert.Empty(snapshot.Functions)
         Assert.Empty(snapshot.Obligations)
 

@@ -19,6 +19,7 @@ type BuiltinGenericType =
 type TypeRef =
     | Primitive of PrimitiveType
     | Named of TypeId
+    | Capability of CapabilityId
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
 
 type SemanticField =
@@ -41,6 +42,28 @@ type SemanticType =
       DisplayName: string
       Kind: SemanticTypeKind }
 
+type SemanticEffect =
+    { Id: EffectId
+      DisplayName: string }
+
+type SemanticCapabilityParameter =
+    { Id: CapabilityParameterId
+      DisplayName: string
+      Type: TypeRef }
+
+type SemanticCapabilityOperation =
+    { Id: CapabilityOperationId
+      DisplayName: string
+      Parameters: SemanticCapabilityParameter list
+      ResultType: TypeRef
+      FailureType: TypeRef option
+      EffectId: EffectId }
+
+type SemanticCapability =
+    { Id: CapabilityId
+      DisplayName: string
+      Operations: SemanticCapabilityOperation list }
+
 type SemanticParameter =
     { Id: ParameterId
       DisplayName: string
@@ -48,6 +71,10 @@ type SemanticParameter =
 
 type ArgumentBinding =
     { TargetParameterId: ParameterId
+      ValueNodeId: GraphNodeId }
+
+type CapabilityArgumentBinding =
+    { TargetCapabilityParameterId: CapabilityParameterId
       ValueNodeId: GraphNodeId }
 
 type FieldValueBinding =
@@ -86,7 +113,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
+    | StringIsEmpty of valueNodeId: GraphNodeId
+    | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | DirectCall of FunctionId * ArgumentBinding list
+    | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
     | UnionConstruct of VariantId * FieldValueBinding list
@@ -112,6 +142,7 @@ type SemanticFunction =
       DisplayName: string
       Parameters: SemanticParameter list
       ResultType: TypeRef
+      RequiredEffects: EffectId list
       Body: ValueGraph }
 
 type ObligationResolution =
@@ -134,6 +165,8 @@ type Snapshot =
     { Id: SnapshotId
       ParentId: SnapshotId option
       Types: SemanticType list
+      Effects: SemanticEffect list
+      Capabilities: SemanticCapability list
       Functions: SemanticFunction list
       Obligations: MissingArgumentObligation list }
 
@@ -156,7 +189,10 @@ module ValueGraph =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
                 | SemanticNodeKind.UnionConstruct _
@@ -196,7 +232,10 @@ module ValueGraph =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
                 | SemanticNodeKind.UnionConstruct _
@@ -215,5 +254,7 @@ module Snapshot =
         { Id = id
           ParentId = None
           Types = []
+          Effects = []
+          Capabilities = []
           Functions = []
           Obligations = [] }

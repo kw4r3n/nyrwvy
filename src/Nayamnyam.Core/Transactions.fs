@@ -135,7 +135,10 @@ module Transaction =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
                 | SemanticNodeKind.UnionConstruct _
@@ -298,6 +301,9 @@ module Transaction =
                         | SemanticNodeKind.StringLiteral _
                         | SemanticNodeKind.BoolLiteral _
                         | SemanticNodeKind.UnitLiteral
+                        | SemanticNodeKind.StringIsEmpty _
+                        | SemanticNodeKind.StringContains _
+                        | SemanticNodeKind.CapabilityInvoke _
                         | SemanticNodeKind.ProductConstruct _
                         | SemanticNodeKind.FieldAccess _
                         | SemanticNodeKind.UnionConstruct _

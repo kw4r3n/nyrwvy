@@ -14,6 +14,8 @@ module SnapshotCodecTests =
         let original =
             { fixture.Snapshot with
                 Types = List.rev fixture.Snapshot.Types
+                Effects = List.rev fixture.Snapshot.Effects
+                Capabilities = List.rev fixture.Snapshot.Capabilities
                 Functions =
                     fixture.Snapshot.Functions
                     |> List.rev
@@ -71,14 +73,14 @@ module SnapshotCodecTests =
 
     [<Fact>]
     let ``snapshot codec rejects duplicate property names`` () =
-        let json = """{"schemaVersion":3,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":4,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
 
     [<Fact>]
     let ``snapshot codec rejects obsolete schema versions`` () =
-        let json = """{"schemaVersion":2,"snapshotId":"snapshot","types":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":3,"snapshotId":"snapshot","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
-        | Error(SnapshotCodecError.UnsupportedSchemaVersion 2) -> ()
+        | Error(SnapshotCodecError.UnsupportedSchemaVersion 3) -> ()
         | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result
