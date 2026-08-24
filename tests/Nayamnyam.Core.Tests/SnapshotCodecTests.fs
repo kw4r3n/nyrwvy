@@ -27,7 +27,9 @@ module SnapshotCodecTests =
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
-        Assert.Equal(original.Obligations, restored.Obligations)
+
+        if original.Obligations <> restored.Obligations then
+            failwith "Obligations did not round-trip exactly."
 
         let restoredRun = restored.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
         Assert.Equal(fixture.RunCallNodeId, restoredRun.ResultNodeId)
