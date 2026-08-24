@@ -69,16 +69,16 @@ type UnionMatchArm =
       Body: ValueGraph }
 
 and OptionSomeArm =
-    { ValueBinding: PatternBinding
-      Body: ValueGraph }
+    { SomeValueBinding: PatternBinding
+      SomeBody: ValueGraph }
 
 and ResultOkArm =
-    { ValueBinding: PatternBinding
-      Body: ValueGraph }
+    { OkValueBinding: PatternBinding
+      OkBody: ValueGraph }
 
 and ResultErrArm =
-    { ErrorBinding: PatternBinding
-      Body: ValueGraph }
+    { ErrValueBinding: PatternBinding
+      ErrBody: ValueGraph }
 
 and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ParameterReference of ParameterId
@@ -148,10 +148,22 @@ module ValueGraph =
                 | SemanticNodeKind.MatchUnion(_, arms) ->
                     arms |> List.collect (fun arm -> collectNodes arm.Body)
                 | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                    collectNodes someArm.Body @ collectNodes noneBody
+                    collectNodes someArm.SomeBody @ collectNodes noneBody
                 | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                    collectNodes okArm.Body @ collectNodes errArm.Body
-                | _ -> []
+                    collectNodes okArm.OkBody @ collectNodes errArm.ErrBody
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _ -> []
 
             node :: nested
 
@@ -173,13 +185,25 @@ module ValueGraph =
                         |> List.map (fun arm -> { arm with Body = mapNodes transform arm.Body })
                     SemanticNodeKind.MatchUnion(inputNodeId, mappedArms)
                 | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    let mappedSomeArm = { someArm with Body = mapNodes transform someArm.Body }
+                    let mappedSomeArm = { someArm with SomeBody = mapNodes transform someArm.SomeBody }
                     SemanticNodeKind.MatchOption(inputNodeId, mappedSomeArm, mapNodes transform noneBody)
                 | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    let mappedOkArm = { okArm with Body = mapNodes transform okArm.Body }
-                    let mappedErrArm = { errArm with Body = mapNodes transform errArm.Body }
+                    let mappedOkArm = { okArm with OkBody = mapNodes transform okArm.OkBody }
+                    let mappedErrArm = { errArm with ErrBody = mapNodes transform errArm.ErrBody }
                     SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
-                | other -> other
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _ -> node.Kind
 
             transform { node with Kind = kind }
 
