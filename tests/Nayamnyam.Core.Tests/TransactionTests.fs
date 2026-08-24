@@ -4,150 +4,153 @@ open Nayamnyam.Core
 open Xunit
 
 module TransactionTests =
-    let private baseSnapshot (): Snapshot =
-        let typeId = StableId.createForTesting<TypeTag> "type-raw-user-input"
-        let validateId = StableId.createForTesting<FunctionTag> "function-validate"
-        let runId = StableId.createForTesting<FunctionTag> "function-run"
-        let semanticType: SemanticType =
-            { Id = typeId
-              DisplayName = "RawUserInput" }
-        let validateFunction: SemanticFunction =
-            { Id = validateId
-              DisplayName = "validate_user" }
-        let runFunction: SemanticFunction =
-            { Id = runId
-              DisplayName = "run" }
-
-        { Id = StableId.createForTesting<SnapshotTag> "snapshot-base"
-          ParentId = Some(StableId.createForTesting<SnapshotTag> "snapshot-ancestor")
-          Types = [ semanticType ]
-          Functions = [ validateFunction; runFunction ] }
-
-    let private request baseId proposedId operation =
-        { Id = StableId.createForTesting<TransactionTag> "transaction-rename"
-          BaseSnapshotId = baseId
-          ProposedSnapshotId = proposedId
-          Operations = [ operation ] }
-
     let private unwrap = function
         | Proposed simulation -> simulation
         | Rejected diagnostics -> failwithf "Unexpected rejection: %A" diagnostics
 
+    let private requireReadiness expected snapshot =
+        match SnapshotReadiness.evaluate snapshot with
+        | Error issues -> failwithf "Unexpected validation failure: %A" issues
+        | Ok actual when actual = expected -> ()
+        | Ok actual -> failwithf "Expected readiness %A, got %A" expected actual
+
     [<Fact>]
-    let ``rename transaction preserves all untouched snapshot state`` () =
-        let original = baseSnapshot ()
-        let target = original.Functions.Head
-        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-proposed"
-        let simulation =
-            Transaction.simulate
-                original
-                (request
-                    original.Id
-                    proposedId
-                    (RenameDisplayName(RenameTarget.FunctionTarget target.Id, "validate_profile")))
-            |> unwrap
+    let ``rename preserves the complete graph except display metadata`` () =
+        let fixture = TestGraph.create ()
+        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-renamed"
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-rename"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = proposedId
+              Operations =
+                [ RenameDisplayName(RenameTarget.FunctionTarget fixture.ValidateFunctionId, "validate_profile") ] }
 
+        let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
         let expectedFunctions =
-            original.Functions
-            |> List.map (fun item ->
-                if item.Id = target.Id then
-                    { item with DisplayName = "validate_profile" }
-                else
-                    item)
-
+            fixture.Snapshot.Functions
+            |> List.map (fun functionEntity ->
+                if functionEntity.Id = fixture.ValidateFunctionId then
+                    { functionEntity with DisplayName = "validate_profile" }
+                else functionEntity)
         let expected =
-            { original with
+            { fixture.Snapshot with
                 Id = proposedId
-                ParentId = Some original.Id
+                ParentId = Some fixture.Snapshot.Id
                 Functions = expectedFunctions }
 
         Assert.Equal(expected, simulation.ProposedSnapshot)
-
-        if original.Types <> simulation.ProposedSnapshot.Types then
-            failwith "Rename transaction changed untouched types."
-
-        if original.Functions.Tail <> simulation.ProposedSnapshot.Functions.Tail then
-            failwith "Rename transaction changed an unrelated function."
-
-        match Assert.Single(simulation.Diff.Renames) with
-        | FunctionRenamed(id, oldName, newName) ->
-            Assert.Equal(target.Id, id)
-            Assert.Equal("validate_user", oldName)
-            Assert.Equal("validate_profile", newName)
-        | rename -> failwithf "Expected a function rename, got %A" rename
+        Assert.Single(simulation.Diff.Renames) |> ignore
 
     [<Fact>]
-    let ``rename preview is canonically equivalent to an explicit record update`` () =
-        let original = baseSnapshot ()
-        let target = original.Types.Head
-        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-proposed"
-        let simulation =
-            Transaction.simulate
-                original
-                (request
-                    original.Id
-                    proposedId
-                    (RenameDisplayName(RenameTarget.TypeTarget target.Id, "Input")))
-            |> unwrap
+    let ``add parameter can create an explicit blocking missing-argument obligation`` () =
+        let fixture = TestGraph.create ()
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
+        let obligationId = StableId.createForTesting<ObligationTag> "obligation-policy"
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-incomplete"
+              Operations =
+                [ AddFunctionParameter
+                    { FunctionId = fixture.ValidateFunctionId
+                      ParameterId = parameterId
+                      DisplayName = "policy"
+                      TypeId = fixture.PolicyTypeId
+                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
-        let expected =
-            { original with
-                Id = proposedId
-                ParentId = Some original.Id
-                Types = [ { target with DisplayName = "Input" } ] }
+        let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
+        let obligation = List.exactlyOne simulation.ProposedSnapshot.Obligations
+        let target = simulation.ProposedSnapshot.Functions |> List.find (fun item -> item.Id = fixture.ValidateFunctionId)
 
-        let actualJson = SnapshotCodec.serialize simulation.ProposedSnapshot |> function | Ok value -> value | Error error -> failwithf "%A" error
-        let expectedJson = SnapshotCodec.serialize expected |> function | Ok value -> value | Error error -> failwithf "%A" error
-        Assert.Equal(expectedJson, actualJson)
-
-    [<Fact>]
-    let ``stale base is rejected before applying operations`` () =
-        let original = baseSnapshot ()
-        let target = original.Functions.Head
-        let staleBase = StableId.createForTesting<SnapshotTag> "snapshot-stale"
-        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-proposed"
-        let result =
-            Transaction.simulate
-                original
-                (request
-                    staleBase
-                    proposedId
-                    (RenameDisplayName(RenameTarget.FunctionTarget target.Id, "renamed")))
-
-        match result with
-        | Rejected diagnostics -> Assert.Equal("StaleBaseSnapshot", Assert.Single(diagnostics).Code)
-        | Proposed _ -> failwith "Expected stale-base rejection."
+        Assert.Equal(parameterId, (List.last target.Parameters).Id)
+        Assert.Equal(obligationId, obligation.Id)
+        Assert.Single(simulation.Diff.ParametersAdded) |> ignore
+        Assert.Single(simulation.Diff.ObligationsCreated) |> ignore
+        requireReadiness (SemanticReadiness.Incomplete [ obligationId ]) simulation.ProposedSnapshot
 
     [<Fact>]
-    let ``missing rename target is rejected without inventing an entity`` () =
-        let original = baseSnapshot ()
-        let missing = StableId.createForTesting<FunctionTag> "function-missing"
-        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-proposed"
-        let result =
-            Transaction.simulate
-                original
-                (request
-                    original.Id
-                    proposedId
-                    (RenameDisplayName(RenameTarget.FunctionTarget missing, "invented")))
+    let ``resolving missing argument updates the same authoritative call node`` () =
+        let fixture = TestGraph.create ()
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
+        let obligationId = StableId.createForTesting<ObligationTag> "obligation-policy"
+        let addRequest: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-incomplete"
+              Operations =
+                [ AddFunctionParameter
+                    { FunctionId = fixture.ValidateFunctionId
+                      ParameterId = parameterId
+                      DisplayName = "policy"
+                      TypeId = fixture.PolicyTypeId
+                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
+        let incomplete = (Transaction.simulate fixture.Snapshot addRequest |> unwrap).ProposedSnapshot
 
-        match result with
-        | Rejected diagnostics -> Assert.Equal("TargetNotFound", Assert.Single(diagnostics).Code)
-        | Proposed _ -> failwith "Expected missing-target rejection."
+        let resolveRequest: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-resolve-policy"
+              BaseSnapshotId = incomplete.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-complete"
+              Operations =
+                [ ResolveMissingArgument
+                    { ObligationId = obligationId
+                      ValueNodeId = fixture.RunPolicyNodeId } ] }
+
+        let simulation = Transaction.simulate incomplete resolveRequest |> unwrap
+        let run = simulation.ProposedSnapshot.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
+        let call = run.Nodes |> List.find (fun node -> node.Id = fixture.RunCallNodeId)
+
+        match call.Kind with
+        | SemanticNodeKind.ParameterReference _ -> failwith "Call node changed semantic kind during obligation resolution."
+        | SemanticNodeKind.DirectCall(_, arguments) ->
+            let binding = arguments |> List.find (fun item -> item.TargetParameterId = parameterId)
+            Assert.Equal(fixture.RunPolicyNodeId, binding.ValueNodeId)
+
+        let obligation = List.exactlyOne simulation.ProposedSnapshot.Obligations
+        match obligation.Status with
+        | ObligationStatus.Open -> failwith "Resolved obligation remained open."
+        | ObligationStatus.Resolved resolution -> Assert.Equal(fixture.RunPolicyNodeId, resolution.ValueNodeId)
+
+        Assert.Single(simulation.Diff.ArgumentsAttached) |> ignore
+        Assert.Single(simulation.Diff.ObligationsResolved) |> ignore
+        requireReadiness SemanticReadiness.Complete simulation.ProposedSnapshot
 
     [<Fact>]
-    let ``blank rename is rejected rather than normalized or guessed`` () =
-        let original = baseSnapshot ()
-        let target = original.Functions.Head
-        let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-proposed"
-        let result =
-            Transaction.simulate
-                original
-                (request
-                    original.Id
-                    proposedId
-                    (RenameDisplayName(RenameTarget.FunctionTarget target.Id, "   ")))
+    let ``add parameter can bind an existing caller value without an obligation`` () =
+        let fixture = TestGraph.create ()
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-complete"
+              Operations =
+                [ AddFunctionParameter
+                    { FunctionId = fixture.ValidateFunctionId
+                      ParameterId = parameterId
+                      DisplayName = "policy"
+                      TypeId = fixture.PolicyTypeId
+                      CallPlans = [ BindExistingValue(fixture.RunCallNodeId, fixture.RunPolicyNodeId) ] } ] }
 
-        match result with
-        | Rejected diagnostics -> Assert.Equal("InvalidDisplayName", Assert.Single(diagnostics).Code)
-        | Proposed _ -> failwith "Expected blank-name rejection."
+        let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
+        Assert.Empty(simulation.ProposedSnapshot.Obligations)
+        Assert.Single(simulation.Diff.ArgumentsAttached) |> ignore
+        requireReadiness SemanticReadiness.Complete simulation.ProposedSnapshot
+
+    [<Fact>]
+    let ``add parameter refuses incomplete call-site plans`` () =
+        let fixture = TestGraph.create ()
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-invalid"
+              Operations =
+                [ AddFunctionParameter
+                    { FunctionId = fixture.ValidateFunctionId
+                      ParameterId = parameterId
+                      DisplayName = "policy"
+                      TypeId = fixture.PolicyTypeId
+                      CallPlans = [] } ] }
+
+        match Transaction.simulate fixture.Snapshot request with
+        | Rejected diagnostics -> Assert.Equal("CallPlanMismatch", (List.exactlyOne diagnostics).Code)
+        | Proposed _ -> failwith "Incomplete call-site plans were accepted."

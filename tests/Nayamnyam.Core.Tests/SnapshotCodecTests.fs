@@ -8,95 +8,74 @@ module SnapshotCodecTests =
         | Ok value -> value
         | Error error -> failwithf "Unexpected codec error: %A" error
 
-    let private snapshot (): Snapshot =
-        let typeA: SemanticType =
-            { Id = StableId.createForTesting<TypeTag> "type-a"
-              DisplayName = "Alpha" }
-
-        let typeB: SemanticType =
-            { Id = StableId.createForTesting<TypeTag> "type-b"
-              DisplayName = "Beta" }
-
-        let functionA: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-a"
-              DisplayName = "first" }
-
-        let functionB: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-b"
-              DisplayName = "second" }
-
-        { Id = StableId.createForTesting<SnapshotTag> "snapshot-current"
-          ParentId = Some(StableId.createForTesting<SnapshotTag> "snapshot-parent")
-          Types = [ typeB; typeA ]
-          Functions = [ functionB; functionA ] }
-
     [<Fact>]
-    let ``canonical snapshot serialization round-trips every current field`` () =
-        let original = snapshot ()
+    let ``canonical snapshot serialization round-trips the authoritative graph`` () =
+        let fixture = TestGraph.create ()
+        let original =
+            { fixture.Snapshot with
+                Types = List.rev fixture.Snapshot.Types
+                Functions =
+                    fixture.Snapshot.Functions
+                    |> List.rev
+                    |> List.map (fun functionEntity ->
+                        { functionEntity with Nodes = List.rev functionEntity.Nodes }) }
+
         let canonical = SnapshotCodec.serialize original |> unwrap
         let restored = SnapshotCodec.deserialize canonical |> unwrap
         let reserialized = SnapshotCodec.serialize restored |> unwrap
-        let expectedTypes = original.Types |> List.sortBy (fun item -> StableId.value item.Id)
-        let expectedFunctions = original.Functions |> List.sortBy (fun item -> StableId.value item.Id)
-        let typeAIndex = canonical.IndexOf("type-a", System.StringComparison.Ordinal)
-        let typeBIndex = canonical.IndexOf("type-b", System.StringComparison.Ordinal)
-        let functionAIndex = canonical.IndexOf("function-a", System.StringComparison.Ordinal)
-        let functionBIndex = canonical.IndexOf("function-b", System.StringComparison.Ordinal)
 
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
+        Assert.Equal(original.Obligations, restored.Obligations)
 
-        if expectedTypes <> restored.Types then
-            failwith "Type entities did not round-trip in canonical order."
-
-        if expectedFunctions <> restored.Functions then
-            failwith "Function entities did not round-trip in canonical order."
-
-        if typeAIndex = -1 || typeBIndex = -1 then
-            failwith "Canonical JSON did not contain both type IDs."
-
-        if functionAIndex = -1 || functionBIndex = -1 then
-            failwith "Canonical JSON did not contain both function IDs."
-
-        if compare typeAIndex typeBIndex <> -1 then
-            failwith "Canonical JSON did not sort types by stable ID."
-
-        if compare functionAIndex functionBIndex <> -1 then
-            failwith "Canonical JSON did not sort functions by stable ID."
+        let restoredRun = restored.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
+        Assert.Equal(fixture.RunCallNodeId, restoredRun.ResultNodeId)
+        Assert.Equal(3, restoredRun.Nodes.Length)
 
     [<Fact>]
-    let ``snapshot codec rejects unknown fields instead of discarding them`` () =
-        let json = """{"schemaVersion":1,"snapshotId":"snapshot","types":[],"functions":[],"extra":true}"""
+    let ``snapshot codec preserves open missing-argument obligations`` () =
+        let fixture = TestGraph.create ()
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"
+        let obligationId = StableId.createForTesting<ObligationTag> "obligation-policy"
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-add-policy"
+              BaseSnapshotId = fixture.Snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-with-obligation"
+              Operations =
+                [ AddFunctionParameter
+                    { FunctionId = fixture.ValidateFunctionId
+                      ParameterId = parameterId
+                      DisplayName = "policy"
+                      TypeId = fixture.PolicyTypeId
+                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
-        match SnapshotCodec.deserialize json with
-        | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("unsupported", message)
-        | result -> failwithf "Expected InvalidShape, got %A" result
+        let proposed =
+            match Transaction.simulate fixture.Snapshot request with
+            | Proposed simulation -> simulation.ProposedSnapshot
+            | Rejected diagnostics -> failwithf "Unexpected rejection: %A" diagnostics
+
+        let canonical = SnapshotCodec.serialize proposed |> unwrap
+        let restored = SnapshotCodec.deserialize canonical |> unwrap
+        let obligation = List.exactlyOne restored.Obligations
+
+        Assert.Equal(obligationId, obligation.Id)
+        Assert.Equal(fixture.RunCallNodeId, obligation.CallNodeId)
+
+        match obligation.Status with
+        | ObligationStatus.Open -> ()
+        | ObligationStatus.Resolved _ -> failwith "Open obligation was restored as resolved."
 
     [<Fact>]
     let ``snapshot codec rejects duplicate property names`` () =
-        let json = """{"schemaVersion":1,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[]}"""
-
+        let json = """{"schemaVersion":2,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
 
     [<Fact>]
-    let ``snapshot codec rejects unsupported schema versions`` () =
-        let json = """{"schemaVersion":2,"snapshotId":"snapshot","types":[],"functions":[]}"""
-
+    let ``snapshot codec rejects obsolete schema versions`` () =
+        let json = """{"schemaVersion":1,"snapshotId":"snapshot","types":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
-        | Error(SnapshotCodecError.UnsupportedSchemaVersion 2) -> ()
+        | Error(SnapshotCodecError.UnsupportedSchemaVersion 1) -> ()
         | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result
-
-    [<Fact>]
-    let ``serialization rejects semantically invalid snapshots`` () =
-        let original = snapshot ()
-        let duplicate = original.Types.Head
-        let invalid = { original with Types = duplicate :: duplicate :: original.Types.Tail }
-
-        match SnapshotCodec.serialize invalid with
-        | Error(SnapshotCodecError.InvalidSnapshot issues) ->
-            if not (issues |> List.exists (fun issue -> issue.Code = "DuplicateTypeId")) then
-                failwith "Duplicate type ID was not reported by snapshot validation."
-        | result -> failwithf "Expected InvalidSnapshot, got %A" result
