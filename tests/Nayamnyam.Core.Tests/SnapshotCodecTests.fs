@@ -48,12 +48,18 @@ module SnapshotCodecTests =
         Assert.Equal(original.ParentId, restored.ParentId)
         Assert.True(expectedTypes = restored.Types)
         Assert.True(expectedFunctions = restored.Functions)
-        Assert.True(typeAIndex >= 0)
-        Assert.True(typeBIndex >= 0)
-        Assert.True(functionAIndex >= 0)
-        Assert.True(functionBIndex >= 0)
-        Assert.True(System.Math.Sign(typeAIndex - typeBIndex) = -1)
-        Assert.True(System.Math.Sign(functionAIndex - functionBIndex) = -1)
+
+        if typeAIndex = -1 || typeBIndex = -1 then
+            failwith "Canonical JSON did not contain both type IDs."
+
+        if functionAIndex = -1 || functionBIndex = -1 then
+            failwith "Canonical JSON did not contain both function IDs."
+
+        if compare typeAIndex typeBIndex <> -1 then
+            failwith "Canonical JSON did not sort types by stable ID."
+
+        if compare functionAIndex functionBIndex <> -1 then
+            failwith "Canonical JSON did not sort functions by stable ID."
 
     [<Fact>]
     let ``snapshot codec rejects unknown fields instead of discarding them`` () =
