@@ -1,0 +1,4 @@
+**/bin/
+**/obj/
+.opencode-trace/
+.ruff_cache/

@@ -6,6 +6,8 @@ Each question includes a resolution target so that uncertainty remains bounded r
 
 ## Q-001 — What is the canonical persistence format?
 
+**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
+
 ### Question
 
 Should an authoritative snapshot be stored as canonical text, structured JSON-like documents, a custom binary format, an embedded database, or a combination of these?
@@ -28,6 +30,8 @@ Resolve before the Milestone 0 graph store is implemented. A replaceable storage
 ---
 
 ## Q-002 — How are stable IDs generated and scoped?
+
+**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
 
 ### Question
 
@@ -71,6 +75,8 @@ Milestone 0 may use canonical snapshots plus an append-only audit log. The long-
 ---
 
 ## Q-004 — Which structures are first-class graph entities?
+
+**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
 
 ### Question
 

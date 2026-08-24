@@ -72,6 +72,7 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Vision](docs/vision.md) — purpose, priorities, non-goals, and success conditions
 - [Architecture](docs/architecture.md) — system boundaries, data flow, invariants, and validation model
 - [Decisions](docs/decisions.md) — accepted foundational decisions and their consequences
+- [Graph Schema v2](docs/schema-v1.md) — Milestone 0 persistence and identity contract
 - [Open questions](docs/open-questions.md) — unresolved implementation and research questions
 - [Milestone 0](docs/milestone-0.md) — first end-to-end validation slice
 
@@ -87,7 +88,7 @@ RAST remains external to this repository. Any rule, test, or implementation conc
 
 - Direction: established
 - Architecture: high-level boundaries accepted
-- Detailed representation and storage formats: under investigation
-- Implementation: not started
+- Detailed representation and storage formats: established for the Milestone 0 foundation
+- Implementation: semantic core foundation in progress
 - First execution backend: C#/.NET
 - First human interface: read-only graph exploration and change review

@@ -360,3 +360,35 @@ English provides consistent terminology for implementation tools, AI agents, ext
 ### Revisit conditions
 
 None expected. Additional translated guides may be added as non-canonical projections.
+
+---
+
+## D-015 — The Milestone 0 semantic core is implemented in C#/.NET
+
+- **Status:** Accepted
+- **Date:** 2026-08-24
+
+### Decision
+
+The Milestone 0 semantic core, storage adapter, transaction engine, validators,
+and test suite are implemented in C# on the supported .NET SDK.
+
+### Reason
+
+C# keeps the semantic core and the first C#/.NET backend in one well-supported
+toolchain, while project boundaries still prevent backend syntax and runtime
+representation choices from entering the core. The previously removed language
+spike is not retained as decision evidence; this decision is based on the
+current Milestone 0 constraints.
+
+### Consequences
+
+- Core tests run with the standard .NET test tooling.
+- `System.Text.Json` provides JSON parsing and writing; canonical ordering stays
+  a project responsibility.
+- C# implementation does not authorize C# concepts in the semantic graph.
+
+### Revisit conditions
+
+Revisit only if the core requirements cannot be represented safely and
+maintainably in C# without weakening the architecture.

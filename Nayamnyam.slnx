@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nayamnyam.Cli/Nayamnyam.Cli.csproj" />
+    <Project Path="src/Nayamnyam.Core/Nayamnyam.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.csproj" />
+  </Folder>
+</Solution>
