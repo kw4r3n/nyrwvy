@@ -13,12 +13,12 @@ type SnapshotCodecError =
     | UnsupportedSchemaVersion of int
     | InvalidSnapshot of ValidationIssue list
 
-/// Phase D keeps JSON as a strict reference codec and benchmark baseline.
+/// JSON remains a strict reference codec and benchmark baseline.
 /// It is not a decision that JSON is Nayamnyam's long-term canonical encoding;
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
-    let private schemaVersion = 3
+    let private schemaVersion = 4
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -98,6 +98,22 @@ module SnapshotCodec =
             invalidShape $"Property '{name}' must be an array."
         value.EnumerateArray() |> Seq.map reader |> List.ofSeq
 
+    let private readIdArray<'Kind> name (root: JsonElement): StableId<'Kind> list =
+        let value = requireProperty name root
+        if value.ValueKind <> JsonValueKind.Array then
+            invalidShape $"Property '{name}' must be an array."
+        value.EnumerateArray()
+        |> Seq.map (fun item ->
+            if item.ValueKind <> JsonValueKind.String then
+                invalidShape $"Property '{name}' must contain only stable-ID strings."
+            match item.GetString() with
+            | null -> invalidShape $"Property '{name}' contains null."
+            | text ->
+                match StableId.tryCreate<'Kind> text with
+                | Ok id -> id
+                | Error error -> invalidShape $"Property '{name}' contains an invalid stable ID: {error}.")
+        |> List.ofSeq
+
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
         match typeRef with
@@ -113,6 +129,9 @@ module SnapshotCodec =
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+        | TypeRef.Capability capabilityId ->
+            writer.WriteString("kind", "capability")
+            writer.WriteString("capabilityId", StableId.value capabilityId)
         | TypeRef.BuiltinGeneric(genericType, arguments) ->
             writer.WriteString("kind", "builtinGeneric")
             writer.WriteString(
@@ -170,6 +189,50 @@ module SnapshotCodec =
             writer.WriteEndArray()
         writer.WriteEndObject()
 
+    let private writeEffect (writer: Utf8JsonWriter) (effect: SemanticEffect) =
+        writer.WriteStartObject()
+        writer.WriteString("id", StableId.value effect.Id)
+        writer.WriteString("displayName", effect.DisplayName)
+        writer.WriteEndObject()
+
+    let private writeCapabilityParameter (writer: Utf8JsonWriter) (parameter: SemanticCapabilityParameter) =
+        writer.WriteStartObject()
+        writer.WriteString("id", StableId.value parameter.Id)
+        writer.WriteString("displayName", parameter.DisplayName)
+        writer.WritePropertyName("type")
+        writeTypeRef writer parameter.Type
+        writer.WriteEndObject()
+
+    let private writeCapabilityOperation (writer: Utf8JsonWriter) (operation: SemanticCapabilityOperation) =
+        writer.WriteStartObject()
+        writer.WriteString("id", StableId.value operation.Id)
+        writer.WriteString("displayName", operation.DisplayName)
+        writer.WritePropertyName("parameters")
+        writer.WriteStartArray()
+        operation.Parameters |> List.iter (writeCapabilityParameter writer)
+        writer.WriteEndArray()
+        writer.WritePropertyName("resultType")
+        writeTypeRef writer operation.ResultType
+        match operation.FailureType with
+        | Some failureType ->
+            writer.WritePropertyName("failureType")
+            writeTypeRef writer failureType
+        | None -> ()
+        writer.WriteString("effectId", StableId.value operation.EffectId)
+        writer.WriteEndObject()
+
+    let private writeCapability (writer: Utf8JsonWriter) (capability: SemanticCapability) =
+        writer.WriteStartObject()
+        writer.WriteString("id", StableId.value capability.Id)
+        writer.WriteString("displayName", capability.DisplayName)
+        writer.WritePropertyName("operations")
+        writer.WriteStartArray()
+        capability.Operations
+        |> List.sortBy (fun operation -> StableId.value operation.Id)
+        |> List.iter (writeCapabilityOperation writer)
+        writer.WriteEndArray()
+        writer.WriteEndObject()
+
     let private writeParameter (writer: Utf8JsonWriter) (parameter: SemanticParameter) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value parameter.Id)
@@ -181,6 +244,12 @@ module SnapshotCodec =
     let private writeArgument (writer: Utf8JsonWriter) (argument: ArgumentBinding) =
         writer.WriteStartObject()
         writer.WriteString("targetParameterId", StableId.value argument.TargetParameterId)
+        writer.WriteString("valueNodeId", StableId.value argument.ValueNodeId)
+        writer.WriteEndObject()
+
+    let private writeCapabilityArgument (writer: Utf8JsonWriter) (argument: CapabilityArgumentBinding) =
+        writer.WriteStartObject()
+        writer.WriteString("targetCapabilityParameterId", StableId.value argument.TargetCapabilityParameterId)
         writer.WriteString("valueNodeId", StableId.value argument.ValueNodeId)
         writer.WriteEndObject()
 
@@ -226,6 +295,13 @@ module SnapshotCodec =
             writer.WriteBoolean("value", value)
         | SemanticNodeKind.UnitLiteral ->
             writer.WriteString("kind", "unitLiteral")
+        | SemanticNodeKind.StringIsEmpty valueNodeId ->
+            writer.WriteString("kind", "stringIsEmpty")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
+            writer.WriteString("kind", "stringContains")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -234,6 +310,16 @@ module SnapshotCodec =
             arguments
             |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId, StableId.value argument.ValueNodeId)
             |> List.iter (writeArgument writer)
+            writer.WriteEndArray()
+        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, operationId, arguments) ->
+            writer.WriteString("kind", "capabilityInvoke")
+            writer.WriteString("capabilityValueNodeId", StableId.value capabilityValueNodeId)
+            writer.WriteString("operationId", StableId.value operationId)
+            writer.WritePropertyName("arguments")
+            writer.WriteStartArray()
+            arguments
+            |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId, StableId.value argument.ValueNodeId)
+            |> List.iter (writeCapabilityArgument writer)
             writer.WriteEndArray()
         | SemanticNodeKind.ProductConstruct(typeId, fields) ->
             writer.WriteString("kind", "productConstruct")
@@ -354,6 +440,12 @@ module SnapshotCodec =
         writer.WriteEndArray()
         writer.WritePropertyName("resultType")
         writeTypeRef writer functionEntity.ResultType
+        writer.WritePropertyName("requiredEffects")
+        writer.WriteStartArray()
+        functionEntity.RequiredEffects
+        |> List.sortBy StableId.value
+        |> List.iter (fun effectId -> writer.WriteStringValue(StableId.value effectId))
+        writer.WriteEndArray()
         writer.WritePropertyName("body")
         writeGraph writer functionEntity.Body
         writer.WriteEndObject()
@@ -384,21 +476,23 @@ module SnapshotCodec =
         | None -> ()
         writer.WritePropertyName("types")
         writer.WriteStartArray()
-        snapshot.Types
-        |> List.sortBy (fun item -> StableId.value item.Id)
-        |> List.iter (writeType writer)
+        snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeType writer)
+        writer.WriteEndArray()
+        writer.WritePropertyName("effects")
+        writer.WriteStartArray()
+        snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeEffect writer)
+        writer.WriteEndArray()
+        writer.WritePropertyName("capabilities")
+        writer.WriteStartArray()
+        snapshot.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeCapability writer)
         writer.WriteEndArray()
         writer.WritePropertyName("functions")
         writer.WriteStartArray()
-        snapshot.Functions
-        |> List.sortBy (fun item -> StableId.value item.Id)
-        |> List.iter (writeFunction writer)
+        snapshot.Functions |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeFunction writer)
         writer.WriteEndArray()
         writer.WritePropertyName("obligations")
         writer.WriteStartArray()
-        snapshot.Obligations
-        |> List.sortBy (fun item -> StableId.value item.Id)
-        |> List.iter (writeObligation writer)
+        snapshot.Obligations |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeObligation writer)
         writer.WriteEndArray()
         writer.WriteEndObject()
         writer.Flush()
@@ -424,12 +518,11 @@ module SnapshotCodec =
         | "named" ->
             ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId" ]) element
             TypeRef.Named(readId<TypeTag> "typeId" element)
+        | "capability" ->
+            ensureProperties "Capability type reference" (set [ "kind"; "capabilityId" ]) (set [ "kind"; "capabilityId" ]) element
+            TypeRef.Capability(readId<CapabilityTag> "capabilityId" element)
         | "builtinGeneric" ->
-            ensureProperties
-                "Builtin generic type reference"
-                (set [ "kind"; "generic"; "arguments" ])
-                (set [ "kind"; "generic"; "arguments" ])
-                element
+            ensureProperties "Builtin generic type reference" (set [ "kind"; "generic"; "arguments" ]) (set [ "kind"; "generic"; "arguments" ]) element
             let genericType =
                 match readString "generic" element with
                 | "option" -> BuiltinGenericType.Option
@@ -465,6 +558,37 @@ module SnapshotCodec =
               Kind = SemanticTypeKind.Union(readArray "variants" readVariant element) }
         | value -> invalidShape $"Unsupported semantic type kind '{value}'."
 
+    let private readEffect (element: JsonElement): SemanticEffect =
+        ensureProperties "Effect" (set [ "id"; "displayName" ]) (set [ "id"; "displayName" ]) element
+        { Id = readId<EffectTag> "id" element
+          DisplayName = readString "displayName" element }
+
+    let private readCapabilityParameter (element: JsonElement): SemanticCapabilityParameter =
+        ensureProperties "Capability parameter" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
+        { Id = readId<CapabilityParameterTag> "id" element
+          DisplayName = readString "displayName" element
+          Type = readTypeRef (requireProperty "type" element) }
+
+    let private readCapabilityOperation (element: JsonElement): SemanticCapabilityOperation =
+        ensureProperties
+            "Capability operation"
+            (set [ "id"; "displayName"; "parameters"; "resultType"; "effectId" ])
+            (set [ "id"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId" ])
+            element
+        let failureType = tryProperty "failureType" element |> Option.map readTypeRef
+        { Id = readId<CapabilityOperationTag> "id" element
+          DisplayName = readString "displayName" element
+          Parameters = readArray "parameters" readCapabilityParameter element
+          ResultType = readTypeRef (requireProperty "resultType" element)
+          FailureType = failureType
+          EffectId = readId<EffectTag> "effectId" element }
+
+    let private readCapability (element: JsonElement): SemanticCapability =
+        ensureProperties "Capability" (set [ "id"; "displayName"; "operations" ]) (set [ "id"; "displayName"; "operations" ]) element
+        { Id = readId<CapabilityTag> "id" element
+          DisplayName = readString "displayName" element
+          Operations = readArray "operations" readCapabilityOperation element }
+
     let private readParameter (element: JsonElement): SemanticParameter =
         ensureProperties "Parameter" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
         { Id = readId<ParameterTag> "id" element
@@ -474,6 +598,15 @@ module SnapshotCodec =
     let private readArgument (element: JsonElement): ArgumentBinding =
         ensureProperties "Argument" (set [ "targetParameterId"; "valueNodeId" ]) (set [ "targetParameterId"; "valueNodeId" ]) element
         { TargetParameterId = readId<ParameterTag> "targetParameterId" element
+          ValueNodeId = readId<GraphNodeTag> "valueNodeId" element }
+
+    let private readCapabilityArgument (element: JsonElement): CapabilityArgumentBinding =
+        ensureProperties
+            "Capability argument"
+            (set [ "targetCapabilityParameterId"; "valueNodeId" ])
+            (set [ "targetCapabilityParameterId"; "valueNodeId" ])
+            element
+        { TargetCapabilityParameterId = readId<CapabilityParameterTag> "targetCapabilityParameterId" element
           ValueNodeId = readId<GraphNodeTag> "valueNodeId" element }
 
     let private readFieldValue (element: JsonElement): FieldValueBinding =
@@ -516,9 +649,30 @@ module SnapshotCodec =
             | "unitLiteral" ->
                 ensureProperties "Unit literal node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
                 SemanticNodeKind.UnitLiteral
+            | "stringIsEmpty" ->
+                ensureProperties "StringIsEmpty node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringIsEmpty(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringContains" ->
+                ensureProperties
+                    "StringContains node"
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId" ])
+                    element
+                SemanticNodeKind.StringContains(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "substringNodeId" element)
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)
+            | "capabilityInvoke" ->
+                ensureProperties
+                    "Capability invoke node"
+                    (set [ "id"; "kind"; "capabilityValueNodeId"; "operationId"; "arguments" ])
+                    (set [ "id"; "kind"; "capabilityValueNodeId"; "operationId"; "arguments" ])
+                    element
+                SemanticNodeKind.CapabilityInvoke(
+                    readId<GraphNodeTag> "capabilityValueNodeId" element,
+                    readId<CapabilityOperationTag> "operationId" element,
+                    readArray "arguments" readCapabilityArgument element
+                )
             | "productConstruct" ->
                 ensureProperties "Product construct node" (set [ "id"; "kind"; "typeId"; "fields" ]) (set [ "id"; "kind"; "typeId"; "fields" ]) element
                 SemanticNodeKind.ProductConstruct(readId<TypeTag> "typeId" element, readArray "fields" readFieldValue element)
@@ -559,7 +713,7 @@ module SnapshotCodec =
                 ensureProperties "Option match node" (set [ "id"; "kind"; "inputNodeId"; "someArm"; "noneBody" ]) (set [ "id"; "kind"; "inputNodeId"; "someArm"; "noneBody" ]) element
                 let someElement = requireProperty "someArm" element
                 ensureProperties "Option.Some match arm" (set [ "valueBinding"; "body" ]) (set [ "valueBinding"; "body" ]) someElement
-                let someArm =
+                let someArm: ValueMatchArm =
                     { ValueBinding = readPatternBinding (requireProperty "valueBinding" someElement)
                       Body = readGraph (requireProperty "body" someElement) }
                 SemanticNodeKind.MatchOption(readId<GraphNodeTag> "inputNodeId" element, someArm, readGraph (requireProperty "noneBody" element))
@@ -569,10 +723,10 @@ module SnapshotCodec =
                 let errElement = requireProperty "errArm" element
                 ensureProperties "Result.Ok match arm" (set [ "valueBinding"; "body" ]) (set [ "valueBinding"; "body" ]) okElement
                 ensureProperties "Result.Err match arm" (set [ "errorBinding"; "body" ]) (set [ "errorBinding"; "body" ]) errElement
-                let okArm =
+                let okArm: ValueMatchArm =
                     { ValueBinding = readPatternBinding (requireProperty "valueBinding" okElement)
                       Body = readGraph (requireProperty "body" okElement) }
-                let errArm =
+                let errArm: ErrorMatchArm =
                     { ErrorBinding = readPatternBinding (requireProperty "errorBinding" errElement)
                       Body = readGraph (requireProperty "body" errElement) }
                 SemanticNodeKind.MatchResult(readId<GraphNodeTag> "inputNodeId" element, okArm, errArm)
@@ -585,11 +739,16 @@ module SnapshotCodec =
           ResultNodeId = readId<GraphNodeTag> "resultNodeId" element }
 
     let private readFunction (element: JsonElement): SemanticFunction =
-        ensureProperties "Function" (set [ "id"; "displayName"; "parameters"; "resultType"; "body" ]) (set [ "id"; "displayName"; "parameters"; "resultType"; "body" ]) element
+        ensureProperties
+            "Function"
+            (set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ])
+            (set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ])
+            element
         { Id = readId<FunctionTag> "id" element
           DisplayName = readString "displayName" element
           Parameters = readArray "parameters" readParameter element
           ResultType = readTypeRef (requireProperty "resultType" element)
+          RequiredEffects = readIdArray<EffectTag> "requiredEffects" element
           Body = readGraph (requireProperty "body" element) }
 
     let private readObligation (element: JsonElement): MissingArgumentObligation =
@@ -634,8 +793,8 @@ module SnapshotCodec =
                 let root = document.RootElement
                 ensureProperties
                     "Snapshot"
-                    (set [ "schemaVersion"; "snapshotId"; "types"; "functions"; "obligations" ])
-                    (set [ "schemaVersion"; "snapshotId"; "parentSnapshotId"; "types"; "functions"; "obligations" ])
+                    (set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ])
+                    (set [ "schemaVersion"; "snapshotId"; "parentSnapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ])
                     root
                 let version = readInt32 "schemaVersion" root
                 if version <> schemaVersion then
@@ -649,6 +808,8 @@ module SnapshotCodec =
                         { Id = readId<SnapshotTag> "snapshotId" root
                           ParentId = parentId
                           Types = readArray "types" readType root
+                          Effects = readArray "effects" readEffect root
+                          Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
                     match SnapshotValidator.validate snapshot with
