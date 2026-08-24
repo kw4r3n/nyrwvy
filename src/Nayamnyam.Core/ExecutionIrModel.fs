@@ -75,7 +75,7 @@ type ExecutionFieldValue =
 
 [<RequireQualifiedAccess>]
 type ExecutionInstructionKind =
-    | ReadParameter of ParameterId
+    | ReadParameter of ExecutionValueId
     | ReadPatternBinding of ExecutionValueId
     | StringLiteral of string
     | BoolLiteral of bool
