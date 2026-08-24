@@ -45,20 +45,21 @@ The following direction is accepted unless implementation evidence requires revi
 
 ## Rebuild status
 
-The clean rebuild has verified the semantic foundation through Phase D:
+The clean rebuild has verified the semantic foundation through Phase E:
 
 - **Foundation:** F# solution, domain-typed stable IDs, immutable snapshot model, and CI.
 - **Phase B:** strict reference snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
 - **Phase C:** one authoritative function-owned node graph for direct calls, typed parameters, explicit `MissingArgument` obligations, `function.add_parameter`, obligation resolution, and semantic completeness.
 - **Phase D:** explicit `TypeRef`, product/union fields and variants with stable identity, primitive and Option/Result value nodes, nested lexical `ValueGraph` branches, exhaustive matching, pattern bindings, and graph-aware transactions.
+- **Phase E:** explicit string predicates, stable effect/capability/operation identities, typed capability parameters, distinct `CapabilityInvoke` nodes, and explicit function effect requirements with caller/capability validation.
 
-The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and future lowering must derive calls from the same graph nodes.
+The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and future lowering must derive calls from the same graph nodes. External capability invocation is a separate semantic node kind rather than a special internal call.
 
-Phase D also makes the AI-first design rule explicit: local semantic clarity and mechanically detectable structure outrank concise source representation. See [AI-first semantic design principles](docs/ai-first-design-principles-20260825.md).
+Phase D made the AI-first design rule explicit: local semantic clarity and mechanically detectable structure outrank concise source representation. See [AI-first semantic design principles](docs/ai-first-design-principles-20260825.md).
 
-JSON remains a strict reference/debug codec rather than a final persistence decision. [Nyason v0](docs/nyason-v0-20260825.md) is the dedicated Nayamnyam encoding candidate and will be compared empirically against JSON and, where practical, TSON after representative graph fixtures are available.
+JSON remains a strict reference/debug codec rather than a final persistence decision. [Nyason v0](docs/nyason-v0-20260825.md) is the dedicated Nayamnyam encoding candidate and will be compared empirically against JSON and, where practical, TSON using a representative Milestone 0 graph.
 
-Lowering, C# generation, effects/capabilities, and the viewer have not been reintroduced yet. The next semantic gate is the minimal intrinsic/effect/capability subset required by the Milestone 0 validation program, followed by the Typed Semantic IR boundary above validated graph facts.
+Lowering, C# generation, backend capability binding, and the viewer have not been reintroduced yet. The next gate is to construct and validate the complete Milestone 0 `validate_user` / `report_validation` semantic graph. That graph will become the shared fixture for Nyason evaluation and the Typed Semantic IR boundary.
 
 See the rebuild records:
 
@@ -66,6 +67,7 @@ See the rebuild records:
 - [Verified Phase B](docs/rebuild-phase-b-20260825.md)
 - [Verified Phase C](docs/rebuild-phase-c-20260825.md)
 - [Verified Phase D](docs/rebuild-phase-d-20260825.md)
+- [Verified Phase E](docs/rebuild-phase-e-20260825.md)
 
 ## Initial milestone
 
@@ -100,7 +102,7 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-Phase D source and tests were verified through GitHub Actions with .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all 21 tests passed with zero skips. See the Phase D rebuild record for the exact verified tree.
+Phase E source and tests were verified through GitHub Actions with .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all 29 tests passed with zero skips. See the Phase E rebuild record for the exact verified tree.
 
 ## Relationship to RAST
 
