@@ -197,29 +197,55 @@ module CapabilityTests =
     [<Fact>]
     let ``direct caller explicitly carries callee effects`` () =
         let fixture = createConsoleFixture ()
-        let unitType = TypeRef.Primitive PrimitiveType.Unit
         let callee = List.exactlyOne fixture.Snapshot.Functions
         let callerId = StableId.createForTesting<FunctionTag> "function-caller"
-        let callerNodeId = StableId.createForTesting<GraphNodeTag> "node-caller-call"
+        let callerMessageParameterId = StableId.createForTesting<ParameterTag> "parameter-caller-message"
+        let callerConsoleParameterId = StableId.createForTesting<ParameterTag> "parameter-caller-console"
+        let callerMessageNodeId = StableId.createForTesting<GraphNodeTag> "node-caller-message"
+        let callerConsoleNodeId = StableId.createForTesting<GraphNodeTag> "node-caller-console"
+        let callerCallNodeId = StableId.createForTesting<GraphNodeTag> "node-caller-call"
 
-        let callerNode: SemanticNode =
-            { Id = callerNodeId
-              Kind = SemanticNodeKind.DirectCall(callee.Id, []) }
+        let callerMessageParameter: SemanticParameter =
+            { Id = callerMessageParameterId
+              DisplayName = "message"
+              Type = TypeRef.Primitive PrimitiveType.String }
+        let callerConsoleParameter: SemanticParameter =
+            { Id = callerConsoleParameterId
+              DisplayName = "console"
+              Type = TypeRef.Capability fixture.CapabilityId }
+        let callerMessageNode: SemanticNode =
+            { Id = callerMessageNodeId
+              Kind = SemanticNodeKind.ParameterReference callerMessageParameterId }
+        let callerConsoleNode: SemanticNode =
+            { Id = callerConsoleNodeId
+              Kind = SemanticNodeKind.ParameterReference callerConsoleParameterId }
+        let callerCallNode: SemanticNode =
+            { Id = callerCallNodeId
+              Kind =
+                SemanticNodeKind.DirectCall(
+                    callee.Id,
+                    [ { TargetParameterId = fixture.MessageParameterId
+                        ValueNodeId = callerMessageNodeId }
+                      { TargetParameterId = fixture.ConsoleParameterId
+                        ValueNodeId = callerConsoleNodeId } ]
+                ) }
 
         let caller: SemanticFunction =
             { Id = callerId
               DisplayName = "caller"
-              Parameters = []
-              ResultType = unitType
+              Parameters = [ callerMessageParameter; callerConsoleParameter ]
+              ResultType = TypeRef.Primitive PrimitiveType.Unit
               RequiredEffects = []
               Body =
-                { Nodes = [ callerNode ]
-                  ResultNodeId = callerNodeId } }
+                { Nodes = [ callerMessageNode; callerConsoleNode; callerCallNode ]
+                  ResultNodeId = callerCallNodeId } }
 
         let invalid = { fixture.Snapshot with Functions = fixture.Snapshot.Functions @ [ caller ] }
         let issues = SnapshotValidator.validate invalid
-        requireIssue "MissingArgument" issues
         requireIssue "MissingEffectRequirement" issues
+
+        if issues |> List.exists (fun issue -> issue.Code = "MissingArgument") then
+            failwithf "Effect propagation test unexpectedly failed call argument validation: %A" issues
 
     [<Fact>]
     let ``string intrinsics have fixed explicit signatures`` () =
@@ -231,6 +257,7 @@ module CapabilityTests =
         let valueNodeId = StableId.createForTesting<GraphNodeTag> "node-string-value"
         let substringNodeId = StableId.createForTesting<GraphNodeTag> "node-substring"
         let containsNodeId = StableId.createForTesting<GraphNodeTag> "node-contains"
+        let isEmptyNodeId = StableId.createForTesting<GraphNodeTag> "node-is-empty"
 
         let valueNode: SemanticNode =
             { Id = valueNodeId
@@ -241,6 +268,9 @@ module CapabilityTests =
         let containsNode: SemanticNode =
             { Id = containsNodeId
               Kind = SemanticNodeKind.StringContains(valueNodeId, substringNodeId) }
+        let isEmptyNode: SemanticNode =
+            { Id = isEmptyNodeId
+              Kind = SemanticNodeKind.StringIsEmpty valueNodeId }
 
         let functionEntity: SemanticFunction =
             { Id = functionId
@@ -251,7 +281,7 @@ module CapabilityTests =
               ResultType = boolType
               RequiredEffects = []
               Body =
-                { Nodes = [ valueNode; substringNode; containsNode ]
+                { Nodes = [ valueNode; substringNode; containsNode; isEmptyNode ]
                   ResultNodeId = containsNodeId } }
 
         let snapshot: Snapshot =
@@ -271,7 +301,7 @@ module CapabilityTests =
                 let parameters =
                     item.Parameters
                     |> List.map (fun parameter ->
-                        if parameter.Id = substringParameterId then
+                        if parameter.Id = valueParameterId then
                             { parameter with Type = boolType }
                         else
                             parameter)
