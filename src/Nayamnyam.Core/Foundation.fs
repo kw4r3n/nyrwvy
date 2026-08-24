@@ -68,17 +68,17 @@ type UnionMatchArm =
       FieldBindings: PatternFieldBinding list
       Body: ValueGraph }
 
-and OptionSomeArm =
-    { SomeValueBinding: PatternBinding
-      SomeBody: ValueGraph }
+/// Option.Some and Result.Ok intentionally share one semantic shape instead of
+/// duplicating near-identical record schemas. Their parent node kind supplies the
+/// role; the arm itself represents only "bind one produced value, then evaluate".
+and ValueMatchArm =
+    { ValueBinding: PatternBinding
+      Body: ValueGraph }
 
-and ResultOkArm =
-    { OkValueBinding: PatternBinding
-      OkBody: ValueGraph }
-
-and ResultErrArm =
-    { ErrValueBinding: PatternBinding
-      ErrBody: ValueGraph }
+/// Result.Err is structurally distinct because the binding has an error role.
+and ErrorMatchArm =
+    { ErrorBinding: PatternBinding
+      Body: ValueGraph }
 
 and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ParameterReference of ParameterId
@@ -96,8 +96,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: ValueGraph * whenFalse: ValueGraph
     | MatchUnion of inputNodeId: GraphNodeId * arms: UnionMatchArm list
-    | MatchOption of inputNodeId: GraphNodeId * someArm: OptionSomeArm * noneBody: ValueGraph
-    | MatchResult of inputNodeId: GraphNodeId * okArm: ResultOkArm * errArm: ResultErrArm
+    | MatchOption of inputNodeId: GraphNodeId * someArm: ValueMatchArm * noneBody: ValueGraph
+    | MatchResult of inputNodeId: GraphNodeId * okArm: ValueMatchArm * errArm: ErrorMatchArm
 
 and SemanticNode =
     { Id: GraphNodeId
@@ -148,9 +148,9 @@ module ValueGraph =
                 | SemanticNodeKind.MatchUnion(_, arms) ->
                     arms |> List.collect (fun arm -> collectNodes arm.Body)
                 | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                    collectNodes someArm.SomeBody @ collectNodes noneBody
+                    collectNodes someArm.Body @ collectNodes noneBody
                 | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                    collectNodes okArm.OkBody @ collectNodes errArm.ErrBody
+                    collectNodes okArm.Body @ collectNodes errArm.Body
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -185,11 +185,11 @@ module ValueGraph =
                         |> List.map (fun arm -> { arm with Body = mapNodes transform arm.Body })
                     SemanticNodeKind.MatchUnion(inputNodeId, mappedArms)
                 | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    let mappedSomeArm = { someArm with SomeBody = mapNodes transform someArm.SomeBody }
+                    let mappedSomeArm = { someArm with Body = mapNodes transform someArm.Body }
                     SemanticNodeKind.MatchOption(inputNodeId, mappedSomeArm, mapNodes transform noneBody)
                 | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    let mappedOkArm = { okArm with OkBody = mapNodes transform okArm.OkBody }
-                    let mappedErrArm = { errArm with ErrBody = mapNodes transform errArm.ErrBody }
+                    let mappedOkArm = { okArm with Body = mapNodes transform okArm.Body }
+                    let mappedErrArm = { errArm with Body = mapNodes transform errArm.Body }
                     SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
