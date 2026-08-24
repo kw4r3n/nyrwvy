@@ -4,17 +4,24 @@ open Nayamnyam.Core
 open Xunit
 
 module TransactionTests =
-    let private baseSnapshot () =
+    let private baseSnapshot (): Snapshot =
         let typeId = StableId.createForTesting<TypeTag> "type-raw-user-input"
         let validateId = StableId.createForTesting<FunctionTag> "function-validate"
         let runId = StableId.createForTesting<FunctionTag> "function-run"
+        let semanticType: SemanticType =
+            { Id = typeId
+              DisplayName = "RawUserInput" }
+        let validateFunction: SemanticFunction =
+            { Id = validateId
+              DisplayName = "validate_user" }
+        let runFunction: SemanticFunction =
+            { Id = runId
+              DisplayName = "run" }
 
         { Id = StableId.createForTesting<SnapshotTag> "snapshot-base"
           ParentId = Some(StableId.createForTesting<SnapshotTag> "snapshot-ancestor")
-          Types = [ { Id = typeId; DisplayName = "RawUserInput" } ]
-          Functions =
-            [ { Id = validateId; DisplayName = "validate_user" }
-              { Id = runId; DisplayName = "run" } ] }
+          Types = [ semanticType ]
+          Functions = [ validateFunction; runFunction ] }
 
     let private request baseId proposedId operation =
         { Id = StableId.createForTesting<TransactionTag> "transaction-rename"
@@ -55,8 +62,8 @@ module TransactionTests =
                 Functions = expectedFunctions }
 
         Assert.Equal(expected, simulation.ProposedSnapshot)
-        Assert.Equal(original.Types, simulation.ProposedSnapshot.Types)
-        Assert.Equal(original.Functions.Tail, simulation.ProposedSnapshot.Functions.Tail)
+        Assert.True(original.Types = simulation.ProposedSnapshot.Types)
+        Assert.True(original.Functions.Tail = simulation.ProposedSnapshot.Functions.Tail)
 
         match Assert.Single(simulation.Diff.Renames) with
         | FunctionRenamed(id, oldName, newName) ->

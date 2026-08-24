@@ -13,7 +13,7 @@ module FoundationTests =
         let after = { before with DisplayName = "validate_profile" }
 
         Assert.Equal(before.Id, after.Id)
-        Assert.NotEqual(before.DisplayName, after.DisplayName)
+        Assert.True(before.DisplayName <> after.DisplayName)
 
     [<Fact>]
     let ``snapshot construction does not infer missing semantic facts`` () =

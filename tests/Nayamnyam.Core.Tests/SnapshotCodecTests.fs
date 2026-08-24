@@ -8,20 +8,20 @@ module SnapshotCodecTests =
         | Ok value -> value
         | Error error -> failwithf "Unexpected codec error: %A" error
 
-    let private snapshot () =
-        let typeA =
+    let private snapshot (): Snapshot =
+        let typeA: SemanticType =
             { Id = StableId.createForTesting<TypeTag> "type-a"
               DisplayName = "Alpha" }
 
-        let typeB =
+        let typeB: SemanticType =
             { Id = StableId.createForTesting<TypeTag> "type-b"
               DisplayName = "Beta" }
 
-        let functionA =
+        let functionA: SemanticFunction =
             { Id = StableId.createForTesting<FunctionTag> "function-a"
               DisplayName = "first" }
 
-        let functionB =
+        let functionB: SemanticFunction =
             { Id = StableId.createForTesting<FunctionTag> "function-b"
               DisplayName = "second" }
 
@@ -36,12 +36,14 @@ module SnapshotCodecTests =
         let canonical = SnapshotCodec.serialize original |> unwrap
         let restored = SnapshotCodec.deserialize canonical |> unwrap
         let reserialized = SnapshotCodec.serialize restored |> unwrap
+        let expectedTypes = original.Types |> List.sortBy (fun item -> StableId.value item.Id)
+        let expectedFunctions = original.Functions |> List.sortBy (fun item -> StableId.value item.Id)
 
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
-        Assert.Equal(original.Types |> List.sortBy (fun item -> StableId.value item.Id), restored.Types)
-        Assert.Equal(original.Functions |> List.sortBy (fun item -> StableId.value item.Id), restored.Functions)
+        Assert.True(expectedTypes = restored.Types)
+        Assert.True(expectedFunctions = restored.Functions)
         Assert.True(canonical.IndexOf("type-a", System.StringComparison.Ordinal) < canonical.IndexOf("type-b", System.StringComparison.Ordinal))
         Assert.True(canonical.IndexOf("function-a", System.StringComparison.Ordinal) < canonical.IndexOf("function-b", System.StringComparison.Ordinal))
 
