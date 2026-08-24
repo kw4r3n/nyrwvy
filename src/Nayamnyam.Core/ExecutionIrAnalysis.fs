@@ -29,7 +29,7 @@ module internal ExecutionIrIds =
 
 [<RequireQualifiedAccess>]
 module internal ExecutionIrAnalysis =
-    let directDependencies (node: TypedSemanticNode): GraphNodeId list =
+    let private immediateDependencies (node: TypedSemanticNode): GraphNodeId list =
         match node.Kind with
         | TypedSemanticNodeKind.ParameterReference _
         | TypedSemanticNodeKind.PatternReference _
@@ -55,6 +55,50 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | TypedSemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
         | TypedSemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
+
+    let rec dependencies (node: TypedSemanticNode): GraphNodeId list =
+        let nestedFree =
+            match node.Kind with
+            | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
+                graphFreeReferences whenTrue @ graphFreeReferences whenFalse
+            | TypedSemanticNodeKind.MatchUnion(_, arms) ->
+                arms |> List.collect (fun arm -> graphFreeReferences arm.Body)
+            | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
+                graphFreeReferences someArm.Body @ graphFreeReferences noneBody
+            | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
+                graphFreeReferences okArm.Body @ graphFreeReferences errArm.Body
+            | TypedSemanticNodeKind.ParameterReference _
+            | TypedSemanticNodeKind.PatternReference _
+            | TypedSemanticNodeKind.StringLiteral _
+            | TypedSemanticNodeKind.BoolLiteral _
+            | TypedSemanticNodeKind.UnitLiteral
+            | TypedSemanticNodeKind.StringIsEmpty _
+            | TypedSemanticNodeKind.StringContains _
+            | TypedSemanticNodeKind.DirectCall _
+            | TypedSemanticNodeKind.CapabilityInvoke _
+            | TypedSemanticNodeKind.ProductConstruct _
+            | TypedSemanticNodeKind.FieldAccess _
+            | TypedSemanticNodeKind.UnionConstruct _
+            | TypedSemanticNodeKind.OptionNone
+            | TypedSemanticNodeKind.OptionSome _
+            | TypedSemanticNodeKind.ResultOk _
+            | TypedSemanticNodeKind.ResultErr _ -> []
+
+        immediateDependencies node @ nestedFree
+        |> List.distinct
+        |> List.sortBy StableId.value
+
+    and graphFreeReferences (graph: TypedSemanticGraph): GraphNodeId list =
+        let localIds =
+            graph.Nodes
+            |> List.map (fun node -> node.OriginNodeId)
+            |> Set.ofList
+
+        graph.Nodes
+        |> List.collect dependencies
+        |> List.filter (fun nodeId -> not (Set.contains nodeId localIds))
+        |> List.distinct
+        |> List.sortBy StableId.value
 
     let rec private graphHasEffects
         (functionsById: Map<FunctionId, TypedSemanticFunction>)
@@ -115,7 +159,7 @@ module internal ExecutionIrAnalysis =
                 | None -> false
                 | Some node ->
                     let next = Set.add nodeId visiting
-                    directDependencies node
+                    dependencies node
                     |> List.exists (fun dependencyId ->
                         dependencyId = targetId
                         || dependsOn next dependencyId targetId)
