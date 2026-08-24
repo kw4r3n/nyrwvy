@@ -59,9 +59,11 @@ module NyasonCodec =
             let unexpected = Set.difference actual allowed
 
             if not missing.IsEmpty then
-                shape $"Record '{expectedTag}' is missing required fields: {String.Join(", ", missing)}."
+                let missingText = String.Join(", ", missing)
+                shape $"Record '{expectedTag}' is missing required fields: {missingText}."
             if not unexpected.IsEmpty then
-                shape $"Record '{expectedTag}' contains unknown fields: {String.Join(", ", unexpected)}."
+                let unexpectedText = String.Join(", ", unexpected)
+                shape $"Record '{expectedTag}' contains unknown fields: {unexpectedText}."
 
             Map.ofList fields
         | NyasonValue.Record(tag, _) -> shape $"Expected record '{expectedTag}', got '{tag}'."
@@ -307,13 +309,15 @@ module NyasonCodec =
           ValueNodeId = decodeId<GraphNodeTag> "node" (require "value" fields) }
 
     let private encodePatternBinding (binding: PatternBinding) =
-        let fields =
-            [ "id", encodeId "pattern-binding" binding.Id
-              "type", encodeTypeRef binding.Type ]
-            @
+        let displayFields =
             match binding.DisplayName with
             | Some displayName -> [ "display-name", text displayName ]
             | None -> []
+
+        let fields =
+            [ "id", encodeId "pattern-binding" binding.Id
+              "type", encodeTypeRef binding.Type ]
+            @ displayFields
 
         record "pattern-binding" fields
 
@@ -708,30 +712,31 @@ module NyasonCodec =
         | _ -> shape "Expected obligation record."
 
     let private encodeSnapshot (snapshot: Snapshot) =
-        record
-            "snapshot"
-            ([ "id", encodeId "snapshot" snapshot.Id ]
-             @
-             match snapshot.ParentId with
-             | Some parentId -> [ "parent", encodeId "snapshot" parentId ]
-             | None -> []
-             @ [ "types", snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeType |> list
-                 "effects", snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeEffect |> list
-                 "capabilities",
-                 snapshot.Capabilities
-                 |> List.sortBy (fun item -> StableId.value item.Id)
-                 |> List.map encodeCapability
-                 |> list
-                 "functions",
-                 snapshot.Functions
-                 |> List.sortBy (fun item -> StableId.value item.Id)
-                 |> List.map encodeFunction
-                 |> list
-                 "obligations",
-                 snapshot.Obligations
-                 |> List.sortBy (fun item -> StableId.value item.Id)
-                 |> List.map encodeObligation
-                 |> list ])
+        let parentFields =
+            match snapshot.ParentId with
+            | Some parentId -> [ "parent", encodeId "snapshot" parentId ]
+            | None -> []
+
+        let collectionFields =
+            [ "types", snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeType |> list
+              "effects", snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeEffect |> list
+              "capabilities",
+              snapshot.Capabilities
+              |> List.sortBy (fun item -> StableId.value item.Id)
+              |> List.map encodeCapability
+              |> list
+              "functions",
+              snapshot.Functions
+              |> List.sortBy (fun item -> StableId.value item.Id)
+              |> List.map encodeFunction
+              |> list
+              "obligations",
+              snapshot.Obligations
+              |> List.sortBy (fun item -> StableId.value item.Id)
+              |> List.map encodeObligation
+              |> list ]
+
+        record "snapshot" ([ "id", encodeId "snapshot" snapshot.Id ] @ parentFields @ collectionFields)
 
     let private decodeSnapshot value: Snapshot =
         let fields =
