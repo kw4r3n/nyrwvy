@@ -12,15 +12,15 @@ type CallPlan =
     | LeaveMissing of CallNodeId: GraphNodeId * ObligationId: ObligationId
 
 type AddFunctionParameterRequest =
-    { FunctionId: FunctionId
-      ParameterId: ParameterId
-      DisplayName: string
-      TypeId: TypeId
-      CallPlans: CallPlan list }
+    { TargetFunctionId: FunctionId
+      NewParameterId: ParameterId
+      NewParameterDisplayName: string
+      NewParameterType: TypeRef
+      CallSitePlans: CallPlan list }
 
 type ResolveMissingArgumentRequest =
-    { ObligationId: ObligationId
-      ValueNodeId: GraphNodeId }
+    { TargetObligationId: ObligationId
+      ResolutionValueNodeId: GraphNodeId }
 
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
@@ -38,10 +38,10 @@ type SymbolRename =
     | FunctionRenamed of FunctionId * oldDisplayName: string * newDisplayName: string
 
 type ParameterAdded =
-    { FunctionId: FunctionId
-      ParameterId: ParameterId
-      DisplayName: string
-      TypeId: TypeId }
+    { OwnerFunctionId: FunctionId
+      AddedParameterId: ParameterId
+      AddedDisplayName: string
+      AddedType: TypeRef }
 
 type ArgumentAttached =
     { CallNodeId: GraphNodeId
@@ -125,12 +125,28 @@ module Transaction =
     let private affectedCalls targetFunctionId (snapshot: Snapshot) =
         snapshot.Functions
         |> List.collect (fun owner ->
-            owner.Nodes
+            ValueGraph.collectNodes owner.Body
             |> List.choose (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.DirectCall(functionId, _) when functionId = targetFunctionId ->
                     Some(owner.Id, node.Id)
-                | _ -> None))
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _
+                | SemanticNodeKind.Conditional _
+                | SemanticNodeKind.MatchUnion _
+                | SemanticNodeKind.MatchOption _
+                | SemanticNodeKind.MatchResult _ -> None))
 
     let private addFunctionParameter
         (transactionId: TransactionId)
@@ -138,50 +154,46 @@ module Transaction =
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
         : Result<Snapshot * ChangeAccumulator, string * string> =
-        if String.IsNullOrWhiteSpace request.DisplayName then
+        if String.IsNullOrWhiteSpace request.NewParameterDisplayName then
             Error("InvalidDisplayName", "A parameter display name cannot be blank.")
-        elif not (snapshot.Types |> List.exists (fun item -> item.Id = request.TypeId)) then
-            Error("UnknownParameterType", "The new parameter type does not exist in the snapshot.")
         elif
             snapshot.Functions
             |> List.collect (fun functionEntity -> functionEntity.Parameters)
-            |> List.exists (fun parameter -> parameter.Id = request.ParameterId)
+            |> List.exists (fun parameter -> parameter.Id = request.NewParameterId)
         then
             Error("DuplicateParameterId", "The new parameter ID already exists.")
         else
-            match snapshot.Functions |> List.tryFind (fun item -> item.Id = request.FunctionId) with
+            match snapshot.Functions |> List.tryFind (fun item -> item.Id = request.TargetFunctionId) with
             | None -> Error("TargetNotFound", "The target function was not found.")
             | Some targetFunction ->
-                let affected = affectedCalls request.FunctionId snapshot
+                let affected = affectedCalls request.TargetFunctionId snapshot
                 let affectedIds = affected |> List.map snd |> Set.ofList
-                let planIds = request.CallPlans |> List.map callPlanNodeId
+                let planIds = request.CallSitePlans |> List.map callPlanNodeId
                 let planIdSet = Set.ofList planIds
 
                 if planIds.Length <> planIdSet.Count || affectedIds <> planIdSet then
                     Error("CallPlanMismatch", "Every affected direct call requires exactly one call-site plan.")
                 else
                     let newObligationIds =
-                        request.CallPlans
+                        request.CallSitePlans
                         |> List.choose (function
                             | LeaveMissing(_, obligationId) -> Some obligationId
                             | BindExistingValue _ -> None)
 
                     let existingObligationIds = snapshot.Obligations |> List.map (fun item -> item.Id) |> Set.ofList
-                    let duplicateNewObligation =
-                        newObligationIds.Length <> (newObligationIds |> Set.ofList).Count
-                    let collidesWithExisting =
-                        newObligationIds |> List.exists (fun id -> Set.contains id existingObligationIds)
+                    let duplicateNewObligation = newObligationIds.Length <> (newObligationIds |> Set.ofList).Count
+                    let collidesWithExisting = newObligationIds |> List.exists (fun id -> Set.contains id existingObligationIds)
 
                     if duplicateNewObligation || collidesWithExisting then
                         Error("DuplicateObligationId", "A call-site plan uses a duplicate obligation ID.")
                     else
                         let planByCallId =
-                            request.CallPlans |> List.map (fun plan -> callPlanNodeId plan, plan) |> Map.ofList
+                            request.CallSitePlans |> List.map (fun plan -> callPlanNodeId plan, plan) |> Map.ofList
 
                         let newParameter: SemanticParameter =
-                            { Id = request.ParameterId
-                              DisplayName = request.DisplayName
-                              TypeId = request.TypeId }
+                            { Id = request.NewParameterId
+                              DisplayName = request.NewParameterDisplayName
+                              Type = request.NewParameterType }
 
                         let functionsWithParameter =
                             snapshot.Functions
@@ -193,35 +205,38 @@ module Transaction =
 
                         let mutable attached: ArgumentAttached list = []
 
+                        let updateNode (node: SemanticNode) =
+                            match Map.tryFind node.Id planByCallId with
+                            | None -> node
+                            | Some plan ->
+                                match plan, node.Kind with
+                                | BindExistingValue(_, valueNodeId), SemanticNodeKind.DirectCall(targetId, arguments) ->
+                                    let binding: ArgumentBinding =
+                                        { TargetParameterId = request.NewParameterId
+                                          ValueNodeId = valueNodeId }
+                                    let change: ArgumentAttached =
+                                        { CallNodeId = node.Id
+                                          TargetParameterId = request.NewParameterId
+                                          ValueNodeId = valueNodeId }
+                                    attached <- change :: attached
+                                    { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
+                                | LeaveMissing _, SemanticNodeKind.DirectCall _ -> node
+                                | BindExistingValue _, _
+                                | LeaveMissing _, _ -> node
+
                         let updatedFunctions =
                             functionsWithParameter
-                            |> List.map (fun owner ->
-                                let nodes =
-                                    owner.Nodes
-                                    |> List.map (fun node ->
-                                        match Map.tryFind node.Id planByCallId, node.Kind with
-                                        | Some(BindExistingValue(_, valueNodeId)), SemanticNodeKind.DirectCall(targetId, arguments) ->
-                                            let binding: ArgumentBinding =
-                                                { TargetParameterId = request.ParameterId
-                                                  ValueNodeId = valueNodeId }
-                                            let change: ArgumentAttached =
-                                                { CallNodeId = node.Id
-                                                  TargetParameterId = request.ParameterId
-                                                  ValueNodeId = valueNodeId }
-                                            attached <- change :: attached
-                                            { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
-                                        | _ -> node)
-                                { owner with Nodes = nodes })
+                            |> List.map (fun owner -> { owner with Body = ValueGraph.mapNodes updateNode owner.Body })
 
                         let createdObligations: MissingArgumentObligation list =
-                            request.CallPlans
+                            request.CallSitePlans
                             |> List.choose (function
                                 | LeaveMissing(callNodeId, obligationId) ->
                                     Some
                                         { Id = obligationId
                                           OriginTransactionId = transactionId
                                           CallNodeId = callNodeId
-                                          ParameterId = request.ParameterId
+                                          ParameterId = request.NewParameterId
                                           Status = ObligationStatus.Open }
                                 | BindExistingValue _ -> None)
 
@@ -238,10 +253,10 @@ module Transaction =
                                 Obligations = snapshot.Obligations @ createdObligations }
 
                         let parameterChange: ParameterAdded =
-                            { FunctionId = request.FunctionId
-                              ParameterId = request.ParameterId
-                              DisplayName = request.DisplayName
-                              TypeId = request.TypeId }
+                            { OwnerFunctionId = request.TargetFunctionId
+                              AddedParameterId = request.NewParameterId
+                              AddedDisplayName = request.NewParameterDisplayName
+                              AddedType = request.NewParameterType }
 
                         let updatedChanges: ChangeAccumulator =
                             { changes with
@@ -257,7 +272,7 @@ module Transaction =
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
         : Result<Snapshot * ChangeAccumulator, string * string> =
-        match snapshot.Obligations |> List.tryFind (fun item -> item.Id = request.ObligationId) with
+        match snapshot.Obligations |> List.tryFind (fun item -> item.Id = request.TargetObligationId) with
         | None -> Error("ObligationNotOpen", "The missing-argument obligation does not exist.")
         | Some obligation ->
             match obligation.Status with
@@ -266,25 +281,38 @@ module Transaction =
             | ObligationStatus.Open ->
                 let mutable attached = false
 
+                let updateNode (node: SemanticNode) =
+                    if node.Id <> obligation.CallNodeId then
+                        node
+                    else
+                        match node.Kind with
+                        | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
+                            attached <- true
+                            let binding: ArgumentBinding =
+                                { TargetParameterId = obligation.ParameterId
+                                  ValueNodeId = request.ResolutionValueNodeId }
+                            { node with
+                                Kind = SemanticNodeKind.DirectCall(targetFunctionId, arguments @ [ binding ]) }
+                        | SemanticNodeKind.ParameterReference _
+                        | SemanticNodeKind.PatternReference _
+                        | SemanticNodeKind.StringLiteral _
+                        | SemanticNodeKind.BoolLiteral _
+                        | SemanticNodeKind.UnitLiteral
+                        | SemanticNodeKind.ProductConstruct _
+                        | SemanticNodeKind.FieldAccess _
+                        | SemanticNodeKind.UnionConstruct _
+                        | SemanticNodeKind.OptionNone _
+                        | SemanticNodeKind.OptionSome _
+                        | SemanticNodeKind.ResultOk _
+                        | SemanticNodeKind.ResultErr _
+                        | SemanticNodeKind.Conditional _
+                        | SemanticNodeKind.MatchUnion _
+                        | SemanticNodeKind.MatchOption _
+                        | SemanticNodeKind.MatchResult _ -> node
+
                 let updatedFunctions =
                     snapshot.Functions
-                    |> List.map (fun owner ->
-                        let nodes =
-                            owner.Nodes
-                            |> List.map (fun node ->
-                                if node.Id <> obligation.CallNodeId then
-                                    node
-                                else
-                                    match node.Kind with
-                                    | SemanticNodeKind.ParameterReference _ -> node
-                                    | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
-                                        attached <- true
-                                        let binding: ArgumentBinding =
-                                            { TargetParameterId = obligation.ParameterId
-                                              ValueNodeId = request.ValueNodeId }
-                                        { node with
-                                            Kind = SemanticNodeKind.DirectCall(targetFunctionId, arguments @ [ binding ]) })
-                        { owner with Nodes = nodes })
+                    |> List.map (fun owner -> { owner with Body = ValueGraph.mapNodes updateNode owner.Body })
 
                 if not attached then
                     Error("ObligationTargetMismatch", "The obligated direct-call node no longer exists.")
@@ -297,7 +325,7 @@ module Transaction =
                                     Status =
                                         ObligationStatus.Resolved
                                             { TransactionId = transactionId
-                                              ValueNodeId = request.ValueNodeId } }
+                                              ValueNodeId = request.ResolutionValueNodeId } }
                             else
                                 item)
 
@@ -309,13 +337,13 @@ module Transaction =
                     let attachedDiff: ArgumentAttached =
                         { CallNodeId = obligation.CallNodeId
                           TargetParameterId = obligation.ParameterId
-                          ValueNodeId = request.ValueNodeId }
+                          ValueNodeId = request.ResolutionValueNodeId }
 
                     let resolvedDiff: MissingArgumentResolved =
                         { ObligationId = obligation.Id
                           CallNodeId = obligation.CallNodeId
                           ParameterId = obligation.ParameterId
-                          ValueNodeId = request.ValueNodeId }
+                          ValueNodeId = request.ResolutionValueNodeId }
 
                     let updatedChanges: ChangeAccumulator =
                         { changes with
@@ -348,14 +376,16 @@ module Transaction =
             |> List.choose (fun item ->
                 match Map.tryFind item.Id typeNames with
                 | Some oldName when oldName <> item.DisplayName -> Some(TypeRenamed(item.Id, oldName, item.DisplayName))
-                | _ -> None)
+                | Some _
+                | None -> None)
 
         let functionRenames =
             proposedSnapshot.Functions
             |> List.choose (fun item ->
                 match Map.tryFind item.Id functionNames with
                 | Some oldName when oldName <> item.DisplayName -> Some(FunctionRenamed(item.Id, oldName, item.DisplayName))
-                | _ -> None)
+                | Some _
+                | None -> None)
 
         typeRenames @ functionRenames
         |> List.sortBy (function
@@ -366,7 +396,7 @@ module Transaction =
         { changes with
             ParametersAdded =
                 changes.ParametersAdded
-                |> List.sortBy (fun item -> StableId.value item.FunctionId, StableId.value item.ParameterId)
+                |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.AddedParameterId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
