@@ -13,6 +13,7 @@
     <Compile Include="NyasonCodec.fs" />
     <Compile Include="Readiness.fs" />
     <Compile Include="TypedSemanticIr.fs" />
+    <Compile Include="TypedSemanticIrCodec.fs" />
     <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>
