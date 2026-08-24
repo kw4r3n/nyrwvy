@@ -54,6 +54,14 @@ module SnapshotCodecTests =
         | result -> failwithf "Expected InvalidShape, got %A" result
 
     [<Fact>]
+    let ``snapshot codec rejects duplicate property names`` () =
+        let json = """{"schemaVersion":1,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[]}"""
+
+        match SnapshotCodec.deserialize json with
+        | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
+        | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
+
+    [<Fact>]
     let ``snapshot codec rejects unsupported schema versions`` () =
         let json = """{"schemaVersion":2,"snapshotId":"snapshot","types":[],"functions":[]}"""
 
@@ -69,5 +77,5 @@ module SnapshotCodecTests =
 
         match SnapshotCodec.serialize invalid with
         | Error(SnapshotCodecError.InvalidSnapshot issues) ->
-            Assert.Contains(issues, fun issue -> issue.Code = "DuplicateTypeId")
+            Assert.True(issues |> List.exists (fun issue -> issue.Code = "DuplicateTypeId"))
         | result -> failwithf "Expected InvalidSnapshot, got %A" result

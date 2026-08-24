@@ -31,19 +31,26 @@ module SnapshotCodec =
         =
         ensureObject context element
 
-        let actual =
+        let propertyNames =
             element.EnumerateObject()
             |> Seq.map (fun property -> property.Name)
-            |> Set.ofSeq
+            |> List.ofSeq
+
+        let actual = Set.ofList propertyNames
+
+        if propertyNames.Length <> actual.Count then
+            invalidShape $"{context} contains duplicate property names."
 
         let missing = Set.difference required actual
         let unexpected = Set.difference actual allowed
 
         if not missing.IsEmpty then
-            invalidShape $"{context} is missing required properties: {String.Join(", ", missing)}."
+            let missingText = String.Join(", ", missing)
+            invalidShape $"{context} is missing required properties: {missingText}."
 
         if not unexpected.IsEmpty then
-            invalidShape $"{context} contains unsupported properties: {String.Join(", ", unexpected)}."
+            let unexpectedText = String.Join(", ", unexpected)
+            invalidShape $"{context} contains unsupported properties: {unexpectedText}."
 
     let private requireProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
