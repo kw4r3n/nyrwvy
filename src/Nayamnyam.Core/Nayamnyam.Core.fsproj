@@ -6,5 +6,8 @@
   <ItemGroup>
     <Compile Include="StableId.fs" />
     <Compile Include="Foundation.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="SnapshotCodec.fs" />
+    <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>

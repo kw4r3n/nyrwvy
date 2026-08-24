@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="FoundationTests.fs" />
+    <Compile Include="SnapshotCodecTests.fs" />
+    <Compile Include="TransactionTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

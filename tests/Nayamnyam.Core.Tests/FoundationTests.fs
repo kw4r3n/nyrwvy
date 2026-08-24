@@ -13,7 +13,9 @@ module FoundationTests =
         let after = { before with DisplayName = "validate_profile" }
 
         Assert.Equal(before.Id, after.Id)
-        Assert.NotEqual(before.DisplayName, after.DisplayName)
+
+        if before.DisplayName = after.DisplayName then
+            failwith "Changing a display name unexpectedly changed the identity check."
 
     [<Fact>]
     let ``snapshot construction does not infer missing semantic facts`` () =
@@ -22,7 +24,9 @@ module FoundationTests =
 
         Assert.Empty(snapshot.Types)
         Assert.Empty(snapshot.Functions)
-        Assert.True(Option.isNone snapshot.ParentId)
+
+        if Option.isSome snapshot.ParentId then
+            failwith "An empty snapshot unexpectedly inferred a parent snapshot."
 
     [<Fact>]
     let ``fixture ids reject ambiguous empty values`` () =
