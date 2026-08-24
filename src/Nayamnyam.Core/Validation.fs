@@ -9,7 +9,7 @@ type ValidationIssue =
 
 [<RequireQualifiedAccess>]
 module SnapshotValidator =
-    let private nodeDependencies (node: SemanticNode) =
+    let private nodeDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
@@ -35,7 +35,7 @@ module SnapshotValidator =
         | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
             [ inputNodeId; okArm.Body.ResultNodeId; errArm.Body.ResultNodeId ]
 
-    let private directValueReferences (node: SemanticNode) =
+    let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -50,9 +50,14 @@ module SnapshotValidator =
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
-        | _ -> []
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.OptionNone _ -> []
 
-    let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>) =
+    let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>): bool =
         let rec visit path nodeId =
             if Set.contains nodeId path then
                 true
@@ -83,13 +88,26 @@ module SnapshotValidator =
                 [ okArm.ValueBinding; errArm.ErrorBinding ]
                 @ collectPatternBindings okArm.Body
                 @ collectPatternBindings errArm.Body
-            | _ -> [])
+            | SemanticNodeKind.ParameterReference _
+            | SemanticNodeKind.PatternReference _
+            | SemanticNodeKind.StringLiteral _
+            | SemanticNodeKind.BoolLiteral _
+            | SemanticNodeKind.UnitLiteral
+            | SemanticNodeKind.DirectCall _
+            | SemanticNodeKind.ProductConstruct _
+            | SemanticNodeKind.FieldAccess _
+            | SemanticNodeKind.UnionConstruct _
+            | SemanticNodeKind.OptionNone _
+            | SemanticNodeKind.OptionSome _
+            | SemanticNodeKind.ResultOk _
+            | SemanticNodeKind.ResultErr _ -> [])
 
     let private commonType (types: TypeRef option list): TypeRef option =
         match types with
         | [] -> None
         | Some first :: rest when rest |> List.forall (fun item -> item = Some first) -> Some first
-        | _ -> None
+        | Some _ :: _
+        | None :: _ -> None
 
     let validate (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
@@ -99,18 +117,18 @@ module SnapshotValidator =
             add "SnapshotParentSelfReference" "A snapshot cannot name itself as its parent."
 
         snapshot.Types
-        |> List.countBy (fun item -> item.Id)
+        |> List.countBy (fun (item: SemanticType) -> item.Id)
         |> List.filter (fun (_, count) -> count > 1)
         |> List.iter (fun (id, _) ->
             add "DuplicateTypeId" $"Type ID '{StableId.value id}' occurs more than once.")
 
         snapshot.Functions
-        |> List.countBy (fun item -> item.Id)
+        |> List.countBy (fun (item: SemanticFunction) -> item.Id)
         |> List.filter (fun (_, count) -> count > 1)
         |> List.iter (fun (id, _) ->
             add "DuplicateFunctionId" $"Function ID '{StableId.value id}' occurs more than once.")
 
-        let fieldEntries =
+        let fieldEntries: (TypeId * VariantId option * SemanticField) list =
             snapshot.Types
             |> List.collect (fun owner ->
                 match owner.Kind with
@@ -127,7 +145,7 @@ module SnapshotValidator =
         |> List.iter (fun (id, _) ->
             add "DuplicateFieldId" $"Field ID '{StableId.value id}' occurs more than once.")
 
-        let variantEntries =
+        let variantEntries: (TypeId * SemanticVariant) list =
             snapshot.Types
             |> List.collect (fun owner ->
                 match owner.Kind with
@@ -140,7 +158,7 @@ module SnapshotValidator =
         |> List.iter (fun (id, _) ->
             add "DuplicateVariantId" $"Variant ID '{StableId.value id}' occurs more than once.")
 
-        let parameterEntries =
+        let parameterEntries: (FunctionId * SemanticParameter) list =
             snapshot.Functions
             |> List.collect (fun owner -> owner.Parameters |> List.map (fun parameter -> owner.Id, parameter))
 
@@ -150,7 +168,7 @@ module SnapshotValidator =
         |> List.iter (fun (id, _) ->
             add "DuplicateParameterId" $"Parameter ID '{StableId.value id}' occurs more than once.")
 
-        let nodeEntries =
+        let nodeEntries: (FunctionId * SemanticNode) list =
             snapshot.Functions
             |> List.collect (fun owner ->
                 ValueGraph.collectNodes owner.Body |> List.map (fun node -> owner.Id, node))
@@ -161,7 +179,7 @@ module SnapshotValidator =
         |> List.iter (fun (id, _) ->
             add "DuplicateGraphNodeId" $"Graph node ID '{StableId.value id}' occurs more than once.")
 
-        let patternEntries =
+        let patternEntries: (FunctionId * PatternBinding) list =
             snapshot.Functions
             |> List.collect (fun owner ->
                 collectPatternBindings owner.Body |> List.map (fun binding -> owner.Id, binding))
@@ -226,7 +244,7 @@ module SnapshotValidator =
         let typesById = snapshot.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let functionsById = snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList
         let variantsById = variantEntries |> List.map (fun (ownerId, variant) -> variant.Id, (ownerId, variant)) |> Map.ofList
-        let productFieldsById =
+        let productFieldsById: Map<FieldId, TypeId * SemanticField> =
             fieldEntries
             |> List.choose (fun (ownerId, variantId, field) ->
                 match variantId with
@@ -235,7 +253,7 @@ module SnapshotValidator =
             |> Map.ofList
         let nodeOwners = nodeEntries |> List.map (fun (ownerId, node) -> node.Id, (ownerId, node)) |> Map.ofList
 
-        let rec validateTypeRef context typeRef =
+        let rec validateTypeRef (context: string) (typeRef: TypeRef) =
             match typeRef with
             | TypeRef.Primitive _ -> ()
             | TypeRef.Named typeId ->
@@ -284,7 +302,7 @@ module SnapshotValidator =
                 |> List.map (fun binding -> binding.Id, binding)
                 |> Map.ofList
 
-            let rec tryNodeType visiting nodeId =
+            let rec tryNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
                 if Set.contains nodeId visiting then
                     None
                 else
@@ -292,7 +310,7 @@ module SnapshotValidator =
                     | None -> None
                     | Some node ->
                         let nextVisiting = Set.add nodeId visiting
-                        let graphResultType graph = tryNodeType nextVisiting graph.ResultNodeId
+                        let graphResultType (graph: ValueGraph) = tryNodeType nextVisiting graph.ResultNodeId
                         match node.Kind with
                         | SemanticNodeKind.ParameterReference parameterId ->
                             Map.tryFind parameterId parametersById |> Option.map (fun parameter -> parameter.Type)
@@ -330,25 +348,37 @@ module SnapshotValidator =
 
             let nodeType nodeId = tryNodeType Set.empty nodeId
 
-            let validateFieldBindings context expectedFields bindings =
+            let validateFieldBindings
+                (context: string)
+                (expectedFields: SemanticField list)
+                (bindings: FieldValueBinding list)
+                =
                 bindings
                 |> List.countBy (fun binding -> binding.TargetFieldId)
                 |> List.filter (fun (_, count) -> count > 1)
                 |> List.iter (fun (fieldId, _) ->
                     add "DuplicateFieldBinding" $"{context} binds field '{StableId.value fieldId}' more than once.")
 
-                let expectedIds = expectedFields |> List.map (fun field -> field.Id) |> Set.ofList
-                let actualIds = bindings |> List.map (fun binding -> binding.TargetFieldId) |> Set.ofList
+                let expectedIds: Set<FieldId> = expectedFields |> List.map (fun field -> field.Id) |> Set.ofList
+                let actualIds: Set<FieldId> = bindings |> List.map (fun binding -> binding.TargetFieldId) |> Set.ofList
                 if expectedIds <> actualIds then
                     add "FieldBindingMismatch" $"{context} must bind exactly the fields declared by its target."
 
                 for binding in bindings do
-                    match expectedFields |> List.tryFind (fun field -> field.Id = binding.TargetFieldId), nodeType binding.ValueNodeId with
+                    let targetField = expectedFields |> List.tryFind (fun field -> field.Id = binding.TargetFieldId)
+                    match targetField, nodeType binding.ValueNodeId with
                     | Some field, Some valueType when field.Type <> valueType ->
                         add "FieldValueTypeMismatch" $"{context} binds a value with the wrong type to field '{StableId.value field.Id}'."
-                    | _ -> ()
+                    | Some _, Some _
+                    | Some _, None
+                    | None, _ -> ()
 
-            let rec validateGraph outerVisibleNodes visiblePatterns context (graph: ValueGraph) =
+            let rec validateGraph
+                (outerVisibleNodes: Set<GraphNodeId>)
+                (visiblePatterns: Set<PatternBindingId>)
+                (context: string)
+                (graph: ValueGraph)
+                =
                 let localNodeIds = graph.Nodes |> List.map (fun node -> node.Id) |> Set.ofList
                 let visibleNodes = Set.union outerVisibleNodes localNodeIds
 
@@ -406,7 +436,9 @@ module SnapshotValidator =
                                     add
                                         "ArgumentTypeMismatch"
                                         $"Call node '{StableId.value node.Id}' binds a value with the wrong type to parameter '{StableId.value parameter.Id}'."
-                                | _ -> ()
+                                | Some _, Some _
+                                | Some _, None
+                                | None, _ -> ()
 
                             for parameter in targetFunction.Parameters do
                                 let hasBinding = arguments |> List.exists (fun argument -> argument.TargetParameterId = parameter.Id)
@@ -483,10 +515,12 @@ module SnapshotValidator =
                                             match variant.Fields |> List.tryFind (fun field -> field.Id = fieldBinding.SourceFieldId) with
                                             | Some field when field.Type <> fieldBinding.Binding.Type ->
                                                 add "PatternBindingTypeMismatch" $"Pattern binding '{StableId.value fieldBinding.Binding.Id}' does not match its variant field type."
-                                            | _ -> ()
+                                            | Some _
+                                            | None -> ()
                                         let armPatterns = arm.FieldBindings |> List.map (fun item -> item.Binding.Id) |> Set.ofList
                                         validateGraph visibleNodes (Set.union visiblePatterns armPatterns) $"Union match arm '{StableId.value arm.VariantId}'" arm.Body
-                            | _ -> add "MatchUnionInputTypeMismatch" $"Union match node '{StableId.value node.Id}' requires a declared union input."
+                            | Some _
+                            | None -> add "MatchUnionInputTypeMismatch" $"Union match node '{StableId.value node.Id}' requires a declared union input."
                         | Some _ -> add "MatchUnionInputTypeMismatch" $"Union match node '{StableId.value node.Id}' requires a declared union input."
                         | None -> ()
                         let armTypes = arms |> List.map (fun arm -> nodeType arm.Body.ResultNodeId)
@@ -522,7 +556,8 @@ module SnapshotValidator =
             match nodeType functionEntity.Body.ResultNodeId with
             | Some resultType when resultType <> functionEntity.ResultType ->
                 add "FunctionResultTypeMismatch" $"Function '{StableId.value functionEntity.Id}' result node type does not match its declared result type."
-            | _ -> ()
+            | Some _
+            | None -> ()
 
             if hasDependencyCycle nodesById then
                 add "GraphNodeDependencyCycle" $"Function '{StableId.value functionEntity.Id}' contains a cycle between value-producing graph nodes."
@@ -555,9 +590,25 @@ module SnapshotValidator =
                             add "InvalidObligationResolution" $"Resolved obligation '{StableId.value obligation.Id}' does not match the call's argument binding."
                         match Map.tryFind resolution.ValueNodeId nodeOwners with
                         | Some(valueOwnerId, _) when valueOwnerId = ownerFunctionId -> ()
-                        | _ ->
+                        | Some _
+                        | None ->
                             add "InvalidObligationResolutionValue" $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
-                | _ ->
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _
+                | SemanticNodeKind.Conditional _
+                | SemanticNodeKind.MatchUnion _
+                | SemanticNodeKind.MatchOption _
+                | SemanticNodeKind.MatchResult _ ->
                     add "InvalidObligationTarget" $"Obligation '{StableId.value obligation.Id}' does not target a direct-call node."
 
         issues
