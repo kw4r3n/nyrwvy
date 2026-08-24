@@ -20,11 +20,26 @@ module FoundationTests =
         let fixture = TestGraph.create ()
         let run = fixture.Snapshot.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
         let calls =
-            run.Nodes
+            ValueGraph.collectNodes run.Body
             |> List.choose (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.DirectCall(targetFunctionId, arguments) -> Some(node.Id, targetFunctionId, arguments)
-                | SemanticNodeKind.ParameterReference _ -> None)
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _
+                | SemanticNodeKind.Conditional _
+                | SemanticNodeKind.MatchUnion _
+                | SemanticNodeKind.MatchOption _
+                | SemanticNodeKind.MatchResult _ -> None)
 
         let callNodeId, targetFunctionId, arguments = List.exactlyOne calls
         Assert.Equal(fixture.RunCallNodeId, callNodeId)
