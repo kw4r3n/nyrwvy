@@ -56,7 +56,8 @@ module TypedSemanticIrTests =
                 |> List.choose (fun (nodeId, nodeType) -> Option.map (fun _ -> nodeId) nodeType)
                 |> Set.ofList
 
-            Assert.Equal(expectedIds, typedIds)
+            if expectedIds <> typedIds then
+                failwithf "Semantic facts did not type every node. Expected %A, got %A" expectedIds typedIds
 
     [<Fact>]
     let ``typed semantic projection preserves stable identity and graph provenance`` () =
