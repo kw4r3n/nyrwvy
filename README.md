@@ -46,7 +46,7 @@ The following direction is accepted unless implementation evidence requires revi
 
 ## Rebuild status
 
-The clean rebuild has established the semantic foundation and a representative Milestone 0 program:
+The clean rebuild has established the semantic foundation, representative Milestone 0 program, and first derived typed IR:
 
 - **Foundation:** F# solution, domain-typed stable IDs, immutable snapshot model, and CI.
 - **Phase B:** strict reference snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
@@ -55,8 +55,11 @@ The clean rebuild has established the semantic foundation and a representative M
 - **Phase E:** explicit string predicates, stable effect/capability/operation identities, typed capability parameters, distinct `CapabilityInvoke` nodes, and explicit function effect requirements.
 - **Phase F:** a representative `validate_user` / `report_validation` / `main` semantic graph using the complete Milestone 0 subset. No new semantic node kind was required.
 - **Phase G / Nyason v0:** a strict Nayamnyam-specific encoding prototype with typed ID domains, closed tagged records, exact schema identity, canonical round-trip, and shape-constrained Option/Result forms.
+- **Phase H / Typed Semantic IR:** one backend-neutral typed projection from validated, obligation-free snapshots; shared semantic type facts; stable provenance; normalized value nodes; explicit effect/capability contracts; canonical IR schema version 1.
 
-The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and future lowering must derive calls from the same graph nodes. External capability invocation is a separate semantic node kind rather than a special internal call.
+The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and lowering derive calls from the same graph nodes. External capability invocation is a separate semantic node kind rather than a special internal call.
+
+Type derivation is also centralized: validator and Typed Semantic IR projection consume the same `SemanticFacts` node-type resolver rather than independently re-inferring meaning.
 
 The AI-first design rule is explicit: local semantic clarity and mechanically detectable structure outrank concise source representation. See [AI-first semantic design principles](docs/ai-first-design-principles-20260825.md).
 
@@ -70,9 +73,11 @@ See [Verified Nyason v0 experiment](docs/rebuild-phase-g-nyason-20260825.md).
 
 ## Next architecture gate
 
-The semantic model is now sufficient for the representative Milestone 0 program. The next architecture task is the **Typed Semantic IR boundary** over validated graph facts.
+The next architecture task is the **backend-neutral Execution IR**.
 
-Nyason evaluation can continue independently because lowering must consume the semantic graph, never Nyason text.
+Typed Semantic IR now preserves validated language meaning but deliberately does not choose execution order. Execution IR will introduce explicit block/value identities, evaluation order, branch/control transfer, return behavior, and capability invocation order while remaining independent of C# object-model choices.
+
+Only after Execution IR is verified should the C# emitter be introduced.
 
 ## Initial milestone
 
@@ -96,6 +101,7 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Verified Phase E](docs/rebuild-phase-e-20260825.md)
 - [Phase F representative semantic program](docs/rebuild-phase-f-20260825.md)
 - [Verified Nyason v0 experiment](docs/rebuild-phase-g-nyason-20260825.md)
+- [Verified Typed Semantic IR](docs/rebuild-phase-h-typed-semantic-ir-20260825.md)
 
 ## Documentation
 
@@ -117,7 +123,7 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-The latest compile-backed Nyason/Milestone 0 validation used .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all **42 tests passed** with zero skips.
+The latest compile-backed Phase H validation used .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all **50 tests passed** with zero skips.
 
 ## Relationship to RAST
 

@@ -16,6 +16,8 @@
     <Compile Include="TransactionTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
+    <Compile Include="TypedSemanticIrTests.fs" />
+    <Compile Include="TypedSemanticIrCodecTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

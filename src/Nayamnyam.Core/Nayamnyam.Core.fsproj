@@ -6,11 +6,14 @@
   <ItemGroup>
     <Compile Include="StableId.fs" />
     <Compile Include="Foundation.fs" />
+    <Compile Include="SemanticFacts.fs" />
     <Compile Include="Validation.fs" />
     <Compile Include="SnapshotCodec.fs" />
     <Compile Include="NyasonSyntax.fs" />
     <Compile Include="NyasonCodec.fs" />
     <Compile Include="Readiness.fs" />
+    <Compile Include="TypedSemanticIr.fs" />
+    <Compile Include="TypedSemanticIrCodec.fs" />
     <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>
