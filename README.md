@@ -25,7 +25,7 @@ flowchart TD
     G --> H[C# / .NET backend]
 ```
 
-The semantic graph is the source of truth. Textual code, generated C#, diagnostic reports, and visual diagrams are projections of that graph rather than competing program representations.
+The semantic graph is the source of truth. Textual code, generated C#, diagnostic reports, serialized encodings, and visual diagrams are projections of that graph rather than competing program representations.
 
 ## Established direction
 
@@ -41,24 +41,31 @@ The following direction is accepted unless implementation evidence requires revi
 8. Lowering passes through backend-neutral IR before reaching C#/.NET.
 9. The Milestone 0 semantic core is implemented in F#/.NET; generated C# remains the first execution backend.
 10. The previous RAST project is a design reference and migration source, not a dependency.
+11. When design choices conflict, AI semantic comprehension and edit reliability take priority over source-level elegance or brevity.
 
 ## Rebuild status
 
-The clean rebuild has verified the semantic foundation through Phase C:
+The clean rebuild has verified the semantic foundation through Phase D:
 
 - **Foundation:** F# solution, domain-typed stable IDs, immutable snapshot model, and CI.
-- **Phase B:** strict canonical snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
+- **Phase B:** strict reference snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
 - **Phase C:** one authoritative function-owned node graph for direct calls, typed parameters, explicit `MissingArgument` obligations, `function.add_parameter`, obligation resolution, and semantic completeness.
+- **Phase D:** explicit `TypeRef`, product/union fields and variants with stable identity, primitive and Option/Result value nodes, nested lexical `ValueGraph` branches, exhaustive matching, pattern bindings, and graph-aware transactions.
 
 The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and future lowering must derive calls from the same graph nodes.
 
-Lowering, C# generation, and the viewer have not been reintroduced yet. The next design gate is the value-node subset required by the Milestone 0 validation program and the Typed Semantic IR boundary above it.
+Phase D also makes the AI-first design rule explicit: local semantic clarity and mechanically detectable structure outrank concise source representation. See [AI-first semantic design principles](docs/ai-first-design-principles-20260825.md).
+
+JSON remains a strict reference/debug codec rather than a final persistence decision. [Nyason v0](docs/nyason-v0-20260825.md) is the dedicated Nayamnyam encoding candidate and will be compared empirically against JSON and, where practical, TSON after representative graph fixtures are available.
+
+Lowering, C# generation, effects/capabilities, and the viewer have not been reintroduced yet. The next semantic gate is the minimal intrinsic/effect/capability subset required by the Milestone 0 validation program, followed by the Typed Semantic IR boundary above validated graph facts.
 
 See the rebuild records:
 
 - [F# rebuild foundation](docs/rebuild-foundation-20260825.md)
 - [Verified Phase B](docs/rebuild-phase-b-20260825.md)
 - [Verified Phase C](docs/rebuild-phase-c-20260825.md)
+- [Verified Phase D](docs/rebuild-phase-d-20260825.md)
 
 ## Initial milestone
 
@@ -78,6 +85,8 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Vision](docs/vision.md) — purpose, priorities, non-goals, and success conditions
 - [Architecture](docs/architecture.md) — system boundaries, data flow, invariants, and validation model
 - [Decisions](docs/decisions.md) — accepted foundational decisions and their consequences
+- [AI-first design principles](docs/ai-first-design-principles-20260825.md) — tie-breakers for semantic representation and agent reliability
+- [Nyason v0 design constraints](docs/nyason-v0-20260825.md) — dedicated encoding candidate and evaluation gate
 - [Open questions](docs/open-questions.md) — unresolved implementation and research questions
 - [Milestone 0](docs/milestone-0.md) — first end-to-end validation slice
 
@@ -91,7 +100,7 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-Phase C was verified through GitHub Actions with .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all 16 tests passed with zero skips.
+Phase D source and tests were verified through GitHub Actions with .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all 21 tests passed with zero skips. See the Phase D rebuild record for the exact verified tree.
 
 ## Relationship to RAST
 
