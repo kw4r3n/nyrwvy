@@ -18,7 +18,8 @@ module SnapshotCodecTests =
                     fixture.Snapshot.Functions
                     |> List.rev
                     |> List.map (fun functionEntity ->
-                        { functionEntity with Nodes = List.rev functionEntity.Nodes }) }
+                        { functionEntity with
+                            Body = { functionEntity.Body with Nodes = List.rev functionEntity.Body.Nodes } }) }
 
         let canonical = SnapshotCodec.serialize original |> unwrap
         let restored = SnapshotCodec.deserialize canonical |> unwrap
@@ -32,8 +33,8 @@ module SnapshotCodecTests =
             failwith "Obligations did not round-trip exactly."
 
         let restoredRun = restored.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
-        Assert.Equal(fixture.RunCallNodeId, restoredRun.ResultNodeId)
-        Assert.Equal(3, restoredRun.Nodes.Length)
+        Assert.Equal(fixture.RunCallNodeId, restoredRun.Body.ResultNodeId)
+        Assert.Equal(3, restoredRun.Body.Nodes.Length)
 
     [<Fact>]
     let ``snapshot codec preserves open missing-argument obligations`` () =
@@ -46,11 +47,11 @@ module SnapshotCodecTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-with-obligation"
               Operations =
                 [ AddFunctionParameter
-                    { FunctionId = fixture.ValidateFunctionId
-                      ParameterId = parameterId
-                      DisplayName = "policy"
-                      TypeId = fixture.PolicyTypeId
-                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = parameterId
+                      NewParameterDisplayName = "policy"
+                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
         let proposed =
             match Transaction.simulate fixture.Snapshot request with
@@ -70,14 +71,14 @@ module SnapshotCodecTests =
 
     [<Fact>]
     let ``snapshot codec rejects duplicate property names`` () =
-        let json = """{"schemaVersion":2,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":3,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
 
     [<Fact>]
     let ``snapshot codec rejects obsolete schema versions`` () =
-        let json = """{"schemaVersion":1,"snapshotId":"snapshot","types":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":2,"snapshotId":"snapshot","types":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
-        | Error(SnapshotCodecError.UnsupportedSchemaVersion 1) -> ()
+        | Error(SnapshotCodecError.UnsupportedSchemaVersion 2) -> ()
         | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result
