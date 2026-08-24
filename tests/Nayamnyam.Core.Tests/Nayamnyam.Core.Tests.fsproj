@@ -11,6 +11,7 @@
     <Compile Include="ValidationTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
+    <Compile Include="CapabilityTests.fs" />
     <Compile Include="TransactionTests.fs" />
   </ItemGroup>
   <ItemGroup>
