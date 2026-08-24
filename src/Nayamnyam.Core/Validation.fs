@@ -91,7 +91,7 @@ module SnapshotValidator =
         let issues = ResizeArray<ValidationIssue>()
         let add code message = issues.Add({ Code = code; Message = message })
 
-        let duplicateBy code describe getId items =
+        let duplicateBy items code describe getId =
             items
             |> List.countBy getId
             |> List.filter (fun (_, count) -> count > 1)
@@ -146,30 +146,30 @@ module SnapshotValidator =
                 SemanticFacts.collectPatternBindings owner.Body
                 |> List.map (fun binding -> owner.Id, binding))
 
-        duplicateBy "DuplicateTypeId" "Type ID" (fun (item: SemanticType) -> item.Id) snapshot.Types
-        duplicateBy "DuplicateEffectId" "Effect ID" (fun (item: SemanticEffect) -> item.Id) snapshot.Effects
-        duplicateBy "DuplicateCapabilityId" "Capability ID" (fun (item: SemanticCapability) -> item.Id) snapshot.Capabilities
-        duplicateBy "DuplicateFunctionId" "Function ID" (fun (item: SemanticFunction) -> item.Id) snapshot.Functions
-        duplicateBy "DuplicateFieldId" "Field ID" (fun (_, _, field) -> field.Id) fieldEntries
-        duplicateBy "DuplicateVariantId" "Variant ID" (fun (_, variant) -> variant.Id) variantEntries
+        duplicateBy snapshot.Types "DuplicateTypeId" "Type ID" (fun item -> item.Id)
+        duplicateBy snapshot.Effects "DuplicateEffectId" "Effect ID" (fun item -> item.Id)
+        duplicateBy snapshot.Capabilities "DuplicateCapabilityId" "Capability ID" (fun item -> item.Id)
+        duplicateBy snapshot.Functions "DuplicateFunctionId" "Function ID" (fun item -> item.Id)
+        duplicateBy fieldEntries "DuplicateFieldId" "Field ID" (fun (_, _, field) -> field.Id)
+        duplicateBy variantEntries "DuplicateVariantId" "Variant ID" (fun (_, variant) -> variant.Id)
         duplicateBy
+            capabilityOperationEntries
             "DuplicateCapabilityOperationId"
             "Capability operation ID"
             (fun (_, operation) -> operation.Id)
-            capabilityOperationEntries
         duplicateBy
+            capabilityParameterEntries
             "DuplicateCapabilityParameterId"
             "Capability parameter ID"
             (fun (_, parameter) -> parameter.Id)
-            capabilityParameterEntries
-        duplicateBy "DuplicateParameterId" "Parameter ID" (fun (_, parameter) -> parameter.Id) parameterEntries
-        duplicateBy "DuplicateGraphNodeId" "Graph node ID" (fun (_, node) -> node.Id) nodeEntries
+        duplicateBy parameterEntries "DuplicateParameterId" "Parameter ID" (fun (_, parameter) -> parameter.Id)
+        duplicateBy nodeEntries "DuplicateGraphNodeId" "Graph node ID" (fun (_, node) -> node.Id)
         duplicateBy
+            patternEntries
             "DuplicatePatternBindingId"
             "Pattern binding ID"
             (fun (_, binding) -> binding.Id)
-            patternEntries
-        duplicateBy "DuplicateObligationId" "Obligation ID" (fun obligation -> obligation.Id) snapshot.Obligations
+        duplicateBy snapshot.Obligations "DuplicateObligationId" "Obligation ID" (fun obligation -> obligation.Id)
 
         snapshot.Obligations
         |> List.filter (fun obligation -> obligation.Status = ObligationStatus.Open)
