@@ -10,7 +10,7 @@ The project is designed around a simple reversal of the conventional programming
 - humans primarily understand, review, and approve programs through graph-oriented views;
 - executable artifacts are generated through backend-neutral lowering, with C#/.NET as the first backend.
 
-Nayamnyam is currently in its foundation implementation phase. The repository keeps direction-setting documents alongside the executable semantic core so implementation evidence can revise the design when necessary.
+Nayamnyam is currently rebuilding the Milestone 0 semantic foundation in F# from the last documentation-only baseline before the discarded C# semantic-core experiment. The accepted graph-first architecture remains authoritative; generated C# remains a downstream execution artifact.
 
 ## Core idea
 
@@ -39,13 +39,18 @@ The following direction is accepted unless implementation evidence requires revi
 6. Human-authored source code is not a primary requirement.
 7. Nayamnyam is an independent programming system, not an extension of a host language.
 8. Lowering passes through backend-neutral IR before reaching C#/.NET.
-9. The previous RAST project is a design reference and migration source, not a dependency.
+9. The Milestone 0 semantic core is implemented in F#/.NET; generated C# remains the first execution backend.
+10. The previous RAST project is a design reference and migration source, not a dependency.
 
-Implementation details such as graph serialization, ID generation, operation-log storage, graph layout, and future ownership semantics remain open research and design questions.
+## Rebuild boundary
+
+The current branch intentionally begins with a small semantic core: stable IDs, a minimal immutable snapshot envelope, CI, and invariant tests. Persistence, transactions, obligations, IRs, backend generation, and viewer projections are added only after their single authoritative representation and validation rules are explicit.
+
+See [F# Milestone 0 rebuild foundation](docs/rebuild-foundation-20260825.md) for the staged rebuild rules.
 
 ## Initial milestone
 
-Milestone 0 is a small end-to-end vertical slice based on user validation:
+Milestone 0 is a small end-to-end vertical slice based on user validation. The target remains:
 
 ```text
 RawUserInput
@@ -54,17 +59,6 @@ Result<ValidUser, ValidationError>
     -> report through an explicit Console capability
 ```
 
-It must demonstrate:
-
-- persistent stable identity;
-- product and union types;
-- functions, direct calls, immutable bindings, branching, `Option`, and `Result`;
-- one explicit effect and one typed external capability;
-- validated semantic transactions;
-- semantic diffs and explicit obligations;
-- a read-only graph viewer for understanding and change review;
-- deterministic lowering to C#, compilation, and execution on .NET.
-
 See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 
 ## Documentation
@@ -72,13 +66,13 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Vision](docs/vision.md) — purpose, priorities, non-goals, and success conditions
 - [Architecture](docs/architecture.md) — system boundaries, data flow, invariants, and validation model
 - [Decisions](docs/decisions.md) — accepted foundational decisions and their consequences
-- [Graph Schema v2](docs/schema-v1.md) — Milestone 0 persistence and identity contract
 - [Open questions](docs/open-questions.md) — unresolved implementation and research questions
 - [Milestone 0](docs/milestone-0.md) — first end-to-end validation slice
+- [F# rebuild foundation](docs/rebuild-foundation-20260825.md) — restart invariants and implementation order
 
 ## Build and verification
 
-The supported verification path uses the .NET 10 SDK:
+The foundation uses the .NET 10 SDK:
 
 ```shell
 dotnet restore Nayamnyam.slnx
@@ -86,29 +80,8 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-The CLI smoke path exercises the real executable boundary, persists a graph in the
-specified store, generates C# source, and compiles and runs that generated program:
-
-```shell
-dotnet run --project src/Nayamnyam.Cli/Nayamnyam.Cli.csproj -- demo --store ./artifacts/demo
-```
-
-The same smoke path runs on every push and pull request through
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs the same build-and-test boundary on pushes and pull requests.
 
 ## Relationship to RAST
 
-Nayamnyam is informed by the earlier [Readable AST Language](https://github.com/kw4r3n/readable-ast-language), including its conservative semantic checking, explicit Result/Option handling, effect-oriented design, backend-neutral IR work, and Kotlin/C# backend experiments.
-
-The reference snapshot used when establishing this repository is commit [`c5124f6777e9fc7eab014b9a72839571e98faa58`](https://github.com/kw4r3n/readable-ast-language/commit/c5124f6777e9fc7eab014b9a72839571e98faa58).
-
-RAST remains external to this repository. Any rule, test, or implementation concept migrated from it should record provenance explicitly rather than creating a runtime or source dependency.
-
-## Current status
-
-- Direction: established
-- Architecture: high-level boundaries accepted
-- Detailed representation and storage formats: established for the Milestone 0 foundation
-- Implementation: semantic core foundation in progress
-- First execution backend: C#/.NET
-- First human interface: read-only graph exploration and change review
+Nayamnyam is informed by the earlier Readable AST Language work, including conservative semantic checking, explicit Result/Option handling, effect-oriented design, and backend-neutral IR experiments. RAST remains external to this repository; migrated rules or tests should record provenance rather than creating a runtime dependency.

@@ -1,0 +1,73 @@
+namespace Nayamnyam.Core.Tests
+
+open Nayamnyam.Core
+open Xunit
+
+module SnapshotCodecTests =
+    let private unwrap = function
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected codec error: %A" error
+
+    let private snapshot () =
+        let typeA =
+            { Id = StableId.createForTesting<TypeTag> "type-a"
+              DisplayName = "Alpha" }
+
+        let typeB =
+            { Id = StableId.createForTesting<TypeTag> "type-b"
+              DisplayName = "Beta" }
+
+        let functionA =
+            { Id = StableId.createForTesting<FunctionTag> "function-a"
+              DisplayName = "first" }
+
+        let functionB =
+            { Id = StableId.createForTesting<FunctionTag> "function-b"
+              DisplayName = "second" }
+
+        { Id = StableId.createForTesting<SnapshotTag> "snapshot-current"
+          ParentId = Some(StableId.createForTesting<SnapshotTag> "snapshot-parent")
+          Types = [ typeB; typeA ]
+          Functions = [ functionB; functionA ] }
+
+    [<Fact>]
+    let ``canonical snapshot serialization round-trips every current field`` () =
+        let original = snapshot ()
+        let canonical = SnapshotCodec.serialize original |> unwrap
+        let restored = SnapshotCodec.deserialize canonical |> unwrap
+        let reserialized = SnapshotCodec.serialize restored |> unwrap
+
+        Assert.Equal(canonical, reserialized)
+        Assert.Equal(original.Id, restored.Id)
+        Assert.Equal(original.ParentId, restored.ParentId)
+        Assert.Equal(original.Types |> List.sortBy (fun item -> StableId.value item.Id), restored.Types)
+        Assert.Equal(original.Functions |> List.sortBy (fun item -> StableId.value item.Id), restored.Functions)
+        Assert.True(canonical.IndexOf("type-a", System.StringComparison.Ordinal) < canonical.IndexOf("type-b", System.StringComparison.Ordinal))
+        Assert.True(canonical.IndexOf("function-a", System.StringComparison.Ordinal) < canonical.IndexOf("function-b", System.StringComparison.Ordinal))
+
+    [<Fact>]
+    let ``snapshot codec rejects unknown fields instead of discarding them`` () =
+        let json = """{"schemaVersion":1,"snapshotId":"snapshot","types":[],"functions":[],"extra":true}"""
+
+        match SnapshotCodec.deserialize json with
+        | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("unsupported", message)
+        | result -> failwithf "Expected InvalidShape, got %A" result
+
+    [<Fact>]
+    let ``snapshot codec rejects unsupported schema versions`` () =
+        let json = """{"schemaVersion":2,"snapshotId":"snapshot","types":[],"functions":[]}"""
+
+        match SnapshotCodec.deserialize json with
+        | Error(SnapshotCodecError.UnsupportedSchemaVersion 2) -> ()
+        | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result
+
+    [<Fact>]
+    let ``serialization rejects semantically invalid snapshots`` () =
+        let original = snapshot ()
+        let duplicate = original.Types.Head
+        let invalid = { original with Types = duplicate :: duplicate :: original.Types.Tail }
+
+        match SnapshotCodec.serialize invalid with
+        | Error(SnapshotCodecError.InvalidSnapshot issues) ->
+            Assert.Contains(issues, fun issue -> issue.Code = "DuplicateTypeId")
+        | result -> failwithf "Expected InvalidSnapshot, got %A" result

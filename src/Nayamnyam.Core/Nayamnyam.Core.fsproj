@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="StableId.fs" />
+    <Compile Include="Foundation.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="SnapshotCodec.fs" />
+    <Compile Include="Transactions.fs" />
+  </ItemGroup>
+</Project>

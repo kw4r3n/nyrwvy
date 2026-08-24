@@ -1,4 +1,5 @@
 **/bin/
 **/obj/
-.opencode-trace/
-.ruff_cache/
+.vs/
+TestResults/
+artifacts/

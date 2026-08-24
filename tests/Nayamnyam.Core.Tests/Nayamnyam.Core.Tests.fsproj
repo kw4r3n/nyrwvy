@@ -1,27 +1,21 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <Compile Include="FoundationTests.fs" />
+    <Compile Include="SnapshotCodecTests.fs" />
+    <Compile Include="TransactionTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
-
   <ItemGroup>
-    <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Nayamnyam.Core/Nayamnyam.Core.fsproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Nayamnyam.Core\Nayamnyam.Core.csproj" />
-  </ItemGroup>
-
 </Project>

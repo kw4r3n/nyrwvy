@@ -4,9 +4,9 @@ These questions concern implementation and representation details. They do not w
 
 Each question includes a resolution target so that uncertainty remains bounded rather than becoming an implicit placeholder.
 
-## Q-001 — What is the canonical persistence format?
+The 2026-08-25 F# Milestone 0 rebuild resets implementation-derived answers from the discarded C# semantic-core foundation. Only decisions supported by the documentation baseline or re-established with F# implementation evidence should be marked resolved.
 
-**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
+## Q-001 — What is the canonical persistence format?
 
 ### Question
 
@@ -30,8 +30,6 @@ Resolve before the Milestone 0 graph store is implemented. A replaceable storage
 ---
 
 ## Q-002 — How are stable IDs generated and scoped?
-
-**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
 
 ### Question
 
@@ -75,8 +73,6 @@ Milestone 0 may use canonical snapshots plus an append-only audit log. The long-
 ---
 
 ## Q-004 — Which structures are first-class graph entities?
-
-**Status: Resolved for Milestone 0.** See [Graph Schema v1](schema-v1.md).
 
 ### Question
 

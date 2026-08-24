@@ -363,32 +363,55 @@ None expected. Additional translated guides may be added as non-canonical projec
 
 ---
 
-## D-015 — The Milestone 0 semantic core is implemented in C#/.NET
+## D-015 — F# is the initial semantic-core implementation language
 
 - **Status:** Accepted
-- **Date:** 2026-08-24
+- **Date:** 2026-08-23
+- **Evidence:** Architecture review and product decision on 2026-08-23. This decision does not claim that the planned controlled F# versus C# spike has been completed.
 
 ### Decision
 
-The Milestone 0 semantic core, storage adapter, transaction engine, validators,
-and test suite are implemented in C# on the supported .NET SDK.
+The authoritative semantic graph, validation and operation engine, transaction model,
+obligation model, semantic diff model, and backend-neutral IR are initially
+implemented in F#.
+
+C#/.NET remains the first execution target. The initial C# emitter may be
+implemented in F# and produces deterministic C# source. If a separately compiled
+C# backend component is introduced later, it must consume an explicit backend
+contract or canonical execution-IR format rather than internal F# union
+representations.
 
 ### Reason
 
-C# keeps the semantic core and the first C#/.NET backend in one well-supported
-toolchain, while project boundaries still prevent backend syntax and runtime
-representation choices from entering the core. The previously removed language
-spike is not retained as decision evidence; this decision is based on the
-current Milestone 0 constraints.
+The semantic core is primarily a closed, immutable domain with typed alternatives:
+graph entities, operation requests, transaction outcomes, obligations, diagnostics,
+semantic diffs, and IR nodes. F# records, discriminated unions, Option, Result, and
+explicit pattern matching model these concepts directly and make unhandled cases
+visible during maintenance.
+
+The execution target and the semantic-core implementation language are independent
+under the accepted backend-neutral IR boundary. Choosing F# for the core therefore
+does not reduce access to .NET compilation, C# interoperability, generated C#
+runtime adapters, or future Native AOT experiments for generated programs.
 
 ### Consequences
 
-- Core tests run with the standard .NET test tooling.
-- `System.Text.Json` provides JSON parsing and writing; canonical ordering stays
-  a project responsibility.
-- C# implementation does not authorize C# concepts in the semantic graph.
+- Core code uses immutable records at public domain boundaries and discriminated
+  unions for closed semantic states.
+- Domain pattern matches enumerate cases explicitly; wildcard branches must not
+  absorb unknown domain cases.
+- Custom operators, active patterns, dense point-free code, and hidden
+  serialization conventions are not part of the core style.
+- Canonical graph and IR persistence use explicit, versioned codecs rather than
+  automatic serialization of internal F# representations.
+- C#-facing component boundaries must not expose F# discriminated unions directly.
+- Generated C# and its runtime support remain build artifacts and must not depend
+  on F# types unless a future backend decision explicitly accepts that dependency.
 
 ### Revisit conditions
 
-Revisit only if the core requirements cannot be represented safely and
-maintainably in C# without weakening the architecture.
+Revisit this choice if implementation evidence shows that F# causes repeated
+maintenance failures that cannot be addressed by the core style constraints, if
+C#-facing boundary adapters become a dominant cost, or if the core becomes
+substantially dominated by performance-sensitive mutable infrastructure that cannot
+remain safely encapsulated behind a functional interface.
