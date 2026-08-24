@@ -38,14 +38,20 @@ module SnapshotCodecTests =
         let reserialized = SnapshotCodec.serialize restored |> unwrap
         let expectedTypes = original.Types |> List.sortBy (fun item -> StableId.value item.Id)
         let expectedFunctions = original.Functions |> List.sortBy (fun item -> StableId.value item.Id)
+        let typesAreCanonical =
+            canonical.IndexOf("type-a", System.StringComparison.Ordinal)
+            < canonical.IndexOf("type-b", System.StringComparison.Ordinal)
+        let functionsAreCanonical =
+            canonical.IndexOf("function-a", System.StringComparison.Ordinal)
+            < canonical.IndexOf("function-b", System.StringComparison.Ordinal)
 
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
         Assert.True(expectedTypes = restored.Types)
         Assert.True(expectedFunctions = restored.Functions)
-        Assert.True(canonical.IndexOf("type-a", System.StringComparison.Ordinal) < canonical.IndexOf("type-b", System.StringComparison.Ordinal))
-        Assert.True(canonical.IndexOf("function-a", System.StringComparison.Ordinal) < canonical.IndexOf("function-b", System.StringComparison.Ordinal))
+        Assert.True(typesAreCanonical)
+        Assert.True(functionsAreCanonical)
 
     [<Fact>]
     let ``snapshot codec rejects unknown fields instead of discarding them`` () =
