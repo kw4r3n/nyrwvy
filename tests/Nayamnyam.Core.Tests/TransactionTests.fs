@@ -62,8 +62,12 @@ module TransactionTests =
                 Functions = expectedFunctions }
 
         Assert.Equal(expected, simulation.ProposedSnapshot)
-        Assert.True(original.Types = simulation.ProposedSnapshot.Types)
-        Assert.True(original.Functions.Tail = simulation.ProposedSnapshot.Functions.Tail)
+
+        if original.Types <> simulation.ProposedSnapshot.Types then
+            failwith "Rename transaction changed untouched types."
+
+        if original.Functions.Tail <> simulation.ProposedSnapshot.Functions.Tail then
+            failwith "Rename transaction changed an unrelated function."
 
         match Assert.Single(simulation.Diff.Renames) with
         | FunctionRenamed(id, oldName, newName) ->

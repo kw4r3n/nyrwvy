@@ -46,8 +46,12 @@ module SnapshotCodecTests =
         Assert.Equal(canonical, reserialized)
         Assert.Equal(original.Id, restored.Id)
         Assert.Equal(original.ParentId, restored.ParentId)
-        Assert.True(expectedTypes = restored.Types)
-        Assert.True(expectedFunctions = restored.Functions)
+
+        if expectedTypes <> restored.Types then
+            failwith "Type entities did not round-trip in canonical order."
+
+        if expectedFunctions <> restored.Functions then
+            failwith "Function entities did not round-trip in canonical order."
 
         if typeAIndex = -1 || typeBIndex = -1 then
             failwith "Canonical JSON did not contain both type IDs."
@@ -93,5 +97,6 @@ module SnapshotCodecTests =
 
         match SnapshotCodec.serialize invalid with
         | Error(SnapshotCodecError.InvalidSnapshot issues) ->
-            Assert.True(issues |> List.exists (fun issue -> issue.Code = "DuplicateTypeId"))
+            if not (issues |> List.exists (fun issue -> issue.Code = "DuplicateTypeId")) then
+                failwith "Duplicate type ID was not reported by snapshot validation."
         | result -> failwithf "Expected InvalidSnapshot, got %A" result
