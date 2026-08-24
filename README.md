@@ -10,7 +10,7 @@ The project is designed around a simple reversal of the conventional programming
 - humans primarily understand, review, and approve programs through graph-oriented views;
 - executable artifacts are generated through backend-neutral lowering, with C#/.NET as the first backend.
 
-Nayamnyam is currently rebuilding the Milestone 0 semantic foundation in F# from the last documentation-only baseline before the discarded C# semantic-core experiment. The accepted graph-first architecture remains authoritative; generated C# remains a downstream execution artifact.
+Nayamnyam is rebuilding Milestone 0 in F# from the last documentation-only baseline before the discarded C# semantic-core foundation. The accepted graph-first architecture remains authoritative; generated C# remains a downstream execution artifact.
 
 ## Core idea
 
@@ -42,11 +42,23 @@ The following direction is accepted unless implementation evidence requires revi
 9. The Milestone 0 semantic core is implemented in F#/.NET; generated C# remains the first execution backend.
 10. The previous RAST project is a design reference and migration source, not a dependency.
 
-## Rebuild boundary
+## Rebuild status
 
-The current branch intentionally begins with a small semantic core: stable IDs, a minimal immutable snapshot envelope, CI, and invariant tests. Persistence, transactions, obligations, IRs, backend generation, and viewer projections are added only after their single authoritative representation and validation rules are explicit.
+The clean rebuild has verified the semantic foundation through Phase C:
 
-See [F# Milestone 0 rebuild foundation](docs/rebuild-foundation-20260825.md) for the staged rebuild rules.
+- **Foundation:** F# solution, domain-typed stable IDs, immutable snapshot model, and CI.
+- **Phase B:** strict canonical snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
+- **Phase C:** one authoritative function-owned node graph for direct calls, typed parameters, explicit `MissingArgument` obligations, `function.add_parameter`, obligation resolution, and semantic completeness.
+
+The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and future lowering must derive calls from the same graph nodes.
+
+Lowering, C# generation, and the viewer have not been reintroduced yet. The next design gate is the value-node subset required by the Milestone 0 validation program and the Typed Semantic IR boundary above it.
+
+See the rebuild records:
+
+- [F# rebuild foundation](docs/rebuild-foundation-20260825.md)
+- [Verified Phase B](docs/rebuild-phase-b-20260825.md)
+- [Verified Phase C](docs/rebuild-phase-c-20260825.md)
 
 ## Initial milestone
 
@@ -68,11 +80,10 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Decisions](docs/decisions.md) — accepted foundational decisions and their consequences
 - [Open questions](docs/open-questions.md) — unresolved implementation and research questions
 - [Milestone 0](docs/milestone-0.md) — first end-to-end validation slice
-- [F# rebuild foundation](docs/rebuild-foundation-20260825.md) — restart invariants and implementation order
 
 ## Build and verification
 
-The foundation uses the .NET 10 SDK:
+The rebuild uses the .NET 10 SDK:
 
 ```shell
 dotnet restore Nayamnyam.slnx
@@ -80,7 +91,7 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-CI runs the same build-and-test boundary on pushes and pull requests.
+Phase C was verified through GitHub Actions with .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all 16 tests passed with zero skips.
 
 ## Relationship to RAST
 

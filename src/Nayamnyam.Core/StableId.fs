@@ -12,11 +12,17 @@ type StableId<'Kind> = private StableId of string
 
 type TypeTag = class end
 type FunctionTag = class end
+type ParameterTag = class end
+type GraphNodeTag = class end
+type ObligationTag = class end
 type SnapshotTag = class end
 type TransactionTag = class end
 
 type TypeId = StableId<TypeTag>
 type FunctionId = StableId<FunctionTag>
+type ParameterId = StableId<ParameterTag>
+type GraphNodeId = StableId<GraphNodeTag>
+type ObligationId = StableId<ObligationTag>
 type SnapshotId = StableId<SnapshotTag>
 type TransactionId = StableId<TransactionTag>
 

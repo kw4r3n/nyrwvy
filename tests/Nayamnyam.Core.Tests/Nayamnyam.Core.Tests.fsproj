@@ -6,7 +6,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="TestGraph.fs" />
     <Compile Include="FoundationTests.fs" />
+    <Compile Include="ValidationTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="TransactionTests.fs" />
   </ItemGroup>
