@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET build, tests, and CLI smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore Nayamnyam.slnx
+
+      - name: Build
+        run: dotnet build Nayamnyam.slnx --configuration Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+
+      - name: CLI subprocess smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          store="$(mktemp -d)"
+          trap 'rm -rf "$store"' EXIT
+          stdout_file="$store/stdout.txt"
+          stderr_file="$store/stderr.txt"
+
+          set +e
+          timeout --signal=TERM 120s dotnet run \
+            --project src/Nayamnyam.Cli/Nayamnyam.Cli.csproj \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            -- demo --store "$store" \
+            >"$stdout_file" 2>"$stderr_file"
+          status=$?
+          set -e
+
+          if [[ "$status" -ne 0 ]]; then
+            cat "$stdout_file"
+            cat "$stderr_file" >&2
+            exit "$status"
+          fi
+
+          output="$(cat "$stdout_file")"
+          expected='PASS graph persistence, rename review, stable identity, and C# smoke execution'
+          if [[ "$output" != *"$expected"* ]]; then
+            printf 'Unexpected CLI output:\n%s\n' "$output" >&2
+            exit 1
+          fi
+
+          if [[ -s "$stderr_file" || ! -s "$store/CURRENT" || ! -e "$store/LOCK" || ! -s "$store/focus.dot" || ! -s "$store/generated/Generated.cs" ]]; then
+            printf 'CLI smoke test did not produce the expected artifacts or emitted stderr.\n' >&2
+            cat "$stderr_file" >&2
+            exit 1
+          fi
+
+          invalid_stdout="$store/invalid-stdout.txt"
+          invalid_stderr="$store/invalid-stderr.txt"
+          set +e
+          timeout --signal=TERM 30s dotnet run \
+            --project src/Nayamnyam.Cli/Nayamnyam.Cli.csproj \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            -- invalid \
+            >"$invalid_stdout" 2>"$invalid_stderr"
+          invalid_status=$?
+          set -e
+
+          if [[ "$invalid_status" -ne 2 || -s "$invalid_stdout" || "$(cat "$invalid_stderr")" != *"Usage: nayamnyam demo --store <directory>"* ]]; then
+            printf 'Invalid CLI invocation did not return the expected usage error.\n' >&2
+            cat "$invalid_stdout"
+            cat "$invalid_stderr" >&2
+            exit 1
+          fi

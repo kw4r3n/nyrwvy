@@ -42,7 +42,7 @@ public static class ExecutionLowerer
 
     private static int Index(IReadOnlyList<StableId> parameters, StableId parameterId) { for (var index = 0; index < parameters.Count; index++) if (parameters[index] == parameterId) return index; throw new InvalidOperationException("Parameter reference is not owned by its function."); }
     private static string Symbol(StableId id) => $"F_{id.Value:N}";
-    private static string TypeName(StableId? typeId, StableId stringTypeId, StableId? boolTypeId) => typeId == boolTypeId ? "bool" : typeId is null || typeId == stringTypeId ? "string" : throw new NotSupportedException("Unsupported execution type.");
+    private static string TypeName(StableId? typeId, StableId stringTypeId, StableId? boolTypeId) => typeId is { } resolvedTypeId && boolTypeId is { } boolId && resolvedTypeId == boolId ? "bool" : typeId is null || typeId == stringTypeId ? "string" : throw new NotSupportedException("Unsupported execution type.");
 }
 
 public static class CSharpEmitter

@@ -10,7 +10,7 @@ The project is designed around a simple reversal of the conventional programming
 - humans primarily understand, review, and approve programs through graph-oriented views;
 - executable artifacts are generated through backend-neutral lowering, with C#/.NET as the first backend.
 
-Nayamnyam is currently in its design-establishment phase. This repository intentionally begins with direction-setting documents before implementation.
+Nayamnyam is currently in its foundation implementation phase. The repository keeps direction-setting documents alongside the executable semantic core so implementation evidence can revise the design when necessary.
 
 ## Core idea
 
@@ -75,6 +75,26 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Graph Schema v2](docs/schema-v1.md) — Milestone 0 persistence and identity contract
 - [Open questions](docs/open-questions.md) — unresolved implementation and research questions
 - [Milestone 0](docs/milestone-0.md) — first end-to-end validation slice
+
+## Build and verification
+
+The supported verification path uses the .NET 10 SDK:
+
+```shell
+dotnet restore Nayamnyam.slnx
+dotnet build Nayamnyam.slnx --configuration Release --no-restore
+dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+```
+
+The CLI smoke path exercises the real executable boundary, persists a graph in the
+specified store, generates C# source, and compiles and runs that generated program:
+
+```shell
+dotnet run --project src/Nayamnyam.Cli/Nayamnyam.Cli.csproj -- demo --store ./artifacts/demo
+```
+
+The same smoke path runs on every push and pull request through
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Relationship to RAST
 

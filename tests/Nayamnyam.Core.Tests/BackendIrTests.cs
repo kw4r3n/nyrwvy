@@ -22,6 +22,15 @@ public sealed class BackendIrTests
         var source = CSharpEmitter.Emit(ExecutionLowerer.Lower(GraphToTypedLowerer.Lower(graph, stringType)));
         Assert.Contains("F_00000000000000000000000000000001(\"nyam\")", source, StringComparison.Ordinal);
     }
+    [Fact]
+    public void LoweringWithoutBuiltinTypesDefaultsToStringExecutionTypes()
+    {
+        var stringType = Id(IdDomain.Type, 1); var identity = Id(IdDomain.Function, 1); var parameter = Id(IdDomain.Parameter, 1);
+        var graph = new Snapshot(Id(IdDomain.Snapshot, 1), null, [new SemanticType(stringType, "String", TypeKind.Builtin, [], [])], [new SemanticFunction(identity, "identity", [new Parameter(parameter, "value", stringType)], stringType, [], [], new ParameterReferenceBody(parameter))], [], [], []);
+        var source = CSharpEmitter.Emit(ExecutionLowerer.Lower(GraphToTypedLowerer.Lower(graph, stringType)));
+        Assert.Contains("public static string F_00000000000000000000000000000001(string p0)", source, StringComparison.Ordinal);
+    }
+
 
     [Fact]
     public void EmitsConditionalExpression()

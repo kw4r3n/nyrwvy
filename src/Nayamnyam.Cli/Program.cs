@@ -2,7 +2,7 @@ using Nayamnyam.Core;
 using System.Diagnostics;
 
 if (args.Length >= 3 && args[0] == "view" && args[1] == "--store") { await ViewerHost.Run(args[2], args.Length == 5 && args[3] == "--port" ? int.Parse(args[4]) : 5050); return; }
-if (args.Length != 3 || args[0] != "demo" || args[1] != "--store") { Console.Error.WriteLine("Usage: nayamnyam demo --store <directory>"); return; }
+if (args.Length != 3 || args[0] != "demo" || args[1] != "--store") { Console.Error.WriteLine("Usage: nayamnyam demo --store <directory>"); Environment.ExitCode = 2; return; }
 var typeId = Id(IdDomain.Type, 1); var validateId = Id(IdDomain.Function, 1); var runId = Id(IdDomain.Function, 2); var inputId = Id(IdDomain.Parameter, 1); var callId = Id(IdDomain.GraphNode, 1);
 var runInputId = Id(IdDomain.Parameter, 2);
 var initial = new Snapshot(Id(IdDomain.Snapshot, 1), null, [new SemanticType(typeId, "RawUserInput", TypeKind.Builtin, [], [])], [new SemanticFunction(validateId, "validate_user", [new Parameter(inputId, "input", typeId)], typeId, [], [], new ParameterReferenceBody(inputId)), new SemanticFunction(runId, "run", [new Parameter(runInputId, "input", typeId)], typeId, [], [new Call(callId, validateId, [new ArgumentBinding(inputId, runInputId)])], new DirectCallBody(callId, validateId, [new BodyArgument(inputId, new StringLiteralBody("nyam"))]))], [], [], []);
