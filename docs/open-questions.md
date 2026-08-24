@@ -4,6 +4,8 @@ These questions concern implementation and representation details. They do not w
 
 Each question includes a resolution target so that uncertainty remains bounded rather than becoming an implicit placeholder.
 
+The 2026-08-25 F# Milestone 0 rebuild resets implementation-derived answers from the discarded C# semantic-core foundation. Only decisions supported by the documentation baseline or re-established with F# implementation evidence should be marked resolved.
+
 ## Q-001 — What is the canonical persistence format?
 
 ### Question
