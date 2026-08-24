@@ -52,11 +52,11 @@ module TransactionTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-incomplete"
               Operations =
                 [ AddFunctionParameter
-                    { FunctionId = fixture.ValidateFunctionId
-                      ParameterId = parameterId
-                      DisplayName = "policy"
-                      TypeId = fixture.PolicyTypeId
-                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = parameterId
+                      NewParameterDisplayName = "policy"
+                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
         let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
         let obligation = List.exactlyOne simulation.ProposedSnapshot.Obligations
@@ -79,11 +79,11 @@ module TransactionTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-incomplete"
               Operations =
                 [ AddFunctionParameter
-                    { FunctionId = fixture.ValidateFunctionId
-                      ParameterId = parameterId
-                      DisplayName = "policy"
-                      TypeId = fixture.PolicyTypeId
-                      CallPlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = parameterId
+                      NewParameterDisplayName = "policy"
+                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
         let incomplete = (Transaction.simulate fixture.Snapshot addRequest |> unwrap).ProposedSnapshot
 
         let resolveRequest: TransactionRequest =
@@ -92,18 +92,18 @@ module TransactionTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-complete"
               Operations =
                 [ ResolveMissingArgument
-                    { ObligationId = obligationId
-                      ValueNodeId = fixture.RunPolicyNodeId } ] }
+                    { TargetObligationId = obligationId
+                      ResolutionValueNodeId = fixture.RunPolicyNodeId } ] }
 
         let simulation = Transaction.simulate incomplete resolveRequest |> unwrap
         let run = simulation.ProposedSnapshot.Functions |> List.find (fun item -> item.Id = fixture.RunFunctionId)
-        let call = run.Nodes |> List.find (fun node -> node.Id = fixture.RunCallNodeId)
+        let call = ValueGraph.collectNodes run.Body |> List.find (fun node -> node.Id = fixture.RunCallNodeId)
 
         match call.Kind with
-        | SemanticNodeKind.ParameterReference _ -> failwith "Call node changed semantic kind during obligation resolution."
         | SemanticNodeKind.DirectCall(_, arguments) ->
             let binding = arguments |> List.find (fun item -> item.TargetParameterId = parameterId)
             Assert.Equal(fixture.RunPolicyNodeId, binding.ValueNodeId)
+        | _ -> failwith "Call node changed semantic kind during obligation resolution."
 
         let obligation = List.exactlyOne simulation.ProposedSnapshot.Obligations
         match obligation.Status with
@@ -124,11 +124,11 @@ module TransactionTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-complete"
               Operations =
                 [ AddFunctionParameter
-                    { FunctionId = fixture.ValidateFunctionId
-                      ParameterId = parameterId
-                      DisplayName = "policy"
-                      TypeId = fixture.PolicyTypeId
-                      CallPlans = [ BindExistingValue(fixture.RunCallNodeId, fixture.RunPolicyNodeId) ] } ] }
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = parameterId
+                      NewParameterDisplayName = "policy"
+                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      CallSitePlans = [ BindExistingValue(fixture.RunCallNodeId, fixture.RunPolicyNodeId) ] } ] }
 
         let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
         Assert.Empty(simulation.ProposedSnapshot.Obligations)
@@ -145,11 +145,11 @@ module TransactionTests =
               ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-invalid"
               Operations =
                 [ AddFunctionParameter
-                    { FunctionId = fixture.ValidateFunctionId
-                      ParameterId = parameterId
-                      DisplayName = "policy"
-                      TypeId = fixture.PolicyTypeId
-                      CallPlans = [] } ] }
+                    { TargetFunctionId = fixture.ValidateFunctionId
+                      NewParameterId = parameterId
+                      NewParameterDisplayName = "policy"
+                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      CallSitePlans = [] } ] }
 
         match Transaction.simulate fixture.Snapshot request with
         | Rejected diagnostics -> Assert.Equal("CallPlanMismatch", (List.exactlyOne diagnostics).Code)
