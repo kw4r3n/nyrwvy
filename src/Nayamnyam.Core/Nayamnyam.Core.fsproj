@@ -12,6 +12,7 @@
     <Compile Include="NyasonSyntax.fs" />
     <Compile Include="NyasonCodec.fs" />
     <Compile Include="Readiness.fs" />
+    <Compile Include="TypedSemanticIr.fs" />
     <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>
