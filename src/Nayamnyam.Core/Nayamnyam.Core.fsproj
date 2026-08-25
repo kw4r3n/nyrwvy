@@ -19,6 +19,9 @@
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />
     <Compile Include="ExecutionIrCodec.fs" />
+    <Compile Include="CSharpBackendModel.fs" />
+    <Compile Include="CSharpBackendValidation.fs" />
+    <Compile Include="CSharpBackendEmitter.fs" />
     <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>

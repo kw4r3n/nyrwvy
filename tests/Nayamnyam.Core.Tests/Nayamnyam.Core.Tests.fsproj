@@ -20,6 +20,7 @@
     <Compile Include="TypedSemanticIrCodecTests.fs" />
     <Compile Include="ExecutionIrTests.fs" />
     <Compile Include="ExecutionIrCodecTests.fs" />
+    <Compile Include="CSharpBackendTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

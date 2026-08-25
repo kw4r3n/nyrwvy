@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 # Local verification fallback for Nayamnyam when GitHub Actions is unavailable.
-# Mirrors CI, then explicitly re-runs the current Phase I test modules so a
-# missing <Compile Include=...> entry cannot masquerade as a green full suite.
+# Mirrors CI, then explicitly re-runs phase-specific test modules and verifies
+# that the expected tests actually appeared in the TRX result.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -22,11 +22,12 @@ Options:
 
 The script requires a .NET 10 SDK and runs:
   1. dotnet restore
-  2. Release build with warnings-as-errors from the projects
+  2. Release build with project warnings-as-errors
   3. the full test suite
-  4. ExecutionIrTests explicitly
-  5. ExecutionIrCodecTests explicitly
-  6. the JSON/Nyason comparison report produced by the test suite
+  4. ExecutionIrTests explicitly (at least 6 passing tests)
+  5. ExecutionIrCodecTests explicitly (at least 3 passing tests)
+  6. CSharpBackendTests explicitly (at least 4 passing tests, including generated C# build/run)
+  7. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -76,9 +77,9 @@ fi
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 LOG_DIR="${TMPDIR:-/tmp}/nayamnyam-verification"
 LOG_FILE="$LOG_DIR/local-verify-$TIMESTAMP.log"
-mkdir -p "$LOG_DIR"
+RESULT_DIR="$LOG_DIR/results-$TIMESTAMP"
+mkdir -p "$LOG_DIR" "$RESULT_DIR"
 
-# Send all subsequent output to both terminal and the timestamped log.
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 on_error() {
@@ -90,6 +91,37 @@ on_error() {
   exit "$exit_code"
 }
 trap on_error ERR
+
+run_required_filter() {
+  local label="$1"
+  local filter="$2"
+  local minimum="$3"
+  local trx_name="$4"
+  local trx_path="$RESULT_DIR/$trx_name"
+
+  echo "--- $label ---"
+  dotnet test tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.fsproj \
+    --configuration Release \
+    --no-build \
+    --no-restore \
+    --filter "$filter" \
+    --logger "trx;LogFileName=$trx_name" \
+    --results-directory "$RESULT_DIR"
+
+  if [[ ! -f "$trx_path" ]]; then
+    echo "ERROR: expected TRX result was not produced: $trx_path" >&2
+    exit 1
+  fi
+
+  local passed_count
+  passed_count="$(grep -o 'outcome="Passed"' "$trx_path" | wc -l | tr -d ' ')"
+  if (( passed_count < minimum )); then
+    echo "ERROR: $label executed only $passed_count passing tests; expected at least $minimum." >&2
+    exit 1
+  fi
+  echo "verified-passed-count: $passed_count"
+  echo
+}
 
 echo "=== Nayamnyam local verification ==="
 echo "time: $(date --iso-8601=seconds)"
@@ -121,21 +153,23 @@ echo "--- Full test suite ---"
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 echo
 
-echo "--- Phase I execution lowering tests ---"
-dotnet test tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.fsproj \
-  --configuration Release \
-  --no-build \
-  --no-restore \
-  --filter 'FullyQualifiedName~ExecutionIrTests'
-echo
+run_required_filter \
+  "Phase I execution lowering tests" \
+  "FullyQualifiedName~ExecutionIrTests" \
+  6 \
+  "phase-i-execution.trx"
 
-echo "--- Phase I canonical Execution IR codec tests ---"
-dotnet test tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.fsproj \
-  --configuration Release \
-  --no-build \
-  --no-restore \
-  --filter 'FullyQualifiedName~ExecutionIrCodecTests'
-echo
+run_required_filter \
+  "Phase I canonical Execution IR codec tests" \
+  "FullyQualifiedName~ExecutionIrCodecTests" \
+  3 \
+  "phase-i-codec.trx"
+
+run_required_filter \
+  "Phase J C# backend tests" \
+  "FullyQualifiedName~CSharpBackendTests" \
+  4 \
+  "phase-j-csharp-backend.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
