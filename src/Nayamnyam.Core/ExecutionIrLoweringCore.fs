@@ -3,8 +3,9 @@ namespace Nayamnyam.Core
 open System.Collections.Generic
 
 /// Lowers Typed Semantic IR into explicit backend-neutral execution order.
-/// The lowerer never invents ordering between independent effects; that is
-/// rejected by ExecutionIrAnalysis before blocks are created.
+/// Boundary types are deliberately annotated because the semantic and execution
+/// layers contain structurally similar records; inference must not decide which
+/// layer a helper operates on from a shared field name.
 [<RequireQualifiedAccess>]
 module ExecutionIr =
     type private MutableBlock =
@@ -26,8 +27,8 @@ module ExecutionIr =
         | Ok () ->
             let blocks = Dictionary<ExecutionBlockId, MutableBlock>()
 
-            let addBlock id parameters =
-                let block =
+            let addBlock (id: ExecutionBlockId) (parameters: ExecutionValue list): MutableBlock =
+                let block: MutableBlock =
                     { Id = id
                       Parameters = parameters
                       Instructions = ResizeArray<ExecutionInstruction>()
@@ -35,63 +36,74 @@ module ExecutionIr =
                 blocks.Add(id, block)
                 block
 
-            let setTerminator (block: MutableBlock) terminator =
+            let setTerminator (block: MutableBlock) (terminator: ExecutionTerminator) =
                 block.Terminator <- Some terminator
 
             let parameterValues: Map<ParameterId, ExecutionValue> =
                 functionEntity.Parameters
-                |> List.map (fun parameter ->
-                    let value =
+                |> List.map (fun (parameter: TypedSemanticParameter) ->
+                    let value: ExecutionValue =
                         { Id = ExecutionIrIds.parameterValue parameter.Id
                           Type = parameter.Type
                           Origin = ExecutionOrigin.FunctionParameter parameter.Id }
                     parameter.Id, value)
                 |> Map.ofList
 
-            let executionParameters =
+            let executionParameters: ExecutionParameter list =
                 functionEntity.Parameters
-                |> List.map (fun parameter ->
+                |> List.map (fun (parameter: TypedSemanticParameter) ->
                     { SemanticParameterId = parameter.Id
                       Value = Map.find parameter.Id parameterValues })
 
-            let requireNodeValue environment nodeId =
+            let requireNodeValue
+                (environment: LoweringEnvironment)
+                (nodeId: GraphNodeId)
+                : Result<ExecutionValueId, ExecutionIrError> =
                 match Map.tryFind nodeId environment.NodeValues with
                 | Some valueId -> Ok valueId
                 | None -> Error(ExecutionIrError.MissingNodeValue(functionEntity.Id, nodeId))
 
-            let requirePatternValue environment bindingId =
+            let requirePatternValue
+                (environment: LoweringEnvironment)
+                (bindingId: PatternBindingId)
+                : Result<ExecutionValueId, ExecutionIrError> =
                 match Map.tryFind bindingId environment.PatternValues with
                 | Some valueId -> Ok valueId
                 | None -> Error(ExecutionIrError.MissingPatternValue(functionEntity.Id, bindingId))
 
-            let makeNodeValue (node: TypedSemanticNode) =
+            let makeNodeValue (node: TypedSemanticNode): ExecutionValue =
                 { Id = ExecutionIrIds.nodeValue node.OriginNodeId
                   Type = node.Type
                   Origin = ExecutionOrigin.SemanticNode node.OriginNodeId }
 
-            let addInstruction (block: MutableBlock) (node: TypedSemanticNode) kind =
+            let addInstruction
+                (block: MutableBlock)
+                (node: TypedSemanticNode)
+                (kind: ExecutionInstructionKind)
+                : ExecutionValueId =
                 let result = makeNodeValue node
-                block.Instructions.Add(
+                let instruction: ExecutionInstruction =
                     { Result = result
                       OriginNodeId = node.OriginNodeId
                       Kind = kind }
-                )
+                block.Instructions.Add instruction
                 result.Id
 
             let addPatternExtraction
                 (block: MutableBlock)
-                matchNodeId
+                (matchNodeId: GraphNodeId)
                 (binding: TypedSemanticPatternBinding)
-                kind =
-                let value =
+                (kind: ExecutionInstructionKind)
+                : ExecutionValue =
+                let value: ExecutionValue =
                     { Id = ExecutionIrIds.patternValue binding.Id
                       Type = binding.Type
                       Origin = ExecutionOrigin.PatternBinding(matchNodeId, binding.Id) }
-                block.Instructions.Add(
+                let instruction: ExecutionInstruction =
                     { Result = value
                       OriginNodeId = matchNodeId
                       Kind = kind }
-                )
+                block.Instructions.Add instruction
                 value
 
             let rec lowerGraph
@@ -101,83 +113,97 @@ module ExecutionIr =
                 : Result<MutableBlock * ExecutionValueId, ExecutionIrError> =
                 let mutable currentBlock = startBlock
                 let mutable environment = initialEnvironment
-                let mutable pending =
+                let mutable pending: Map<GraphNodeId, TypedSemanticNode> =
                     graph.Nodes
-                    |> List.map (fun node -> node.OriginNodeId, node)
+                    |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
                     |> Map.ofList
                 let mutable failure: ExecutionIrError option = None
 
-                let bindNode nodeId valueId =
+                let bindNode (nodeId: GraphNodeId) (valueId: ExecutionValueId) =
                     environment <-
                         { environment with
                             NodeValues = Map.add nodeId valueId environment.NodeValues }
 
-                let readyNodes () =
+                let readyNodes (): TypedSemanticNode list =
                     pending
                     |> Map.toList
                     |> List.map snd
-                    |> List.filter (fun node ->
+                    |> List.filter (fun (node: TypedSemanticNode) ->
                         ExecutionIrAnalysis.dependencies node
-                        |> List.forall (fun dependencyId ->
-                            Map.containsKey dependencyId environment.NodeValues))
+                        |> List.forall (fun dependencyId -> Map.containsKey dependencyId environment.NodeValues))
                     |> List.sortBy (fun node -> StableId.value node.OriginNodeId)
 
-                let lowerFieldValues (fields: TypedSemanticFieldValue list) =
-                    let rec loop acc remaining =
+                let lowerFieldValues
+                    (fields: TypedSemanticFieldValue list)
+                    : Result<ExecutionFieldValue list, ExecutionIrError> =
+                    let rec loop
+                        (acc: ExecutionFieldValue list)
+                        (remaining: TypedSemanticFieldValue list)
+                        : Result<ExecutionFieldValue list, ExecutionIrError> =
                         match remaining with
                         | [] ->
                             acc
                             |> List.rev
-                            |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                            |> List.sortBy (fun (field: ExecutionFieldValue) -> StableId.value field.TargetFieldId)
                             |> Ok
                         | field :: rest ->
                             match requireNodeValue environment field.ValueNodeId with
                             | Error error -> Error error
                             | Ok valueId ->
-                                loop
-                                    ({ TargetFieldId = field.TargetFieldId
-                                       ValueId = valueId } :: acc)
-                                    rest
+                                let lowered: ExecutionFieldValue =
+                                    { TargetFieldId = field.TargetFieldId
+                                      ValueId = valueId }
+                                loop (lowered :: acc) rest
                     loop [] fields
 
-                let lowerCallArguments (arguments: TypedSemanticArgument list) =
-                    let rec loop acc remaining =
+                let lowerCallArguments
+                    (arguments: TypedSemanticArgument list)
+                    : Result<ExecutionCallArgument list, ExecutionIrError> =
+                    let rec loop
+                        (acc: ExecutionCallArgument list)
+                        (remaining: TypedSemanticArgument list)
+                        : Result<ExecutionCallArgument list, ExecutionIrError> =
                         match remaining with
                         | [] ->
                             acc
                             |> List.rev
-                            |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
+                            |> List.sortBy (fun (argument: ExecutionCallArgument) -> StableId.value argument.TargetParameterId)
                             |> Ok
                         | argument :: rest ->
                             match requireNodeValue environment argument.ValueNodeId with
                             | Error error -> Error error
                             | Ok valueId ->
-                                loop
-                                    ({ TargetParameterId = argument.TargetParameterId
-                                       ValueId = valueId } :: acc)
-                                    rest
+                                let lowered: ExecutionCallArgument =
+                                    { TargetParameterId = argument.TargetParameterId
+                                      ValueId = valueId }
+                                loop (lowered :: acc) rest
                     loop [] arguments
 
-                let lowerCapabilityArguments (arguments: TypedSemanticCapabilityArgument list) =
-                    let rec loop acc remaining =
+                let lowerCapabilityArguments
+                    (arguments: TypedSemanticCapabilityArgument list)
+                    : Result<ExecutionCapabilityArgument list, ExecutionIrError> =
+                    let rec loop
+                        (acc: ExecutionCapabilityArgument list)
+                        (remaining: TypedSemanticCapabilityArgument list)
+                        : Result<ExecutionCapabilityArgument list, ExecutionIrError> =
                         match remaining with
                         | [] ->
                             acc
                             |> List.rev
-                            |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId)
+                            |> List.sortBy (fun (argument: ExecutionCapabilityArgument) -> StableId.value argument.TargetCapabilityParameterId)
                             |> Ok
                         | argument :: rest ->
                             match requireNodeValue environment argument.ValueNodeId with
                             | Error error -> Error error
                             | Ok valueId ->
-                                loop
-                                    ({ TargetCapabilityParameterId = argument.TargetCapabilityParameterId
-                                       ValueId = valueId } :: acc)
-                                    rest
+                                let lowered: ExecutionCapabilityArgument =
+                                    { TargetCapabilityParameterId = argument.TargetCapabilityParameterId
+                                      ValueId = valueId }
+                                loop (lowered :: acc) rest
                     loop [] arguments
 
                 let lowerSimpleNode (node: TypedSemanticNode) =
-                    let produced =
+                    let produced: Result<ExecutionValueId, ExecutionIrError> =
                         match node.Kind with
                         | TypedSemanticNodeKind.ParameterReference parameterId ->
                             match Map.tryFind parameterId parameterValues with
@@ -230,16 +256,13 @@ module ExecutionIr =
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.OptionNone)
                         | TypedSemanticNodeKind.OptionSome valueNodeId ->
                             requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.OptionSome valueId))
+                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.OptionSome valueId))
                         | TypedSemanticNodeKind.ResultOk valueNodeId ->
                             requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.ResultOk valueId))
+                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultOk valueId))
                         | TypedSemanticNodeKind.ResultErr errorNodeId ->
                             requireNodeValue environment errorNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
+                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
                         | TypedSemanticNodeKind.Conditional _
                         | TypedSemanticNodeKind.MatchUnion _
                         | TypedSemanticNodeKind.MatchOption _
@@ -250,21 +273,26 @@ module ExecutionIr =
                     | Ok valueId -> bindNode node.OriginNodeId valueId
                     | Error error -> failure <- Some error
 
-                let jumpToMerge (endBlock: MutableBlock) mergeValue valueId (mergeBlock: MutableBlock) =
-                    setTerminator
-                        endBlock
-                        (ExecutionTerminator.Jump(
-                            mergeBlock.Id,
-                            [ { TargetValueId = mergeValue.Id
-                                ValueId = valueId } ]
-                        ))
+                let jumpToMerge
+                    (endBlock: MutableBlock)
+                    (mergeValue: ExecutionValue)
+                    (valueId: ExecutionValueId)
+                    (mergeBlock: MutableBlock) =
+                    let argument: ExecutionJumpArgument =
+                        { TargetValueId = mergeValue.Id
+                          ValueId = valueId }
+                    setTerminator endBlock (ExecutionTerminator.Jump(mergeBlock.Id, [ argument ]))
 
-                let makeMerge node =
+                let makeMerge (node: TypedSemanticNode): ExecutionValue * MutableBlock =
                     let mergeValue = makeNodeValue node
                     let mergeBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "merge") [ mergeValue ]
                     mergeValue, mergeBlock
 
-                let lowerConditional node conditionNodeId whenTrue whenFalse =
+                let lowerConditional
+                    (node: TypedSemanticNode)
+                    (conditionNodeId: GraphNodeId)
+                    (whenTrue: TypedSemanticGraph)
+                    (whenFalse: TypedSemanticGraph) =
                     match requireNodeValue environment conditionNodeId with
                     | Error error -> failure <- Some error
                     | Ok conditionValueId ->
@@ -272,7 +300,6 @@ module ExecutionIr =
                         let falseBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "when-false") []
                         let mergeValue, mergeBlock = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.Branch(conditionValueId, trueBlock.Id, falseBlock.Id))
-
                         match lowerGraph trueBlock environment whenTrue, lowerGraph falseBlock environment whenFalse with
                         | Ok(trueEnd, trueValueId), Ok(falseEnd, falseValueId) ->
                             jumpToMerge trueEnd mergeValue trueValueId mergeBlock
@@ -282,27 +309,29 @@ module ExecutionIr =
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
-                let lowerUnionMatch node inputNodeId arms =
+                let lowerUnionMatch
+                    (node: TypedSemanticNode)
+                    (inputNodeId: GraphNodeId)
+                    (arms: TypedSemanticUnionArm list) =
                     match requireNodeValue environment inputNodeId with
                     | Error error -> failure <- Some error
                     | Ok inputValueId ->
                         let mergeValue, mergeBlock = makeMerge node
-                        let armBlocks =
+                        let armBlocks: (TypedSemanticUnionArm * MutableBlock) list =
                             arms
-                            |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+                            |> List.sortBy (fun (arm: TypedSemanticUnionArm) -> StableId.value arm.VariantId)
                             |> List.map (fun arm -> arm, addBlock (ExecutionIrIds.unionBlock node.OriginNodeId arm.VariantId) [])
-
-                        let targets =
+                        let targets: ExecutionUnionTarget list =
                             armBlocks
                             |> List.map (fun (arm, block) ->
                                 { VariantId = arm.VariantId
                                   BlockId = block.Id })
                         setTerminator currentBlock (ExecutionTerminator.MatchUnion(inputValueId, targets))
 
-                        for arm, block in armBlocks do
+                        for (arm: TypedSemanticUnionArm), (block: MutableBlock) in armBlocks do
                             if Option.isNone failure then
                                 let mutable patternValues = environment.PatternValues
-                                for fieldBinding in arm.FieldBindings |> List.sortBy (fun item -> StableId.value item.SourceFieldId) do
+                                for fieldBinding in arm.FieldBindings |> List.sortBy (fun (item: TypedSemanticPatternField) -> StableId.value item.SourceFieldId) do
                                     let extracted =
                                         addPatternExtraction
                                             block
@@ -310,8 +339,8 @@ module ExecutionIr =
                                             fieldBinding.Binding
                                             (ExecutionInstructionKind.ExtractUnionField(inputValueId, arm.VariantId, fieldBinding.SourceFieldId))
                                     patternValues <- Map.add fieldBinding.Binding.Id extracted.Id patternValues
-
-                                let armEnvironment = { environment with PatternValues = patternValues }
+                                let armEnvironment: LoweringEnvironment =
+                                    { environment with PatternValues = patternValues }
                                 match lowerGraph block armEnvironment arm.Body with
                                 | Ok(endBlock, resultValueId) -> jumpToMerge endBlock mergeValue resultValueId mergeBlock
                                 | Error error -> failure <- Some error
@@ -320,7 +349,11 @@ module ExecutionIr =
                             currentBlock <- mergeBlock
                             bindNode node.OriginNodeId mergeValue.Id
 
-                let lowerOptionMatch node inputNodeId someArm noneBody =
+                let lowerOptionMatch
+                    (node: TypedSemanticNode)
+                    (inputNodeId: GraphNodeId)
+                    (someArm: TypedSemanticValueArm)
+                    (noneBody: TypedSemanticGraph) =
                     match requireNodeValue environment inputNodeId with
                     | Error error -> failure <- Some error
                     | Ok inputValueId ->
@@ -328,17 +361,11 @@ module ExecutionIr =
                         let noneBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "none") []
                         let mergeValue, mergeBlock = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.MatchOption(inputValueId, someBlock.Id, noneBlock.Id))
-
                         let extracted =
-                            addPatternExtraction
-                                someBlock
-                                node.OriginNodeId
-                                someArm.ValueBinding
-                                (ExecutionInstructionKind.ExtractOptionSome inputValueId)
-                        let someEnvironment =
+                            addPatternExtraction someBlock node.OriginNodeId someArm.ValueBinding (ExecutionInstructionKind.ExtractOptionSome inputValueId)
+                        let someEnvironment: LoweringEnvironment =
                             { environment with
                                 PatternValues = Map.add someArm.ValueBinding.Id extracted.Id environment.PatternValues }
-
                         match lowerGraph someBlock someEnvironment someArm.Body, lowerGraph noneBlock environment noneBody with
                         | Ok(someEnd, someValueId), Ok(noneEnd, noneValueId) ->
                             jumpToMerge someEnd mergeValue someValueId mergeBlock
@@ -348,7 +375,11 @@ module ExecutionIr =
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
-                let lowerResultMatch node inputNodeId okArm errArm =
+                let lowerResultMatch
+                    (node: TypedSemanticNode)
+                    (inputNodeId: GraphNodeId)
+                    (okArm: TypedSemanticValueArm)
+                    (errArm: TypedSemanticErrorArm) =
                     match requireNodeValue environment inputNodeId with
                     | Error error -> failure <- Some error
                     | Ok inputValueId ->
@@ -356,18 +387,14 @@ module ExecutionIr =
                         let errBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "err") []
                         let mergeValue, mergeBlock = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.MatchResult(inputValueId, okBlock.Id, errBlock.Id))
-
                         let okExtracted =
                             addPatternExtraction okBlock node.OriginNodeId okArm.ValueBinding (ExecutionInstructionKind.ExtractResultOk inputValueId)
                         let errExtracted =
                             addPatternExtraction errBlock node.OriginNodeId errArm.ErrorBinding (ExecutionInstructionKind.ExtractResultErr inputValueId)
-                        let okEnvironment =
-                            { environment with
-                                PatternValues = Map.add okArm.ValueBinding.Id okExtracted.Id environment.PatternValues }
-                        let errEnvironment =
-                            { environment with
-                                PatternValues = Map.add errArm.ErrorBinding.Id errExtracted.Id environment.PatternValues }
-
+                        let okEnvironment: LoweringEnvironment =
+                            { environment with PatternValues = Map.add okArm.ValueBinding.Id okExtracted.Id environment.PatternValues }
+                        let errEnvironment: LoweringEnvironment =
+                            { environment with PatternValues = Map.add errArm.ErrorBinding.Id errExtracted.Id environment.PatternValues }
                         match lowerGraph okBlock okEnvironment okArm.Body, lowerGraph errBlock errEnvironment errArm.Body with
                         | Ok(okEnd, okValueId), Ok(errEnd, errValueId) ->
                             jumpToMerge okEnd mergeValue okValueId mergeBlock
@@ -381,13 +408,8 @@ module ExecutionIr =
                     match readyNodes () with
                     | [] ->
                         failure <-
-                            Some(
-                                ExecutionIrError.UnresolvedDependencies(
-                                    functionEntity.Id,
-                                    pending |> Map.toList |> List.map fst
-                                )
-                            )
-                    | node :: _ ->
+                            Some(ExecutionIrError.UnresolvedDependencies(functionEntity.Id, pending |> Map.toList |> List.map fst))
+                    | (node: TypedSemanticNode) :: _ ->
                         pending <- Map.remove node.OriginNodeId pending
                         match node.Kind with
                         | TypedSemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
@@ -413,8 +435,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.OptionNone
                         | TypedSemanticNodeKind.OptionSome _
                         | TypedSemanticNodeKind.ResultOk _
-                        | TypedSemanticNodeKind.ResultErr _ ->
-                            lowerSimpleNode node
+                        | TypedSemanticNodeKind.ResultErr _ -> lowerSimpleNode node
 
                 match failure with
                 | Some error -> Error error
@@ -423,7 +444,7 @@ module ExecutionIr =
                     |> Result.map (fun resultValueId -> currentBlock, resultValueId)
 
             let entry = addBlock (ExecutionIrIds.entryBlock functionEntity.Id) []
-            let initialEnvironment =
+            let initialEnvironment: LoweringEnvironment =
                 { NodeValues = Map.empty
                   PatternValues = Map.empty }
 
@@ -432,17 +453,21 @@ module ExecutionIr =
             | Ok(endBlock, resultValueId) ->
                 setTerminator endBlock (ExecutionTerminator.Return resultValueId)
 
-                let finalizeBlock (block: MutableBlock) =
+                let finalizeBlock (block: MutableBlock): Result<ExecutionBlock, ExecutionIrError> =
                     match block.Terminator with
                     | None -> Error(ExecutionIrError.UnterminatedBlock(functionEntity.Id, block.Id))
                     | Some terminator ->
-                        Ok
+                        let finalized: ExecutionBlock =
                             { Id = block.Id
                               Parameters = block.Parameters
                               Instructions = List.ofSeq block.Instructions
                               Terminator = terminator }
+                        Ok finalized
 
-                let rec finalize acc remaining =
+                let rec finalize
+                    (acc: ExecutionBlock list)
+                    (remaining: MutableBlock list)
+                    : Result<ExecutionBlock list, ExecutionIrError> =
                     match remaining with
                     | [] -> Ok(List.rev acc)
                     | block :: rest ->
@@ -450,10 +475,10 @@ module ExecutionIr =
                         | Error error -> Error error
                         | Ok value -> finalize (value :: acc) rest
 
-                let orderedBlocks =
+                let orderedBlocks: MutableBlock list =
                     blocks.Values
                     |> Seq.toList
-                    |> List.sortBy (fun block -> ExecutionBlockId.value block.Id)
+                    |> List.sortBy (fun (block: MutableBlock) -> ExecutionBlockId.value block.Id)
 
                 finalize [] orderedBlocks
                 |> Result.map (fun finalizedBlocks ->
@@ -465,12 +490,15 @@ module ExecutionIr =
                       Blocks = finalizedBlocks })
 
     let lower (program: TypedSemanticProgram): Result<ExecutionProgram, ExecutionIrError> =
-        let functionsById =
+        let functionsById: Map<FunctionId, TypedSemanticFunction> =
             program.Functions
-            |> List.map (fun functionEntity -> functionEntity.Id, functionEntity)
+            |> List.map (fun (functionEntity: TypedSemanticFunction) -> functionEntity.Id, functionEntity)
             |> Map.ofList
 
-        let rec lowerFunctions acc remaining =
+        let rec lowerFunctions
+            (acc: ExecutionFunction list)
+            (remaining: TypedSemanticFunction list)
+            : Result<ExecutionFunction list, ExecutionIrError> =
             match remaining with
             | [] -> Ok(List.rev acc)
             | functionEntity :: rest ->
@@ -479,17 +507,17 @@ module ExecutionIr =
                 | Ok lowered -> lowerFunctions (lowered :: acc) rest
 
         program.Functions
-        |> List.sortBy (fun functionEntity -> StableId.value functionEntity.Id)
+        |> List.sortBy (fun (functionEntity: TypedSemanticFunction) -> StableId.value functionEntity.Id)
         |> lowerFunctions []
         |> Result.map (fun functions ->
             { SourceSnapshotId = program.SourceSnapshotId
               Types =
                 program.Types
-                |> List.sortBy (fun typeEntity -> StableId.value typeEntity.Id)
+                |> List.sortBy (fun (typeEntity: TypedSemanticType) -> StableId.value typeEntity.Id)
                 |> List.map ExecutionIrDeclarations.projectType
               Effects = program.Effects |> List.sortBy StableId.value
               Capabilities =
                 program.Capabilities
-                |> List.sortBy (fun capability -> StableId.value capability.Id)
+                |> List.sortBy (fun (capability: TypedSemanticCapability) -> StableId.value capability.Id)
                 |> List.map ExecutionIrDeclarations.projectCapability
               Functions = functions })
