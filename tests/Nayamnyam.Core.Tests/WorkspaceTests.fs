@@ -74,7 +74,7 @@ module WorkspaceTests =
             | WorkspaceSimulationResult.Preview value -> value
             | WorkspaceSimulationResult.Rejected diagnostics -> failwithf "Unexpected preview rejection: %A" diagnostics
 
-        match SemanticWorkspace.commit workspace request CommitPolicy.RejectBlockingObligations with
+        match SemanticWorkspace.commit workspace request with
         | WorkspaceCommitResult.Committed(nextWorkspace, publication) ->
             if current nextWorkspace <> preview.Simulation.ProposedSnapshot then
                 failwith "Commit did not publish the exact revalidated preview snapshot."
@@ -102,12 +102,12 @@ module WorkspaceTests =
         let firstRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-first" "snapshot-workspace-first" "validate_profile"
 
         let advanced =
-            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RejectBlockingObligations with
+            match SemanticWorkspace.commit workspace firstRequest with
             | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
             | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Unexpected first commit rejection: %A" diagnostics
 
         let staleRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-stale" "snapshot-workspace-stale" "validate_again"
-        match SemanticWorkspace.commit advanced staleRequest CommitPolicy.RejectBlockingObligations with
+        match SemanticWorkspace.commit advanced staleRequest with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "StaleBaseSnapshot" -> ()
         | result -> failwithf "Expected stale-base rejection, got %A" result
 
@@ -126,13 +126,13 @@ module WorkspaceTests =
         | WorkspaceSimulationResult.Preview preview when preview.Readiness = TransactionReadiness.Incomplete [ obligationId ] -> ()
         | result -> failwithf "Unexpected incomplete preview result: %A" result
 
-        match SemanticWorkspace.commit workspace request CommitPolicy.RejectBlockingObligations with
+        match SemanticWorkspace.commit workspace request with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "BlockingObligations" -> ()
         | result -> failwithf "Expected conservative blocking-obligation rejection, got %A" result
 
         if current workspace <> fixture.Snapshot then failwith "Rejected incomplete commit changed the original workspace."
 
-        match SemanticWorkspace.commit workspace request CommitPolicy.AllowBlockingObligations with
+        match SemanticWorkspace.commitWithPolicy workspace request CommitPolicy.AllowBlockingObligations with
         | WorkspaceCommitResult.Committed(nextWorkspace, publication) ->
             if publication.Readiness <> TransactionReadiness.Incomplete [ obligationId ] then
                 failwithf "Unexpected published incomplete readiness: %A" publication.Readiness
@@ -149,7 +149,7 @@ module WorkspaceTests =
         let incompleteRequest = incompleteParameterRequest fixture fixture.Snapshot.Id "transaction-workspace-resolve-add" "snapshot-workspace-resolve-incomplete" parameterId obligationId
 
         let incompleteWorkspace =
-            match SemanticWorkspace.commit workspace incompleteRequest CommitPolicy.AllowBlockingObligations with
+            match SemanticWorkspace.commitWithPolicy workspace incompleteRequest CommitPolicy.AllowBlockingObligations with
             | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
             | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Unexpected incomplete commit rejection: %A" diagnostics
 
@@ -162,7 +162,7 @@ module WorkspaceTests =
                     { TargetObligationId = obligationId
                       ResolutionValueNodeId = fixture.MainPolicyNodeId } ] }
 
-        match SemanticWorkspace.commit incompleteWorkspace resolveRequest CommitPolicy.RejectBlockingObligations with
+        match SemanticWorkspace.commit incompleteWorkspace resolveRequest with
         | WorkspaceCommitResult.Committed(resolvedWorkspace, publication) ->
             if publication.Readiness <> TransactionReadiness.SemanticallyReady then
                 failwithf "Resolved publication is not semantically ready: %A" publication.Readiness
@@ -178,7 +178,7 @@ module WorkspaceTests =
         let firstRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-history-first" "snapshot-workspace-history-first" "validate_profile"
 
         let advanced =
-            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RejectBlockingObligations with
+            match SemanticWorkspace.commit workspace firstRequest with
             | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
             | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Unexpected first commit rejection: %A" diagnostics
 
@@ -192,6 +192,6 @@ module WorkspaceTests =
                     "report_again"
                   ) ] }
 
-        match SemanticWorkspace.commit advanced reuseRequest CommitPolicy.RejectBlockingObligations with
+        match SemanticWorkspace.commit advanced reuseRequest with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "SnapshotAlreadyPublished" -> ()
         | result -> failwithf "Expected published-snapshot ID reuse rejection, got %A" result
