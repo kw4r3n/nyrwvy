@@ -1,0 +1,310 @@
+namespace Nayamnyam.Core
+
+[<RequireQualifiedAccess>]
+type ViewerTarget =
+    | Node of GraphNodeId
+    | Function of FunctionId
+    | Parameter of ParameterId
+    | PatternBinding of PatternBindingId
+    | CapabilityOperation of CapabilityOperationId
+    | Type of TypeId
+    | Field of FieldId
+    | Variant of VariantId
+
+[<RequireQualifiedAccess>]
+type ViewerRelationKind =
+    | DependsOn
+    | CallsFunction
+    | ReadsParameter
+    | ReadsPatternBinding
+    | InvokesCapabilityOperation
+    | ConstructsType
+    | AccessesField
+    | ConstructsVariant
+    | BranchCondition
+    | MatchInput
+
+type ViewerRelation =
+    { Kind: ViewerRelationKind
+      Target: ViewerTarget }
+
+[<RequireQualifiedAccess>]
+type ViewerNodeRole =
+    | ParameterReference
+    | PatternReference
+    | StringLiteral of string
+    | BoolLiteral of bool
+    | UnitLiteral
+    | StringIsEmpty
+    | StringContains
+    | DirectCall
+    | CapabilityInvoke
+    | ProductConstruct
+    | FieldAccess
+    | UnionConstruct
+    | OptionNone
+    | OptionSome
+    | ResultOk
+    | ResultErr
+    | Conditional
+    | MatchUnion
+    | MatchOption
+    | MatchResult
+
+[<RequireQualifiedAccess>]
+type ViewerBranchRole =
+    | WhenTrue
+    | WhenFalse
+    | UnionVariant of VariantId
+    | OptionSome
+    | OptionNone
+    | ResultOk
+    | ResultErr
+
+type ViewerPatternBinding =
+    { Id: PatternBindingId
+      DisplayName: string option
+      Type: TypeRef
+      SourceFieldId: FieldId option }
+
+type ViewerBranch =
+    { Role: ViewerBranchRole
+      Bindings: ViewerPatternBinding list
+      Graph: ViewerGraph }
+
+and ViewerNode =
+    { Id: GraphNodeId
+      Type: TypeRef option
+      Role: ViewerNodeRole
+      Relations: ViewerRelation list
+      Branches: ViewerBranch list }
+
+and ViewerGraph =
+    { Nodes: ViewerNode list
+      ResultNodeId: GraphNodeId }
+
+type ViewerFunctionSignature =
+    { FunctionId: FunctionId
+      DisplayName: string
+      Parameters: SemanticParameter list
+      ResultType: TypeRef
+      RequiredEffects: EffectId list }
+
+type ViewerFocusModel =
+    { SnapshotId: SnapshotId
+      Function: ViewerFunctionSignature
+      Graph: ViewerGraph
+      Callers: QueryCallSite list
+      Callees: QueryCallSite list
+      RelatedFunctionSignatures: QueryFunctionSignature list
+      OpenObligations: QueryOpenObligation list
+      ReferencedTypes: SemanticType list
+      ReferencedCapabilities: SemanticCapability list
+      ReferencedEffects: SemanticEffect list
+      MissingFunctionIds: FunctionId list
+      MissingTypeIds: TypeId list
+      MissingCapabilityIds: CapabilityId list
+      MissingEffectIds: EffectId list }
+
+type ViewerChangeReviewModel =
+    { TransactionId: TransactionId
+      BaseSnapshotId: SnapshotId
+      ProposedSnapshotId: SnapshotId
+      Diff: SemanticDiff
+      Readiness: ChangeReviewReadiness
+      AffectedFunctionIds: FunctionId list
+      AffectedTypeIds: TypeId list
+      FunctionFocus: ViewerFocusModel list }
+
+[<RequireQualifiedAccess>]
+module ViewerProjection =
+    let private targetKey target =
+        match target with
+        | ViewerTarget.Node id -> "node:" + StableId.value id
+        | ViewerTarget.Function id -> "function:" + StableId.value id
+        | ViewerTarget.Parameter id -> "parameter:" + StableId.value id
+        | ViewerTarget.PatternBinding id -> "pattern:" + StableId.value id
+        | ViewerTarget.CapabilityOperation id -> "capability-operation:" + StableId.value id
+        | ViewerTarget.Type id -> "type:" + StableId.value id
+        | ViewerTarget.Field id -> "field:" + StableId.value id
+        | ViewerTarget.Variant id -> "variant:" + StableId.value id
+
+    let private relationKey relation = string relation.Kind + ":" + targetKey relation.Target
+
+    let private roleAndSemanticRelations (node: SemanticNode): ViewerNodeRole * ViewerRelation list =
+        match node.Kind with
+        | SemanticNodeKind.ParameterReference parameterId ->
+            ViewerNodeRole.ParameterReference,
+            [ { Kind = ViewerRelationKind.ReadsParameter
+                Target = ViewerTarget.Parameter parameterId } ]
+        | SemanticNodeKind.PatternReference bindingId ->
+            ViewerNodeRole.PatternReference,
+            [ { Kind = ViewerRelationKind.ReadsPatternBinding
+                Target = ViewerTarget.PatternBinding bindingId } ]
+        | SemanticNodeKind.StringLiteral value -> ViewerNodeRole.StringLiteral value, []
+        | SemanticNodeKind.BoolLiteral value -> ViewerNodeRole.BoolLiteral value, []
+        | SemanticNodeKind.UnitLiteral -> ViewerNodeRole.UnitLiteral, []
+        | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
+        | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
+        | SemanticNodeKind.DirectCall(functionId, _) ->
+            ViewerNodeRole.DirectCall,
+            [ { Kind = ViewerRelationKind.CallsFunction
+                Target = ViewerTarget.Function functionId } ]
+        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
+            ViewerNodeRole.CapabilityInvoke,
+            [ { Kind = ViewerRelationKind.InvokesCapabilityOperation
+                Target = ViewerTarget.CapabilityOperation operationId } ]
+        | SemanticNodeKind.ProductConstruct(typeId, _) ->
+            ViewerNodeRole.ProductConstruct,
+            [ { Kind = ViewerRelationKind.ConstructsType
+                Target = ViewerTarget.Type typeId } ]
+        | SemanticNodeKind.FieldAccess(_, fieldId) ->
+            ViewerNodeRole.FieldAccess,
+            [ { Kind = ViewerRelationKind.AccessesField
+                Target = ViewerTarget.Field fieldId } ]
+        | SemanticNodeKind.UnionConstruct(variantId, _) ->
+            ViewerNodeRole.UnionConstruct,
+            [ { Kind = ViewerRelationKind.ConstructsVariant
+                Target = ViewerTarget.Variant variantId } ]
+        | SemanticNodeKind.OptionNone _ -> ViewerNodeRole.OptionNone, []
+        | SemanticNodeKind.OptionSome _ -> ViewerNodeRole.OptionSome, []
+        | SemanticNodeKind.ResultOk _ -> ViewerNodeRole.ResultOk, []
+        | SemanticNodeKind.ResultErr _ -> ViewerNodeRole.ResultErr, []
+        | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
+            ViewerNodeRole.Conditional,
+            [ { Kind = ViewerRelationKind.BranchCondition
+                Target = ViewerTarget.Node conditionNodeId } ]
+        | SemanticNodeKind.MatchUnion(inputNodeId, _) ->
+            ViewerNodeRole.MatchUnion,
+            [ { Kind = ViewerRelationKind.MatchInput
+                Target = ViewerTarget.Node inputNodeId } ]
+        | SemanticNodeKind.MatchOption(inputNodeId, _, _) ->
+            ViewerNodeRole.MatchOption,
+            [ { Kind = ViewerRelationKind.MatchInput
+                Target = ViewerTarget.Node inputNodeId } ]
+        | SemanticNodeKind.MatchResult(inputNodeId, _, _) ->
+            ViewerNodeRole.MatchResult,
+            [ { Kind = ViewerRelationKind.MatchInput
+                Target = ViewerTarget.Node inputNodeId } ]
+
+    let private patternBinding sourceFieldId (binding: PatternBinding): ViewerPatternBinding =
+        { Id = binding.Id
+          DisplayName = binding.DisplayName
+          Type = binding.Type
+          SourceFieldId = sourceFieldId }
+
+    let rec private projectGraph
+        (nodeTypes: Map<GraphNodeId, TypeRef option>)
+        (graph: ValueGraph)
+        : ViewerGraph =
+        let projectBranch role bindings body =
+            { Role = role
+              Bindings = bindings
+              Graph = projectGraph nodeTypes body }
+
+        let projectNode (node: SemanticNode): ViewerNode =
+            let role, semanticRelations = roleAndSemanticRelations node
+            let dependencyRelations =
+                SemanticFacts.directValueDependencies node
+                |> List.distinct
+                |> List.sortBy StableId.value
+                |> List.map (fun dependencyId ->
+                    { Kind = ViewerRelationKind.DependsOn
+                      Target = ViewerTarget.Node dependencyId })
+
+            let branches =
+                match node.Kind with
+                | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
+                    [ projectBranch ViewerBranchRole.WhenTrue [] whenTrue
+                      projectBranch ViewerBranchRole.WhenFalse [] whenFalse ]
+                | SemanticNodeKind.MatchUnion(_, arms) ->
+                    arms
+                    |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+                    |> List.map (fun arm ->
+                        let bindings =
+                            arm.FieldBindings
+                            |> List.sortBy (fun item -> StableId.value item.SourceFieldId)
+                            |> List.map (fun item -> patternBinding (Some item.SourceFieldId) item.Binding)
+                        projectBranch (ViewerBranchRole.UnionVariant arm.VariantId) bindings arm.Body)
+                | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
+                    [ projectBranch
+                        ViewerBranchRole.OptionSome
+                        [ patternBinding None someArm.ValueBinding ]
+                        someArm.Body
+                      projectBranch ViewerBranchRole.OptionNone [] noneBody ]
+                | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
+                    [ projectBranch
+                        ViewerBranchRole.ResultOk
+                        [ patternBinding None okArm.ValueBinding ]
+                        okArm.Body
+                      projectBranch
+                        ViewerBranchRole.ResultErr
+                        [ patternBinding None errArm.ErrorBinding ]
+                        errArm.Body ]
+                | SemanticNodeKind.ParameterReference _
+                | SemanticNodeKind.PatternReference _
+                | SemanticNodeKind.StringLiteral _
+                | SemanticNodeKind.BoolLiteral _
+                | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.DirectCall _
+                | SemanticNodeKind.CapabilityInvoke _
+                | SemanticNodeKind.ProductConstruct _
+                | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.UnionConstruct _
+                | SemanticNodeKind.OptionNone _
+                | SemanticNodeKind.OptionSome _
+                | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.ResultErr _ -> []
+
+            { Id = node.Id
+              Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
+              Role = role
+              Relations =
+                semanticRelations @ dependencyRelations
+                |> List.distinctBy relationKey
+                |> List.sortBy relationKey
+              Branches = branches }
+
+        { Nodes =
+            graph.Nodes
+            |> List.map projectNode
+            |> List.sortBy (fun node -> StableId.value node.Id)
+          ResultNodeId = graph.ResultNodeId }
+
+    let focus (source: FunctionFocusView): ViewerFocusModel =
+        let nodeTypes =
+            source.NodeTypes
+            |> List.map (fun item -> item.NodeId, item.Type)
+            |> Map.ofList
+
+        { SnapshotId = source.SnapshotId
+          Function =
+            { FunctionId = source.Function.Id
+              DisplayName = source.Function.DisplayName
+              Parameters = source.Function.Parameters
+              ResultType = source.Function.ResultType
+              RequiredEffects = source.Function.RequiredEffects }
+          Graph = projectGraph nodeTypes source.Function.Body
+          Callers = source.Callers
+          Callees = source.Callees
+          RelatedFunctionSignatures = source.RelatedFunctionSignatures
+          OpenObligations = source.OpenObligations
+          ReferencedTypes = source.ReferencedTypes
+          ReferencedCapabilities = source.ReferencedCapabilities
+          ReferencedEffects = source.ReferencedEffects
+          MissingFunctionIds = source.MissingFunctionIds
+          MissingTypeIds = source.MissingTypeIds
+          MissingCapabilityIds = source.MissingCapabilityIds
+          MissingEffectIds = source.MissingEffectIds }
+
+    let changeReview (source: ChangeReviewView): ViewerChangeReviewModel =
+        { TransactionId = source.TransactionId
+          BaseSnapshotId = source.BaseSnapshotId
+          ProposedSnapshotId = source.ProposedSnapshotId
+          Diff = source.Diff
+          Readiness = source.Readiness
+          AffectedFunctionIds = source.AffectedFunctionIds
+          AffectedTypeIds = source.AffectedTypeIds
+          FunctionFocus = source.FunctionFocus |> List.map focus }
