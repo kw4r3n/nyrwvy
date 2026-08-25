@@ -137,8 +137,17 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         let fixture = MilestoneZeroGraph.create ()
         let initialJson = SnapshotCodec.serialize fixture.Snapshot |> unwrap "initial snapshot serialization"
         let reloaded = SnapshotCodec.deserialize initialJson |> unwrap "initial snapshot reload"
-        if reloaded <> fixture.Snapshot then
-            failwith "Snapshot persistence lost semantic identity or structure."
+        let reserialized = SnapshotCodec.serialize reloaded |> unwrap "initial snapshot reserialization"
+        if reserialized <> initialJson then
+            failwith "Snapshot persistence changed canonical semantic content."
+        if reloaded.Id <> fixture.Snapshot.Id then
+            failwith "Snapshot persistence changed snapshot stable identity."
+        if
+            reloaded.Functions
+            |> List.exists (fun functionEntity -> functionEntity.Id = fixture.ValidateFunctionId)
+            |> not
+        then
+            failwith "Snapshot persistence lost validate_user stable function identity."
 
         match SnapshotReadiness.evaluate reloaded with
         | Ok SemanticReadiness.Complete -> ()
