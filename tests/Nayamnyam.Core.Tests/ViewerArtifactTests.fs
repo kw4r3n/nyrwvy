@@ -42,6 +42,13 @@ module ViewerArtifactTests =
         childProcess.WaitForExit()
         childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
 
+    let private cliArguments tail =
+        [ "run"
+          "--no-build"
+          "--configuration"; "Release"
+          "--project"; "tools/Nayamnyam.ViewerExport/Nayamnyam.ViewerExport.fsproj"
+          "--" ] @ tail
+
     [<Fact>]
     let ``JSON and Nyason sources export the identical focus artifact`` () =
         let fixture = MilestoneZeroGraph.create ()
@@ -132,16 +139,12 @@ module ViewerArtifactTests =
             let exitCode, stdout, stderr =
                 runDotnet
                     root
-                    [ "run"
-                      "--no-build"
-                      "--configuration"; "Release"
-                      "--project"; "tools/Nayamnyam.ViewerExport/Nayamnyam.ViewerExport.fsproj"
-                      "--"
-                      "focus"
-                      "--input"; snapshotPath
-                      "--format"; "json"
-                      "--function-id"; StableId.value fixture.MainFunctionId
-                      "--output"; outputPath ]
+                    (cliArguments
+                        [ "focus"
+                          "--input"; snapshotPath
+                          "--format"; "json"
+                          "--function-id"; StableId.value fixture.MainFunctionId
+                          "--output"; outputPath ])
 
             if exitCode <> 0 then
                 failwithf "Viewer export CLI failed.\nstdout:\n%s\nstderr:\n%s" stdout stderr
@@ -158,3 +161,21 @@ module ViewerArtifactTests =
         finally
             if Directory.Exists tempRoot then
                 Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``viewer export CLI rejects display-name lookup and unknown options`` () =
+        let root = repoRoot ()
+        let exitCode, stdout, stderr =
+            runDotnet
+                root
+                (cliArguments
+                    [ "focus"
+                      "--input"; "unused.json"
+                      "--format"; "json"
+                      "--function-id"; "function-main"
+                      "--display-name"; "main" ])
+
+        if exitCode = 0 then
+            failwithf "CLI unexpectedly accepted display-name lookup. stdout=%s" stdout
+        if not (stderr.Contains("Unsupported option '--display-name'", StringComparison.Ordinal)) then
+            failwithf "CLI did not report the unknown option explicitly. stderr=%s" stderr
