@@ -19,14 +19,15 @@ flowchart TD
     A[Human intent or AI task] --> B[Query and operation API]
     B --> C[Validated semantic transaction]
     C --> D[Persistent typed semantic graph]
-    D --> E[Graph-first human viewer]
-    D --> F[Semantic validation and obligations]
-    D --> G[Typed Semantic IR]
-    G --> H[Backend-neutral Execution IR]
-    H --> I[C# / .NET backend]
+    D --> E[Focus / Change Review projections]
+    E --> F[Read-only human viewer]
+    D --> G[Semantic validation and obligations]
+    D --> H[Typed Semantic IR]
+    H --> I[Backend-neutral Execution IR]
+    I --> J[C# / .NET backend]
 ```
 
-The semantic graph is the source of truth. Textual code, generated C#, diagnostic reports, serialized encodings, and visual diagrams are projections rather than competing program representations.
+The semantic graph is the source of truth. Textual code, generated C#, diagnostic reports, serialized encodings, query payloads, and visual diagrams are projections rather than competing program representations.
 
 ## Established direction
 
@@ -46,7 +47,7 @@ The following direction is accepted unless implementation evidence requires revi
 
 ## Rebuild status
 
-The clean rebuild has established the semantic foundation, representative Milestone 0 program, Typed Semantic IR, and a compile-backed Execution IR lowering candidate:
+The clean rebuild has established the semantic foundation, representative Milestone 0 program, both IR stages, the first executable backend, and read-only semantic query projections:
 
 - **Foundation:** F# solution, domain-typed stable IDs, immutable snapshot model, and CI.
 - **Phase B:** strict reference snapshot codec, snapshot validation, rename simulation, and semantic rename diff.
@@ -56,11 +57,13 @@ The clean rebuild has established the semantic foundation, representative Milest
 - **Phase F:** a representative `validate_user` / `report_validation` / `main` semantic graph using the complete Milestone 0 subset. No new semantic node kind was required.
 - **Phase G / Nyason v0:** a strict Nayamnyam-specific encoding prototype with typed ID domains, closed tagged records, exact schema identity, canonical round-trip, and shape-constrained Option/Result forms.
 - **Phase H / Typed Semantic IR:** one backend-neutral typed projection from validated, obligation-free snapshots; shared semantic type facts; stable provenance; normalized value nodes; explicit effect/capability contracts; canonical IR schema version 1.
-- **Phase I / Execution IR candidate:** deterministic execution-local value/block identities, explicit instruction order, explicit branch/match/return terminators, merge block parameters, explicit pattern extraction, and rejection of unordered independent effects. The lowering and six focused tests are compiler-verified; final canonical-codec verification is pending a healthy Actions runner.
+- **Phase I / Execution IR:** deterministic execution-local value/block identities, explicit instruction order, explicit branch/match/return terminators, merge block parameters, explicit pattern extraction, rejection of unordered independent effects, and canonical serialization.
+- **Phase J / C# backend:** deterministic C# generation from `ExecutionProgram` only, stable-ID-derived backend names, explicit capability-operation bindings, generated Console adapter, and compile/run proof of representative M0 behavior.
+- **Phase K / semantic query projections:** focused function queries, caller/callee/dependency/use relationships, explicit unresolved declarations, open-obligation visibility, declaration closure, and Change Review projections derived from existing `SemanticDiff`.
 
 The direct-call model deliberately has no parallel `Calls` collection: persistence, validation, semantic operations, queries, and lowering derive calls from the same graph nodes. External capability invocation is a separate semantic node kind rather than a special internal call.
 
-Type derivation is centralized: validator and Typed Semantic IR projection consume the same `SemanticFacts` node-type resolver rather than independently re-inferring meaning.
+Type derivation is centralized: validator and Typed Semantic IR projection consume the same `SemanticFacts` node-type resolver rather than independently re-inferring meaning. Direct value dependency facts are likewise centralized for query consumers.
 
 The AI-first design rule is explicit: local semantic clarity and mechanically detectable structure outrank concise source representation. See [AI-first semantic design principles](docs/ai-first-design-principles-20260825.md).
 
@@ -74,9 +77,9 @@ See [Verified Nyason v0 experiment](docs/rebuild-phase-g-nyason-20260825.md).
 
 ## Next architecture gate
 
-After final Phase I serializer verification, the next architecture task is the **C#/.NET backend binding and emitter**.
+The next architecture task is the **read-only Focus / Change Review viewer**.
 
-The hard boundary is that the backend consumes `ExecutionProgram` only. It must not read graph persistence, Nyason, `Snapshot`, or Typed Semantic IR directly, and it must not repeat semantic type inference or name resolution.
+The viewer should consume the Phase K query projections rather than re-derive semantic relationships from the raw graph. It must remain a projection client and must not own semantic state, parse generated C#, or introduce a parallel authoritative graph.
 
 ## Initial milestone
 
@@ -101,7 +104,9 @@ See [Milestone 0](docs/milestone-0.md) for the complete acceptance criteria.
 - [Phase F representative semantic program](docs/rebuild-phase-f-20260825.md)
 - [Verified Nyason v0 experiment](docs/rebuild-phase-g-nyason-20260825.md)
 - [Verified Typed Semantic IR](docs/rebuild-phase-h-typed-semantic-ir-20260825.md)
-- [Phase I Execution IR](docs/rebuild-phase-i-execution-ir-20260825.md)
+- [Verified Execution IR](docs/rebuild-phase-i-execution-ir-20260825.md)
+- [Verified C#/.NET backend](docs/rebuild-phase-j-csharp-backend-20260825.md)
+- [Verified semantic query projections](docs/rebuild-phase-k-query-projections-20260825.md)
 
 ## Documentation
 
@@ -123,7 +128,9 @@ dotnet build Nayamnyam.slnx --configuration Release --no-restore
 dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
 ```
 
-The latest healthy compile-backed Phase I lowering run used .NET SDK `10.0.400`: Release build completed with zero warnings and zero errors, and all **56 tests passed** with zero skips. The final Execution IR codec adds three more invariants and is awaiting a healthy GitHub Actions runner after two runner-allocation failures with no job steps.
+The latest clean local verification used .NET SDK `10.0.111`: Release build completed with zero warnings and zero errors, and all **73 tests passed** with zero skips. Focused verification also executed and passed all 6 Execution IR tests, 3 Execution IR codec tests, 4 C# backend tests, 7 semantic query tests, and 3 Change Review query tests.
+
+GitHub Actions capacity was exhausted during the later rebuild phases, so timestamped clean local logs and TRX bundles are accepted as compiler/test evidence when the hosted runner cannot execute.
 
 ## Relationship to RAST
 
