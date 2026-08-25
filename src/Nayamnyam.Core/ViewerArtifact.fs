@@ -45,18 +45,18 @@ module ViewerArtifact =
         + ".html"
 
     let ofFocus (focus: FunctionFocusView): ViewerArtifact =
-        let model = ViewerModel.fromFocus focus
+        let model = ViewerProjection.focus focus
         { Kind = ViewerArtifactKind.FunctionFocus
           MediaType = "text/html; charset=utf-8"
           SuggestedFileName = focusFileName focus.Function.Id
-          Content = ViewerHtml.renderFocus model }
+          Content = ViewerHtml.renderFocusDocument model }
 
     let ofChangeReview (review: ChangeReviewView): ViewerArtifact =
-        let model = ViewerModel.fromChangeReview review
+        let model = ViewerProjection.changeReview review
         { Kind = ViewerArtifactKind.ChangeReview
           MediaType = "text/html; charset=utf-8"
           SuggestedFileName = reviewFileName review.TransactionId
-          Content = ViewerHtml.renderChangeReview model }
+          Content = ViewerHtml.renderChangeReviewDocument model }
 
 [<RequireQualifiedAccess>]
 module ViewerExport =
