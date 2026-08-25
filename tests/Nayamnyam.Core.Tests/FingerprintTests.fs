@@ -45,7 +45,7 @@ module FingerprintTests =
             failwith "Semantic fingerprint changed when only snapshot revision identity changed."
 
     [<Fact>]
-    let ``semantic fingerprint changes when semantic display metadata changes`` () =
+    let ``semantic fingerprint ignores display metadata while snapshot fingerprint preserves it`` () =
         let fixture = MilestoneZeroGraph.create ()
         let renamedFunctions =
             fixture.Snapshot.Functions
@@ -56,8 +56,29 @@ module FingerprintTests =
                     functionEntity)
         let renamed = { fixture.Snapshot with Functions = renamedFunctions }
 
-        if semanticFingerprint fixture.Snapshot = semanticFingerprint renamed then
-            failwith "Semantic fingerprint ignored a semantic display-name change."
+        if semanticFingerprint fixture.Snapshot <> semanticFingerprint renamed then
+            failwith "Semantic fingerprint changed for presentation-only display metadata."
+        if snapshotFingerprint fixture.Snapshot = snapshotFingerprint renamed then
+            failwith "Snapshot fingerprint failed to preserve exact display metadata."
+
+    [<Fact>]
+    let ``semantic fingerprint changes when semantic structure changes`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let addedField: SemanticField =
+            { Id = StableId.createForTesting<FieldTag> "field-fingerprint-policy-mode"
+              DisplayName = "mode"
+              Type = TypeRef.Primitive PrimitiveType.String }
+        let changedTypes =
+            fixture.Snapshot.Types
+            |> List.map (fun semanticType ->
+                if semanticType.Id = fixture.PolicyTypeId then
+                    { semanticType with Kind = SemanticTypeKind.Product [ addedField ] }
+                else
+                    semanticType)
+        let changed = { fixture.Snapshot with Types = changedTypes }
+
+        if semanticFingerprint fixture.Snapshot = semanticFingerprint changed then
+            failwith "Semantic fingerprint ignored a structural type change."
 
     [<Fact>]
     let ``fingerprints use explicit versioned SHA-256 text`` () =
