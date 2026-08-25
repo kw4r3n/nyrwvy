@@ -18,6 +18,7 @@
     <Compile Include="ExecutionIrAnalysis.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />
+    <Compile Include="ExecutionIrCodec.fs" />
     <Compile Include="Transactions.fs" />
   </ItemGroup>
 </Project>
