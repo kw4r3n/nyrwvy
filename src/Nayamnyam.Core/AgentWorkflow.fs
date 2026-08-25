@@ -26,7 +26,7 @@ type AgentOperationIntent =
     | AddFunctionParameter of AgentAddFunctionParameterIntent
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
 
-type AgentWorkspace = private AgentWorkspace of WorkspaceState
+type AgentWorkspace = private { Workspace: WorkspaceState }
 
 type AgentChangeReview =
     { RequestedOperations: AgentOperationIntent list
@@ -55,22 +55,24 @@ module AgentChangeProposal =
 [<RequireQualifiedAccess>]
 module AgentWorkspace =
     let create (initialSnapshot: Snapshot): Result<AgentWorkspace, ValidationIssue list> =
-        SemanticWorkspace.create initialSnapshot |> Result.map AgentWorkspace
+        SemanticWorkspace.create initialSnapshot
+        |> Result.map (fun workspace -> { Workspace = workspace })
 
-    let currentSnapshotId (AgentWorkspace workspace): SnapshotId =
-        SemanticWorkspace.currentSnapshot workspace |> fun snapshot -> snapshot.Id
+    let currentSnapshotId (workspace: AgentWorkspace): SnapshotId =
+        SemanticWorkspace.currentSnapshot workspace.Workspace |> fun snapshot -> snapshot.Id
 
     let currentSnapshotFingerprint
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         : Result<SnapshotFingerprint, SnapshotCodecError> =
-        SemanticWorkspace.currentSnapshot workspace |> SnapshotFingerprint.compute
+        SemanticWorkspace.currentSnapshot workspace.Workspace |> SnapshotFingerprint.compute
 
     let currentSemanticFingerprint
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         : Result<SemanticFingerprint, SnapshotCodecError> =
-        SemanticWorkspace.currentSnapshot workspace |> SemanticFingerprint.compute
+        SemanticWorkspace.currentSnapshot workspace.Workspace |> SemanticFingerprint.compute
 
-    let private snapshot (AgentWorkspace workspace): Snapshot = SemanticWorkspace.currentSnapshot workspace
+    let private snapshot (workspace: AgentWorkspace): Snapshot =
+        SemanticWorkspace.currentSnapshot workspace.Workspace
 
     let getFunction workspace functionId = SemanticQuery.getFunction (snapshot workspace) functionId
     let getType workspace typeId = SemanticQuery.getType (snapshot workspace) typeId
@@ -109,16 +111,17 @@ module AgentWorkflow =
                   ResolutionValueNodeId = request.ResolutionValueNodeId }
 
     let simulate
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         (requestedOperations: AgentOperationIntent list)
         : Result<AgentChangeProposal, AgentWorkflowError> =
+        let semanticWorkspace = workspace.Workspace
         let request: TransactionRequest =
             { Id = StableIdAllocator.newTransactionId ()
-              BaseSnapshotId = SemanticWorkspace.currentSnapshot workspace |> fun snapshot -> snapshot.Id
+              BaseSnapshotId = SemanticWorkspace.currentSnapshot semanticWorkspace |> fun snapshot -> snapshot.Id
               ProposedSnapshotId = StableIdAllocator.newSnapshotId ()
               Operations = requestedOperations |> List.map materializeOperation }
 
-        match SemanticWorkspace.simulate workspace request with
+        match SemanticWorkspace.simulate semanticWorkspace request with
         | WorkspaceSimulationResult.Rejected diagnostics ->
             Error(AgentWorkflowError.SimulationRejected diagnostics)
         | WorkspaceSimulationResult.Preview preview ->
@@ -140,33 +143,33 @@ module AgentWorkflow =
         match result with
         | WorkspaceCommitResult.Rejected diagnostics -> AgentCommitResult.Rejected diagnostics
         | WorkspaceCommitResult.Committed(workspace, publication) ->
-            AgentCommitResult.Committed(AgentWorkspace workspace, publication)
+            AgentCommitResult.Committed({ Workspace = workspace }, publication)
 
     let commit
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         (proposal: AgentChangeProposal)
         : AgentCommitResult =
         SemanticWorkspace.commitReviewed
-            workspace
+            workspace.Workspace
             proposal.Request
             proposal.Preview.Receipt
         |> mapCommitResult
 
     let commitWithPolicy
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         (proposal: AgentChangeProposal)
         (policy: CommitPolicy)
         : AgentCommitResult =
         SemanticWorkspace.commitReviewedWithPolicy
-            workspace
+            workspace.Workspace
             proposal.Request
             proposal.Preview.Receipt
             policy
         |> mapCommitResult
 
     let reject
-        (AgentWorkspace workspace)
+        (workspace: AgentWorkspace)
         (proposal: AgentChangeProposal)
         : AgentWorkspace * TransactionRejectionReceipt =
-        let retained, receipt = SemanticWorkspace.reject workspace proposal.Request
-        AgentWorkspace retained, receipt
+        let retained, receipt = SemanticWorkspace.reject workspace.Workspace proposal.Request
+        { Workspace = retained }, receipt
