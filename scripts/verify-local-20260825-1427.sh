@@ -27,7 +27,7 @@ The script requires a .NET 10 SDK and runs:
   4. ExecutionIrTests explicitly (at least 6 passing tests)
   5. ExecutionIrCodecTests explicitly (at least 3 passing tests)
   6. CSharpBackendTests explicitly (at least 4 passing tests, including generated C# build/run)
-  7. SemanticQueryTests explicitly (at least 5 passing tests)
+  7. SemanticQueryTests explicitly (at least 7 passing tests)
   8. ChangeReviewQueryTests explicitly (at least 3 passing tests)
   9. the JSON/Nyason comparison report produced by the test suite
 
@@ -176,7 +176,7 @@ run_required_filter \
 run_required_filter \
   "Phase K semantic query tests" \
   "FullyQualifiedName~SemanticQueryTests" \
-  5 \
+  7 \
   "phase-k-semantic-query.trx"
 
 run_required_filter \
