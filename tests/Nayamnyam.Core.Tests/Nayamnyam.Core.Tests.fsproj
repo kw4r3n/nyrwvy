@@ -21,6 +21,7 @@
     <Compile Include="ExecutionIrTests.fs" />
     <Compile Include="ExecutionIrCodecTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
+    <Compile Include="SemanticQueryTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
