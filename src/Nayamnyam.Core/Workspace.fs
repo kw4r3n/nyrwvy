@@ -2,12 +2,12 @@ namespace Nayamnyam.Core
 
 [<RequireQualifiedAccess>]
 type TransactionReadiness =
-    | Executable
+    | SemanticallyReady
     | Incomplete of ObligationId list
 
 [<RequireQualifiedAccess>]
 type CommitPolicy =
-    | RequireExecutable
+    | RejectBlockingObligations
     | AllowBlockingObligations
 
 type WorkspaceState =
@@ -88,7 +88,7 @@ module SemanticWorkspace =
         : Result<TransactionReadiness, TransactionDiagnostic list> =
         match SnapshotReadiness.evaluate snapshot with
         | Error issues -> Error(validationDiagnostics issues)
-        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.Executable
+        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
         | Ok(SemanticReadiness.Incomplete obligationIds) ->
             Ok(TransactionReadiness.Incomplete obligationIds)
 
@@ -141,13 +141,13 @@ module SemanticWorkspace =
                 WorkspaceCommitResult.Rejected diagnostics
             | WorkspaceSimulationResult.Preview preview ->
                 match preview.Readiness, policy with
-                | TransactionReadiness.Executable, _ ->
+                | TransactionReadiness.SemanticallyReady, _ ->
                     let nextWorkspace, publication = publish workspace preview
                     WorkspaceCommitResult.Committed(nextWorkspace, publication)
                 | TransactionReadiness.Incomplete _, CommitPolicy.AllowBlockingObligations ->
                     let nextWorkspace, publication = publish workspace preview
                     WorkspaceCommitResult.Committed(nextWorkspace, publication)
-                | TransactionReadiness.Incomplete obligationIds, CommitPolicy.RequireExecutable ->
+                | TransactionReadiness.Incomplete obligationIds, CommitPolicy.RejectBlockingObligations ->
                     let ids =
                         obligationIds
                         |> List.map StableId.value
