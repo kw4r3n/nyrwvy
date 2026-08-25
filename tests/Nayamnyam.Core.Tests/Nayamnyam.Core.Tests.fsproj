@@ -12,10 +12,12 @@
     <Compile Include="StableIdAllocatorTests.fs" />
     <Compile Include="ValidationTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
+    <Compile Include="FingerprintTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
     <Compile Include="CapabilityTests.fs" />
     <Compile Include="TransactionTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
+    <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
