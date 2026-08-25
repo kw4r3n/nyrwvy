@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implementation complete; final canonical-codec verification pending one healthy GitHub Actions runner.**
+**Implementation complete; final canonical-codec verification may be completed locally when GitHub Actions capacity is unavailable.**
 
 The execution lowering itself has already crossed the real compiler/test boundary with .NET SDK `10.0.400`:
 
@@ -12,7 +12,19 @@ build:    success, 0 warnings, 0 errors
 tests:    56 passed, 0 failed, 0 skipped
 ```
 
-That run includes six Execution IR tests. A later commit added the canonical Execution IR serializer and three serializer invariants. Its first two Actions attempts failed before runner assignment (`runner_id = 0`, no steps), so that infrastructure failure is not treated as code verification. This record must be updated with the final test count after a healthy runner executes the codec tree.
+That run includes six Execution IR tests. A later commit added the canonical Execution IR serializer and three serializer invariants. GitHub Actions subsequently began failing before runner assignment (`runner_id = 0`, no steps), so those infrastructure failures are not treated as code failures.
+
+A repository-local fallback is now provided:
+
+```text
+scripts/verify-local-20260825-1427.sh
+```
+
+Run it with Bash from the repository root. `--clean` removes all `bin/` and `obj/` directories before restore. The script logs branch, HEAD, SDK version, all commands, and results to a timestamped file under `${TMPDIR:-/tmp}/nayamnyam-verification/`.
+
+The local verification is intentionally stronger than the current CI job: after the full test suite it explicitly re-runs both `ExecutionIrTests` and `ExecutionIrCodecTests` by fully-qualified-name filter. This prevents a missing F# project `<Compile Include=...>` entry from appearing as a false-green full suite.
+
+A successful local run with .NET 10.0.x is accepted as the Phase I compiler/test boundary when GitHub Actions cannot allocate a runner. Record the reported HEAD SHA and log path before merging Phase I.
 
 ## Purpose
 
@@ -233,7 +245,7 @@ Those are backend or later-language questions.
 
 ## Next gate
 
-After final codec CI verification, Phase I can be squashed into `rebuild/fsharp-m0-20260825`.
+After one successful final local or CI verification of the codec tree, Phase I can be squashed into `rebuild/fsharp-m0-20260825`.
 
 The next phase is the first C#/.NET backend slice. Its hard boundary is:
 
