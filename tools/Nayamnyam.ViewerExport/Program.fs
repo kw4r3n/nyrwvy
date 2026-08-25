@@ -16,36 +16,59 @@ let private usage =
     --function-id <stable-function-id> [--output <html-path>]
 
 The command resolves functions only by stable FunctionId. Display-name lookup is not supported.
+Unknown, duplicate, missing-value, and positional options are rejected.
 """
 
-let private parseEncoding value =
+let private parseEncoding (value: string) =
     match value with
     | "json" -> Ok ViewerSourceEncoding.Json
     | "nyason" -> Ok ViewerSourceEncoding.Nyason
     | _ -> Error $"Unsupported --format '{value}'. Expected json or nyason."
 
-let private optionValue name (arguments: string list) =
-    let rec find remaining =
+let private parseOptions
+    (allowed: Set<string>)
+    (arguments: string list)
+    : Result<Map<string, string>, string> =
+    let rec loop values remaining =
         match remaining with
-        | [] -> None
-        | key :: value :: _ when key = name -> Some value
-        | _ :: rest -> find rest
-    find arguments
+        | [] -> Ok values
+        | [ key ] when key.StartsWith("--", StringComparison.Ordinal) ->
+            Error $"Option '{key}' is missing its value."
+        | key :: _ when not (key.StartsWith("--", StringComparison.Ordinal)) ->
+            Error $"Unexpected positional argument '{key}'."
+        | key :: _ when not (Set.contains key allowed) ->
+            Error $"Unsupported option '{key}'."
+        | key :: _ when Map.containsKey key values ->
+            Error $"Duplicate option '{key}'."
+        | key :: value :: rest ->
+            if value.StartsWith("--", StringComparison.Ordinal) then
+                Error $"Option '{key}' is missing its value."
+            else
+                loop (Map.add key value values) rest
+    loop Map.empty arguments
+
+let private requiredOption name (options: Map<string, string>) =
+    match Map.tryFind name options with
+    | Some value -> Ok value
+    | None -> Error $"Missing required {name} argument."
 
 let private parseFocusArguments (arguments: string list): Result<FocusArguments, string> =
-    match optionValue "--input" arguments,
-          optionValue "--format" arguments,
-          optionValue "--function-id" arguments with
-    | None, _, _ -> Error "Missing required --input argument."
-    | _, None, _ -> Error "Missing required --format argument."
-    | _, _, None -> Error "Missing required --function-id argument."
-    | Some inputPath, Some formatText, Some functionIdText ->
-        parseEncoding formatText
-        |> Result.map (fun encoding ->
-            { InputPath = inputPath
-              Encoding = encoding
-              FunctionIdText = functionIdText
-              OutputPath = optionValue "--output" arguments })
+    let allowed = set [ "--input"; "--format"; "--function-id"; "--output" ]
+    parseOptions allowed arguments
+    |> Result.bind (fun options ->
+        match requiredOption "--input" options,
+              requiredOption "--format" options,
+              requiredOption "--function-id" options with
+        | Error error, _, _
+        | _, Error error, _
+        | _, _, Error error -> Error error
+        | Ok inputPath, Ok formatText, Ok functionIdText ->
+            parseEncoding formatText
+            |> Result.map (fun encoding ->
+                { InputPath = inputPath
+                  Encoding = encoding
+                  FunctionIdText = functionIdText
+                  OutputPath = Map.tryFind "--output" options }))
 
 let private runFocus (arguments: string list): Result<string, string> =
     parseFocusArguments arguments
