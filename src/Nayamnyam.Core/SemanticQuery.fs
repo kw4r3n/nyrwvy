@@ -15,16 +15,28 @@ type QueryOpenObligation =
       CallNodeId: GraphNodeId
       ParameterId: ParameterId }
 
+type QueryFunctionSignature =
+    { FunctionId: FunctionId
+      DisplayName: string
+      Parameters: SemanticParameter list
+      ResultType: TypeRef
+      RequiredEffects: EffectId list }
+
 type FunctionFocusView =
     { SnapshotId: SnapshotId
       Function: SemanticFunction
       NodeTypes: QueryNodeType list
       Callers: QueryCallSite list
       Callees: QueryCallSite list
+      RelatedFunctionSignatures: QueryFunctionSignature list
       OpenObligations: QueryOpenObligation list
       ReferencedTypes: SemanticType list
       ReferencedCapabilities: SemanticCapability list
-      RequiredEffects: SemanticEffect list }
+      RequiredEffects: SemanticEffect list
+      MissingFunctionIds: FunctionId list
+      MissingTypeIds: TypeId list
+      MissingCapabilityIds: CapabilityId list
+      MissingEffectIds: EffectId list }
 
 [<RequireQualifiedAccess>]
 type SemanticQueryError =
@@ -68,22 +80,6 @@ module SemanticQuery =
             StableId.value site.CallerFunctionId,
             StableId.value site.CallNodeId,
             StableId.value site.CalleeFunctionId)
-
-    let rec private collectReferencedTypeIds (typeRef: TypeRef): TypeId list =
-        match typeRef with
-        | TypeRef.Primitive _
-        | TypeRef.Capability _ -> []
-        | TypeRef.Named typeId -> [ typeId ]
-        | TypeRef.BuiltinGeneric(_, arguments) ->
-            arguments |> List.collect collectReferencedTypeIds
-
-    let rec private collectReferencedCapabilityIds (typeRef: TypeRef): CapabilityId list =
-        match typeRef with
-        | TypeRef.Primitive _
-        | TypeRef.Named _ -> []
-        | TypeRef.Capability capabilityId -> [ capabilityId ]
-        | TypeRef.BuiltinGeneric(_, arguments) ->
-            arguments |> List.collect collectReferencedCapabilityIds
 
     let getFunction
         (snapshot: Snapshot)
@@ -179,6 +175,72 @@ module SemanticQuery =
                 |> List.sortBy StableId.value
                 |> Ok)
 
+    type private DeclarationClosure =
+        { TypeIds: Set<TypeId>
+          CapabilityIds: Set<CapabilityId>
+          EffectIds: Set<EffectId>
+          MissingTypeIds: Set<TypeId>
+          MissingCapabilityIds: Set<CapabilityId> }
+
+    let private declarationClosure
+        (snapshot: Snapshot)
+        (seedTypeRefs: TypeRef list)
+        (seedEffectIds: EffectId list)
+        : DeclarationClosure =
+        let typesById = snapshot.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
+        let capabilitiesById = snapshot.Capabilities |> List.map (fun item -> item.Id, item) |> Map.ofList
+
+        let mutable typeIds: Set<TypeId> = Set.empty
+        let mutable capabilityIds: Set<CapabilityId> = Set.empty
+        let mutable effectIds: Set<EffectId> = Set.ofList seedEffectIds
+        let mutable missingTypeIds: Set<TypeId> = Set.empty
+        let mutable missingCapabilityIds: Set<CapabilityId> = Set.empty
+
+        let rec visitTypeRef (typeRef: TypeRef) =
+            match typeRef with
+            | TypeRef.Primitive _ -> ()
+            | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
+            | TypeRef.Named typeId ->
+                if not (Set.contains typeId typeIds) then
+                    typeIds <- Set.add typeId typeIds
+                    match Map.tryFind typeId typesById with
+                    | None -> missingTypeIds <- Set.add typeId missingTypeIds
+                    | Some declaration ->
+                        match declaration.Kind with
+                        | SemanticTypeKind.Product fields ->
+                            fields |> List.iter (fun field -> visitTypeRef field.Type)
+                        | SemanticTypeKind.Union variants ->
+                            variants
+                            |> List.collect (fun variant -> variant.Fields)
+                            |> List.iter (fun field -> visitTypeRef field.Type)
+            | TypeRef.Capability capabilityId ->
+                if not (Set.contains capabilityId capabilityIds) then
+                    capabilityIds <- Set.add capabilityId capabilityIds
+                    match Map.tryFind capabilityId capabilitiesById with
+                    | None -> missingCapabilityIds <- Set.add capabilityId missingCapabilityIds
+                    | Some capability ->
+                        capability.Operations
+                        |> List.iter (fun operation ->
+                            effectIds <- Set.add operation.EffectId effectIds
+                            operation.Parameters |> List.iter (fun parameter -> visitTypeRef parameter.Type)
+                            visitTypeRef operation.ResultType
+                            operation.FailureType |> Option.iter visitTypeRef)
+
+        seedTypeRefs |> List.iter visitTypeRef
+
+        { TypeIds = typeIds
+          CapabilityIds = capabilityIds
+          EffectIds = effectIds
+          MissingTypeIds = missingTypeIds
+          MissingCapabilityIds = missingCapabilityIds }
+
+    let private signatureOf (functionEntity: SemanticFunction): QueryFunctionSignature =
+        { FunctionId = functionEntity.Id
+          DisplayName = functionEntity.DisplayName
+          Parameters = functionEntity.Parameters
+          ResultType = functionEntity.ResultType
+          RequiredEffects = functionEntity.RequiredEffects }
+
     let focusFunction
         (snapshot: Snapshot)
         (functionId: FunctionId)
@@ -193,53 +255,88 @@ module SemanticQuery =
                       Type = nodeType })
                 |> List.sortBy (fun item -> StableId.value item.NodeId)
 
-            let allTypeRefs =
-                (functionEntity.Parameters |> List.map (fun parameter -> parameter.Type))
-                @ [ functionEntity.ResultType ]
-                @ (nodeTypes |> List.choose (fun item -> item.Type))
-
-            let referencedTypeIds =
-                allTypeRefs
-                |> List.collect collectReferencedTypeIds
-                |> Set.ofList
-
-            let referencedCapabilityIds =
-                allTypeRefs
-                |> List.collect collectReferencedCapabilityIds
-                |> Set.ofList
-
-            let referencedTypes =
-                snapshot.Types
-                |> List.filter (fun typeEntity -> Set.contains typeEntity.Id referencedTypeIds)
-                |> List.sortBy (fun typeEntity -> StableId.value typeEntity.Id)
-
-            let referencedCapabilities =
-                snapshot.Capabilities
-                |> List.filter (fun capability -> Set.contains capability.Id referencedCapabilityIds)
-                |> List.sortBy (fun capability -> StableId.value capability.Id)
-
-            let requiredEffects =
-                let ids = Set.ofList functionEntity.RequiredEffects
-                snapshot.Effects
-                |> List.filter (fun effect -> Set.contains effect.Id ids)
-                |> List.sortBy (fun effect -> StableId.value effect.Id)
-
             match
                 getCallers snapshot functionId,
                 getCallees snapshot functionId,
                 getOpenObligations snapshot functionId
             with
+            | Error error, _, _
+            | _, Error error, _
+            | _, _, Error error -> Error error
             | Ok callers, Ok callees, Ok obligations ->
+                let relatedFunctionIds =
+                    (callers |> List.map (fun site -> site.CallerFunctionId))
+                    @ (callees |> List.map (fun site -> site.CalleeFunctionId))
+                    |> List.filter (fun id -> id <> functionId)
+                    |> List.distinct
+                    |> List.sortBy StableId.value
+
+                let functionsById =
+                    snapshot.Functions
+                    |> List.map (fun item -> item.Id, item)
+                    |> Map.ofList
+
+                let relatedFunctions, missingFunctionIds =
+                    relatedFunctionIds
+                    |> List.fold
+                        (fun (found, missing) id ->
+                            match Map.tryFind id functionsById with
+                            | Some related -> related :: found, missing
+                            | None -> found, id :: missing)
+                        ([], [])
+                    |> fun (found, missing) -> List.rev found, List.rev missing
+
+                let relatedSignatures = relatedFunctions |> List.map signatureOf
+
+                let allTypeRefs =
+                    (functionEntity.Parameters |> List.map (fun parameter -> parameter.Type))
+                    @ [ functionEntity.ResultType ]
+                    @ (nodeTypes |> List.choose (fun item -> item.Type))
+                    @ (relatedFunctions
+                       |> List.collect (fun related ->
+                           (related.Parameters |> List.map (fun parameter -> parameter.Type))
+                           @ [ related.ResultType ]))
+
+                let seedEffectIds =
+                    functionEntity.RequiredEffects
+                    @ (relatedFunctions |> List.collect (fun related -> related.RequiredEffects))
+
+                let closure = declarationClosure snapshot allTypeRefs seedEffectIds
+
+                let referencedTypes =
+                    snapshot.Types
+                    |> List.filter (fun typeEntity -> Set.contains typeEntity.Id closure.TypeIds)
+                    |> List.sortBy (fun typeEntity -> StableId.value typeEntity.Id)
+
+                let referencedCapabilities =
+                    snapshot.Capabilities
+                    |> List.filter (fun capability -> Set.contains capability.Id closure.CapabilityIds)
+                    |> List.sortBy (fun capability -> StableId.value capability.Id)
+
+                let knownEffectIds = snapshot.Effects |> List.map (fun effect -> effect.Id) |> Set.ofList
+                let requiredEffects =
+                    snapshot.Effects
+                    |> List.filter (fun effect -> Set.contains effect.Id closure.EffectIds)
+                    |> List.sortBy (fun effect -> StableId.value effect.Id)
+
+                let missingEffectIds =
+                    closure.EffectIds
+                    |> Set.filter (fun effectId -> not (Set.contains effectId knownEffectIds))
+                    |> Set.toList
+                    |> List.sortBy StableId.value
+
                 Ok
                     { SnapshotId = snapshot.Id
                       Function = functionEntity
                       NodeTypes = nodeTypes
                       Callers = callers
                       Callees = callees
+                      RelatedFunctionSignatures = relatedSignatures
                       OpenObligations = obligations
                       ReferencedTypes = referencedTypes
                       ReferencedCapabilities = referencedCapabilities
-                      RequiredEffects = requiredEffects }
-            | Error error, _, _
-            | _, Error error, _
-            | _, _, Error error -> Error error)
+                      RequiredEffects = requiredEffects
+                      MissingFunctionIds = missingFunctionIds
+                      MissingTypeIds = closure.MissingTypeIds |> Set.toList |> List.sortBy StableId.value
+                      MissingCapabilityIds = closure.MissingCapabilityIds |> Set.toList |> List.sortBy StableId.value
+                      MissingEffectIds = missingEffectIds })
