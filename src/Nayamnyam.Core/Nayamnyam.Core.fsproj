@@ -25,5 +25,7 @@
     <Compile Include="CSharpBackendEmitter.fs" />
     <Compile Include="Transactions.fs" />
     <Compile Include="ChangeReviewQuery.fs" />
+    <Compile Include="ViewerModel.fs" />
+    <Compile Include="ViewerHtml.fs" />
   </ItemGroup>
 </Project>
