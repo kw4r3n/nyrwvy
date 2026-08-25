@@ -10,9 +10,7 @@ type CommitPolicy =
     | RejectBlockingObligations
     | AllowBlockingObligations
 
-type WorkspaceState = private
-    { CurrentSnapshot: Snapshot
-      PreviousSnapshots: Snapshot list }
+type WorkspaceState = private { CurrentSnapshot: Snapshot; PreviousSnapshots: Snapshot list }
 
 type WorkspacePreview =
     { Simulation: TransactionSimulation
