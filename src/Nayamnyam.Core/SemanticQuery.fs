@@ -32,7 +32,7 @@ type FunctionFocusView =
       OpenObligations: QueryOpenObligation list
       ReferencedTypes: SemanticType list
       ReferencedCapabilities: SemanticCapability list
-      RequiredEffects: SemanticEffect list
+      ReferencedEffects: SemanticEffect list
       MissingFunctionIds: FunctionId list
       MissingTypeIds: TypeId list
       MissingCapabilityIds: CapabilityId list
@@ -314,7 +314,7 @@ module SemanticQuery =
                     |> List.sortBy (fun capability -> StableId.value capability.Id)
 
                 let knownEffectIds = snapshot.Effects |> List.map (fun effect -> effect.Id) |> Set.ofList
-                let requiredEffects =
+                let referencedEffects =
                     snapshot.Effects
                     |> List.filter (fun effect -> Set.contains effect.Id closure.EffectIds)
                     |> List.sortBy (fun effect -> StableId.value effect.Id)
@@ -335,7 +335,7 @@ module SemanticQuery =
                       OpenObligations = obligations
                       ReferencedTypes = referencedTypes
                       ReferencedCapabilities = referencedCapabilities
-                      RequiredEffects = requiredEffects
+                      ReferencedEffects = referencedEffects
                       MissingFunctionIds = missingFunctionIds
                       MissingTypeIds = closure.MissingTypeIds |> Set.toList |> List.sortBy StableId.value
                       MissingCapabilityIds = closure.MissingCapabilityIds |> Set.toList |> List.sortBy StableId.value
