@@ -13,7 +13,7 @@ module StableIdAllocatorTests =
         if payload.Length <> 36 || payload[14] <> '7' then
             failwithf "Stable ID payload is not UUIDv7: %s" payload
 
-        let variantNibble = Char.ToLowerInvariant payload[19]
+        let variantNibble = Char.ToLowerInvariant(payload[19])
         if not ("89ab".Contains(variantNibble)) then
             failwithf "Stable ID payload does not use the RFC 9562 variant: %s" payload
 
