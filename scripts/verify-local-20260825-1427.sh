@@ -27,7 +27,9 @@ The script requires a .NET 10 SDK and runs:
   4. ExecutionIrTests explicitly (at least 6 passing tests)
   5. ExecutionIrCodecTests explicitly (at least 3 passing tests)
   6. CSharpBackendTests explicitly (at least 4 passing tests, including generated C# build/run)
-  7. the JSON/Nyason comparison report produced by the test suite
+  7. SemanticQueryTests explicitly (at least 7 passing tests)
+  8. ChangeReviewQueryTests explicitly (at least 3 passing tests)
+  9. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -170,6 +172,18 @@ run_required_filter \
   "FullyQualifiedName~CSharpBackendTests" \
   4 \
   "phase-j-csharp-backend.trx"
+
+run_required_filter \
+  "Phase K semantic query tests" \
+  "FullyQualifiedName~SemanticQueryTests" \
+  7 \
+  "phase-k-semantic-query.trx"
+
+run_required_filter \
+  "Phase K change review query tests" \
+  "FullyQualifiedName~ChangeReviewQueryTests" \
+  3 \
+  "phase-k-change-review.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
