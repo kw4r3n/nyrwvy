@@ -34,11 +34,7 @@ type AgentChangeReview =
       Readiness: TransactionReadiness
       ResultingChange: ChangeReviewView }
 
-type AgentChangeProposal =
-    private
-        { Request: TransactionRequest
-          Preview: WorkspacePreview
-          Review: AgentChangeReview }
+type AgentChangeProposal = private { Request: TransactionRequest; Preview: WorkspacePreview; Review: AgentChangeReview }
 
 [<RequireQualifiedAccess>]
 type AgentWorkflowError =
