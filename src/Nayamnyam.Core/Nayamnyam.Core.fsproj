@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="StableId.fs" />
+    <Compile Include="StableIdAllocator.fs" />
     <Compile Include="Foundation.fs" />
     <Compile Include="SemanticFacts.fs" />
     <Compile Include="SemanticQuery.fs" />
