@@ -11,8 +11,9 @@ type CommitPolicy =
     | AllowBlockingObligations
 
 type WorkspaceState =
-    { CurrentSnapshot: Snapshot
-      PreviousSnapshots: Snapshot list }
+    private
+        { CurrentSnapshot: Snapshot
+          PreviousSnapshots: Snapshot list }
 
 type WorkspacePreview =
     { Simulation: TransactionSimulation
@@ -59,6 +60,12 @@ module SemanticWorkspace =
                 { CurrentSnapshot = initialSnapshot
                   PreviousSnapshots = [] }
         | issues -> Error issues
+
+    let currentSnapshot (workspace: WorkspaceState): Snapshot =
+        workspace.CurrentSnapshot
+
+    let previousSnapshots (workspace: WorkspaceState): Snapshot list =
+        workspace.PreviousSnapshots
 
     let allSnapshots (workspace: WorkspaceState): Snapshot list =
         workspace.CurrentSnapshot :: workspace.PreviousSnapshots
@@ -137,7 +144,7 @@ module SemanticWorkspace =
                 | TransactionReadiness.Executable, _ ->
                     let nextWorkspace, publication = publish workspace preview
                     WorkspaceCommitResult.Committed(nextWorkspace, publication)
-                | TransactionReadiness.Incomplete obligationIds, CommitPolicy.AllowBlockingObligations ->
+                | TransactionReadiness.Incomplete _, CommitPolicy.AllowBlockingObligations ->
                     let nextWorkspace, publication = publish workspace preview
                     WorkspaceCommitResult.Committed(nextWorkspace, publication)
                 | TransactionReadiness.Incomplete obligationIds, CommitPolicy.RequireExecutable ->
