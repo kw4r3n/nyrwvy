@@ -12,9 +12,18 @@ type CommitPolicy =
 
 type WorkspaceState = private { CurrentSnapshot: Snapshot; PreviousSnapshots: Snapshot list }
 
+type TransactionPreviewReceipt =
+    { TransactionId: TransactionId
+      BaseSnapshotId: SnapshotId
+      BaseSnapshotFingerprint: SnapshotFingerprint
+      ProposedSnapshotId: SnapshotId
+      ProposedSnapshotFingerprint: SnapshotFingerprint
+      ProposedSemanticFingerprint: SemanticFingerprint }
+
 type WorkspacePreview =
     { Simulation: TransactionSimulation
-      Readiness: TransactionReadiness }
+      Readiness: TransactionReadiness
+      Receipt: TransactionPreviewReceipt }
 
 [<RequireQualifiedAccess>]
 type WorkspaceSimulationResult =
@@ -26,7 +35,8 @@ type PublishedTransaction =
       BaseSnapshotId: SnapshotId
       PublishedSnapshotId: SnapshotId
       Diff: SemanticDiff
-      Readiness: TransactionReadiness }
+      Readiness: TransactionReadiness
+      Receipt: TransactionPreviewReceipt }
 
 [<RequireQualifiedAccess>]
 type WorkspaceCommitResult =
@@ -49,6 +59,11 @@ module SemanticWorkspace =
             diagnostic
                 ("Validation." + issue.Code)
                 issue.Message)
+
+    let private fingerprintDiagnostic context error =
+        diagnostic
+            "FingerprintFailure"
+            $"{context} fingerprint could not be computed: {error}."
 
     let create (initialSnapshot: Snapshot): Result<WorkspaceState, ValidationIssue list> =
         match SnapshotValidator.validate initialSnapshot with
@@ -89,6 +104,27 @@ module SemanticWorkspace =
         | Ok(SemanticReadiness.Incomplete obligationIds) ->
             Ok(TransactionReadiness.Incomplete obligationIds)
 
+    let private createReceipt
+        (baseSnapshot: Snapshot)
+        (simulation: TransactionSimulation)
+        : Result<TransactionPreviewReceipt, TransactionDiagnostic list> =
+        match SnapshotFingerprint.compute baseSnapshot with
+        | Error error -> Error [ fingerprintDiagnostic "Base snapshot" error ]
+        | Ok baseFingerprint ->
+            match SnapshotFingerprint.compute simulation.ProposedSnapshot with
+            | Error error -> Error [ fingerprintDiagnostic "Proposed snapshot" error ]
+            | Ok proposedFingerprint ->
+                match SemanticFingerprint.compute simulation.ProposedSnapshot with
+                | Error error -> Error [ fingerprintDiagnostic "Proposed semantic state" error ]
+                | Ok semanticFingerprint ->
+                    Ok
+                        { TransactionId = simulation.TransactionId
+                          BaseSnapshotId = simulation.BaseSnapshotId
+                          BaseSnapshotFingerprint = baseFingerprint
+                          ProposedSnapshotId = simulation.ProposedSnapshot.Id
+                          ProposedSnapshotFingerprint = proposedFingerprint
+                          ProposedSemanticFingerprint = semanticFingerprint }
+
     let simulate
         (workspace: WorkspaceState)
         (request: TransactionRequest)
@@ -100,9 +136,13 @@ module SemanticWorkspace =
             match classifyReadiness simulation.ProposedSnapshot with
             | Error diagnostics -> WorkspaceSimulationResult.Rejected diagnostics
             | Ok readiness ->
-                WorkspaceSimulationResult.Preview
-                    { Simulation = simulation
-                      Readiness = readiness }
+                match createReceipt workspace.CurrentSnapshot simulation with
+                | Error diagnostics -> WorkspaceSimulationResult.Rejected diagnostics
+                | Ok receipt ->
+                    WorkspaceSimulationResult.Preview
+                        { Simulation = simulation
+                          Readiness = readiness
+                          Receipt = receipt }
 
     let private publish
         (workspace: WorkspaceState)
@@ -118,9 +158,32 @@ module SemanticWorkspace =
               BaseSnapshotId = simulation.BaseSnapshotId
               PublishedSnapshotId = simulation.ProposedSnapshot.Id
               Diff = simulation.Diff
-              Readiness = preview.Readiness }
+              Readiness = preview.Readiness
+              Receipt = preview.Receipt }
 
         nextWorkspace, publication
+
+    let private publishWithPolicy
+        (workspace: WorkspaceState)
+        (preview: WorkspacePreview)
+        (policy: CommitPolicy)
+        : WorkspaceCommitResult =
+        match preview.Readiness, policy with
+        | TransactionReadiness.SemanticallyReady, _ ->
+            let nextWorkspace, publication = publish workspace preview
+            WorkspaceCommitResult.Committed(nextWorkspace, publication)
+        | TransactionReadiness.Incomplete _, CommitPolicy.AllowBlockingObligations ->
+            let nextWorkspace, publication = publish workspace preview
+            WorkspaceCommitResult.Committed(nextWorkspace, publication)
+        | TransactionReadiness.Incomplete obligationIds, CommitPolicy.RejectBlockingObligations ->
+            let ids =
+                obligationIds
+                |> List.map StableId.value
+                |> String.concat ", "
+            WorkspaceCommitResult.Rejected
+                [ diagnostic
+                    "BlockingObligations"
+                    $"The proposed snapshot has blocking obligations: {ids}. Use AllowBlockingObligations explicitly to publish it." ]
 
     let commitWithPolicy
         (workspace: WorkspaceState)
@@ -137,28 +200,61 @@ module SemanticWorkspace =
             | WorkspaceSimulationResult.Rejected diagnostics ->
                 WorkspaceCommitResult.Rejected diagnostics
             | WorkspaceSimulationResult.Preview preview ->
-                match preview.Readiness, policy with
-                | TransactionReadiness.SemanticallyReady, _ ->
-                    let nextWorkspace, publication = publish workspace preview
-                    WorkspaceCommitResult.Committed(nextWorkspace, publication)
-                | TransactionReadiness.Incomplete _, CommitPolicy.AllowBlockingObligations ->
-                    let nextWorkspace, publication = publish workspace preview
-                    WorkspaceCommitResult.Committed(nextWorkspace, publication)
-                | TransactionReadiness.Incomplete obligationIds, CommitPolicy.RejectBlockingObligations ->
-                    let ids =
-                        obligationIds
-                        |> List.map StableId.value
-                        |> String.concat ", "
-                    WorkspaceCommitResult.Rejected
-                        [ diagnostic
-                            "BlockingObligations"
-                            $"The proposed snapshot has blocking obligations: {ids}. Use AllowBlockingObligations explicitly to publish it." ]
+                publishWithPolicy workspace preview policy
 
     let commit
         (workspace: WorkspaceState)
         (request: TransactionRequest)
         : WorkspaceCommitResult =
         commitWithPolicy workspace request CommitPolicy.RejectBlockingObligations
+
+    let commitReviewedWithPolicy
+        (workspace: WorkspaceState)
+        (request: TransactionRequest)
+        (reviewedReceipt: TransactionPreviewReceipt)
+        (policy: CommitPolicy)
+        : WorkspaceCommitResult =
+        if reviewedReceipt.TransactionId <> request.Id
+           || reviewedReceipt.BaseSnapshotId <> request.BaseSnapshotId
+           || reviewedReceipt.ProposedSnapshotId <> request.ProposedSnapshotId then
+            WorkspaceCommitResult.Rejected
+                [ diagnostic
+                    "PreviewReceiptRequestMismatch"
+                    "The reviewed preview receipt does not identify the transaction request being committed." ]
+        elif hasPublishedSnapshotId request.ProposedSnapshotId workspace then
+            WorkspaceCommitResult.Rejected
+                [ diagnostic
+                    "SnapshotAlreadyPublished"
+                    "The proposed snapshot ID has already been published in this workspace." ]
+        else
+            match simulate workspace request with
+            | WorkspaceSimulationResult.Rejected diagnostics ->
+                WorkspaceCommitResult.Rejected diagnostics
+            | WorkspaceSimulationResult.Preview regenerated ->
+                if regenerated.Receipt.BaseSnapshotFingerprint <> reviewedReceipt.BaseSnapshotFingerprint then
+                    WorkspaceCommitResult.Rejected
+                        [ diagnostic
+                            "PreviewReceiptBaseMismatch"
+                            "The current base snapshot fingerprint differs from the reviewed preview receipt." ]
+                elif regenerated.Receipt.ProposedSnapshotFingerprint <> reviewedReceipt.ProposedSnapshotFingerprint
+                     || regenerated.Receipt.ProposedSemanticFingerprint <> reviewedReceipt.ProposedSemanticFingerprint then
+                    WorkspaceCommitResult.Rejected
+                        [ diagnostic
+                            "PreviewReceiptResultMismatch"
+                            "Re-simulation produced a proposed state different from the reviewed preview receipt." ]
+                else
+                    publishWithPolicy workspace regenerated policy
+
+    let commitReviewed
+        (workspace: WorkspaceState)
+        (request: TransactionRequest)
+        (reviewedReceipt: TransactionPreviewReceipt)
+        : WorkspaceCommitResult =
+        commitReviewedWithPolicy
+            workspace
+            request
+            reviewedReceipt
+            CommitPolicy.RejectBlockingObligations
 
     let reject
         (workspace: WorkspaceState)

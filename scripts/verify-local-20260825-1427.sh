@@ -34,7 +34,9 @@ The script requires a .NET 10 SDK and runs:
  11. WorkspaceTests explicitly (at least 7 passing tests)
  12. MilestoneZeroEndToEndTests explicitly (at least 1 full lifecycle test)
  13. StableIdAllocatorTests explicitly (at least 6 passing tests)
- 14. the JSON/Nyason comparison report produced by the test suite
+ 14. FingerprintTests explicitly (at least 6 passing tests)
+ 15. PreviewReceiptTests explicitly (at least 6 passing tests)
+ 16. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -219,6 +221,18 @@ run_required_filter \
   "FullyQualifiedName~StableIdAllocatorTests" \
   6 \
   "m1-a-stable-id.trx"
+
+run_required_filter \
+  "M1-B canonical fingerprint tests" \
+  "FullyQualifiedName~FingerprintTests" \
+  6 \
+  "m1-b-fingerprint.trx"
+
+run_required_filter \
+  "M1-C reviewed preview receipt tests" \
+  "FullyQualifiedName~PreviewReceiptTests" \
+  6 \
+  "m1-c-preview-receipt.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
