@@ -4,6 +4,36 @@ namespace Nayamnyam.Core
 /// This module never mutates the graph and never invents fallback semantics.
 [<RequireQualifiedAccess>]
 module SemanticFacts =
+    /// Direct value-node references required to interpret one node locally.
+    /// Nested branch result nodes are intentionally not included: callers that
+    /// need structured control-flow dependencies should traverse the child graphs.
+    let directValueDependencies (node: SemanticNode): GraphNodeId list =
+        match node.Kind with
+        | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
+            [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.DirectCall(_, arguments) ->
+            arguments |> List.map (fun argument -> argument.ValueNodeId)
+        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
+            capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
+        | SemanticNodeKind.ProductConstruct(_, fields)
+        | SemanticNodeKind.UnionConstruct(_, fields) ->
+            fields |> List.map (fun field -> field.ValueNodeId)
+        | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
+        | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
+        | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
+        | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
+        | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.OptionNone _ -> []
+
     let rec collectPatternBindings (graph: ValueGraph): PatternBinding list =
         graph.Nodes
         |> List.collect (fun node ->
