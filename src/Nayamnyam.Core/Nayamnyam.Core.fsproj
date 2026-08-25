@@ -7,6 +7,7 @@
     <Compile Include="StableId.fs" />
     <Compile Include="Foundation.fs" />
     <Compile Include="SemanticFacts.fs" />
+    <Compile Include="SemanticQuery.fs" />
     <Compile Include="Validation.fs" />
     <Compile Include="SnapshotCodec.fs" />
     <Compile Include="NyasonSyntax.fs" />
