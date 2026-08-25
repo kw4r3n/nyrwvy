@@ -21,13 +21,26 @@ module internal CSharpBackendValidation =
 
     let private collectUsedOperations (program: ExecutionProgram) =
         program.Functions
-        |> List.collect (fun functionEntity ->
+        |> List.collect (fun (functionEntity: ExecutionFunction) ->
             functionEntity.Blocks
-            |> List.collect (fun block ->
+            |> List.collect (fun (block: ExecutionBlock) ->
                 block.Instructions
-                |> List.choose (fun instruction ->
+                |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
                     | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _) -> Some operationId
+                    | _ -> None)))
+        |> List.distinct
+        |> List.sortBy StableId.value
+
+    let private collectCallTargets (program: ExecutionProgram) =
+        program.Functions
+        |> List.collect (fun (functionEntity: ExecutionFunction) ->
+            functionEntity.Blocks
+            |> List.collect (fun (block: ExecutionBlock) ->
+                block.Instructions
+                |> List.choose (fun (instruction: ExecutionInstruction) ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.DirectCall(functionId, _) -> Some functionId
                     | _ -> None)))
         |> List.distinct
         |> List.sortBy StableId.value
@@ -42,17 +55,17 @@ module internal CSharpBackendValidation =
         (program: ExecutionProgram)
         (profile: CSharpBackendProfile)
         : Result<Context, CSharpBackendError> =
-        let functionsById =
+        let functionsById: Map<FunctionId, ExecutionFunction> =
             program.Functions
             |> List.map (fun functionEntity -> functionEntity.SemanticFunctionId, functionEntity)
             |> Map.ofList
 
-        let typesById =
+        let typesById: Map<TypeId, ExecutionType> =
             program.Types
             |> List.map (fun typeEntity -> typeEntity.Id, typeEntity)
             |> Map.ofList
 
-        let variantEntries =
+        let variantEntries: (VariantId * (TypeId * ExecutionVariant)) list =
             program.Types
             |> List.collect (fun typeEntity ->
                 match typeEntity.Kind with
@@ -62,7 +75,7 @@ module internal CSharpBackendValidation =
 
         let variantsById = Map.ofList variantEntries
 
-        let fieldEntries =
+        let fieldEntries: (FieldId * (TypeId * VariantId option * ExecutionField)) list =
             program.Types
             |> List.collect (fun typeEntity ->
                 match typeEntity.Kind with
@@ -78,12 +91,12 @@ module internal CSharpBackendValidation =
 
         let fieldsById = Map.ofList fieldEntries
 
-        let capabilitiesById =
+        let capabilitiesById: Map<CapabilityId, ExecutionCapability> =
             program.Capabilities
             |> List.map (fun capability -> capability.Id, capability)
             |> Map.ofList
 
-        let operationEntries =
+        let operationEntries: (CapabilityOperationId * (CapabilityId * ExecutionCapabilityOperation)) list =
             program.Capabilities
             |> List.collect (fun capability ->
                 capability.Operations
@@ -94,7 +107,7 @@ module internal CSharpBackendValidation =
         match firstDuplicateBinding profile with
         | Some error -> Error error
         | None ->
-            let orderedBindings =
+            let orderedBindings: CSharpCapabilityBinding list =
                 profile.CapabilityBindings
                 |> List.sortBy (fun binding -> StableId.value binding.OperationId)
 
@@ -104,52 +117,74 @@ module internal CSharpBackendValidation =
             with
             | Some binding -> Error(CSharpBackendError.UnknownCapabilityBindingOperation binding.OperationId)
             | None ->
-                let bindingsByOperation =
+                let bindingsByOperation: Map<CapabilityOperationId, CSharpCapabilityBindingKind> =
                     orderedBindings
                     |> List.map (fun binding -> binding.OperationId, binding.Kind)
                     |> Map.ofList
 
-                let usedOperations = collectUsedOperations program
-
                 match
-                    usedOperations
-                    |> List.tryFind (fun operationId -> not (Map.containsKey operationId operationsById))
+                    collectCallTargets program
+                    |> List.tryFind (fun functionId -> not (Map.containsKey functionId functionsById))
                 with
-                | Some operationId -> Error(CSharpBackendError.UnknownCapabilityOperation operationId)
+                | Some functionId -> Error(CSharpBackendError.UnknownCallTarget functionId)
                 | None ->
+                    let usedOperations = collectUsedOperations program
                     match
                         usedOperations
-                        |> List.tryFind (fun operationId -> not (Map.containsKey operationId bindingsByOperation))
+                        |> List.tryFind (fun operationId -> not (Map.containsKey operationId operationsById))
                     with
-                    | Some operationId -> Error(CSharpBackendError.MissingCapabilityBinding operationId)
+                    | Some operationId -> Error(CSharpBackendError.UnknownCapabilityOperation operationId)
                     | None ->
                         match
-                            orderedBindings
-                            |> List.tryPick (fun binding ->
-                                let _, operation = Map.find binding.OperationId operationsById
-                                match binding.Kind with
-                                | CSharpCapabilityBindingKind.SystemConsoleWriteLine ->
-                                    if isSystemConsoleWriteLineCompatible operation then
-                                        None
-                                    else
-                                        Some(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding binding.OperationId))
+                            usedOperations
+                            |> List.tryFind (fun operationId -> not (Map.containsKey operationId bindingsByOperation))
                         with
-                        | Some error -> Error error
+                        | Some operationId -> Error(CSharpBackendError.MissingCapabilityBinding operationId)
                         | None ->
-                            match
-                                operationEntries
-                                |> List.map snd
-                                |> List.map snd
-                                |> List.sortBy (fun operation -> StableId.value operation.Id)
-                                |> List.tryFind (fun operation -> Option.isSome operation.FailureType)
-                            with
-                            | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
+                            let boundCapabilityIds =
+                                orderedBindings
+                                |> List.map (fun binding -> fst (Map.find binding.OperationId operationsById))
+                                |> Set.ofList
+
+                            let missingAdapterBinding =
+                                program.Capabilities
+                                |> List.filter (fun capability -> Set.contains capability.Id boundCapabilityIds)
+                                |> List.sortBy (fun capability -> StableId.value capability.Id)
+                                |> List.collect (fun capability ->
+                                    capability.Operations
+                                    |> List.sortBy (fun operation -> StableId.value operation.Id))
+                                |> List.tryFind (fun operation -> not (Map.containsKey operation.Id bindingsByOperation))
+
+                            match missingAdapterBinding with
+                            | Some operation -> Error(CSharpBackendError.MissingCapabilityBinding operation.Id)
                             | None ->
-                                Ok
-                                    { FunctionsById = functionsById
-                                      TypesById = typesById
-                                      VariantsById = variantsById
-                                      FieldsById = fieldsById
-                                      CapabilitiesById = capabilitiesById
-                                      OperationsById = operationsById
-                                      BindingsByOperation = bindingsByOperation }
+                                match
+                                    orderedBindings
+                                    |> List.tryPick (fun binding ->
+                                        let _, operation = Map.find binding.OperationId operationsById
+                                        match binding.Kind with
+                                        | CSharpCapabilityBindingKind.SystemConsoleWriteLine ->
+                                            if isSystemConsoleWriteLineCompatible operation then
+                                                None
+                                            else
+                                                Some(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding binding.OperationId))
+                                with
+                                | Some error -> Error error
+                                | None ->
+                                    match
+                                        operationEntries
+                                        |> List.map snd
+                                        |> List.map snd
+                                        |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                        |> List.tryFind (fun operation -> Option.isSome operation.FailureType)
+                                    with
+                                    | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
+                                    | None ->
+                                        Ok
+                                            { FunctionsById = functionsById
+                                              TypesById = typesById
+                                              VariantsById = variantsById
+                                              FieldsById = fieldsById
+                                              CapabilitiesById = capabilitiesById
+                                              OperationsById = operationsById
+                                              BindingsByOperation = bindingsByOperation }
