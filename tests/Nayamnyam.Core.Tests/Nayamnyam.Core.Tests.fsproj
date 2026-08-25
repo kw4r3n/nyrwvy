@@ -18,6 +18,7 @@
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
     <Compile Include="TypedSemanticIrCodecTests.fs" />
+    <Compile Include="ExecutionIrTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
