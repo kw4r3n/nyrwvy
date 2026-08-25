@@ -32,7 +32,8 @@ The script requires a .NET 10 SDK and runs:
   9. ViewerTests explicitly (at least 6 passing tests)
  10. ViewerArtifactTests explicitly (at least 6 passing tests, including CLI file export)
  11. WorkspaceTests explicitly (at least 7 passing tests)
- 12. the JSON/Nyason comparison report produced by the test suite
+ 12. MilestoneZeroEndToEndTests explicitly (at least 1 full lifecycle test)
+ 13. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -205,6 +206,12 @@ run_required_filter \
   "FullyQualifiedName~WorkspaceTests" \
   7 \
   "phase-n-workspace.trx"
+
+run_required_filter \
+  "Phase O Milestone 0 complete lifecycle" \
+  "FullyQualifiedName~MilestoneZeroEndToEndTests" \
+  1 \
+  "phase-o-m0-e2e.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
