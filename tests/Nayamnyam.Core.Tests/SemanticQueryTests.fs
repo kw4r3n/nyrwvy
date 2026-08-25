@@ -52,7 +52,7 @@ module SemanticQueryTests =
         let fixture = MilestoneZeroGraph.create ()
         let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.ReportFunctionId |> unwrap
 
-        let effectIds = focus.RequiredEffects |> List.map (fun effect -> effect.Id)
+        let effectIds = focus.ReferencedEffects |> List.map (fun effect -> effect.Id)
         if effectIds <> [ fixture.ConsoleEffectId ] then
             failwithf "Unexpected report effects: %A" effectIds
 
