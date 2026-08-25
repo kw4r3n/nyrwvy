@@ -34,9 +34,9 @@ type CSharpBackendError =
 
 [<RequireQualifiedAccess>]
 module CSharpBackendProfile =
-    let empty = { CapabilityBindings = [] }
+    let empty: CSharpBackendProfile = { CapabilityBindings = [] }
 
-    let systemConsoleWriteLine operationId =
+    let systemConsoleWriteLine (operationId: CapabilityOperationId): CSharpBackendProfile =
         { CapabilityBindings =
             [ { OperationId = operationId
                 Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
@@ -44,9 +44,8 @@ module CSharpBackendProfile =
 [<RequireQualifiedAccess>]
 module CSharpBackendNames =
     let private utf8Hex (value: string) =
-        value
-        |> Encoding.UTF8.GetBytes
-        |> Convert.ToHexString
+        let bytes: byte array = Encoding.UTF8.GetBytes(value)
+        Convert.ToHexString(bytes)
 
     let private stable prefix (id: StableId<'Kind>) =
         prefix + utf8Hex (StableId.value id)
@@ -67,5 +66,5 @@ module CSharpBackendNames =
     let executionBlockLabel (id: ExecutionBlockId) =
         "L_" + utf8Hex (ExecutionBlockId.value id)
 
-    let jumpTemporaryName (sourceBlockId: ExecutionBlockId) index =
+    let jumpTemporaryName (sourceBlockId: ExecutionBlockId) (index: int) =
         "jt_" + utf8Hex (ExecutionBlockId.value sourceBlockId) + "_" + string index
