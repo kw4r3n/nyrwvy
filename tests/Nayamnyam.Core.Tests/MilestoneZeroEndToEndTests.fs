@@ -74,7 +74,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
     let private lowerAndEmit
         (fixture: MilestoneZeroFixture)
         (snapshot: Snapshot)
-        : CSharpBackendArtifact =
+        : CSharpArtifact =
         let typed = TypedSemanticIr.project snapshot |> unwrap "Typed Semantic IR projection"
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
         let profile = CSharpBackendProfile.systemConsoleWriteLine fixture.ConsoleWriteLineOperationId
@@ -82,7 +82,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
 
     let private executeArtifact
         (fixture: MilestoneZeroFixture)
-        (artifact: CSharpBackendArtifact)
+        (artifact: CSharpArtifact)
         : string =
         let tempRoot =
             Path.Combine(Path.GetTempPath(), "nayamnyam-m0-e2e-" + Guid.NewGuid().ToString("N"))
