@@ -69,7 +69,7 @@ module SemanticQuery =
             StableId.value site.CallNodeId,
             StableId.value site.CalleeFunctionId)
 
-    let private rec collectReferencedTypeIds (typeRef: TypeRef): TypeId list =
+    let rec private collectReferencedTypeIds (typeRef: TypeRef): TypeId list =
         match typeRef with
         | TypeRef.Primitive _
         | TypeRef.Capability _ -> []
@@ -77,7 +77,7 @@ module SemanticQuery =
         | TypeRef.BuiltinGeneric(_, arguments) ->
             arguments |> List.collect collectReferencedTypeIds
 
-    let private rec collectReferencedCapabilityIds (typeRef: TypeRef): CapabilityId list =
+    let rec private collectReferencedCapabilityIds (typeRef: TypeRef): CapabilityId list =
         match typeRef with
         | TypeRef.Primitive _
         | TypeRef.Named _ -> []
@@ -85,29 +85,44 @@ module SemanticQuery =
         | TypeRef.BuiltinGeneric(_, arguments) ->
             arguments |> List.collect collectReferencedCapabilityIds
 
-    let getFunction (snapshot: Snapshot) (functionId: FunctionId) =
-        snapshot.Functions
-        |> List.tryFind (fun functionEntity -> functionEntity.Id = functionId)
-        |> Result.ofOption (SemanticQueryError.FunctionNotFound functionId)
+    let getFunction
+        (snapshot: Snapshot)
+        (functionId: FunctionId)
+        : Result<SemanticFunction, SemanticQueryError> =
+        match snapshot.Functions |> List.tryFind (fun functionEntity -> functionEntity.Id = functionId) with
+        | Some functionEntity -> Ok functionEntity
+        | None -> Error(SemanticQueryError.FunctionNotFound functionId)
 
-    let getType (snapshot: Snapshot) (typeId: TypeId) =
-        snapshot.Types
-        |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId)
-        |> Result.ofOption (SemanticQueryError.TypeNotFound typeId)
+    let getType
+        (snapshot: Snapshot)
+        (typeId: TypeId)
+        : Result<SemanticType, SemanticQueryError> =
+        match snapshot.Types |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId) with
+        | Some typeEntity -> Ok typeEntity
+        | None -> Error(SemanticQueryError.TypeNotFound typeId)
 
-    let getCallers (snapshot: Snapshot) (functionId: FunctionId) =
+    let getCallers
+        (snapshot: Snapshot)
+        (functionId: FunctionId)
+        : Result<QueryCallSite list, SemanticQueryError> =
         getFunction snapshot functionId
         |> Result.map (fun _ ->
             callSites snapshot
             |> List.filter (fun site -> site.CalleeFunctionId = functionId))
 
-    let getCallees (snapshot: Snapshot) (functionId: FunctionId) =
+    let getCallees
+        (snapshot: Snapshot)
+        (functionId: FunctionId)
+        : Result<QueryCallSite list, SemanticQueryError> =
         getFunction snapshot functionId
         |> Result.map (fun _ ->
             callSites snapshot
             |> List.filter (fun site -> site.CallerFunctionId = functionId))
 
-    let getOpenObligations (snapshot: Snapshot) (functionId: FunctionId) =
+    let getOpenObligations
+        (snapshot: Snapshot)
+        (functionId: FunctionId)
+        : Result<QueryOpenObligation list, SemanticQueryError> =
         getFunction snapshot functionId
         |> Result.map (fun functionEntity ->
             let ownedNodeIds =
@@ -131,21 +146,23 @@ module SemanticQuery =
     let getDependencies
         (snapshot: Snapshot)
         (functionId: FunctionId)
-        (nodeId: GraphNodeId) =
+        (nodeId: GraphNodeId)
+        : Result<GraphNodeId list, SemanticQueryError> =
         getFunction snapshot functionId
         |> Result.bind (fun functionEntity ->
-            ValueGraph.collectNodes functionEntity.Body
-            |> List.tryFind (fun node -> node.Id = nodeId)
-            |> Result.ofOption (SemanticQueryError.NodeNotFound(functionId, nodeId))
-            |> Result.map (fun node ->
+            match ValueGraph.collectNodes functionEntity.Body |> List.tryFind (fun node -> node.Id = nodeId) with
+            | None -> Error(SemanticQueryError.NodeNotFound(functionId, nodeId))
+            | Some node ->
                 SemanticFacts.directValueDependencies node
                 |> List.distinct
-                |> List.sortBy StableId.value))
+                |> List.sortBy StableId.value
+                |> Ok)
 
     let getUses
         (snapshot: Snapshot)
         (functionId: FunctionId)
-        (nodeId: GraphNodeId) =
+        (nodeId: GraphNodeId)
+        : Result<GraphNodeId list, SemanticQueryError> =
         getFunction snapshot functionId
         |> Result.bind (fun functionEntity ->
             let nodes = ValueGraph.collectNodes functionEntity.Body
@@ -207,7 +224,11 @@ module SemanticQuery =
                 |> List.filter (fun effect -> Set.contains effect.Id ids)
                 |> List.sortBy (fun effect -> StableId.value effect.Id)
 
-            match getCallers snapshot functionId, getCallees snapshot functionId, getOpenObligations snapshot functionId with
+            match
+                getCallers snapshot functionId,
+                getCallees snapshot functionId,
+                getOpenObligations snapshot functionId
+            with
             | Ok callers, Ok callees, Ok obligations ->
                 Ok
                     { SnapshotId = snapshot.Id
