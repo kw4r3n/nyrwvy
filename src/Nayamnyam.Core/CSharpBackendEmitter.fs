@@ -286,12 +286,13 @@ module CSharpBackend =
         writer.Line("{")
         writer.Push()
 
-        let parameterValueIds =
+        let parameterValues =
             functionEntity.Parameters
-            |> List.map (fun parameter -> parameter.Value.Id)
-            |> Set.ofList
+            |> List.map (fun parameter -> parameter.Value)
 
-        let allExecutionValues =
+        let parameterValueIds = parameterValues |> List.map (fun value -> value.Id) |> Set.ofList
+
+        let bodyValues =
             functionEntity.Blocks
             |> List.collect (fun block ->
                 block.Parameters
@@ -300,12 +301,16 @@ module CSharpBackend =
             |> List.distinctBy (fun value -> value.Id)
             |> List.sortBy (fun value -> ExecutionValueId.value value.Id)
 
+        let allExecutionValues =
+            parameterValues @ bodyValues
+            |> List.distinctBy (fun value -> value.Id)
+            |> List.sortBy (fun value -> ExecutionValueId.value value.Id)
+
         for value in allExecutionValues do
             writer.Line(formatType value.Type + " " + valueName value.Id + " = default!;")
 
         let valueTypes =
-            (functionEntity.Parameters |> List.map (fun parameter -> parameter.Value))
-            @ allExecutionValues
+            allExecutionValues
             |> List.map (fun value -> value.Id, value.Type)
             |> Map.ofList
 
