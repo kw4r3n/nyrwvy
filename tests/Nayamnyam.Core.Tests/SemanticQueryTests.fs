@@ -27,6 +27,13 @@ module SemanticQueryTests =
         if not (List.isEmpty focus.Callees) then
             failwithf "validate_user unexpectedly has direct callees: %A" focus.Callees
 
+        if
+            focus.RelatedFunctionSignatures
+            |> List.exists (fun signature -> signature.FunctionId = fixture.MainFunctionId)
+            |> not
+        then
+            failwith "Focus view omitted the direct caller signature."
+
         let nodeIds =
             ValueGraph.collectNodes focus.Function.Body
             |> List.map (fun node -> node.Id)
@@ -131,3 +138,88 @@ module SemanticQueryTests =
         | Error(SemanticQueryError.NodeNotFound(functionId, nodeId))
             when functionId = fixture.MainFunctionId && nodeId = missingNodeId -> ()
         | result -> failwithf "Expected NodeNotFound, got %A" result
+
+    [<Fact>]
+    let ``focus declaration closure follows transitive field type references`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let innerTypeId = StableId.createForTesting<TypeTag> "type-query-inner"
+        let outerTypeId = StableId.createForTesting<TypeTag> "type-query-outer"
+        let innerFieldId = StableId.createForTesting<FieldTag> "field-query-inner"
+        let outerParameterId = StableId.createForTesting<ParameterTag> "parameter-query-outer"
+
+        let innerType: SemanticType =
+            { Id = innerTypeId
+              DisplayName = "QueryInner"
+              Kind = SemanticTypeKind.Product [] }
+
+        let outerType: SemanticType =
+            { Id = outerTypeId
+              DisplayName = "QueryOuter"
+              Kind =
+                SemanticTypeKind.Product
+                    [ { Id = innerFieldId
+                        DisplayName = "inner"
+                        Type = TypeRef.Named innerTypeId } ] }
+
+        let functions =
+            fixture.Snapshot.Functions
+            |> List.map (fun functionEntity ->
+                if functionEntity.Id <> fixture.MainFunctionId then
+                    functionEntity
+                else
+                    { functionEntity with
+                        Parameters =
+                            functionEntity.Parameters
+                            @ [ { Id = outerParameterId
+                                  DisplayName = "outer"
+                                  Type = TypeRef.Named outerTypeId } ] })
+
+        let snapshot =
+            { fixture.Snapshot with
+                Types = fixture.Snapshot.Types @ [ innerType; outerType ]
+                Functions = functions }
+
+        let focus = SemanticQuery.focusFunction snapshot fixture.MainFunctionId |> unwrap
+        let typeIds = focus.ReferencedTypes |> List.map (fun item -> item.Id) |> Set.ofList
+
+        if not (Set.contains outerTypeId typeIds && Set.contains innerTypeId typeIds) then
+            failwithf "Transitive type closure is incomplete: %A" focus.ReferencedTypes
+
+        if not (List.isEmpty focus.MissingTypeIds) then
+            failwithf "Valid declaration closure reported missing types: %A" focus.MissingTypeIds
+
+    [<Fact>]
+    let ``focus view exposes unresolved declaration references without guessing`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let missingTypeId = StableId.createForTesting<TypeTag> "type-query-unresolved"
+        let missingCapabilityId = StableId.createForTesting<CapabilityTag> "capability-query-unresolved"
+        let missingEffectId = StableId.createForTesting<EffectTag> "effect-query-unresolved"
+        let typeParameterId = StableId.createForTesting<ParameterTag> "parameter-query-unresolved-type"
+        let capabilityParameterId = StableId.createForTesting<ParameterTag> "parameter-query-unresolved-capability"
+
+        let functions =
+            fixture.Snapshot.Functions
+            |> List.map (fun functionEntity ->
+                if functionEntity.Id <> fixture.MainFunctionId then
+                    functionEntity
+                else
+                    { functionEntity with
+                        Parameters =
+                            functionEntity.Parameters
+                            @ [ { Id = typeParameterId
+                                  DisplayName = "unresolved_type"
+                                  Type = TypeRef.Named missingTypeId }
+                                { Id = capabilityParameterId
+                                  DisplayName = "unresolved_capability"
+                                  Type = TypeRef.Capability missingCapabilityId } ]
+                        RequiredEffects = functionEntity.RequiredEffects @ [ missingEffectId ] })
+
+        let snapshot = { fixture.Snapshot with Functions = functions }
+        let focus = SemanticQuery.focusFunction snapshot fixture.MainFunctionId |> unwrap
+
+        if focus.MissingTypeIds <> [ missingTypeId ] then
+            failwithf "Missing type reference was not explicit: %A" focus.MissingTypeIds
+        if focus.MissingCapabilityIds <> [ missingCapabilityId ] then
+            failwithf "Missing capability reference was not explicit: %A" focus.MissingCapabilityIds
+        if focus.MissingEffectIds <> [ missingEffectId ] then
+            failwithf "Missing effect reference was not explicit: %A" focus.MissingEffectIds
