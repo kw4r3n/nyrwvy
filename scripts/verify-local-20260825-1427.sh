@@ -30,7 +30,8 @@ The script requires a .NET 10 SDK and runs:
   7. SemanticQueryTests explicitly (at least 7 passing tests)
   8. ChangeReviewQueryTests explicitly (at least 3 passing tests)
   9. ViewerTests explicitly (at least 6 passing tests)
- 10. the JSON/Nyason comparison report produced by the test suite
+ 10. ViewerArtifactTests explicitly (at least 6 passing tests, including CLI file export)
+ 11. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -191,6 +192,12 @@ run_required_filter \
   "FullyQualifiedName~ViewerTests" \
   6 \
   "phase-l-viewer.trx"
+
+run_required_filter \
+  "Phase M viewer artifact export tests" \
+  "FullyQualifiedName~ViewerArtifactTests" \
+  6 \
+  "phase-m-viewer-artifact.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then

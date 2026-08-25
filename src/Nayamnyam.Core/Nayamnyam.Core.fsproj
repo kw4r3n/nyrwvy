@@ -27,5 +27,6 @@
     <Compile Include="ChangeReviewQuery.fs" />
     <Compile Include="ViewerModel.fs" />
     <Compile Include="ViewerHtml.fs" />
+    <Compile Include="ViewerArtifact.fs" />
   </ItemGroup>
 </Project>
