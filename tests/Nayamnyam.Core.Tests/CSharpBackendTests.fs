@@ -39,14 +39,14 @@ module CSharpBackendTests =
         for argument in arguments do
             startInfo.ArgumentList.Add(argument)
 
-        use process = Process.Start(startInfo)
-        if isNull process then
+        use childProcess = Process.Start(startInfo)
+        if isNull childProcess then
             failwith "Failed to start dotnet process."
 
-        let stdoutTask = process.StandardOutput.ReadToEndAsync()
-        let stderrTask = process.StandardError.ReadToEndAsync()
-        process.WaitForExit()
-        process.ExitCode, stdoutTask.Result, stderrTask.Result
+        let stdoutTask = childProcess.StandardOutput.ReadToEndAsync()
+        let stderrTask = childProcess.StandardError.ReadToEndAsync()
+        childProcess.WaitForExit()
+        childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
 
     let private buildHarness (fixture: MilestoneZeroFixture) =
         let rawTypeId = StableId.createForTesting<TypeTag> "type-raw-user-input"
