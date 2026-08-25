@@ -29,19 +29,25 @@ let private parseOptions
     (allowed: Set<string>)
     (arguments: string list)
     : Result<Map<string, string>, string> =
-    let rec loop values remaining =
+    let rec loop
+        (values: Map<string, string>)
+        (remaining: string list)
+        : Result<Map<string, string>, string> =
         match remaining with
         | [] -> Ok values
-        | [ key ] when key.StartsWith("--", StringComparison.Ordinal) ->
-            Error $"Option '{key}' is missing its value."
-        | key :: _ when not (key.StartsWith("--", StringComparison.Ordinal)) ->
-            Error $"Unexpected positional argument '{key}'."
-        | key :: _ when not (Set.contains key allowed) ->
-            Error $"Unsupported option '{key}'."
-        | key :: _ when Map.containsKey key values ->
-            Error $"Duplicate option '{key}'."
+        | [ key ] ->
+            if key.StartsWith("--", StringComparison.Ordinal) then
+                Error $"Option '{key}' is missing its value."
+            else
+                Error $"Unexpected positional argument '{key}'."
         | key :: value :: rest ->
-            if value.StartsWith("--", StringComparison.Ordinal) then
+            if not (key.StartsWith("--", StringComparison.Ordinal)) then
+                Error $"Unexpected positional argument '{key}'."
+            elif not (Set.contains key allowed) then
+                Error $"Unsupported option '{key}'."
+            elif Map.containsKey key values then
+                Error $"Duplicate option '{key}'."
+            elif value.StartsWith("--", StringComparison.Ordinal) then
                 Error $"Option '{key}' is missing its value."
             else
                 loop (Map.add key value values) rest
