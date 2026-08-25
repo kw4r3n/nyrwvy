@@ -2,29 +2,43 @@
 
 ## Status
 
-**Implementation complete; final canonical-codec verification may be completed locally when GitHub Actions capacity is unavailable.**
+**Verified through a clean local compiler/test boundary because GitHub Actions capacity was unavailable.**
 
-The execution lowering itself has already crossed the real compiler/test boundary with .NET SDK `10.0.400`:
-
-```text
-restore:  success
-build:    success, 0 warnings, 0 errors
-tests:    56 passed, 0 failed, 0 skipped
-```
-
-That run includes six Execution IR tests. A later commit added the canonical Execution IR serializer and three serializer invariants. GitHub Actions subsequently began failing before runner assignment (`runner_id = 0`, no steps), so those infrastructure failures are not treated as code failures.
-
-A repository-local fallback is now provided:
+The exact verified branch head was:
 
 ```text
-scripts/verify-local-20260825-1427.sh
+e05f0be3ec62247c1997965a398026cf71c683b6
 ```
 
-Run it with Bash from the repository root. `--clean` removes all `bin/` and `obj/` directories before restore. The script logs branch, HEAD, SDK version, all commands, and results to a timestamped file under `${TMPDIR:-/tmp}/nayamnyam-verification/`.
+Verification environment and result:
 
-The local verification is intentionally stronger than the current CI job: after the full test suite it explicitly re-runs both `ExecutionIrTests` and `ExecutionIrCodecTests` by fully-qualified-name filter. This prevents a missing F# project `<Compile Include=...>` entry from appearing as a false-green full suite.
+```text
+.NET SDK: 10.0.111
+clean:     bin/ and obj/ removed before restore
+restore:   success
+build:     success, 0 warnings, 0 errors
+full test: 59 passed, 0 failed, 0 skipped
+ExecutionIrTests:      6 passed, 0 failed, 0 skipped
+ExecutionIrCodecTests: 3 passed, 0 failed, 0 skipped
+```
 
-A successful local run with .NET 10.0.x is accepted as the Phase I compiler/test boundary when GitHub Actions cannot allocate a runner. Record the reported HEAD SHA and log path before merging Phase I.
+The run used:
+
+```text
+scripts/verify-local-20260825-1427.sh --clean
+```
+
+The script mirrors CI and then explicitly re-runs `ExecutionIrTests` and `ExecutionIrCodecTests` by fully-qualified-name filter. This prevents a missing F# project `<Compile Include=...>` entry from appearing as a false-green full suite.
+
+The same run also reproduced the current persistence comparison baseline:
+
+```text
+json-bytes=8440
+nyason-bytes=16205
+nyason-to-json-byte-ratio=1.920
+```
+
+GitHub Actions runs immediately before this local verification were failing before useful job execution because repository Actions capacity was exhausted. Those infrastructure failures are not treated as code failures; the clean local run above is the accepted Phase I evidence.
 
 ## Purpose
 
@@ -200,7 +214,7 @@ Canonicalization rules distinguish semantic from non-semantic order:
 
 Instruction order is executable meaning. The serializer must never canonicalize it away.
 
-The serializer tests require:
+The serializer tests require and now verify:
 
 1. serializing one `ExecutionProgram` repeatedly produces identical bytes;
 2. reordering non-semantic entity/block collections produces identical bytes;
@@ -245,7 +259,7 @@ Those are backend or later-language questions.
 
 ## Next gate
 
-After one successful final local or CI verification of the codec tree, Phase I can be squashed into `rebuild/fsharp-m0-20260825`.
+Phase I is ready to be squashed into `rebuild/fsharp-m0-20260825`.
 
 The next phase is the first C#/.NET backend slice. Its hard boundary is:
 
