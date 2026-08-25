@@ -115,11 +115,17 @@ module ExecutionIrTests =
         let values =
             execution.Functions
             |> List.collect (fun functionEntity ->
-                functionEntity.Parameters |> List.map (fun parameter -> parameter.Value)
-                @ (functionEntity.Blocks
-                   |> List.collect (fun block ->
-                       block.Parameters
-                       @ (block.Instructions |> List.map (fun instruction -> instruction.Result)))) )
+                let parameterValues =
+                    functionEntity.Parameters
+                    |> List.map (fun parameter -> parameter.Value)
+                let blockValues =
+                    functionEntity.Blocks
+                    |> List.collect (fun block ->
+                        let instructionValues =
+                            block.Instructions
+                            |> List.map (fun instruction -> instruction.Result)
+                        block.Parameters @ instructionValues)
+                parameterValues @ blockValues)
 
         Assert.Contains(values, fun value -> value.Origin = ExecutionOrigin.SemanticNode fixture.MainValidateCallNodeId)
         Assert.Contains(
