@@ -23,6 +23,7 @@
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />
     <Compile Include="ChangeReviewQueryTests.fs" />
+    <Compile Include="ViewerTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
