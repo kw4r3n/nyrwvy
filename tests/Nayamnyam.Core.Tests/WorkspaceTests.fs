@@ -4,14 +4,20 @@ open Nayamnyam.Core
 open Xunit
 
 module WorkspaceTests =
-    let private createWorkspace fixture =
+    let private createWorkspace (fixture: MilestoneZeroFixture) =
         match SemanticWorkspace.create fixture.Snapshot with
         | Ok workspace -> workspace
         | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
 
     let private current workspace = SemanticWorkspace.currentSnapshot workspace
 
-    let private renameRequest fixture baseId transactionText snapshotText newName: TransactionRequest =
+    let private renameRequest
+        (fixture: MilestoneZeroFixture)
+        (baseId: SnapshotId)
+        (transactionText: string)
+        (snapshotText: string)
+        (newName: string)
+        : TransactionRequest =
         { Id = StableId.createForTesting<TransactionTag> transactionText
           BaseSnapshotId = baseId
           ProposedSnapshotId = StableId.createForTesting<SnapshotTag> snapshotText
@@ -21,7 +27,14 @@ module WorkspaceTests =
                 newName
               ) ] }
 
-    let private incompleteParameterRequest fixture baseId transactionText snapshotText parameterId obligationId: TransactionRequest =
+    let private incompleteParameterRequest
+        (fixture: MilestoneZeroFixture)
+        (baseId: SnapshotId)
+        (transactionText: string)
+        (snapshotText: string)
+        (parameterId: ParameterId)
+        (obligationId: ObligationId)
+        : TransactionRequest =
         { Id = StableId.createForTesting<TransactionTag> transactionText
           BaseSnapshotId = baseId
           ProposedSnapshotId = StableId.createForTesting<SnapshotTag> snapshotText
@@ -34,14 +47,14 @@ module WorkspaceTests =
                   CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
     [<Fact>]
-    let ``workspace preview classifies an executable transaction without publishing it`` () =
+    let ``workspace preview classifies a semantically ready transaction without publishing it`` () =
         let fixture = MilestoneZeroGraph.create ()
         let workspace = createWorkspace fixture
         let request = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-preview" "snapshot-workspace-preview" "validate_profile"
 
         match SemanticWorkspace.simulate workspace request with
         | WorkspaceSimulationResult.Preview preview ->
-            if preview.Readiness <> TransactionReadiness.Executable then
+            if preview.Readiness <> TransactionReadiness.SemanticallyReady then
                 failwithf "Unexpected preview readiness: %A" preview.Readiness
             if current workspace <> fixture.Snapshot then
                 failwith "Preview changed the authoritative current snapshot."
@@ -61,7 +74,7 @@ module WorkspaceTests =
             | WorkspaceSimulationResult.Preview value -> value
             | WorkspaceSimulationResult.Rejected diagnostics -> failwithf "Unexpected preview rejection: %A" diagnostics
 
-        match SemanticWorkspace.commit workspace request CommitPolicy.RequireExecutable with
+        match SemanticWorkspace.commit workspace request CommitPolicy.RejectBlockingObligations with
         | WorkspaceCommitResult.Committed(nextWorkspace, publication) ->
             if current nextWorkspace <> preview.Simulation.ProposedSnapshot then
                 failwith "Commit did not publish the exact revalidated preview snapshot."
@@ -89,12 +102,12 @@ module WorkspaceTests =
         let firstRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-first" "snapshot-workspace-first" "validate_profile"
 
         let advanced =
-            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RequireExecutable with
+            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RejectBlockingObligations with
             | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
             | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Unexpected first commit rejection: %A" diagnostics
 
         let staleRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-stale" "snapshot-workspace-stale" "validate_again"
-        match SemanticWorkspace.commit advanced staleRequest CommitPolicy.RequireExecutable with
+        match SemanticWorkspace.commit advanced staleRequest CommitPolicy.RejectBlockingObligations with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "StaleBaseSnapshot" -> ()
         | result -> failwithf "Expected stale-base rejection, got %A" result
 
@@ -113,7 +126,7 @@ module WorkspaceTests =
         | WorkspaceSimulationResult.Preview preview when preview.Readiness = TransactionReadiness.Incomplete [ obligationId ] -> ()
         | result -> failwithf "Unexpected incomplete preview result: %A" result
 
-        match SemanticWorkspace.commit workspace request CommitPolicy.RequireExecutable with
+        match SemanticWorkspace.commit workspace request CommitPolicy.RejectBlockingObligations with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "BlockingObligations" -> ()
         | result -> failwithf "Expected conservative blocking-obligation rejection, got %A" result
 
@@ -128,7 +141,7 @@ module WorkspaceTests =
         | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Explicit incomplete commit was unexpectedly rejected: %A" diagnostics
 
     [<Fact>]
-    let ``resolving a published obligation restores executable workspace state`` () =
+    let ``resolving a published obligation restores semantic readiness`` () =
         let fixture = MilestoneZeroGraph.create ()
         let workspace = createWorkspace fixture
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-workspace-resolve-policy"
@@ -149,10 +162,10 @@ module WorkspaceTests =
                     { TargetObligationId = obligationId
                       ResolutionValueNodeId = fixture.MainPolicyNodeId } ] }
 
-        match SemanticWorkspace.commit incompleteWorkspace resolveRequest CommitPolicy.RequireExecutable with
+        match SemanticWorkspace.commit incompleteWorkspace resolveRequest CommitPolicy.RejectBlockingObligations with
         | WorkspaceCommitResult.Committed(resolvedWorkspace, publication) ->
-            if publication.Readiness <> TransactionReadiness.Executable then
-                failwithf "Resolved publication is not executable: %A" publication.Readiness
+            if publication.Readiness <> TransactionReadiness.SemanticallyReady then
+                failwithf "Resolved publication is not semantically ready: %A" publication.Readiness
             match SnapshotReadiness.evaluate (current resolvedWorkspace) with
             | Ok SemanticReadiness.Complete -> ()
             | readiness -> failwithf "Resolved current snapshot is not semantically complete: %A" readiness
@@ -165,7 +178,7 @@ module WorkspaceTests =
         let firstRequest = renameRequest fixture fixture.Snapshot.Id "transaction-workspace-history-first" "snapshot-workspace-history-first" "validate_profile"
 
         let advanced =
-            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RequireExecutable with
+            match SemanticWorkspace.commit workspace firstRequest CommitPolicy.RejectBlockingObligations with
             | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
             | WorkspaceCommitResult.Rejected diagnostics -> failwithf "Unexpected first commit rejection: %A" diagnostics
 
@@ -179,6 +192,6 @@ module WorkspaceTests =
                     "report_again"
                   ) ] }
 
-        match SemanticWorkspace.commit advanced reuseRequest CommitPolicy.RequireExecutable with
+        match SemanticWorkspace.commit advanced reuseRequest CommitPolicy.RejectBlockingObligations with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "SnapshotAlreadyPublished" -> ()
         | result -> failwithf "Expected published-snapshot ID reuse rejection, got %A" result
