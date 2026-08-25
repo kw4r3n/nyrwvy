@@ -100,16 +100,18 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         let fixture, execution = lowerRepresentative ()
         match CSharpBackend.emit execution CSharpBackendProfile.empty with
         | Error(CSharpBackendError.MissingCapabilityBinding operationId) ->
-            Assert.Equal(fixture.ConsoleWriteLineOperationId, operationId)
+            if operationId <> fixture.ConsoleWriteLineOperationId then
+                failwithf "Expected missing binding for %A, got %A" fixture.ConsoleWriteLineOperationId operationId
         | result -> failwithf "Expected MissingCapabilityBinding, got %A" result
 
     [<Fact>]
     let ``generated C# does not recover semantic identity from display names`` () =
         let _, _, artifact = emitRepresentative ()
-        Assert.DoesNotContain("validate_user", artifact.Source)
-        Assert.DoesNotContain("report_validation", artifact.Source)
-        Assert.DoesNotContain("RawUserInput", artifact.Source)
-        Assert.Contains("NyFunctions", artifact.Source)
+        for forbidden in [ "validate_user"; "report_validation"; "RawUserInput" ] do
+            if artifact.Source.Contains(forbidden, StringComparison.Ordinal) then
+                failwithf "Generated C# unexpectedly contains semantic display name '%s'." forbidden
+        if not (artifact.Source.Contains("NyFunctions", StringComparison.Ordinal)) then
+            failwith "Generated C# does not contain the expected generated function container."
 
     [<Fact>]
     let ``generated C# compiles and runs the representative M0 behavior`` () =
@@ -145,7 +147,9 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
                 failwithf "Generated C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
 
             let normalized = runOut.Replace("\r\n", "\n").Trim()
-            Assert.Equal("valid user\nempty name\ninvalid email", normalized)
+            let expected = "valid user\nempty name\ninvalid email"
+            if normalized <> expected then
+                failwithf "Unexpected generated program output. Expected:\n%s\nActual:\n%s" expected normalized
         finally
             if Directory.Exists(tempRoot) then
                 Directory.Delete(tempRoot, true)
