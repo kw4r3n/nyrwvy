@@ -10,10 +10,9 @@ type CommitPolicy =
     | RejectBlockingObligations
     | AllowBlockingObligations
 
-type WorkspaceState =
-    private
-        { CurrentSnapshot: Snapshot
-          PreviousSnapshots: Snapshot list }
+type WorkspaceState = private
+    { CurrentSnapshot: Snapshot
+      PreviousSnapshots: Snapshot list }
 
 type WorkspacePreview =
     { Simulation: TransactionSimulation
@@ -125,7 +124,7 @@ module SemanticWorkspace =
 
         nextWorkspace, publication
 
-    let commit
+    let commitWithPolicy
         (workspace: WorkspaceState)
         (request: TransactionRequest)
         (policy: CommitPolicy)
@@ -156,6 +155,12 @@ module SemanticWorkspace =
                         [ diagnostic
                             "BlockingObligations"
                             $"The proposed snapshot has blocking obligations: {ids}. Use AllowBlockingObligations explicitly to publish it." ]
+
+    let commit
+        (workspace: WorkspaceState)
+        (request: TransactionRequest)
+        : WorkspaceCommitResult =
+        commitWithPolicy workspace request CommitPolicy.RejectBlockingObligations
 
     let reject
         (workspace: WorkspaceState)
