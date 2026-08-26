@@ -1,6 +1,7 @@
 namespace Nayamnyam.Core
 
 open System
+open System.Globalization
 
 [<RequireQualifiedAccess>]
 type NyasonCodecError =
@@ -14,13 +15,14 @@ exception private NyasonSchemaException of string
 
 [<RequireQualifiedAccess>]
 module NyasonCodec =
-    let schemaId = "nayamnyam.snapshot.v0"
+    let schemaId = "nayamnyam.snapshot.v1"
 
     let private shape message = raise (NyasonShapeException message)
 
     let private record tag fields = NyasonValue.Record(tag, fields)
     let private list values = NyasonValue.List values
     let private text value = NyasonValue.Text value
+    let private atom value = NyasonValue.Atom value
 
     let private encodeId prefix id =
         NyasonValue.Atom(prefix + ":" + Uri.EscapeDataString(StableId.value id))
@@ -86,6 +88,14 @@ module NyasonCodec =
         | NyasonValue.Boolean value -> value
         | _ -> shape "Expected boolean value."
 
+    let private decodeInt64 value =
+        match value with
+        | NyasonValue.Atom encoded ->
+            match Int64.TryParse(encoded, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+            | true, number -> number
+            | false, _ -> shape $"Expected signed 64-bit integer atom, got '{encoded}'."
+        | _ -> shape "Expected signed 64-bit integer atom."
+
     let private decodeList decoder value =
         match value with
         | NyasonValue.List values -> values |> List.map decoder
@@ -96,6 +106,7 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.String -> record "primitive-string" []
         | TypeRef.Primitive PrimitiveType.Bool -> record "primitive-bool" []
         | TypeRef.Primitive PrimitiveType.Unit -> record "primitive-unit" []
+        | TypeRef.Primitive PrimitiveType.Int64 -> record "primitive-int64" []
         | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
         | TypeRef.Capability capabilityId ->
             record "capability-type" [ "capability", encodeId "capability" capabilityId ]
@@ -119,6 +130,9 @@ module NyasonCodec =
         | NyasonValue.Record("primitive-unit", _) ->
             recordFields "primitive-unit" [] [] value |> ignore
             TypeRef.Primitive PrimitiveType.Unit
+        | NyasonValue.Record("primitive-int64", _) ->
+            recordFields "primitive-int64" [] [] value |> ignore
+            TypeRef.Primitive PrimitiveType.Int64
         | NyasonValue.Record("named-type", _) ->
             let fields = recordFields "named-type" [ "id" ] [] value
             TypeRef.Named(decodeId<TypeTag> "type" (require "id" fields))
@@ -365,6 +379,13 @@ module NyasonCodec =
     and private encodeErrorArm (arm: ErrorMatchArm) =
         record "error-arm" [ "binding", encodePatternBinding arm.ErrorBinding; "body", encodeGraph arm.Body ]
 
+    and private encodeBinaryInt64Node tag nodeId leftNodeId rightNodeId =
+        record
+            tag
+            [ nodeId
+              "left", encodeId "node" leftNodeId
+              "right", encodeId "node" rightNodeId ]
+
     and private encodeNode (node: SemanticNode) =
         let nodeId = "id", encodeId "node" node.Id
         match node.Kind with
@@ -375,6 +396,8 @@ module NyasonCodec =
         | SemanticNodeKind.StringLiteral value -> record "string-literal" [ nodeId; "value", text value ]
         | SemanticNodeKind.BoolLiteral value -> record "bool-literal" [ nodeId; "value", NyasonValue.Boolean value ]
         | SemanticNodeKind.UnitLiteral -> record "unit-literal" [ nodeId ]
+        | SemanticNodeKind.Int64Literal value ->
+            record "int64-literal" [ nodeId; "value", atom (value.ToString(CultureInfo.InvariantCulture)) ]
         | SemanticNodeKind.StringIsEmpty valueNodeId ->
             record "string-is-empty" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
@@ -383,6 +406,22 @@ module NyasonCodec =
                 [ nodeId
                   "value", encodeId "node" valueNodeId
                   "substring", encodeId "node" substringNodeId ]
+        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-wrapping-add" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-wrapping-subtract" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-wrapping-multiply" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-equal" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-less-than" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-less-than-or-equal" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-greater-than" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            encodeBinaryInt64Node "int64-greater-than-or-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             record
                 "direct-call"
@@ -493,6 +532,14 @@ module NyasonCodec =
         { ErrorBinding = decodePatternBinding (require "binding" fields)
           Body = decodeGraph (require "body" fields) }
 
+    and private decodeBinaryInt64Node tag value constructor =
+        let fields = recordFields tag [ "id"; "left"; "right" ] [] value
+        { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+          Kind =
+            constructor
+                (decodeId<GraphNodeTag> "node" (require "left" fields))
+                (decodeId<GraphNodeTag> "node" (require "right" fields)) }
+
     and private decodeNode value: SemanticNode =
         match value with
         | NyasonValue.Record("parameter-reference", _) ->
@@ -515,6 +562,10 @@ module NyasonCodec =
             let fields = recordFields "unit-literal" [ "id" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.UnitLiteral }
+        | NyasonValue.Record("int64-literal", _) ->
+            let fields = recordFields "int64-literal" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Int64Literal(decodeInt64 (require "value" fields)) }
         | NyasonValue.Record("string-is-empty", _) ->
             let fields = recordFields "string-is-empty" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -527,6 +578,22 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "value" fields),
                     decodeId<GraphNodeTag> "node" (require "substring" fields)
                 ) }
+        | NyasonValue.Record("int64-wrapping-add", _) ->
+            decodeBinaryInt64Node "int64-wrapping-add" value (fun left right -> SemanticNodeKind.Int64WrappingAdd(left, right))
+        | NyasonValue.Record("int64-wrapping-subtract", _) ->
+            decodeBinaryInt64Node "int64-wrapping-subtract" value (fun left right -> SemanticNodeKind.Int64WrappingSubtract(left, right))
+        | NyasonValue.Record("int64-wrapping-multiply", _) ->
+            decodeBinaryInt64Node "int64-wrapping-multiply" value (fun left right -> SemanticNodeKind.Int64WrappingMultiply(left, right))
+        | NyasonValue.Record("int64-equal", _) ->
+            decodeBinaryInt64Node "int64-equal" value (fun left right -> SemanticNodeKind.Int64Equal(left, right))
+        | NyasonValue.Record("int64-less-than", _) ->
+            decodeBinaryInt64Node "int64-less-than" value (fun left right -> SemanticNodeKind.Int64LessThan(left, right))
+        | NyasonValue.Record("int64-less-than-or-equal", _) ->
+            decodeBinaryInt64Node "int64-less-than-or-equal" value (fun left right -> SemanticNodeKind.Int64LessThanOrEqual(left, right))
+        | NyasonValue.Record("int64-greater-than", _) ->
+            decodeBinaryInt64Node "int64-greater-than" value (fun left right -> SemanticNodeKind.Int64GreaterThan(left, right))
+        | NyasonValue.Record("int64-greater-than-or-equal", _) ->
+            decodeBinaryInt64Node "int64-greater-than-or-equal" value (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
         | NyasonValue.Record("direct-call", _) ->
             let fields = recordFields "direct-call" [ "id"; "target-function"; "arguments" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
