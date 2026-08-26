@@ -31,7 +31,7 @@ Required outcomes:
 7. Change Review distinguishes requested operation intent from resulting semantic diff;
 8. implementation assemblies are separated along the accepted semantic / execution / backend / viewer dependency directions.
 
-The UUIDv7 allocator and fingerprint / preview-receipt boundaries are already verified on the rebuild branch. The agent facade must be locally verified before it is merged.
+The UUIDv7 allocator, fingerprint / preview-receipt boundaries, and agent workflow facade are now locally verified on the rebuild line. The remaining M1.1 infrastructure gate is primarily the physical project/assembly split that turns the dependency direction from convention into a build-enforced boundary.
 
 ### M1.2 — Language growth
 
