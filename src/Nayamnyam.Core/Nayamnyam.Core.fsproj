@@ -28,6 +28,7 @@
     <Compile Include="Transactions.fs" />
     <Compile Include="Workspace.fs" />
     <Compile Include="ChangeReviewQuery.fs" />
+    <Compile Include="AgentWorkflow.fs" />
     <Compile Include="ViewerModel.fs" />
     <Compile Include="ViewerHtml.fs" />
     <Compile Include="ViewerArtifact.fs" />
