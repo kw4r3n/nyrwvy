@@ -17,6 +17,7 @@ module SnapshotValidator =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
@@ -28,8 +29,12 @@ module SnapshotValidator =
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -62,8 +67,12 @@ module SnapshotValidator =
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -85,6 +94,7 @@ module SnapshotValidator =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
     let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>): bool =
@@ -304,6 +314,12 @@ module SnapshotValidator =
                         "BuiltinGenericArityMismatch"
                         $"{context} uses Result with {arguments.Length} type arguments; exactly 2 are required."
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+                if arguments.Length <> 1 then
+                    add
+                        "BuiltinGenericArityMismatch"
+                        $"{context} uses List with {arguments.Length} type arguments; exactly 1 is required."
+                arguments |> List.iter (validateTypeRef context)
 
         for typeEntity in snapshot.Types do
             match typeEntity.Kind with
@@ -489,6 +505,64 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                         requireInt64Operands node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.ListEmpty itemType ->
+                        validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
+                    | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+                        validateTypeRef $"ListConstruct node '{StableId.value node.Id}' item type" itemType
+                        for itemNodeId in itemNodeIds do
+                            requireNodeType
+                                "ListConstructItemTypeMismatch"
+                                $"ListConstruct node '{StableId.value node.Id}' contains an item whose type does not match its declared item type."
+                                itemType
+                                itemNodeId
+                    | SemanticNodeKind.ListLength listNodeId ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])) -> ()
+                        | Some _ ->
+                            add
+                                "ListLengthInputTypeMismatch"
+                                $"ListLength node '{StableId.value node.Id}' requires List<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            match nodeType itemNodeId with
+                            | Some actualItemType when actualItemType <> itemType ->
+                                add
+                                    "ListAppendItemTypeMismatch"
+                                    $"ListAppendItem node '{StableId.value node.Id}' item does not match the list item type."
+                            | Some _
+                            | None -> ()
+                        | Some _ ->
+                            add
+                                "ListAppendListTypeMismatch"
+                                $"ListAppendItem node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                    | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+                        match nodeType leftListNodeId, nodeType rightListNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ])),
+                          Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ])) ->
+                            if leftItemType <> rightItemType then
+                                add
+                                    "ListConcatItemTypeMismatch"
+                                    $"ListConcat node '{StableId.value node.Id}' requires both lists to have the same item type."
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some _ ->
+                            add
+                                "ListConcatRightTypeMismatch"
+                                $"ListConcat node '{StableId.value node.Id}' requires List<T> as its right input."
+                        | Some _, Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])) ->
+                            add
+                                "ListConcatLeftTypeMismatch"
+                                $"ListConcat node '{StableId.value node.Id}' requires List<T> as its left input."
+                        | Some _, Some _ ->
+                            add
+                                "ListConcatLeftTypeMismatch"
+                                $"ListConcat node '{StableId.value node.Id}' requires List<T> as its left input."
+                            add
+                                "ListConcatRightTypeMismatch"
+                                $"ListConcat node '{StableId.value node.Id}' requires List<T> as its right input."
+                        | None, _
+                        | _, None -> ()
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
@@ -879,6 +953,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.ListConstruct _
+                | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListAppendItem _
+                | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
