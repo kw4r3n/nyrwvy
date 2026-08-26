@@ -12,6 +12,15 @@ module SemanticFacts =
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -32,6 +41,7 @@ module SemanticFacts =
         | SemanticNodeKind.StringLiteral _
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.OptionNone _ -> []
 
     let rec collectPatternBindings (graph: ValueGraph): PatternBinding list =
@@ -57,8 +67,17 @@ module SemanticFacts =
             | SemanticNodeKind.StringLiteral _
             | SemanticNodeKind.BoolLiteral _
             | SemanticNodeKind.UnitLiteral
+            | SemanticNodeKind.Int64Literal _
             | SemanticNodeKind.StringIsEmpty _
             | SemanticNodeKind.StringContains _
+            | SemanticNodeKind.Int64WrappingAdd _
+            | SemanticNodeKind.Int64WrappingSubtract _
+            | SemanticNodeKind.Int64WrappingMultiply _
+            | SemanticNodeKind.Int64Equal _
+            | SemanticNodeKind.Int64LessThan _
+            | SemanticNodeKind.Int64LessThanOrEqual _
+            | SemanticNodeKind.Int64GreaterThan _
+            | SemanticNodeKind.Int64GreaterThanOrEqual _
             | SemanticNodeKind.DirectCall _
             | SemanticNodeKind.CapabilityInvoke _
             | SemanticNodeKind.ProductConstruct _
@@ -150,8 +169,18 @@ module SemanticFacts =
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.UnitLiteral ->
                         Some(TypeRef.Primitive PrimitiveType.Unit)
+                    | SemanticNodeKind.Int64Literal _
+                    | SemanticNodeKind.Int64WrappingAdd _
+                    | SemanticNodeKind.Int64WrappingSubtract _
+                    | SemanticNodeKind.Int64WrappingMultiply _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.StringIsEmpty _
-                    | SemanticNodeKind.StringContains _ ->
+                    | SemanticNodeKind.StringContains _
+                    | SemanticNodeKind.Int64Equal _
+                    | SemanticNodeKind.Int64LessThan _
+                    | SemanticNodeKind.Int64LessThanOrEqual _
+                    | SemanticNodeKind.Int64GreaterThan _
+                    | SemanticNodeKind.Int64GreaterThanOrEqual _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
                         Map.tryFind targetFunctionId functionsById

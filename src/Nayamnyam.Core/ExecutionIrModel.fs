@@ -80,8 +80,17 @@ type ExecutionInstructionKind =
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
+    | Int64Literal of int64
     | StringIsEmpty of ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
+    | Int64WrappingAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64WrappingSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64WrappingMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64GreaterThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64GreaterThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list

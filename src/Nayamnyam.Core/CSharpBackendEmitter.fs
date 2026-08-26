@@ -1,6 +1,7 @@
 namespace Nayamnyam.Core
 
 open System
+open System.Globalization
 open System.Text
 
 [<RequireQualifiedAccess>]
@@ -36,11 +37,18 @@ module CSharpBackend =
         builder.Append('"') |> ignore
         builder.ToString()
 
+    let private renderInt64Literal (value: int64) =
+        if value = Int64.MinValue then
+            "long.MinValue"
+        else
+            value.ToString(CultureInfo.InvariantCulture) + "L"
+
     let rec private formatType (typeRef: TypeRef) =
         match typeRef with
         | TypeRef.Primitive PrimitiveType.String -> "string"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
+        | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
@@ -192,6 +200,19 @@ module CSharpBackend =
             + valueName field.ValueId)
         |> String.concat ", "
 
+    let private emitBinaryExpression
+        (writer: SourceWriter)
+        target
+        leftValueId
+        operatorText
+        rightValueId
+        wrap =
+        let expression = valueName leftValueId + " " + operatorText + " " + valueName rightValueId
+        if wrap then
+            writer.Line(target + " = unchecked(" + expression + ");")
+        else
+            writer.Line(target + " = " + expression + ";")
+
     let private emitInstruction (writer: SourceWriter) (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
         match instruction.Kind with
@@ -204,10 +225,28 @@ module CSharpBackend =
             writer.Line(target + " = " + (if value then "true" else "false") + ";")
         | ExecutionInstructionKind.UnitLiteral ->
             writer.Line(target + " = NyUnit.Value;")
+        | ExecutionInstructionKind.Int64Literal value ->
+            writer.Line(target + " = " + renderInt64Literal value + ";")
         | ExecutionInstructionKind.StringIsEmpty sourceValueId ->
             writer.Line(target + " = " + valueName sourceValueId + ".Length == 0;")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
+        | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "+" rightValueId true
+        | ExecutionInstructionKind.Int64WrappingSubtract(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "-" rightValueId true
+        | ExecutionInstructionKind.Int64WrappingMultiply(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "*" rightValueId true
+        | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "==" rightValueId false
+        | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "<" rightValueId false
+        | ExecutionInstructionKind.Int64LessThanOrEqual(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "<=" rightValueId false
+        | ExecutionInstructionKind.Int64GreaterThan(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId ">" rightValueId false
+        | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId ">=" rightValueId false
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")

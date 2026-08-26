@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 1
+    let schemaVersion = 2
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -19,6 +19,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "primitiveBool")
         | TypeRef.Primitive PrimitiveType.Unit ->
             writer.WriteString("kind", "primitiveUnit")
+        | TypeRef.Primitive PrimitiveType.Int64 ->
+            writer.WriteString("kind", "primitiveInt64")
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
@@ -210,6 +212,16 @@ module TypedSemanticIrCodec =
         writeGraph writer arm.Body
         writer.WriteEndObject()
 
+    and private writeBinaryNode
+        (writer: Utf8JsonWriter)
+        (kind: string)
+        (leftNodeId: GraphNodeId)
+        (rightNodeId: GraphNodeId)
+        =
+        writer.WriteString("kind", kind)
+        writer.WriteString("leftNodeId", StableId.value leftNodeId)
+        writer.WriteString("rightNodeId", StableId.value rightNodeId)
+
     and private writeNode (writer: Utf8JsonWriter) (node: TypedSemanticNode) =
         writer.WriteStartObject()
         writer.WriteString("originNodeId", StableId.value node.OriginNodeId)
@@ -231,6 +243,9 @@ module TypedSemanticIrCodec =
             writer.WriteBoolean("value", value)
         | TypedSemanticNodeKind.UnitLiteral ->
             writer.WriteString("kind", "unitLiteral")
+        | TypedSemanticNodeKind.Int64Literal value ->
+            writer.WriteString("kind", "int64Literal")
+            writer.WriteNumber("value", value)
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -238,6 +253,22 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64WrappingAdd" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64WrappingSubtract" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64WrappingMultiply" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64LessThan" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64LessThanOrEqual" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64GreaterThan" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)

@@ -4,12 +4,12 @@ open Nayamnyam.Core
 open Xunit
 
 module ExecutionIrTests =
-    let private typed fixture =
+    let private typed (fixture: MilestoneZeroFixture) =
         match TypedSemanticIr.project fixture.Snapshot with
         | Ok program -> program
         | Error error -> failwithf "Unexpected Typed Semantic IR error: %A" error
 
-    let private lower fixture =
+    let private lower (fixture: MilestoneZeroFixture) =
         match fixture |> typed |> ExecutionIr.lower with
         | Ok program -> program
         | Error error -> failwithf "Unexpected Execution IR error: %A" error

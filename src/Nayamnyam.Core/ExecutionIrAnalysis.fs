@@ -26,9 +26,19 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringLiteral _
         | TypedSemanticNodeKind.BoolLiteral _
         | TypedSemanticNodeKind.UnitLiteral
+        | TypedSemanticNodeKind.Int64Literal _
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
+        | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
             capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
@@ -59,8 +69,17 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringLiteral _
             | TypedSemanticNodeKind.BoolLiteral _
             | TypedSemanticNodeKind.UnitLiteral
+            | TypedSemanticNodeKind.Int64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.StringContains _
+            | TypedSemanticNodeKind.Int64WrappingAdd _
+            | TypedSemanticNodeKind.Int64WrappingSubtract _
+            | TypedSemanticNodeKind.Int64WrappingMultiply _
+            | TypedSemanticNodeKind.Int64Equal _
+            | TypedSemanticNodeKind.Int64LessThan _
+            | TypedSemanticNodeKind.Int64LessThanOrEqual _
+            | TypedSemanticNodeKind.Int64GreaterThan _
+            | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _
@@ -112,8 +131,17 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringLiteral _
         | TypedSemanticNodeKind.BoolLiteral _
         | TypedSemanticNodeKind.UnitLiteral
+        | TypedSemanticNodeKind.Int64Literal _
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.StringContains _
+        | TypedSemanticNodeKind.Int64WrappingAdd _
+        | TypedSemanticNodeKind.Int64WrappingSubtract _
+        | TypedSemanticNodeKind.Int64WrappingMultiply _
+        | TypedSemanticNodeKind.Int64Equal _
+        | TypedSemanticNodeKind.Int64LessThan _
+        | TypedSemanticNodeKind.Int64LessThanOrEqual _
+        | TypedSemanticNodeKind.Int64GreaterThan _
+        | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
         | TypedSemanticNodeKind.ProductConstruct _
         | TypedSemanticNodeKind.FieldAccess _
         | TypedSemanticNodeKind.UnionConstruct _
@@ -200,8 +228,17 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringLiteral _
             | TypedSemanticNodeKind.BoolLiteral _
             | TypedSemanticNodeKind.UnitLiteral
+            | TypedSemanticNodeKind.Int64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.StringContains _
+            | TypedSemanticNodeKind.Int64WrappingAdd _
+            | TypedSemanticNodeKind.Int64WrappingSubtract _
+            | TypedSemanticNodeKind.Int64WrappingMultiply _
+            | TypedSemanticNodeKind.Int64Equal _
+            | TypedSemanticNodeKind.Int64LessThan _
+            | TypedSemanticNodeKind.Int64LessThanOrEqual _
+            | TypedSemanticNodeKind.Int64GreaterThan _
+            | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _

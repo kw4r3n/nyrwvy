@@ -10,7 +10,7 @@ module ViewerTests =
         | Ok value -> value
         | Error error -> failwithf "Unexpected query error: %A" error
 
-    let private focus fixture functionId =
+    let private focus (fixture: MilestoneZeroFixture) functionId =
         SemanticQuery.focusFunction fixture.Snapshot functionId
         |> unwrap
         |> ViewerProjection.focus

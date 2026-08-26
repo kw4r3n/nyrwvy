@@ -202,6 +202,13 @@ module ExecutionIr =
                                 loop (lowered :: acc) rest
                     loop [] arguments
 
+                let lowerBinaryNode node leftNodeId rightNodeId constructor =
+                    match requireNodeValue environment leftNodeId, requireNodeValue environment rightNodeId with
+                    | Ok leftValueId, Ok rightValueId ->
+                        Ok(addInstruction currentBlock node (constructor leftValueId rightValueId))
+                    | Error error, _
+                    | _, Error error -> Error error
+
                 let lowerSimpleNode (node: TypedSemanticNode) =
                     let produced: Result<ExecutionValueId, ExecutionIrError> =
                         match node.Kind with
@@ -220,6 +227,8 @@ module ExecutionIr =
                             Ok(addInstruction currentBlock node (ExecutionInstructionKind.BoolLiteral value))
                         | TypedSemanticNodeKind.UnitLiteral ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.UnitLiteral)
+                        | TypedSemanticNodeKind.Int64Literal value ->
+                            Ok(addInstruction currentBlock node (ExecutionInstructionKind.Int64Literal value))
                         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
@@ -230,6 +239,22 @@ module ExecutionIr =
                                 Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringContains(valueId, substringId)))
                             | Error error, _
                             | _, Error error -> Error error
+                        | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingAdd(left, right))
+                        | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingSubtract(left, right))
+                        | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingMultiply(left, right))
+                        | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Equal(left, right))
+                        | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64LessThan(left, right))
+                        | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64LessThanOrEqual(left, right))
+                        | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThan(left, right))
+                        | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThanOrEqual(left, right))
                         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
                             lowerCallArguments arguments
                             |> Result.map (fun lowered ->
@@ -425,8 +450,17 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringLiteral _
                         | TypedSemanticNodeKind.BoolLiteral _
                         | TypedSemanticNodeKind.UnitLiteral
+                        | TypedSemanticNodeKind.Int64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.StringContains _
+                        | TypedSemanticNodeKind.Int64WrappingAdd _
+                        | TypedSemanticNodeKind.Int64WrappingSubtract _
+                        | TypedSemanticNodeKind.Int64WrappingMultiply _
+                        | TypedSemanticNodeKind.Int64Equal _
+                        | TypedSemanticNodeKind.Int64LessThan _
+                        | TypedSemanticNodeKind.Int64LessThanOrEqual _
+                        | TypedSemanticNodeKind.Int64GreaterThan _
+                        | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
                         | TypedSemanticNodeKind.DirectCall _
                         | TypedSemanticNodeKind.CapabilityInvoke _
                         | TypedSemanticNodeKind.ProductConstruct _

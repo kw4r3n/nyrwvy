@@ -135,8 +135,17 @@ module Transaction =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.Int64WrappingAdd _
+                | SemanticNodeKind.Int64WrappingSubtract _
+                | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64Equal _
+                | SemanticNodeKind.Int64LessThan _
+                | SemanticNodeKind.Int64LessThanOrEqual _
+                | SemanticNodeKind.Int64GreaterThan _
+                | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -301,8 +310,17 @@ module Transaction =
                         | SemanticNodeKind.StringLiteral _
                         | SemanticNodeKind.BoolLiteral _
                         | SemanticNodeKind.UnitLiteral
+                        | SemanticNodeKind.Int64Literal _
                         | SemanticNodeKind.StringIsEmpty _
                         | SemanticNodeKind.StringContains _
+                        | SemanticNodeKind.Int64WrappingAdd _
+                        | SemanticNodeKind.Int64WrappingSubtract _
+                        | SemanticNodeKind.Int64WrappingMultiply _
+                        | SemanticNodeKind.Int64Equal _
+                        | SemanticNodeKind.Int64LessThan _
+                        | SemanticNodeKind.Int64LessThanOrEqual _
+                        | SemanticNodeKind.Int64GreaterThan _
+                        | SemanticNodeKind.Int64GreaterThanOrEqual _
                         | SemanticNodeKind.CapabilityInvoke _
                         | SemanticNodeKind.ProductConstruct _
                         | SemanticNodeKind.FieldAccess _
