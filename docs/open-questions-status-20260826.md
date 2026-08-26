@@ -17,7 +17,7 @@ Status meanings:
 
 | Question | Status | Current answer |
 |---|---|---|
-| Q-001 Canonical persistence | Open | JSON is strict reference/debug codec; Nyason remains experimental; permanent storage medium undecided. |
+| Q-001 Canonical persistence | Open | Nyason is the actively developed Nayamnyam-native portable encoding candidate; JSON is the strict reference/debug baseline; a DB is likely useful as a working/index store and may become authoritative if measured operational evidence favors it. Permanent storage authority remains undecided. |
 | Q-002 Stable IDs | Partially resolved | Production IDs use UUIDv7 payloads; typed external domains; system allocates IDs for ordinary creation. Cross-repository import/merge remains open. |
 | Q-003 Snapshots vs operation logs | Resolved for current architecture | Published snapshot is authoritative; operation history is provenance/audit, not competing state authority. |
 | Q-004 First-class graph entities | Partially resolved | M0 entity boundary is implemented and verified; add identity only when targeting/provenance/query needs justify it. Future constructs may extend the boundary. |
@@ -29,7 +29,7 @@ Status meanings:
 | Q-010 Capability strictness | Partially resolved | Declare only facts with current validator/planner/backend/viewer consumers. Synchronous Console subset is proven; additional properties are demand-driven. |
 | Q-011 Core types -> C# | Partially resolved | M0 mapping is verified and backend-local. List/Float64 mappings are future backend decisions constrained by semantic contracts. |
 | Q-012 Ownership | Deferred | Managed semantics remain current. Ownership/borrowing waits for a backend/use case that requires it. |
-| Q-013 RAST provenance | Open but low priority | No runtime dependency. A lightweight provenance convention should be defined before importing new RAST-derived tests/rules. |
+| Q-013 RAST provenance | Resolved for current architecture | No special provenance system. Use ordinary source/commit attribution only when concrete RAST material is directly copied or substantially adapted. |
 | Q-014 Git integration | Partially resolved | Stable IDs survive clone/branch; canonical snapshot + semantic review artifacts are the direction. General semantic merge and final committed storage format remain open. |
 | Q-015 Approval | Partially resolved | Approval is workflow metadata bound to an exact reviewed proposal/receipt. Cryptographic and organizational policy remains open. |
 
@@ -40,13 +40,25 @@ Status meanings:
 Current evidence establishes:
 
 - deterministic strict JSON codec;
-- deterministic Nyason v0 experimental codec;
+- deterministic Nyason v0 codec;
 - canonical round-trip testing;
-- no requirement for humans to edit storage directly.
+- no requirement for humans to edit storage directly;
+- a clear separation between semantic graph meaning and storage representation.
 
-It does not establish which format should become long-term canonical persistence.
+Current direction is now more specific:
 
-Do not close Q-001 until focused agent/edit experiments and storage operational requirements provide evidence.
+- Nyason is an actively developed **Nayamnyam-native semantic encoding candidate**, not merely a JSON-like experiment;
+- future Nyason revisions may diverge freely from JSON syntax when that improves agent reliability or structural clarity;
+- owning dedicated Nyason tooling is not considered a disadvantage by default;
+- JSON remains the strict reference/debug/benchmark baseline;
+- a database is expected to be useful as a working/index store once scale justifies it;
+- a database may become authoritative later if measured atomicity, migration, recovery, concurrency, or large-graph performance evidence clearly favors that design.
+
+Nyason and a database are therefore not mutually exclusive candidates. A likely arrangement is a portable canonical/interchange encoding plus a rebuildable DB-backed working/index representation.
+
+Do not close Q-001 until focused agent/edit experiments and realistic storage operational measurements provide enough evidence to choose permanent authority.
+
+See `nyason-storage-direction-20260826.md`.
 
 ## Q-002 — Stable IDs
 
@@ -87,6 +99,8 @@ The M0 rule has held up:
 Current identified entities include declarations, parameters, pattern bindings, graph nodes, effects/capabilities, obligations, snapshots, and transactions. Match arms and argument/field bindings remain associations.
 
 New M1 collection element slots should initially remain associations unless real editing operations demonstrate independent-targeting pressure.
+
+A possible future `BitsN` representation type does not imply independently identified bit positions. Exact bits would be the value payload; interpretation hints, if ever added, would be non-authoritative projection/query metadata.
 
 ## Q-005 — Operation composition and conflicts
 
@@ -189,7 +203,8 @@ The invariant is resolved: representation is backend-local and cannot redefine s
 Still open:
 
 - `List<T>` concrete C# representation;
-- `Float64` bit-preserving emission details;
+- `Float64` bit-preserving/canonical emission details;
+- possible future `BitsN` backend representation if the deferred representation domain is implemented;
 - performance-specialized layouts;
 - Native AOT-specific choices.
 
@@ -203,14 +218,19 @@ Do not introduce ownership/borrowing syntax or semantic obligations until a non-
 
 ## Q-013 — RAST provenance
 
-**Status: Open, non-blocking.**
+**Status: Resolved for current architecture.**
 
-Accepted invariant:
+RAST and Nayamnyam have diverged enough that conceptual ancestry does not justify a dedicated provenance framework.
 
-- RAST is reference/migration input only;
-- no runtime dependency.
+Accepted rules:
 
-Before importing additional RAST-derived semantic rules/tests, define a lightweight source-revision/provenance annotation convention.
+- RAST remains external and is not a runtime dependency;
+- no RAST provenance fields belong in the semantic graph, codecs, IR, agent API, or viewer model;
+- historical conceptual influence does not require tracking;
+- directly copied or substantially adapted code/tests/algorithms use normal development attribution such as commit messages, comments, or PR notes;
+- legal attribution/licensing requirements still apply normally.
+
+See `rast-provenance-decision-20260826.md`.
 
 ## Q-014 — Git integration
 
@@ -225,7 +245,7 @@ Accepted direction:
 
 Still open:
 
-- final persistence file format;
+- final persistence file/DB authority model;
 - package/module file layout;
 - semantic merge UX;
 - cross-repository imports;
@@ -251,17 +271,25 @@ Still open:
 - automated policy;
 - repository/service storage location for approval records.
 
-## New M1 questions
-
-The following are intentionally not answered by the original Q-001..Q-015 register.
+## New M1 questions and deferred ideas
 
 ### M1-Q1 — Float64 NaN payload policy
 
-Should semantic Float64 literals preserve arbitrary NaN payload bits or canonicalize NaN literals to one quiet-NaN representation?
+**Status: Resolved for the current Float64 design direction.**
 
-Resolve before finalizing the Float64 persistence/backend slice.
+Current preferred rule:
+
+> semantic `Float64` NaN literals canonicalize to one canonical quiet-NaN representation.
+
+Ordinary Float64 semantics care that the value is NaN, not which payload bits happened to encode it. This reduces irrelevant persistence/fingerprint variability.
+
+If exact NaN payload identity later matters, it belongs to a separate exact-bit representation domain such as future `Bits64`, followed by an explicit `Float64FromBits64` reinterpretation.
+
+This rule should be revalidated when Float64 codec/backend implementation begins, but implementation should not preserve arbitrary NaN payloads by default without new evidence.
 
 ### M1-Q2 — When do specialized nodes justify generalization?
+
+**Status: Open, evidence-driven.**
 
 Use agent-editing evidence from `ListMap` / `ListFilter` / numeric nodes before introducing generic higher-order or numeric operator abstractions.
 
@@ -269,8 +297,22 @@ No threshold is preselected; compare error rate, query burden, node-selection re
 
 ### M1-Q3 — What is the first meaningful performance threshold for incremental validation?
 
+**Status: Deferred until measurement.**
+
 Do not implement incremental validation simply because it is architecturally possible. Measure representative M1 graph sizes and preview latency first.
 
 ### M1-Q4 — What is the minimal package/module semantic model?
 
+**Status: Open.**
+
 Physical .NET project boundaries can be split during M1 without inventing language-level package/module semantics. Language-level modules/packages need their own stable identities and operation/query contracts later.
+
+### M1-Q5 — Should exact bit representations become first-class semantic types?
+
+**Status: Deferred development idea, not an M1 requirement.**
+
+If concrete use cases require masks, rotations, representation-preserving reinterpretation, NaN payload inspection, protocol fields, or similar operations, prefer a dedicated `BitsN` representation domain rather than attaching bitwise semantics to `Int64` or `Float64`.
+
+A possible interpretation hint may later help agents/viewers understand what a bit pattern is intended to encode, but such a hint is expected to remain non-authoritative and should not be added until actual agent use demonstrates a need.
+
+See `m1-bit-representation-design-20260826.md`.
