@@ -25,6 +25,7 @@ module ListTests =
           EmptyLengthNodeId: GraphNodeId }
 
     let private functionId name = StableId.createForTesting<FunctionTag> ("function-list-" + name)
+    let private parameterId name = StableId.createForTesting<ParameterTag> ("parameter-list-" + name)
     let private nodeId name = StableId.createForTesting<GraphNodeTag> ("node-list-" + name)
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private stringType = TypeRef.Primitive PrimitiveType.String
@@ -84,13 +85,32 @@ module ListTests =
                       { Id = emptyLengthNodeId; Kind = SemanticNodeKind.ListLength emptyListNodeId } ]
                   ResultNodeId = emptyLengthNodeId } }
 
+        // Keep an explicit List<T> signature in the authoritative snapshot so the
+        // persistence codecs are tested for List type references, not only List nodes.
+        let identityParameterId = parameterId "identity-input"
+        let identityNodeId = nodeId "identity-input"
+        let identity: SemanticFunction =
+            { Id = functionId "identity"
+              DisplayName = "list_identity"
+              Parameters =
+                [ { Id = identityParameterId
+                    DisplayName = "input"
+                    Type = int64ListType } ]
+              ResultType = int64ListType
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ { Id = identityNodeId
+                        Kind = SemanticNodeKind.ParameterReference identityParameterId } ]
+                  ResultNodeId = identityNodeId } }
+
         { Snapshot =
             { Id = StableId.createForTesting<SnapshotTag> "snapshot-list-basic"
               ParentId = None
               Types = []
               Effects = []
               Capabilities = []
-              Functions = [ pipeline; emptyLength ]
+              Functions = [ pipeline; emptyLength; identity ]
               Obligations = [] }
           PipelineFunctionId = pipeline.Id
           EmptyLengthFunctionId = emptyLength.Id
