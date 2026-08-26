@@ -16,10 +16,20 @@ module SnapshotValidator =
         | SemanticNodeKind.StringLiteral _
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.OptionNone _ -> []
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -45,6 +55,15 @@ module SnapshotValidator =
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+            [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -65,6 +84,7 @@ module SnapshotValidator =
         | SemanticNodeKind.StringLiteral _
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.OptionNone _ -> []
 
     let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>): bool =
@@ -359,6 +379,19 @@ module SnapshotValidator =
                 | Some _
                 | None -> ()
 
+            let requireInt64Operands nodeId leftNodeId rightNodeId =
+                let expectedType = TypeRef.Primitive PrimitiveType.Int64
+                requireNodeType
+                    "Int64OperandTypeMismatch"
+                    $"Int64 node '{StableId.value nodeId}' requires an Int64 left operand."
+                    expectedType
+                    leftNodeId
+                requireNodeType
+                    "Int64OperandTypeMismatch"
+                    $"Int64 node '{StableId.value nodeId}' requires an Int64 right operand."
+                    expectedType
+                    rightNodeId
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -428,7 +461,8 @@ module SnapshotValidator =
                                 $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical match scope."
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.BoolLiteral _
-                    | SemanticNodeKind.UnitLiteral -> ()
+                    | SemanticNodeKind.UnitLiteral
+                    | SemanticNodeKind.Int64Literal _ -> ()
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -446,6 +480,15 @@ module SnapshotValidator =
                             $"StringContains node '{StableId.value node.Id}' requires a String substring."
                             (TypeRef.Primitive PrimitiveType.String)
                             substringNodeId
+                    | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+                        requireInt64Operands node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
@@ -825,8 +868,17 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.Int64WrappingAdd _
+                | SemanticNodeKind.Int64WrappingSubtract _
+                | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64Equal _
+                | SemanticNodeKind.Int64LessThan _
+                | SemanticNodeKind.Int64LessThanOrEqual _
+                | SemanticNodeKind.Int64GreaterThan _
+                | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
