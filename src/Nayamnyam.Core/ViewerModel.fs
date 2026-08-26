@@ -35,8 +35,17 @@ type ViewerNodeRole =
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
+    | Int64Literal of int64
     | StringIsEmpty
     | StringContains
+    | Int64WrappingAdd
+    | Int64WrappingSubtract
+    | Int64WrappingMultiply
+    | Int64Equal
+    | Int64LessThan
+    | Int64LessThanOrEqual
+    | Int64GreaterThan
+    | Int64GreaterThanOrEqual
     | DirectCall
     | CapabilityInvoke
     | ProductConstruct
@@ -144,8 +153,17 @@ module ViewerProjection =
         | SemanticNodeKind.StringLiteral value -> ViewerNodeRole.StringLiteral value, []
         | SemanticNodeKind.BoolLiteral value -> ViewerNodeRole.BoolLiteral value, []
         | SemanticNodeKind.UnitLiteral -> ViewerNodeRole.UnitLiteral, []
+        | SemanticNodeKind.Int64Literal value -> ViewerNodeRole.Int64Literal value, []
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
+        | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
+        | SemanticNodeKind.Int64WrappingSubtract _ -> ViewerNodeRole.Int64WrappingSubtract, []
+        | SemanticNodeKind.Int64WrappingMultiply _ -> ViewerNodeRole.Int64WrappingMultiply, []
+        | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []
+        | SemanticNodeKind.Int64LessThan _ -> ViewerNodeRole.Int64LessThan, []
+        | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
+        | SemanticNodeKind.Int64GreaterThan _ -> ViewerNodeRole.Int64GreaterThan, []
+        | SemanticNodeKind.Int64GreaterThanOrEqual _ -> ViewerNodeRole.Int64GreaterThanOrEqual, []
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,
             [ { Kind = ViewerRelationKind.CallsFunction
@@ -246,8 +264,17 @@ module ViewerProjection =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.Int64WrappingAdd _
+                | SemanticNodeKind.Int64WrappingSubtract _
+                | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64Equal _
+                | SemanticNodeKind.Int64LessThan _
+                | SemanticNodeKind.Int64LessThanOrEqual _
+                | SemanticNodeKind.Int64GreaterThan _
+                | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
