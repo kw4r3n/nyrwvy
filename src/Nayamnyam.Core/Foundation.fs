@@ -9,6 +9,7 @@ type PrimitiveType =
     | String
     | Bool
     | Unit
+    | Int64
 
 [<RequireQualifiedAccess>]
 type BuiltinGenericType =
@@ -113,8 +114,17 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
+    | Int64Literal of int64
     | StringIsEmpty of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | DirectCall of FunctionId * ArgumentBinding list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
@@ -189,8 +199,17 @@ module ValueGraph =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.Int64WrappingAdd _
+                | SemanticNodeKind.Int64WrappingSubtract _
+                | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64Equal _
+                | SemanticNodeKind.Int64LessThan _
+                | SemanticNodeKind.Int64LessThanOrEqual _
+                | SemanticNodeKind.Int64GreaterThan _
+                | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -232,8 +251,17 @@ module ValueGraph =
                 | SemanticNodeKind.StringLiteral _
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
+                | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.Int64WrappingAdd _
+                | SemanticNodeKind.Int64WrappingSubtract _
+                | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64Equal _
+                | SemanticNodeKind.Int64LessThan _
+                | SemanticNodeKind.Int64LessThanOrEqual _
+                | SemanticNodeKind.Int64GreaterThan _
+                | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
