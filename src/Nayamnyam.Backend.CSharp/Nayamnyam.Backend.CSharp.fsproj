@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Nayamnyam.Core/CSharpBackendModel.fs" Link="CSharpBackendModel.fs" />
+    <Compile Include="../Nayamnyam.Core/CSharpBackendValidation.fs" Link="CSharpBackendValidation.fs" />
+    <Compile Include="../Nayamnyam.Core/CSharpBackendEmitter.fs" Link="CSharpBackendEmitter.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nayamnyam.Semantics/Nayamnyam.Semantics.fsproj" />
+    <ProjectReference Include="../Nayamnyam.Execution/Nayamnyam.Execution.fsproj" />
+  </ItemGroup>
+</Project>

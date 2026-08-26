@@ -37,7 +37,8 @@ The script requires a .NET 10 SDK and runs:
  14. FingerprintTests explicitly (at least 6 passing tests)
  15. PreviewReceiptTests explicitly (at least 6 passing tests)
  16. AgentWorkflowTests explicitly (at least 8 passing tests)
- 17. the JSON/Nyason comparison report produced by the test suite
+ 17. AssemblyBoundaryTests explicitly (at least 5 passing tests)
+ 18. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -240,6 +241,12 @@ run_required_filter \
   "FullyQualifiedName~AgentWorkflowTests" \
   8 \
   "m1-d-agent-workflow.trx"
+
+run_required_filter \
+  "M1-E physical assembly boundary tests" \
+  "FullyQualifiedName~AssemblyBoundaryTests" \
+  5 \
+  "m1-e-assembly-boundary.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
