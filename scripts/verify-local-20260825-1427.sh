@@ -38,7 +38,8 @@ The script requires a .NET 10 SDK and runs:
  15. PreviewReceiptTests explicitly (at least 6 passing tests)
  16. AgentWorkflowTests explicitly (at least 8 passing tests)
  17. AssemblyBoundaryTests explicitly (at least 5 passing tests)
- 18. the JSON/Nyason comparison report produced by the test suite
+ 18. Int64Tests explicitly (at least 7 passing tests, including generated C# build/run)
+ 19. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -247,6 +248,12 @@ run_required_filter \
   "FullyQualifiedName~AssemblyBoundaryTests" \
   5 \
   "m1-e-assembly-boundary.trx"
+
+run_required_filter \
+  "M1-F Int64 vertical slice tests" \
+  "FullyQualifiedName~Int64Tests" \
+  7 \
+  "m1-f-int64.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
