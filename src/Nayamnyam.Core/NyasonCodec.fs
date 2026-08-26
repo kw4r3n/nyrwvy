@@ -15,7 +15,7 @@ exception private NyasonSchemaException of string
 
 [<RequireQualifiedAccess>]
 module NyasonCodec =
-    let schemaId = "nayamnyam.snapshot.v1"
+    let schemaId = "nayamnyam.snapshot.v2"
 
     let private shape message = raise (NyasonShapeException message)
 
@@ -114,10 +114,14 @@ module NyasonCodec =
             record "option-type" [ "item", encodeTypeRef itemType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
             record "result-type" [ "ok", encodeTypeRef okType; "error", encodeTypeRef errorType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
+            record "list-type" [ "item", encodeTypeRef itemType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Validated Option type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Validated Result type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+            invalidOp $"Validated List type unexpectedly has {arguments.Length} type arguments."
 
     let rec private decodeTypeRef value =
         match value with
@@ -148,6 +152,9 @@ module NyasonCodec =
                 BuiltinGenericType.Result,
                 [ decodeTypeRef (require "ok" fields); decodeTypeRef (require "error" fields) ]
             )
+        | NyasonValue.Record("list-type", _) ->
+            let fields = recordFields "list-type" [ "item" ] [] value
+            TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ decodeTypeRef (require "item" fields) ])
         | NyasonValue.Record(tag, _) -> shape $"Unsupported type reference tag '{tag}'."
         | _ -> shape "Expected tagged type reference."
 
@@ -422,6 +429,29 @@ module NyasonCodec =
             encodeBinaryInt64Node "int64-greater-than" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
             encodeBinaryInt64Node "int64-greater-than-or-equal" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.ListEmpty itemType ->
+            record "list-empty" [ nodeId; "item-type", encodeTypeRef itemType ]
+        | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+            record
+                "list-construct"
+                [ nodeId
+                  "item-type", encodeTypeRef itemType
+                  // List item order is semantic. Do not sort.
+                  "items", itemNodeIds |> List.map (encodeId "node") |> list ]
+        | SemanticNodeKind.ListLength listNodeId ->
+            record "list-length" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+            record
+                "list-append-item"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+            record
+                "list-concat"
+                [ nodeId
+                  "left", encodeId "node" leftListNodeId
+                  "right", encodeId "node" rightListNodeId ]
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             record
                 "direct-call"
@@ -594,6 +624,38 @@ module NyasonCodec =
             decodeBinaryInt64Node "int64-greater-than" value (fun left right -> SemanticNodeKind.Int64GreaterThan(left, right))
         | NyasonValue.Record("int64-greater-than-or-equal", _) ->
             decodeBinaryInt64Node "int64-greater-than-or-equal" value (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
+        | NyasonValue.Record("list-empty", _) ->
+            let fields = recordFields "list-empty" [ "id"; "item-type" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListEmpty(decodeTypeRef (require "item-type" fields)) }
+        | NyasonValue.Record("list-construct", _) ->
+            let fields = recordFields "list-construct" [ "id"; "item-type"; "items" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListConstruct(
+                    decodeTypeRef (require "item-type" fields),
+                    decodeList (decodeId<GraphNodeTag> "node") (require "items" fields)
+                ) }
+        | NyasonValue.Record("list-length", _) ->
+            let fields = recordFields "list-length" [ "id"; "list" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListLength(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("list-append-item", _) ->
+            let fields = recordFields "list-append-item" [ "id"; "list"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListAppendItem(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "item" fields)
+                ) }
+        | NyasonValue.Record("list-concat", _) ->
+            let fields = recordFields "list-concat" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListConcat(
+                    decodeId<GraphNodeTag> "node" (require "left" fields),
+                    decodeId<GraphNodeTag> "node" (require "right" fields)
+                ) }
         | NyasonValue.Record("direct-call", _) ->
             let fields = recordFields "direct-call" [ "id"; "target-function"; "arguments" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
