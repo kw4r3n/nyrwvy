@@ -1,5 +1,6 @@
 namespace Nayamnyam.Core
 
+open System.Globalization
 open System.Text.Json
 
 /// Canonical serialization for backend-neutral Execution IR.
@@ -7,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 1
+    let schemaVersion = 2
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -38,6 +39,8 @@ module ExecutionIrCodec =
             objectValue [ property "kind" (quote "primitiveBool") ]
         | TypeRef.Primitive PrimitiveType.Unit ->
             objectValue [ property "kind" (quote "primitiveUnit") ]
+        | TypeRef.Primitive PrimitiveType.Int64 ->
+            objectValue [ property "kind" (quote "primitiveInt64") ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")
@@ -166,6 +169,11 @@ module ExecutionIrCodec =
             [ property "targetFieldId" (stableIdValue field.TargetFieldId)
               property "valueId" (executionValueIdValue field.ValueId) ]
 
+    let private writeBinaryInstruction kind leftValueId rightValueId =
+        [ property "kind" (quote kind)
+          property "leftValueId" (executionValueIdValue leftValueId)
+          property "rightValueId" (executionValueIdValue rightValueId) ]
+
     let private writeInstructionKind (kind: ExecutionInstructionKind): string list =
         match kind with
         | ExecutionInstructionKind.ReadParameter sourceValueId ->
@@ -182,6 +190,9 @@ module ExecutionIrCodec =
               property "value" (if value then "true" else "false") ]
         | ExecutionInstructionKind.UnitLiteral ->
             [ property "kind" (quote "unitLiteral") ]
+        | ExecutionInstructionKind.Int64Literal value ->
+            [ property "kind" (quote "int64Literal")
+              property "value" (value.ToString(CultureInfo.InvariantCulture)) ]
         | ExecutionInstructionKind.StringIsEmpty valueId ->
             [ property "kind" (quote "stringIsEmpty")
               property "valueId" (executionValueIdValue valueId) ]
@@ -189,6 +200,22 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringContains")
               property "valueId" (executionValueIdValue valueId)
               property "substringId" (executionValueIdValue substringId) ]
+        | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64WrappingAdd" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64WrappingSubtract(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64WrappingSubtract" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64WrappingMultiply(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64WrappingMultiply" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64Equal" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64LessThan" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64LessThanOrEqual(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64LessThanOrEqual" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64GreaterThan(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64GreaterThan" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64GreaterThanOrEqual" leftValueId rightValueId
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)
