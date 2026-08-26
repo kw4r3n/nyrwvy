@@ -8,6 +8,7 @@
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Nayamnyam.Core/Nayamnyam.Core.fsproj" />
+    <ProjectReference Include="../../src/Nayamnyam.Semantics/Nayamnyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/Nayamnyam.Viewer/Nayamnyam.Viewer.fsproj" />
   </ItemGroup>
 </Project>
