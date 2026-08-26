@@ -18,7 +18,7 @@ type SnapshotCodecError =
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
-    let private schemaVersion = 5
+    let private schemaVersion = 6
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -147,6 +147,7 @@ module SnapshotCodec =
                 match genericType with
                 | BuiltinGenericType.Option -> "option"
                 | BuiltinGenericType.Result -> "result"
+                | BuiltinGenericType.List -> "list"
             )
             writer.WritePropertyName("arguments")
             writer.WriteStartArray()
@@ -339,6 +340,30 @@ module SnapshotCodec =
             writeBinaryNode writer "int64GreaterThan" leftNodeId rightNodeId
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
+        | SemanticNodeKind.ListEmpty itemType ->
+            writer.WriteString("kind", "listEmpty")
+            writer.WritePropertyName("itemType")
+            writeTypeRef writer itemType
+        | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+            writer.WriteString("kind", "listConstruct")
+            writer.WritePropertyName("itemType")
+            writeTypeRef writer itemType
+            writer.WritePropertyName("itemNodeIds")
+            writer.WriteStartArray()
+            // List item order is semantic. Do not sort.
+            itemNodeIds |> List.iter (StableId.value >> writer.WriteStringValue)
+            writer.WriteEndArray()
+        | SemanticNodeKind.ListLength listNodeId ->
+            writer.WriteString("kind", "listLength")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listAppendItem")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+            writer.WriteString("kind", "listConcat")
+            writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
+            writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -565,6 +590,7 @@ module SnapshotCodec =
                 match readString "generic" element with
                 | "option" -> BuiltinGenericType.Option
                 | "result" -> BuiltinGenericType.Result
+                | "list" -> BuiltinGenericType.List
                 | value -> invalidShape $"Unsupported builtin generic type '{value}'."
             TypeRef.BuiltinGeneric(genericType, readArray "arguments" readTypeRef element)
         | value -> invalidShape $"Unsupported type reference kind '{value}'."
@@ -726,6 +752,42 @@ module SnapshotCodec =
                 readBinaryNode "Int64GreaterThan node" element (fun left right -> SemanticNodeKind.Int64GreaterThan(left, right))
             | "int64GreaterThanOrEqual" ->
                 readBinaryNode "Int64GreaterThanOrEqual node" element (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
+            | "listEmpty" ->
+                ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
+                SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))
+            | "listConstruct" ->
+                ensureProperties
+                    "ListConstruct node"
+                    (set [ "id"; "kind"; "itemType"; "itemNodeIds" ])
+                    (set [ "id"; "kind"; "itemType"; "itemNodeIds" ])
+                    element
+                SemanticNodeKind.ListConstruct(
+                    readTypeRef (requireProperty "itemType" element),
+                    readIdArray<GraphNodeTag> "itemNodeIds" element
+                )
+            | "listLength" ->
+                ensureProperties "ListLength node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
+                SemanticNodeKind.ListLength(readId<GraphNodeTag> "listNodeId" element)
+            | "listAppendItem" ->
+                ensureProperties
+                    "ListAppendItem node"
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListAppendItem(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listConcat" ->
+                ensureProperties
+                    "ListConcat node"
+                    (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId" ])
+                    (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId" ])
+                    element
+                SemanticNodeKind.ListConcat(
+                    readId<GraphNodeTag> "leftListNodeId" element,
+                    readId<GraphNodeTag> "rightListNodeId" element
+                )
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)
