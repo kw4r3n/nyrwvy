@@ -91,6 +91,11 @@ type ExecutionInstructionKind =
     | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | ListEmpty
+    | ListConstruct of ExecutionValueId list
+    | ListLength of listValueId: ExecutionValueId
+    | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list

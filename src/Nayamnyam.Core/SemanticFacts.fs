@@ -19,8 +19,12 @@ module SemanticFacts =
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -42,6 +46,7 @@ module SemanticFacts =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
     let rec collectPatternBindings (graph: ValueGraph): PatternBinding list =
@@ -78,6 +83,11 @@ module SemanticFacts =
             | SemanticNodeKind.Int64LessThanOrEqual _
             | SemanticNodeKind.Int64GreaterThan _
             | SemanticNodeKind.Int64GreaterThanOrEqual _
+            | SemanticNodeKind.ListEmpty _
+            | SemanticNodeKind.ListConstruct _
+            | SemanticNodeKind.ListLength _
+            | SemanticNodeKind.ListAppendItem _
+            | SemanticNodeKind.ListConcat _
             | SemanticNodeKind.DirectCall _
             | SemanticNodeKind.CapabilityInvoke _
             | SemanticNodeKind.ProductConstruct _
@@ -172,7 +182,8 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64Literal _
                     | SemanticNodeKind.Int64WrappingAdd _
                     | SemanticNodeKind.Int64WrappingSubtract _
-                    | SemanticNodeKind.Int64WrappingMultiply _ ->
+                    | SemanticNodeKind.Int64WrappingMultiply _
+                    | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
@@ -182,6 +193,25 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64GreaterThan _
                     | SemanticNodeKind.Int64GreaterThanOrEqual _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.ListEmpty itemType
+                    | SemanticNodeKind.ListConstruct(itemType, _) ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
+                    | SemanticNodeKind.ListAppendItem(listNodeId, _) ->
+                        match tryNodeType nextVisiting listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+                        match
+                            tryNodeType nextVisiting leftListNodeId,
+                            tryNodeType nextVisiting rightListNodeId
+                        with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ])),
+                          Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ]))
+                            when leftItemType = rightItemType ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
+                        | _ -> None
                     | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
                         Map.tryFind targetFunctionId functionsById
                         |> Option.map (fun target -> target.ResultType)

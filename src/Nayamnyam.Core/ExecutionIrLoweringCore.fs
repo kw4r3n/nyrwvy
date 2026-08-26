@@ -209,6 +209,16 @@ module ExecutionIr =
                     | Error error, _
                     | _, Error error -> Error error
 
+                let lowerNodeValues (nodeIds: GraphNodeId list): Result<ExecutionValueId list, ExecutionIrError> =
+                    let rec loop acc remaining =
+                        match remaining with
+                        | [] -> Ok(List.rev acc)
+                        | nodeId :: rest ->
+                            match requireNodeValue environment nodeId with
+                            | Error error -> Error error
+                            | Ok valueId -> loop (valueId :: acc) rest
+                    loop [] nodeIds
+
                 let lowerSimpleNode (node: TypedSemanticNode) =
                     let produced: Result<ExecutionValueId, ExecutionIrError> =
                         match node.Kind with
@@ -255,6 +265,22 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThan(left, right))
                         | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThanOrEqual(left, right))
+                        | TypedSemanticNodeKind.ListEmpty ->
+                            Ok(addInstruction currentBlock node ExecutionInstructionKind.ListEmpty)
+                        | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
+                            lowerNodeValues itemNodeIds
+                            |> Result.map (fun valueIds ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.ListConstruct valueIds))
+                        | TypedSemanticNodeKind.ListLength listNodeId ->
+                            requireNodeValue environment listNodeId
+                            |> Result.map (fun listValueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.ListLength listValueId))
+                        | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+                            lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
+                                ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+                            lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
                         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
                             lowerCallArguments arguments
                             |> Result.map (fun lowered ->
@@ -461,6 +487,11 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64LessThanOrEqual _
                         | TypedSemanticNodeKind.Int64GreaterThan _
                         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+                        | TypedSemanticNodeKind.ListEmpty
+                        | TypedSemanticNodeKind.ListConstruct _
+                        | TypedSemanticNodeKind.ListLength _
+                        | TypedSemanticNodeKind.ListAppendItem _
+                        | TypedSemanticNodeKind.ListConcat _
                         | TypedSemanticNodeKind.DirectCall _
                         | TypedSemanticNodeKind.CapabilityInvoke _
                         | TypedSemanticNodeKind.ProductConstruct _

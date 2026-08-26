@@ -46,6 +46,11 @@ type ViewerNodeRole =
     | Int64LessThanOrEqual
     | Int64GreaterThan
     | Int64GreaterThanOrEqual
+    | ListEmpty
+    | ListConstruct
+    | ListLength
+    | ListAppendItem
+    | ListConcat
     | DirectCall
     | CapabilityInvoke
     | ProductConstruct
@@ -164,6 +169,11 @@ module ViewerProjection =
         | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
         | SemanticNodeKind.Int64GreaterThan _ -> ViewerNodeRole.Int64GreaterThan, []
         | SemanticNodeKind.Int64GreaterThanOrEqual _ -> ViewerNodeRole.Int64GreaterThanOrEqual, []
+        | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
+        | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
+        | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
+        | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
+        | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,
             [ { Kind = ViewerRelationKind.CallsFunction
@@ -275,6 +285,11 @@ module ViewerProjection =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.ListConstruct _
+                | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListAppendItem _
+                | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _

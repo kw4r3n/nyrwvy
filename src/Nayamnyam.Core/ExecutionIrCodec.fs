@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 2
+    let schemaVersion = 3
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -58,10 +58,16 @@ module ExecutionIrCodec =
                 [ property "kind" (quote "result")
                   property "okType" (writeTypeRef okType)
                   property "errorType" (writeTypeRef errorType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
+            objectValue
+                [ property "kind" (quote "list")
+                  property "itemType" (writeTypeRef itemType) ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Execution IR contains Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Execution IR contains Result with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+            invalidOp $"Execution IR contains List with {arguments.Length} type arguments."
 
     let private writeOrigin (origin: ExecutionOrigin): string =
         match origin with
@@ -216,6 +222,23 @@ module ExecutionIrCodec =
             writeBinaryInstruction "int64GreaterThan" leftValueId rightValueId
         | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64GreaterThanOrEqual" leftValueId rightValueId
+        | ExecutionInstructionKind.ListEmpty ->
+            [ property "kind" (quote "listEmpty") ]
+        | ExecutionInstructionKind.ListConstruct itemValueIds ->
+            [ property "kind" (quote "listConstruct")
+              // List item order is semantic. Do not sort.
+              property "itemValueIds" (itemValueIds |> List.map executionValueIdValue |> arrayValue) ]
+        | ExecutionInstructionKind.ListLength listValueId ->
+            [ property "kind" (quote "listLength")
+              property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
+            [ property "kind" (quote "listAppendItem")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
+            [ property "kind" (quote "listConcat")
+              property "leftListValueId" (executionValueIdValue leftListValueId)
+              property "rightListValueId" (executionValueIdValue rightListValueId) ]
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)

@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 2
+    let schemaVersion = 3
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -37,10 +37,16 @@ module TypedSemanticIrCodec =
             writeTypeRef writer okType
             writer.WritePropertyName("errorType")
             writeTypeRef writer errorType
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
+            writer.WriteString("kind", "list")
+            writer.WritePropertyName("itemType")
+            writeTypeRef writer itemType
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Typed Semantic IR contains Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Typed Semantic IR contains Result with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+            invalidOp $"Typed Semantic IR contains List with {arguments.Length} type arguments."
         writer.WriteEndObject()
 
     let private writeField (writer: Utf8JsonWriter) (field: TypedSemanticField) =
@@ -269,6 +275,26 @@ module TypedSemanticIrCodec =
             writeBinaryNode writer "int64GreaterThan" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.ListEmpty ->
+            writer.WriteString("kind", "listEmpty")
+        | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
+            writer.WriteString("kind", "listConstruct")
+            writer.WritePropertyName("itemNodeIds")
+            writer.WriteStartArray()
+            // List item order is semantic. Do not sort.
+            itemNodeIds |> List.iter (StableId.value >> writer.WriteStringValue)
+            writer.WriteEndArray()
+        | TypedSemanticNodeKind.ListLength listNodeId ->
+            writer.WriteString("kind", "listLength")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listAppendItem")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
+            writer.WriteString("kind", "listConcat")
+            writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
+            writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)

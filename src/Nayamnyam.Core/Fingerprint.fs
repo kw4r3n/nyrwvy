@@ -25,7 +25,7 @@ module private FingerprintHash =
 
 [<RequireQualifiedAccess>]
 module SnapshotFingerprint =
-    let private domain = "nayamnyam.snapshot-fingerprint.v2"
+    let private domain = "nayamnyam.snapshot-fingerprint.v3"
 
     let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> =
         SnapshotCodec.serialize snapshot
@@ -35,7 +35,7 @@ module SnapshotFingerprint =
 
 [<RequireQualifiedAccess>]
 module SemanticFingerprint =
-    let private domain = "nayamnyam.semantic-fingerprint.v2"
+    let private domain = "nayamnyam.semantic-fingerprint.v3"
     let private displayPlaceholder = "_"
 
     let private stable<'Kind> text: StableId<'Kind> =

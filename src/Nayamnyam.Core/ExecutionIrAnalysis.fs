@@ -27,6 +27,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolLiteral _
         | TypedSemanticNodeKind.UnitLiteral
         | TypedSemanticNodeKind.Int64Literal _
+        | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
@@ -37,8 +38,12 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
-        | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+        | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
+        | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
             capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
@@ -80,6 +85,11 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
             | TypedSemanticNodeKind.Int64GreaterThan _
             | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+            | TypedSemanticNodeKind.ListEmpty
+            | TypedSemanticNodeKind.ListConstruct _
+            | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListAppendItem _
+            | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _
@@ -142,6 +152,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64LessThanOrEqual _
         | TypedSemanticNodeKind.Int64GreaterThan _
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+        | TypedSemanticNodeKind.ListEmpty
+        | TypedSemanticNodeKind.ListConstruct _
+        | TypedSemanticNodeKind.ListLength _
+        | TypedSemanticNodeKind.ListAppendItem _
+        | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ProductConstruct _
         | TypedSemanticNodeKind.FieldAccess _
         | TypedSemanticNodeKind.UnionConstruct _
@@ -239,6 +254,11 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
             | TypedSemanticNodeKind.Int64GreaterThan _
             | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+            | TypedSemanticNodeKind.ListEmpty
+            | TypedSemanticNodeKind.ListConstruct _
+            | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListAppendItem _
+            | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _

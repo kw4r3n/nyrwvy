@@ -73,14 +73,14 @@ module SnapshotCodecTests =
 
     [<Fact>]
     let ``snapshot codec rejects duplicate property names`` () =
-        let json = """{"schemaVersion":5,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":6,"snapshotId":"snapshot-a","snapshotId":"snapshot-b","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
 
     [<Fact>]
     let ``snapshot codec rejects obsolete schema versions`` () =
-        let json = """{"schemaVersion":4,"snapshotId":"snapshot","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
+        let json = """{"schemaVersion":5,"snapshotId":"snapshot","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         match SnapshotCodec.deserialize json with
-        | Error(SnapshotCodecError.UnsupportedSchemaVersion 4) -> ()
+        | Error(SnapshotCodecError.UnsupportedSchemaVersion 5) -> ()
         | result -> failwithf "Expected UnsupportedSchemaVersion, got %A" result

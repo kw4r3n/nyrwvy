@@ -15,6 +15,7 @@ type PrimitiveType =
 type BuiltinGenericType =
     | Option
     | Result
+    | List
 
 [<RequireQualifiedAccess>]
 type TypeRef =
@@ -125,6 +126,11 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | ListEmpty of itemType: TypeRef
+    | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
+    | ListLength of listNodeId: GraphNodeId
+    | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | DirectCall of FunctionId * ArgumentBinding list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
@@ -210,6 +216,11 @@ module ValueGraph =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.ListConstruct _
+                | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListAppendItem _
+                | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -262,6 +273,11 @@ module ValueGraph =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.ListConstruct _
+                | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListAppendItem _
+                | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
