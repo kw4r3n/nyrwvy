@@ -286,9 +286,9 @@ module SnapshotCodec =
 
     let private writeBinaryNode
         (writer: Utf8JsonWriter)
-        kind
-        leftNodeId
-        rightNodeId
+        (kind: string)
+        (leftNodeId: GraphNodeId)
+        (rightNodeId: GraphNodeId)
         =
         writer.WriteString("kind", kind)
         writer.WriteString("leftNodeId", StableId.value leftNodeId)
