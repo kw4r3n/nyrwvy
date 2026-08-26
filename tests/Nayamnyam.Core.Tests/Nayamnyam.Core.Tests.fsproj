@@ -20,7 +20,6 @@
     <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="AgentWorkflowTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
-    <Compile Include="Int64Tests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
@@ -33,6 +32,7 @@
     <Compile Include="ViewerTests.fs" />
     <Compile Include="ViewerArtifactTests.fs" />
     <Compile Include="MilestoneZeroEndToEndTests.fs" />
+    <Compile Include="Int64Tests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
