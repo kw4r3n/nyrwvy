@@ -55,10 +55,14 @@ module CSharpBackend =
             "NyOption<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
             "NyResult<" + formatType okType + ", " + formatType errorType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
+            "NyList<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"C# backend received Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"C# backend received Result with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+            invalidOp $"C# backend received List with {arguments.Length} type arguments."
 
     let private emitRuntime (writer: SourceWriter) =
         writer.Line("public readonly record struct NyUnit")
@@ -81,6 +85,35 @@ module CSharpBackend =
         writer.Push()
         writer.Line("public static NyResult<TOk, TError> Ok(TOk value) => new(true, value, default!);")
         writer.Line("public static NyResult<TOk, TError> Err(TError error) => new(false, default!, error);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
+        writer.Line("public sealed class NyList<T>")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("private readonly T[] _items;")
+        writer.Line("private NyList(T[] items) => _items = items;")
+        writer.Line("public static NyList<T> Empty() => new(Array.Empty<T>());")
+        writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
+        writer.Line("public long Length => _items.LongLength;")
+        writer.Line("public NyList<T> AppendItem(T item)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var next = new T[_items.Length + 1];")
+        writer.Line("Array.Copy(_items, next, _items.Length);")
+        writer.Line("next[_items.Length] = item;")
+        writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public NyList<T> Concat(NyList<T> other)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var next = new T[_items.Length + other._items.Length];")
+        writer.Line("Array.Copy(_items, 0, next, 0, _items.Length);")
+        writer.Line("Array.Copy(other._items, 0, next, _items.Length, other._items.Length);")
+        writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
         writer.Pop()
         writer.Line("}")
         writer.Line("")
@@ -200,6 +233,9 @@ module CSharpBackend =
             + valueName field.ValueId)
         |> String.concat ", "
 
+    let private renderListItems (itemValueIds: ExecutionValueId list) =
+        itemValueIds |> List.map valueName |> String.concat ", "
+
     let private emitBinaryExpression
         (writer: SourceWriter)
         target
@@ -247,6 +283,16 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId ">" rightValueId false
         | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId ">=" rightValueId false
+        | ExecutionInstructionKind.ListEmpty ->
+            writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
+        | ExecutionInstructionKind.ListConstruct itemValueIds ->
+            writer.Line(target + " = " + formatType instruction.Result.Type + ".Create(" + renderListItems itemValueIds + ");")
+        | ExecutionInstructionKind.ListLength listValueId ->
+            writer.Line(target + " = " + valueName listValueId + ".Length;")
+        | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
+            writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
