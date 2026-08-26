@@ -37,6 +37,11 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64LessThanOrEqual _
                 | TypedSemanticNodeKind.Int64GreaterThan _
                 | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+                | TypedSemanticNodeKind.ListEmpty
+                | TypedSemanticNodeKind.ListConstruct _
+                | TypedSemanticNodeKind.ListLength _
+                | TypedSemanticNodeKind.ListAppendItem _
+                | TypedSemanticNodeKind.ListConcat _
                 | TypedSemanticNodeKind.DirectCall _
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _
