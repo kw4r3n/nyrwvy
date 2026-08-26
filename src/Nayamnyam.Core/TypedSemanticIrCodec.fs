@@ -212,7 +212,12 @@ module TypedSemanticIrCodec =
         writeGraph writer arm.Body
         writer.WriteEndObject()
 
-    and private writeBinaryNode writer kind leftNodeId rightNodeId =
+    and private writeBinaryNode
+        (writer: Utf8JsonWriter)
+        (kind: string)
+        (leftNodeId: GraphNodeId)
+        (rightNodeId: GraphNodeId)
+        =
         writer.WriteString("kind", kind)
         writer.WriteString("leftNodeId", StableId.value leftNodeId)
         writer.WriteString("rightNodeId", StableId.value rightNodeId)
