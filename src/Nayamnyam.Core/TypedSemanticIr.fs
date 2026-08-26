@@ -78,8 +78,17 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
+    | Int64Literal of int64
     | StringIsEmpty of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | DirectCall of FunctionId * TypedSemanticArgument list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
@@ -201,10 +210,28 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.BoolLiteral value)
                     | SemanticNodeKind.UnitLiteral ->
                         Ok TypedSemanticNodeKind.UnitLiteral
+                    | SemanticNodeKind.Int64Literal value ->
+                        Ok(TypedSemanticNodeKind.Int64Literal value)
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringIsEmpty valueNodeId)
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
+                    | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->
                         Ok(
                             TypedSemanticNodeKind.DirectCall(
