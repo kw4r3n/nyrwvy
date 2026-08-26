@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Nayamnyam.Core/StableId.fs" Link="StableId.fs" />
+    <Compile Include="../Nayamnyam.Core/StableIdAllocator.fs" Link="StableIdAllocator.fs" />
+    <Compile Include="../Nayamnyam.Core/Foundation.fs" Link="Foundation.fs" />
+    <Compile Include="../Nayamnyam.Core/SemanticFacts.fs" Link="SemanticFacts.fs" />
+    <Compile Include="../Nayamnyam.Core/SemanticQuery.fs" Link="SemanticQuery.fs" />
+    <Compile Include="../Nayamnyam.Core/Validation.fs" Link="Validation.fs" />
+    <Compile Include="../Nayamnyam.Core/SnapshotCodec.fs" Link="SnapshotCodec.fs" />
+    <Compile Include="../Nayamnyam.Core/Fingerprint.fs" Link="Fingerprint.fs" />
+    <Compile Include="../Nayamnyam.Core/NyasonSyntax.fs" Link="NyasonSyntax.fs" />
+    <Compile Include="../Nayamnyam.Core/NyasonCodec.fs" Link="NyasonCodec.fs" />
+    <Compile Include="../Nayamnyam.Core/Readiness.fs" Link="Readiness.fs" />
+    <Compile Include="../Nayamnyam.Core/Transactions.fs" Link="Transactions.fs" />
+    <Compile Include="../Nayamnyam.Core/Workspace.fs" Link="Workspace.fs" />
+    <Compile Include="../Nayamnyam.Core/ChangeReviewQuery.fs" Link="ChangeReviewQuery.fs" />
+    <Compile Include="../Nayamnyam.Core/AgentWorkflow.fs" Link="AgentWorkflow.fs" />
+  </ItemGroup>
+</Project>
