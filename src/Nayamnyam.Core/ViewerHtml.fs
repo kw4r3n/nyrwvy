@@ -27,6 +27,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.String -> "String"
         | TypeRef.Primitive PrimitiveType.Bool -> "Bool"
         | TypeRef.Primitive PrimitiveType.Unit -> "Unit"
+        | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
@@ -69,8 +70,17 @@ module ViewerHtml =
         | ViewerNodeRole.StringLiteral value -> "string literal “" + value + "”"
         | ViewerNodeRole.BoolLiteral value -> "bool literal " + (if value then "true" else "false")
         | ViewerNodeRole.UnitLiteral -> "unit literal"
+        | ViewerNodeRole.Int64Literal value -> "Int64 literal " + string value
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
         | ViewerNodeRole.StringContains -> "string contains"
+        | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
+        | ViewerNodeRole.Int64WrappingSubtract -> "Int64 wrapping subtract"
+        | ViewerNodeRole.Int64WrappingMultiply -> "Int64 wrapping multiply"
+        | ViewerNodeRole.Int64Equal -> "Int64 equal"
+        | ViewerNodeRole.Int64LessThan -> "Int64 less than"
+        | ViewerNodeRole.Int64LessThanOrEqual -> "Int64 less than or equal"
+        | ViewerNodeRole.Int64GreaterThan -> "Int64 greater than"
+        | ViewerNodeRole.Int64GreaterThanOrEqual -> "Int64 greater than or equal"
         | ViewerNodeRole.DirectCall -> "direct call"
         | ViewerNodeRole.CapabilityInvoke -> "capability invoke"
         | ViewerNodeRole.ProductConstruct -> "product construct"
