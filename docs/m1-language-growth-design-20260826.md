@@ -15,6 +15,8 @@ The proposed order is:
 5. explicit numeric conversions only where their failure/precision behavior is fully specified;
 6. AI-editing experiments before generalizing the node taxonomy.
 
+A separate exact-bit representation domain such as future `Bits64` is a deferred development idea, not a Milestone 1 requirement. See `m1-bit-representation-design-20260826.md`.
+
 ## Design constraints
 
 New constructs follow the existing Nayamnyam rules:
@@ -26,7 +28,8 @@ New constructs follow the existing Nayamnyam rules:
 - ordered collections declare their element order as semantic rather than relying on incidental serialization order;
 - higher-order collection operations initially target stable `FunctionId`s rather than introducing lambdas/closures prematurely;
 - effectful higher-order functions are excluded from the initial collection slice so list traversal does not accidentally introduce an execution-order contract;
-- association slots such as list elements do not receive stable IDs unless later operations demonstrate a need for independent targeting.
+- association slots such as list elements do not receive stable IDs unless later operations demonstrate a need for independent targeting;
+- exact bit manipulation, if added later, belongs to a dedicated representation type rather than being overloaded onto numeric types.
 
 ## 1. `Int64`
 
@@ -81,6 +84,8 @@ Defer these until their contracts are explicit:
 - arbitrary precision integers.
 
 In particular, integer division is not added merely because C# has `/`: zero division, `Int64.MinValue / -1`, and truncation direction must all be represented intentionally.
+
+Bit operations are intentionally deferred to a possible dedicated exact-bit representation domain rather than being assumed to belong to `Int64` merely because it has a two's-complement machine representation.
 
 ## 2. `List<T>`
 
@@ -229,18 +234,31 @@ Float64IsInfinite(value)        -> Bool
 
 Arithmetic follows explicitly documented IEEE 754 binary64 behavior. Division by zero produces the corresponding infinity/NaN result rather than borrowing C# exception semantics.
 
-`Float64Equal` follows IEEE numeric equality: NaN does not compare equal to itself and `+0.0` compares equal to `-0.0`. If bitwise identity is later needed, it should be a distinct `Float64BitEqual` node rather than an undocumented mode of equality.
+`Float64Equal` follows IEEE numeric equality: NaN does not compare equal to itself and `+0.0` compares equal to `-0.0`. If bitwise identity is later needed, it belongs to the separate exact-bit representation domain rather than an undocumented mode of numeric equality.
 
 Do not introduce implicit FMA. A future fused operation must be a distinct node because it can produce a different rounded result from separate multiply/add nodes.
 
-### NaN policy to resolve during implementation
+### NaN policy
 
-Before the codec is finalized, decide whether semantic float literals:
+Current accepted design direction:
 
-1. preserve arbitrary NaN payload bits; or
-2. canonicalize all literal NaNs to one quiet-NaN representation.
+> semantic `Float64` NaN literals canonicalize to one canonical quiet-NaN representation.
 
-Either is mechanically defensible. Canonicalizing NaN reduces persistence/fingerprint variability; preserving payload bits gives exact IEEE bit identity. This choice does not need to block the earlier Int64/List work.
+The ordinary semantic fact is that a Float64 value is NaN; arbitrary NaN payload bits are not treated as distinct numeric meaning.
+
+This reduces irrelevant persistence and fingerprint variability and keeps Float64 focused on numeric semantics.
+
+If exact NaN payload identity becomes useful later, preserve it in the separate exact-bit representation domain:
+
+```text
+Bits64
+  -> Float64FromBits64
+  -> Float64
+```
+
+In that future model, `Bits64` preserves the supplied sixty-four bits exactly while `Float64` preserves the declared IEEE numeric semantics. The two facts do not compete.
+
+Implementation should revalidate the chosen canonical quiet-NaN bit pattern when the Float64 codec/backend slice is built, but arbitrary payload preservation should not be introduced by default without new evidence.
 
 ## 5. Numeric conversions
 
@@ -268,7 +286,46 @@ The conversion needs explicit answers for:
 
 A future design will likely need either a result/error form or a node whose name/fields explicitly encode the rounding and failure contract. A bare cast node is rejected as too implicit.
 
-## 6. IR and backend consequences
+### Numeric conversion versus representation reinterpretation
+
+Numeric conversion and bit reinterpretation are separate operations.
+
+For example:
+
+```text
+Int64ToFloat64(value)
+```
+
+means numeric conversion and may lose precision.
+
+A future:
+
+```text
+Float64ToBits64(value)
+Float64FromBits64(bits)
+```
+
+would mean exact representation reinterpretation and belongs to the deferred bit-representation design.
+
+Never use one node to ambiguously mean both.
+
+## 6. Future bit-representation domain — outside M1 scope
+
+A future exact-bit type family such as `Bits64` may be useful for masks, rotations, representation-preserving reinterpretation, protocol fields, NaN payload inspection, or similar low-level work.
+
+This is deliberately not required for M1.
+
+Current direction:
+
+- numeric types keep numeric semantics;
+- exact bit manipulation gets its own representation semantics;
+- reinterpretation between numeric and bit domains is explicit;
+- a possible interpretation hint may later help AI/viewer presentation but remains non-authoritative;
+- no hint field is added until real agent workflows show a need.
+
+See `m1-bit-representation-design-20260826.md` for the deferred design idea.
+
+## 7. IR and backend consequences
 
 Every accepted semantic node requires a corresponding explicit path through:
 
@@ -287,9 +344,11 @@ No backend-only implementation counts as adding a language feature.
 
 For lists, the first C# representation may use a simple immutable/generated representation chosen by the backend; that representation is not semantic authority.
 
-For Float64, the C# backend must preserve the declared binary64 contract and literal bit patterns. Generated source readability is secondary to deterministic faithful emission.
+For Float64, the C# backend must preserve the declared binary64 contract, the selected canonical NaN policy, and authoritative literal bit patterns. Generated source readability is secondary to deterministic faithful emission.
 
-## 7. Agent-facing evaluation gates
+A future Bits backend must preserve exact bit patterns and cannot reinterpret them based on display hints.
+
+## 8. Agent-facing evaluation gates
 
 Before generalizing numeric or collection nodes, run actual editing tasks through the agent facade.
 
@@ -313,7 +372,7 @@ Measure at least:
 - tool calls and token use;
 - whether the agent selected the correct specialized node without needing whole-program reconstruction.
 
-## 8. Explicit non-goals for the first M1.2 implementation
+## 9. Explicit non-goals for the first M1.2 implementation
 
 Do not add in the same slice:
 
@@ -327,7 +386,9 @@ Do not add in the same slice:
 - parallel collection traversal;
 - effectful collection callbacks;
 - arbitrary precision decimals;
-- generic `Operation(kind, operands)` nodes.
+- generic `Operation(kind, operands)` nodes;
+- first-class `BitsN` representation types;
+- bit-interpretation hints.
 
 These may become useful later, but none are prerequisites for testing the current AI-first semantic design.
 
@@ -338,9 +399,11 @@ M1-E  Int64 type + literals + comparisons + explicit wrapping arithmetic
 M1-F  List<T> type + construction + length/append/concat
 M1-G  Pure ListMap/ListFilter/ListAny/ListAll
 M1-H  Expanded multi-user validation program + agent-editing scenarios
-M1-I  Float64 type + bit-authoritative literal + IEEE operations
+M1-I  Float64 type + bit-authoritative literal + canonical NaN + IEEE operations
 M1-J  Explicit numeric conversion experiments
 M1-K  AI editing benchmark and node-taxonomy review
 ```
+
+A future Bits slice, if justified, belongs after these M1 goals rather than being pulled into the milestone opportunistically.
 
 Phase lettering is provisional and should be reconciled with whichever M1 infrastructure phases have landed by implementation time.
