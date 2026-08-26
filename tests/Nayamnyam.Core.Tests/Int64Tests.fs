@@ -2,6 +2,7 @@ namespace Nayamnyam.Core.Tests
 
 open System
 open System.Diagnostics
+open System.Globalization
 open System.IO
 open Nayamnyam.Core
 open Xunit
@@ -26,10 +27,6 @@ module Int64Tests =
     let private snapshotId = StableId.createForTesting<SnapshotTag> "snapshot-int64"
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private boolType = TypeRef.Primitive PrimitiveType.Bool
-
-    let private literal id value: SemanticNode =
-        { Id = nodeId id
-          Kind = SemanticNodeKind.Int64Literal value }
 
     let private binaryFunction
         name
@@ -139,6 +136,14 @@ module Int64Tests =
         | Ok value -> value
         | Error error -> failwithf "%s failed: %A" label error
 
+    let private requireMatch label predicate items =
+        if not (items |> List.exists predicate) then
+            failwithf "Expected %s, got %A" label items
+
+    let private requireValue label value items =
+        if not (items |> List.contains value) then
+            failwithf "Expected %s value %A, got %A" label value items
+
     let private lower fixture =
         let typed = TypedSemanticIr.project fixture.Snapshot |> unwrap "Typed Semantic IR projection"
         let execution = ExecutionIr.lower typed |> unwrap "Execution IR lowering"
@@ -181,7 +186,8 @@ module Int64Tests =
         let dependencies =
             SemanticQuery.getDependencies fixture.Snapshot fixture.AddFunctionId fixture.AddResultNodeId
             |> unwrap "Dependency query"
-        Assert.Equal<GraphNodeId list>([ fixture.AddLeftNodeId; fixture.AddRightNodeId ] |> List.sortBy StableId.value, dependencies)
+        let expectedDependencies = [ fixture.AddLeftNodeId; fixture.AddRightNodeId ] |> List.sortBy StableId.value
+        Assert.Equal<GraphNodeId list>(expectedDependencies, dependencies)
 
         let viewer = ViewerProjection.focus focus
         let resultNode = viewer.Graph.Nodes |> List.find (fun node -> node.Id = fixture.AddResultNodeId)
@@ -210,7 +216,7 @@ module Int64Tests =
                     { functionEntity with Body = { functionEntity.Body with Nodes = nodes } })
         let invalid = { fixture.Snapshot with Functions = changedFunctions }
         let issues = SnapshotValidator.validate invalid
-        Assert.Contains(issues, fun issue -> issue.Code = "Int64OperandTypeMismatch")
+        requireMatch "Int64OperandTypeMismatch diagnostic" (fun issue -> issue.Code = "Int64OperandTypeMismatch") issues
 
     [<Fact>]
     let ``JSON and Nyason preserve full-range Int64 literals and node kinds`` () =
@@ -230,8 +236,8 @@ module Int64Tests =
 
         for restored in [ fromJson; fromNyason ] do
             let values = literals restored
-            Assert.Contains(Int64.MinValue, values)
-            Assert.Contains(Int64.MaxValue, values)
+            requireValue "Int64 minimum" Int64.MinValue values
+            requireValue "Int64 maximum" Int64.MaxValue values
             let add = restored.Functions |> List.find (fun functionEntity -> functionEntity.Id = fixture.AddFunctionId)
             let result = add.Body.Nodes |> List.find (fun node -> node.Id = fixture.AddResultNodeId)
             match result.Kind with
@@ -248,28 +254,28 @@ module Int64Tests =
         let typed, execution = lower fixture
 
         let typedKinds = typed.Functions |> List.collect (fun functionEntity -> functionEntity.Body.Nodes) |> List.map (fun node -> node.Kind)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64WrappingAdd _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64WrappingSubtract _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64WrappingMultiply _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64Equal _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64LessThan _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64LessThanOrEqual _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64GreaterThan _ -> true | _ -> false)
-        Assert.Contains(typedKinds, function TypedSemanticNodeKind.Int64GreaterThanOrEqual _ -> true | _ -> false)
+        requireMatch "Typed Int64WrappingAdd" (function TypedSemanticNodeKind.Int64WrappingAdd _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64WrappingSubtract" (function TypedSemanticNodeKind.Int64WrappingSubtract _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64WrappingMultiply" (function TypedSemanticNodeKind.Int64WrappingMultiply _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64Equal" (function TypedSemanticNodeKind.Int64Equal _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64LessThan" (function TypedSemanticNodeKind.Int64LessThan _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64LessThanOrEqual" (function TypedSemanticNodeKind.Int64LessThanOrEqual _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64GreaterThan" (function TypedSemanticNodeKind.Int64GreaterThan _ -> true | _ -> false) typedKinds
+        requireMatch "Typed Int64GreaterThanOrEqual" (function TypedSemanticNodeKind.Int64GreaterThanOrEqual _ -> true | _ -> false) typedKinds
 
         let executionKinds =
             execution.Functions
             |> List.collect (fun functionEntity -> functionEntity.Blocks)
             |> List.collect (fun block -> block.Instructions)
             |> List.map (fun instruction -> instruction.Kind)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64WrappingAdd _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64WrappingSubtract _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64WrappingMultiply _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64Equal _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64LessThan _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64LessThanOrEqual _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64GreaterThan _ -> true | _ -> false)
-        Assert.Contains(executionKinds, function ExecutionInstructionKind.Int64GreaterThanOrEqual _ -> true | _ -> false)
+        requireMatch "Execution Int64WrappingAdd" (function ExecutionInstructionKind.Int64WrappingAdd _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64WrappingSubtract" (function ExecutionInstructionKind.Int64WrappingSubtract _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64WrappingMultiply" (function ExecutionInstructionKind.Int64WrappingMultiply _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64Equal" (function ExecutionInstructionKind.Int64Equal _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64LessThan" (function ExecutionInstructionKind.Int64LessThan _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64LessThanOrEqual" (function ExecutionInstructionKind.Int64LessThanOrEqual _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64GreaterThan" (function ExecutionInstructionKind.Int64GreaterThan _ -> true | _ -> false) executionKinds
+        requireMatch "Execution Int64GreaterThanOrEqual" (function ExecutionInstructionKind.Int64GreaterThanOrEqual _ -> true | _ -> false) executionKinds
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
@@ -337,8 +343,8 @@ module Int64Tests =
             let normalized = runOut.Replace("\r\n", "\n").Trim()
             let expected =
                 String.concat "\n"
-                    [ string Int64.MinValue
-                      string Int64.MaxValue
+                    [ Int64.MinValue.ToString(CultureInfo.InvariantCulture)
+                      Int64.MaxValue.ToString(CultureInfo.InvariantCulture)
                       "-2"
                       "True"
                       "True"
