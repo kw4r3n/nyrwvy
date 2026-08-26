@@ -34,10 +34,14 @@ module ViewerHtml =
             "Option<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
             "Result<" + typeRefText okType + ", " + typeRefText errorType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+            "List<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             "Option<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             "Result<invalid-arity:" + string arguments.Length + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+            "List<invalid-arity:" + string arguments.Length + ">"
 
     let private targetText (target: ViewerTarget): string =
         match target with
@@ -81,6 +85,11 @@ module ViewerHtml =
         | ViewerNodeRole.Int64LessThanOrEqual -> "Int64 less than or equal"
         | ViewerNodeRole.Int64GreaterThan -> "Int64 greater than"
         | ViewerNodeRole.Int64GreaterThanOrEqual -> "Int64 greater than or equal"
+        | ViewerNodeRole.ListEmpty -> "List empty"
+        | ViewerNodeRole.ListConstruct -> "List construct"
+        | ViewerNodeRole.ListLength -> "List length"
+        | ViewerNodeRole.ListAppendItem -> "List append item"
+        | ViewerNodeRole.ListConcat -> "List concat"
         | ViewerNodeRole.DirectCall -> "direct call"
         | ViewerNodeRole.CapabilityInvoke -> "capability invoke"
         | ViewerNodeRole.ProductConstruct -> "product construct"
