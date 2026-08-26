@@ -73,6 +73,11 @@ module SemanticQuery =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.ListConstruct _
+                | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListAppendItem _
+                | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
