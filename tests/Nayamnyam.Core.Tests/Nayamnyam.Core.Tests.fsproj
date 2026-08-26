@@ -20,6 +20,7 @@
     <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="AgentWorkflowTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
+    <Compile Include="Int64Tests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
