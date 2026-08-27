@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 open System
 open System.Security.Cryptography
@@ -25,6 +25,8 @@ module private FingerprintHash =
 
 [<RequireQualifiedAccess>]
 module SnapshotFingerprint =
+    // Legacy domain label intentionally retained so the spelling correction does
+    // not invalidate previously reviewed fingerprint values.
     let private domain = "nayamnyam.snapshot-fingerprint.v5"
 
     let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> =
@@ -35,6 +37,8 @@ module SnapshotFingerprint =
 
 [<RequireQualifiedAccess>]
 module SemanticFingerprint =
+    // Legacy domain label intentionally retained so the spelling correction does
+    // not invalidate previously reviewed fingerprint values.
     let private domain = "nayamnyam.semantic-fingerprint.v5"
     let private displayPlaceholder = "_"
 
