@@ -27,6 +27,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolLiteral _
         | TypedSemanticNodeKind.UnitLiteral
         | TypedSemanticNodeKind.Int64Literal _
+        | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
@@ -39,8 +40,17 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | TypedSemanticNodeKind.Float64IsNaN valueNodeId
+        | TypedSemanticNodeKind.Float64IsFinite valueNodeId
+        | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId
         | TypedSemanticNodeKind.ListMap(listNodeId, _)
@@ -79,6 +89,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.BoolLiteral _
             | TypedSemanticNodeKind.UnitLiteral
             | TypedSemanticNodeKind.Int64Literal _
+            | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -89,6 +100,15 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
             | TypedSemanticNodeKind.Int64GreaterThan _
             | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+            | TypedSemanticNodeKind.Float64Add _
+            | TypedSemanticNodeKind.Float64Subtract _
+            | TypedSemanticNodeKind.Float64Multiply _
+            | TypedSemanticNodeKind.Float64Divide _
+            | TypedSemanticNodeKind.Float64Equal _
+            | TypedSemanticNodeKind.Float64LessThan _
+            | TypedSemanticNodeKind.Float64IsNaN _
+            | TypedSemanticNodeKind.Float64IsFinite _
+            | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
@@ -150,6 +170,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolLiteral _
         | TypedSemanticNodeKind.UnitLiteral
         | TypedSemanticNodeKind.Int64Literal _
+        | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -160,6 +181,15 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64LessThanOrEqual _
         | TypedSemanticNodeKind.Int64GreaterThan _
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+        | TypedSemanticNodeKind.Float64Add _
+        | TypedSemanticNodeKind.Float64Subtract _
+        | TypedSemanticNodeKind.Float64Multiply _
+        | TypedSemanticNodeKind.Float64Divide _
+        | TypedSemanticNodeKind.Float64Equal _
+        | TypedSemanticNodeKind.Float64LessThan _
+        | TypedSemanticNodeKind.Float64IsNaN _
+        | TypedSemanticNodeKind.Float64IsFinite _
+        | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
@@ -256,6 +286,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.BoolLiteral _
             | TypedSemanticNodeKind.UnitLiteral
             | TypedSemanticNodeKind.Int64Literal _
+            | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -266,6 +297,15 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
             | TypedSemanticNodeKind.Int64GreaterThan _
             | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+            | TypedSemanticNodeKind.Float64Add _
+            | TypedSemanticNodeKind.Float64Subtract _
+            | TypedSemanticNodeKind.Float64Multiply _
+            | TypedSemanticNodeKind.Float64Divide _
+            | TypedSemanticNodeKind.Float64Equal _
+            | TypedSemanticNodeKind.Float64LessThan _
+            | TypedSemanticNodeKind.Float64IsNaN _
+            | TypedSemanticNodeKind.Float64IsFinite _
+            | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
