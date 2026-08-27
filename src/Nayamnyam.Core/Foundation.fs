@@ -10,6 +10,53 @@ type PrimitiveType =
     | Bool
     | Unit
     | Int64
+    | Float64
+
+/// Authoritative IEEE 754 binary64 literal representation. Construction always
+/// canonicalizes every NaN payload/sign variant to one quiet NaN bit pattern while
+/// preserving every non-NaN bit exactly, including signed zero and infinities.
+[<Struct>]
+type Float64Bits = private Float64Bits of uint64
+
+[<RequireQualifiedAccess>]
+module Float64Bits =
+    let canonicalNaNBits = 0x7ff8000000000000UL
+    let private exponentMask = 0x7ff0000000000000UL
+    let private fractionMask = 0x000fffffffffffffUL
+
+    let private isRawNaN bits =
+        bits &&& exponentMask = exponentMask && bits &&& fractionMask <> 0UL
+
+    let create bits =
+        Float64Bits(if isRawNaN bits then canonicalNaNBits else bits)
+
+    let value (Float64Bits bits) = bits
+
+    let ofFloat (number: float) =
+        System.BitConverter.DoubleToUInt64Bits number |> create
+
+    let toFloat bits =
+        bits |> value |> System.BitConverter.UInt64BitsToDouble
+
+    let isNaN bits =
+        bits |> value |> isRawNaN
+
+    let toHex bits =
+        (value bits).ToString("x16", System.Globalization.CultureInfo.InvariantCulture)
+
+    let tryParseHex (text: string): Result<Float64Bits, string> =
+        if isNull text || text.Length <> 16 then
+            Error "Float64 bits must contain exactly 16 hexadecimal digits."
+        else
+            match
+                System.UInt64.TryParse(
+                    text,
+                    System.Globalization.NumberStyles.AllowHexSpecifier,
+                    System.Globalization.CultureInfo.InvariantCulture
+                )
+            with
+            | true, bits -> Ok(create bits)
+            | false, _ -> Error "Float64 bits contain invalid hexadecimal digits."
 
 [<RequireQualifiedAccess>]
 type BuiltinGenericType =
@@ -116,6 +163,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | BoolLiteral of bool
     | UnitLiteral
     | Int64Literal of int64
+    | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -126,6 +174,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Subtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Multiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Divide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64IsNaN of valueNodeId: GraphNodeId
+    | Float64IsFinite of valueNodeId: GraphNodeId
+    | Float64IsInfinite of valueNodeId: GraphNodeId
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -210,6 +267,7 @@ module ValueGraph =
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
                 | SemanticNodeKind.Int64Literal _
+                | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -220,6 +278,15 @@ module ValueGraph =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Subtract _
+                | SemanticNodeKind.Float64Multiply _
+                | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64Equal _
+                | SemanticNodeKind.Float64LessThan _
+                | SemanticNodeKind.Float64IsNaN _
+                | SemanticNodeKind.Float64IsFinite _
+                | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
@@ -271,6 +338,7 @@ module ValueGraph =
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
                 | SemanticNodeKind.Int64Literal _
+                | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -281,6 +349,15 @@ module ValueGraph =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Subtract _
+                | SemanticNodeKind.Float64Multiply _
+                | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64Equal _
+                | SemanticNodeKind.Float64LessThan _
+                | SemanticNodeKind.Float64IsNaN _
+                | SemanticNodeKind.Float64IsFinite _
+                | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
