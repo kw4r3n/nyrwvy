@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 /// Semantic facts are intentionally explicit and locally inspectable. A node kind
 /// should carry enough information that an agent can understand its role from the
