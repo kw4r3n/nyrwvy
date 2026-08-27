@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 /// Trusted downstream projection from the opaque agent workspace into the
 /// backend-neutral execution pipeline. The raw authoritative Snapshot remains
