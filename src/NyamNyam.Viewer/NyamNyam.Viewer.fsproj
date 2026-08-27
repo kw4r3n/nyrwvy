@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../NyamNyam.Core/ViewerModel.fs" Link="ViewerModel.fs" />
+    <Compile Include="../NyamNyam.Core/ViewerHtml.fs" Link="ViewerHtml.fs" />
+    <Compile Include="../NyamNyam.Core/ViewerArtifact.fs" Link="ViewerArtifact.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+  </ItemGroup>
+</Project>

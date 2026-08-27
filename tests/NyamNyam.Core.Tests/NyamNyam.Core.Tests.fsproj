@@ -46,9 +46,9 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Nayamnyam.Semantics/Nayamnyam.Semantics.fsproj" />
-    <ProjectReference Include="../../src/Nayamnyam.Execution/Nayamnyam.Execution.fsproj" />
-    <ProjectReference Include="../../src/Nayamnyam.Backend.CSharp/Nayamnyam.Backend.CSharp.fsproj" />
-    <ProjectReference Include="../../src/Nayamnyam.Viewer/Nayamnyam.Viewer.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Viewer/NyamNyam.Viewer.fsproj" />
   </ItemGroup>
 </Project>
