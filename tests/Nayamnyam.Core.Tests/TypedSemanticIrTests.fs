@@ -27,6 +27,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.BoolLiteral _
                 | TypedSemanticNodeKind.UnitLiteral
                 | TypedSemanticNodeKind.Int64Literal _
+                | TypedSemanticNodeKind.Float64Literal _
                 | TypedSemanticNodeKind.StringIsEmpty _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -37,6 +38,15 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64LessThanOrEqual _
                 | TypedSemanticNodeKind.Int64GreaterThan _
                 | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+                | TypedSemanticNodeKind.Float64Add _
+                | TypedSemanticNodeKind.Float64Subtract _
+                | TypedSemanticNodeKind.Float64Multiply _
+                | TypedSemanticNodeKind.Float64Divide _
+                | TypedSemanticNodeKind.Float64Equal _
+                | TypedSemanticNodeKind.Float64LessThan _
+                | TypedSemanticNodeKind.Float64IsNaN _
+                | TypedSemanticNodeKind.Float64IsFinite _
+                | TypedSemanticNodeKind.Float64IsInfinite _
                 | TypedSemanticNodeKind.ListEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _
