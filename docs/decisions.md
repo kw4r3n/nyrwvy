@@ -1,6 +1,6 @@
 # Foundational Decisions
 
-This register records decisions that define Nayamnyam's current direction. They are accepted architectural constraints, not implementation details. They may be revisited only when concrete design or implementation evidence shows that a decision prevents the project from meeting its goals.
+This register records decisions that define NyamNyam's current direction. They are accepted architectural constraints, not implementation details. They may be revisited only when concrete design or implementation evidence shows that a decision prevents the project from meeting its goals.
 
 ## D-001 — The semantic graph is the source of truth
 
@@ -13,7 +13,7 @@ The authoritative program representation is a persistent typed semantic graph. T
 
 ### Reason
 
-The project requires stable identity, explicit relationships, transactional changes, and direct semantic queries. Treating source text as authoritative would force the system to repeatedly reconstruct those facts and would preserve the failure modes Nayamnyam is intended to remove.
+The project requires stable identity, explicit relationships, transactional changes, and direct semantic queries. Treating source text as authoritative would force the system to repeatedly reconstruct those facts and would preserve the failure modes NyamNyam is intended to remove.
 
 ### Consequences
 
@@ -131,14 +131,14 @@ A constrained textual editing interface may be added if it maps cleanly to seman
 
 ---
 
-## D-006 — Nayamnyam is an independent programming system
+## D-006 — NyamNyam is an independent programming system
 
 - **Status:** Accepted
 - **Date:** 2026-07-28
 
 ### Decision
 
-Nayamnyam is not implemented as a macro layer, annotation system, or DSL embedded in C#, Kotlin, Rust, or another host language.
+NyamNyam is not implemented as a macro layer, annotation system, or DSL embedded in C#, Kotlin, Rust, or another host language.
 
 ### Reason
 
@@ -319,7 +319,7 @@ The exact Console contract may change, but Milestone 0 should retain one explici
 
 ### Decision
 
-Nayamnyam is implemented in a new repository. RAST provides design history, semantic rules, examples, tests, and migration input, but Nayamnyam's semantic core does not import or depend on the RAST implementation.
+NyamNyam is implemented in a new repository. RAST provides design history, semantic rules, examples, tests, and migration input, but NyamNyam's semantic core does not import or depend on the RAST implementation.
 
 ### Reason
 

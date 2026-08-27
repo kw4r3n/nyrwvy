@@ -3,3 +3,4 @@
 .vs/
 TestResults/
 artifacts/
+.opencode-trace/

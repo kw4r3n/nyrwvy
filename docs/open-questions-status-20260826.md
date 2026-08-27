@@ -17,7 +17,7 @@ Status meanings:
 
 | Question | Status | Current answer |
 |---|---|---|
-| Q-001 Canonical persistence | Open | Nyason is the actively developed Nayamnyam-native portable encoding candidate; JSON is the strict reference/debug baseline; a DB is likely useful as a working/index store and may become authoritative if measured operational evidence favors it. Permanent storage authority remains undecided. |
+| Q-001 Canonical persistence | Open | Nyason is the actively developed NyamNyam-native portable encoding candidate; JSON is the strict reference/debug baseline; a DB is likely useful as a working/index store and may become authoritative if measured operational evidence favors it. Permanent storage authority remains undecided. |
 | Q-002 Stable IDs | Partially resolved | Production IDs use UUIDv7 payloads; typed external domains; system allocates IDs for ordinary creation. Cross-repository import/merge remains open. |
 | Q-003 Snapshots vs operation logs | Resolved for current architecture | Published snapshot is authoritative; operation history is provenance/audit, not competing state authority. |
 | Q-004 First-class graph entities | Partially resolved | M0 entity boundary is implemented and verified; add identity only when targeting/provenance/query needs justify it. Future constructs may extend the boundary. |
@@ -47,7 +47,7 @@ Current evidence establishes:
 
 Current direction is now more specific:
 
-- Nyason is an actively developed **Nayamnyam-native semantic encoding candidate**, not merely a JSON-like experiment;
+- Nyason is an actively developed **NyamNyam-native semantic encoding candidate**, not merely a JSON-like experiment;
 - future Nyason revisions may diverge freely from JSON syntax when that improves agent reliability or structural clarity;
 - owning dedicated Nyason tooling is not considered a disadvantage by default;
 - JSON remains the strict reference/debug/benchmark baseline;
@@ -220,7 +220,7 @@ Do not introduce ownership/borrowing syntax or semantic obligations until a non-
 
 **Status: Resolved for current architecture.**
 
-RAST and Nayamnyam have diverged enough that conceptual ancestry does not justify a dedicated provenance framework.
+RAST and NyamNyam have diverged enough that conceptual ancestry does not justify a dedicated provenance framework.
 
 Accepted rules:
 

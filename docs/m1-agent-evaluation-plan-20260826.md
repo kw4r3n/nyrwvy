@@ -22,7 +22,7 @@ Secondary questions:
 
 ## Comparison modes
 
-### Mode A — Nayamnyam semantic workflow
+### Mode A — NyamNyam semantic workflow
 
 The agent receives supported agent-facing query and operation tools.
 
@@ -42,7 +42,7 @@ The agent does not receive raw mutable snapshot editing as part of the normal ta
 
 Use one conventional source implementation of the same representative program, with ordinary file/source editing and compiler/test feedback.
 
-The baseline should preserve equivalent observable behavior and task intent as far as practical. It does not need to mimic Nayamnyam's internal architecture.
+The baseline should preserve equivalent observable behavior and task intent as far as practical. It does not need to mimic NyamNyam's internal architecture.
 
 If F#, C#, or another baseline language materially changes task difficulty, record that fact rather than silently treating all source languages as equivalent.
 
@@ -230,7 +230,7 @@ Token and latency results are environment/model dependent and must not be treate
 
 ## Semantic churn measure
 
-For Nayamnyam, prefer semantic-diff entities over serialized line counts.
+For NyamNyam, prefer semantic-diff entities over serialized line counts.
 
 Candidate simple measure:
 
@@ -244,7 +244,7 @@ For source-edit baseline, line diff may be recorded, but semantic correctness sh
 
 ## Query-sufficiency measure
 
-For each successful Nayamnyam run, record whether the agent needed:
+For each successful NyamNyam run, record whether the agent needed:
 
 1. one Focus slice;
 2. multiple bounded semantic queries;
@@ -293,7 +293,7 @@ Store enough evidence to reproduce/inspect the result:
 - starting revision/fingerprint;
 - tool/API surface version;
 - agent run transcript or structured event summary when available;
-- proposal receipts / semantic diffs for Nayamnyam;
+- proposal receipts / semantic diffs for NyamNyam;
 - final snapshot/source revision;
 - validation/test/compile results;
 - metrics summary;
@@ -302,7 +302,7 @@ Store enough evidence to reproduce/inspect the result:
 
 ## M1 reporting rule
 
-Milestone 1 does not pass because Nayamnyam "wins" every benchmark.
+Milestone 1 does not pass because NyamNyam "wins" every benchmark.
 
 It passes the evaluation requirement when:
 
@@ -311,4 +311,4 @@ It passes the evaluation requirement when:
 3. at least the representative identity, signature, collection, stale-review, and numeric task classes are exercised where implemented;
 4. the results identify concrete design decisions to keep, change, or investigate next.
 
-A result showing that a Nayamnyam abstraction harms agent reliability is useful evidence and should drive redesign rather than be explained away.
+A result showing that a NyamNyam abstraction harms agent reliability is useful evidence and should drive redesign rather than be explained away.

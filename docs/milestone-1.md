@@ -70,7 +70,7 @@ Run a small, versioned set of semantic-editing tasks through the agent-facing wo
 - whether focused slices were sufficient or whole-program retrieval was required;
 - whether specialized semantic node kinds were selected reliably.
 
-A conventional source-editing baseline is desirable where a fair comparison can be constructed. Milestone 1 does not require a predetermined percentage improvement; it requires enough evidence to identify which Nayamnyam design choices improve or hurt agent reliability.
+A conventional source-editing baseline is desirable where a fair comparison can be constructed. Milestone 1 does not require a predetermined percentage improvement; it requires enough evidence to identify which NyamNyam design choices improve or hurt agent reliability.
 
 See [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
 
@@ -110,7 +110,7 @@ Low-level snapshot and codec APIs may remain available to migrations, tests, rec
 The implementation is now physically separated approximately as follows:
 
 ```text
-Nayamnyam.Semantics
+NyamNyam.Semantics
     Stable IDs and allocation
     semantic graph model
     validation and readiness
@@ -120,29 +120,29 @@ Nayamnyam.Semantics
     fingerprints and reviewed proposals
     agent workflow facade
 
-Nayamnyam.Execution
+NyamNyam.Execution
     Typed Semantic IR
     backend-neutral Execution IR
     trusted AgentWorkspace execution projection
 
-Nayamnyam.Backend.CSharp
+NyamNyam.Backend.CSharp
     backend profile
     C# validation and emission
 
-Nayamnyam.Viewer
+NyamNyam.Viewer
     Focus / Change Review viewer projection
     ViewerModel
     static HTML rendering
     viewer artifact construction
 
-Nayamnyam.Tools.*
+NyamNyam.Tools.*
     CLI and filesystem/export integration
 ```
 
 Required dependency direction remains:
 
 ```text
-Nayamnyam.Semantics
+NyamNyam.Semantics
       ^        ^
       |        |
 Execution    Viewer

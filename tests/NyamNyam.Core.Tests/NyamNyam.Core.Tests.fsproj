@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TestGraph.fs" />
+    <Compile Include="MilestoneZeroGraph.fs" />
+    <Compile Include="FoundationTests.fs" />
+    <Compile Include="StableIdAllocatorTests.fs" />
+    <Compile Include="ValidationTests.fs" />
+    <Compile Include="SnapshotCodecTests.fs" />
+    <Compile Include="FingerprintTests.fs" />
+    <Compile Include="ValueGraphTests.fs" />
+    <Compile Include="CapabilityTests.fs" />
+    <Compile Include="TransactionTests.fs" />
+    <Compile Include="WorkspaceTests.fs" />
+    <Compile Include="PreviewReceiptTests.fs" />
+    <Compile Include="AgentWorkflowTests.fs" />
+    <Compile Include="AssemblyBoundaryTests.fs" />
+    <Compile Include="MilestoneZeroTests.fs" />
+    <Compile Include="NyasonTests.fs" />
+    <Compile Include="TypedSemanticIrTests.fs" />
+    <Compile Include="TypedSemanticIrCodecTests.fs" />
+    <Compile Include="ExecutionIrTests.fs" />
+    <Compile Include="ExecutionIrCodecTests.fs" />
+    <Compile Include="CSharpBackendTests.fs" />
+    <Compile Include="SemanticQueryTests.fs" />
+    <Compile Include="ChangeReviewQueryTests.fs" />
+    <Compile Include="ViewerTests.fs" />
+    <Compile Include="ViewerArtifactTests.fs" />
+    <Compile Include="MilestoneZeroEndToEndTests.fs" />
+    <Compile Include="Int64Tests.fs" />
+    <Compile Include="ListTests.fs" />
+    <Compile Include="ListHigherOrderTests.fs" />
+    <Compile Include="MilestoneOneGraph.fs" />
+    <Compile Include="MilestoneOneEndToEndTests.fs" />
+    <Compile Include="AgentExecutionTests.fs" />
+    <Compile Include="Float64Tests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Viewer/NyamNyam.Viewer.fsproj" />
+  </ItemGroup>
+</Project>

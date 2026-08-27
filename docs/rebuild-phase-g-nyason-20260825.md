@@ -18,9 +18,9 @@ The 42 tests include the corrected compile-backed Milestone 0 semantic fixture t
 
 ## Purpose
 
-Nyason is a Nayamnyam-specific semantic encoding experiment. It tests whether the storage/transport layer can make semantic roles and invalid edits more mechanically obvious to AI agents than generic JSON without becoming a second semantic model.
+Nyason is a NyamNyam-specific semantic encoding experiment. It tests whether the storage/transport layer can make semantic roles and invalid edits more mechanically obvious to AI agents than generic JSON without becoming a second semantic model.
 
-The experiment deliberately does **not** ask whether Nyason is pleasant for humans to author manually. Source-level elegance and minimum character count are lower-priority concerns for Nayamnyam.
+The experiment deliberately does **not** ask whether Nyason is pleasant for humans to author manually. Source-level elegance and minimum character count are lower-priority concerns for NyamNyam.
 
 ## Layering
 
@@ -47,7 +47,7 @@ No validator, operation, query, or lowering pass reads Nyason spelling directly.
 
 ## Minimal syntax layer
 
-`NyasonSyntax` intentionally knows nothing about Nayamnyam semantics. Its value model contains only:
+`NyasonSyntax` intentionally knows nothing about NyamNyam semantics. Its value model contains only:
 
 - atoms;
 - quoted strings;

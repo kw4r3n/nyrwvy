@@ -265,7 +265,7 @@ Resolve the Milestone 0 subset before the emitter is implemented. Performance-sp
 
 ### Question
 
-Should Nayamnyam remain defined around managed shared values, add ownership and borrowing semantics, or model abstract usage constraints that backends can lower differently?
+Should NyamNyam remain defined around managed shared values, add ownership and borrowing semantics, or model abstract usage constraints that backends can lower differently?
 
 ### Decision criteria
 
@@ -292,7 +292,7 @@ What metadata or documentation convention should link migrated semantic rules, e
 - easy auditability;
 - no runtime coupling;
 - clear distinction between copied behavior and newly designed behavior;
-- manageable maintenance when Nayamnyam intentionally diverges.
+- manageable maintenance when NyamNyam intentionally diverges.
 
 ### Resolution target
 
@@ -300,7 +300,7 @@ Define a lightweight provenance convention before the first RAST-derived test or
 
 ---
 
-## Q-014 — How should Nayamnyam integrate with Git?
+## Q-014 — How should NyamNyam integrate with Git?
 
 ### Question
 

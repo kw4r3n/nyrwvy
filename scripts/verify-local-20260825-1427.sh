@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Local verification fallback for Nayamnyam when GitHub Actions is unavailable.
+# Local verification fallback for NyamNyam when GitHub Actions is unavailable.
 # Mirrors CI, then explicitly re-runs phase-specific test modules and verifies
 # that the expected tests actually appeared in the TRX result.
 
@@ -46,7 +46,7 @@ The script requires a .NET 10 SDK and runs:
  23. Float64Tests explicitly (at least 8 passing tests, including generated C# build/run)
  24. the JSON/Nyason comparison report produced by the test suite
 
-A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
+A timestamped log is written under ${TMPDIR:-/tmp}/nyamnyam-verification/.
 EOF
 }
 
@@ -92,7 +92,7 @@ else
 fi
 
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
-LOG_DIR="${TMPDIR:-/tmp}/nayamnyam-verification"
+LOG_DIR="${TMPDIR:-/tmp}/nyamnyam-verification"
 LOG_FILE="$LOG_DIR/local-verify-$TIMESTAMP.log"
 RESULT_DIR="$LOG_DIR/results-$TIMESTAMP"
 mkdir -p "$LOG_DIR" "$RESULT_DIR"
@@ -117,7 +117,7 @@ run_required_filter() {
   local trx_path="$RESULT_DIR/$trx_name"
 
   echo "--- $label ---"
-  dotnet test tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.fsproj \
+  dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
     --configuration Release \
     --no-build \
     --no-restore \
@@ -140,7 +140,7 @@ run_required_filter() {
   echo
 }
 
-echo "=== Nayamnyam local verification ==="
+echo "=== NyamNyam local verification ==="
 echo "time: $(date --iso-8601=seconds)"
 echo "repo: $ROOT_DIR"
 echo "branch: $BRANCH"
@@ -159,15 +159,15 @@ if [[ "$CLEAN" -eq 1 ]]; then
 fi
 
 echo "--- Restore ---"
-dotnet restore Nayamnyam.slnx
+dotnet restore NyamNyam.slnx
 echo
 
 echo "--- Release build ---"
-dotnet build Nayamnyam.slnx --configuration Release --no-restore
+dotnet build NyamNyam.slnx --configuration Release --no-restore
 echo
 
 echo "--- Full test suite ---"
-dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
 echo
 
 run_required_filter \
@@ -290,7 +290,7 @@ run_required_filter \
   8 \
   "m1-j-float64.trx"
 
-ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
+ENCODING_REPORT="${TMPDIR:-/tmp}/nyamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
   echo "ERROR: expected encoding comparison report was not produced: $ENCODING_REPORT" >&2
   exit 1

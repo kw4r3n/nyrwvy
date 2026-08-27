@@ -6,7 +6,7 @@ Accepted Milestone 1 direction for evaluating Nyason and persistent storage. Thi
 
 Nyason remains a candidate, but its role is stronger than "an experimental JSON-like alternative".
 
-> **Nyason is the Nayamnyam-native semantic encoding candidate and may diverge freely from JSON when doing so improves AI reliability, structural explicitness, canonicalization, or implementation control.**
+> **Nyason is the NyamNyam-native semantic encoding candidate and may diverge freely from JSON when doing so improves AI reliability, structural explicitness, canonicalization, or implementation control.**
 
 ## Nyason is not required to resemble JSON
 
@@ -32,7 +32,7 @@ JSON compatibility is not a goal.
 
 Nyason-specific parsers, formatters, validators, viewers, slicers, and migration tools are not inherently a disadvantage.
 
-Nayamnyam already has unusual requirements that generic JSON tooling does not know about:
+NyamNyam already has unusual requirements that generic JSON tooling does not know about:
 
 - typed stable-ID domains;
 - closed semantic node alternatives;
@@ -150,7 +150,7 @@ Do not select the permanent storage medium before there is enough scale to test 
 Recommended progression:
 
 1. continue using strict JSON as the baseline codec;
-2. actively evolve Nyason as a Nayamnyam-native encoding rather than freezing v0 syntax;
+2. actively evolve Nyason as a NyamNyam-native encoding rather than freezing v0 syntax;
 3. run AI comprehension/edit benchmarks on focused JSON and Nyason projections;
 4. build a simple DB-backed working/index prototype when graph size/query latency justifies it;
 5. compare portable-snapshot + derived-DB against DB-authoritative designs;
@@ -187,7 +187,7 @@ Q-001 remains technically open because the permanent authoritative persistence m
 
 However, the candidate set should now be understood as:
 
-- **Nyason:** actively developed Nayamnyam-native portable semantic encoding candidate;
+- **Nyason:** actively developed NyamNyam-native portable semantic encoding candidate;
 - **JSON:** strict reference/debug/benchmark codec;
 - **database:** likely working/index store and possible future authority if operational evidence supports it;
 - **binary formats:** possible transport/storage candidates only if they provide a concrete benefit without weakening recovery and semantic inspection workflows.
