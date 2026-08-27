@@ -20,7 +20,7 @@ module AgentWorkflowTests =
         if not (Guid.TryParseExact(payload, "D", &parsed)) || payload.Length <> 36 || payload[14] <> '7' then
             failwithf "%s was not allocated as UUIDv7: %s" label payload
 
-    let private renameIntent fixture name =
+    let private renameIntent (fixture: MilestoneZeroFixture) name =
         AgentOperationIntent.RenameDisplayName(
             AgentRenameTarget.Function fixture.ValidateFunctionId,
             name
