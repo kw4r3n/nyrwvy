@@ -2,53 +2,61 @@
 
 ## Status
 
-Accepted planning target for the work after the verified Milestone 0 vertical slice.
+Milestone 1 has completed its implementation-oriented infrastructure and language-growth gates. The remaining milestone gate is **M1.3 — the recorded AI-agent evaluation**.
 
-Milestone 1 is not primarily a feature-count milestone. Its main purpose is to turn the verified semantic core into an editing environment that an AI agent can use through bounded semantic queries and reviewed semantic transactions, then grow the language only through that same path.
+Current status:
 
-Milestone 0 proved that the architecture can complete one semantic lifecycle. Milestone 1 must prove that the architecture remains useful when the agent, not a hand-written fixture, is the ordinary editing client.
+| Slice | Status | Evidence |
+| --- | --- | --- |
+| M1.1 — Editing infrastructure | Complete | UUIDv7 IDs, fingerprints, preview receipts, opaque agent facade, reviewed publication, physical assembly split, trusted post-commit execution projection |
+| M1.2 — Language growth | Complete for the accepted scope | Int64, basic List, higher-order List, expanded representative program, cross-function agent edit, Float64 |
+| M1.3 — Evaluate the AI-first claim | Pending | Versioned agent task runs and evaluation record still required |
+
+The latest accepted code verification used .NET SDK `10.0.111`, built with **0 warnings / 0 errors**, and passed the full suite with **158 passed / 0 failed / 0 skipped**. The final M1-J `Float64Tests` gate passed **8/8**.
+
+Milestone 1 is therefore **not yet closed as a whole**: the implementation baseline is ready, but exit criterion 14 remains open until the evaluation record is produced.
 
 ## Primary goal
 
 An AI agent can inspect a bounded semantic slice, request a supported meaning-level change, simulate it, review the exact proposed result, and commit or reject it without direct mutable access to the authoritative snapshot and without manufacturing new stable IDs.
 
-The same workflow must remain usable as the semantic subset grows to include basic numeric and ordered-collection processing.
+The same workflow remains usable as the semantic subset grows to include explicit integer, ordered-collection, and binary64 numeric processing.
 
-## Milestone structure
+## M1.1 — Editing infrastructure
 
-### M1.1 — Editing infrastructure
+The infrastructure slice is complete.
 
-The infrastructure slice establishes the safe agent boundary before language growth.
-
-Required outcomes:
+Verified outcomes:
 
 1. production stable-ID allocation uses UUIDv7 payloads and domain-typed external text forms;
 2. new semantic identities needed by ordinary agent operations are allocated by the system, not invented by the agent;
 3. exact snapshot fingerprints and revision-neutral semantic fingerprints have distinct contracts;
 4. simulation produces a preview receipt bound to the reviewed base and proposed result;
 5. reviewed commit re-simulates and rejects stale or mismatched previews;
-6. the ordinary agent API is a facade over bounded queries and semantic operations rather than raw snapshot mutation;
+6. the ordinary agent API is an opaque facade over bounded queries and semantic operations rather than raw snapshot mutation;
 7. Change Review distinguishes requested operation intent from resulting semantic diff;
-8. implementation assemblies are separated along the accepted semantic / execution / backend / viewer dependency directions.
+8. implementation assemblies are physically separated along the accepted semantic / execution / backend / viewer dependency directions;
+9. trusted downstream execution can project from the exact committed `AgentWorkspace` without adding a public raw-snapshot getter to the ordinary agent API.
 
-The UUIDv7 allocator, fingerprint / preview-receipt boundaries, and agent workflow facade are now locally verified on the rebuild line. The remaining M1.1 infrastructure gate is primarily the physical project/assembly split that turns the dependency direction from convention into a build-enforced boundary.
+## M1.2 — Language growth
 
-### M1.2 — Language growth
+The accepted M1 language-growth scope is complete.
 
-After the agent workflow is verified, extend the semantic subset in deliberately small slices:
+Verified vertical slices:
 
-1. `Int64` with explicit width and explicit arithmetic semantics;
-2. immutable ordered `List<T>` construction and structural operations;
-3. pure specialized `ListMap`, `ListFilter`, `ListAny`, and `ListAll` operations using stable `FunctionId` references;
-4. a larger representative multi-user validation program that reuses the Milestone 0 `Result`, union, product, branch, effect, capability, and transaction semantics;
-5. `Float64` with explicit IEEE 754 binary64 semantics and bit-authoritative literals;
-6. explicit numeric conversion experiments only after their precision, rounding, and failure contracts are specified.
+1. **`Int64`** — explicit 64-bit integer domain with wrapping arithmetic and dedicated comparisons through validation, persistence, both IR layers, viewer/query projection, deterministic C# generation, compilation, and execution.
+2. **Immutable ordered `List<T>`** — construction, empty, length, append, and concat with list order preserved as semantic state.
+3. **Pure higher-order List operations** — `ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference callbacks by stable `FunctionId` and reject unsupported callback contracts conservatively.
+4. **Expanded representative program** — multi-user validation reuses existing `Result`, union, product, branching, effects, capabilities, Int64, and List semantics.
+5. **Non-trivial agent edit** — a cross-function signature change is completed through bounded query -> simulate -> Change Review -> reviewed commit while preserving unrelated stable callback relations.
+6. **Post-commit execution handoff** — the exact committed agent workspace projects into Typed Semantic IR and continues through Execution IR, C# emission, compile, and execution.
+7. **`Float64`** — explicit IEEE 754 binary64 semantics with bit-authoritative literals, signed-zero preservation, infinity behavior, canonical NaN literal policy, arithmetic, comparison, and classification.
 
-See [Milestone 1 language-growth design](m1-language-growth-design-20260826.md).
+Explicit numeric conversion experiments remain deferred until their precision, rounding, and failure contracts are specified. They are not required by the current M1 exit criteria.
 
-### M1.3 — Evaluate the AI-first claim
+## M1.3 — Evaluate the AI-first claim
 
-Milestone 1 must end with measurements rather than only architecture assertions.
+This is the remaining Milestone 1 gate.
 
 Run a small, versioned set of semantic-editing tasks through the agent-facing workflow and record at least:
 
@@ -64,6 +72,8 @@ Run a small, versioned set of semantic-editing tasks through the agent-facing wo
 
 A conventional source-editing baseline is desirable where a fair comparison can be constructed. Milestone 1 does not require a predetermined percentage improvement; it requires enough evidence to identify which Nayamnyam design choices improve or hurt agent reliability.
 
+See [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
+
 ## Accepted agent workflow
 
 The ordinary editing workflow is:
@@ -78,8 +88,9 @@ bounded semantic query
        - requested intent
        - resulting semantic diff
        - readiness / obligations
-       - affected focus slices
+       - affected Focus slices
     -> reviewed commit or reject
+    -> trusted execution projection when execution is requested
 ```
 
 The agent-facing surface must not make these ordinary editing operations available:
@@ -96,7 +107,7 @@ Low-level snapshot and codec APIs may remain available to migrations, tests, rec
 
 ## Accepted implementation dependency boundaries
 
-Milestone 1 should physically separate the currently co-located components approximately as follows:
+The implementation is now physically separated approximately as follows:
 
 ```text
 Nayamnyam.Semantics
@@ -112,6 +123,7 @@ Nayamnyam.Semantics
 Nayamnyam.Execution
     Typed Semantic IR
     backend-neutral Execution IR
+    trusted AgentWorkspace execution projection
 
 Nayamnyam.Backend.CSharp
     backend profile
@@ -127,7 +139,7 @@ Nayamnyam.Tools.*
     CLI and filesystem/export integration
 ```
 
-Required dependency direction:
+Required dependency direction remains:
 
 ```text
 Nayamnyam.Semantics
@@ -139,50 +151,25 @@ Execution    Viewer
 Backend.CSharp  Tools
 ```
 
-More precisely:
-
-- `Semantics` depends on no backend, viewer, or tool assembly;
-- `Execution` may depend on `Semantics` but not on a target backend;
-- `Backend.CSharp` may depend on `Execution` and the minimum shared semantic identity types required by the execution contract;
-- `Viewer` may depend on semantic query / review contracts but not on execution or backend implementation;
-- tools compose public APIs and own filesystem / process interaction;
-- generated C# never becomes an upstream dependency.
-
-Exact project names may change. The dependency direction is the decision.
+Generated C# never becomes an upstream dependency.
 
 ## Change Review contract
 
-A review must preserve two different kinds of truth:
+A review preserves two different kinds of truth.
 
 ### Requested intent
 
-What the editing client asked the semantic engine to do.
-
-Examples:
-
-- rename this stable function;
-- add a parameter of this type;
-- leave this affected call unresolved;
-- resolve this obligation with this value.
+What the editing client asked the semantic engine to do, such as renaming a stable function, adding a typed parameter, leaving a call unresolved, or resolving an obligation.
 
 ### Resulting semantic change
 
-What the semantic engine actually proposes after propagation and validation.
+What the semantic engine actually proposes after propagation and validation, such as a parameter addition, argument attachment, obligation creation/resolution, readiness change, or affected function slice.
 
-Examples:
-
-- parameter added;
-- argument attached;
-- obligation created;
-- obligation resolved;
-- readiness changed;
-- affected function slice changed.
-
-Requested intent must not be reconstructed from the resulting diff, and the resulting diff must not be reconstructed from requested intent. They answer different review questions and neither is a substitute for the other.
+Requested intent is not reconstructed from the resulting diff, and the resulting diff is not reconstructed from requested intent.
 
 ## Fingerprint contracts
 
-Milestone 1 keeps two different fingerprints:
+Milestone 1 keeps two distinct fingerprints.
 
 ### Snapshot fingerprint
 
@@ -192,26 +179,64 @@ Binds an exact canonical snapshot revision. It includes revision identity and pr
 
 Identifies revision-neutral semantic state while excluding revision, presentation, and audit/provenance-only noise. Stable semantic identities and actual semantic structure remain significant.
 
-It is not alpha-equivalence, optimizer equivalence, or behavioral equivalence. Those would be separate future concepts if needed.
+It is not alpha-equivalence, optimizer equivalence, or behavioral equivalence.
+
+## Float64 contract reached in M1-J
+
+`Float64` means explicit IEEE 754 binary64 numeric semantics.
+
+The initial slice contains:
+
+```text
+Float64Literal(bits)
+Float64Add(left, right)
+Float64Subtract(left, right)
+Float64Multiply(left, right)
+Float64Divide(left, right)
+Float64Equal(left, right)
+Float64LessThan(left, right)
+Float64IsNaN(value)
+Float64IsFinite(value)
+Float64IsInfinite(value)
+```
+
+Finite values, infinities, subnormals, and signed zero preserve exact binary64 literal bits. Semantic NaN literals canonicalize to quiet NaN `7ff8000000000000`; exact NaN payload identity remains a future bit-domain concern rather than ordinary Float64 numeric meaning.
+
+See [Float64 implementation notes](m1-float64-implementation-notes-20260828.md).
 
 ## Exit criteria
 
-Milestone 1 is complete when all of the following are demonstrated by tests, reproducible artifacts, or recorded experiments:
+| # | Criterion | Status |
+| ---: | --- | --- |
+| 1 | System-issued identity | Complete |
+| 2 | Bounded inspection | Complete |
+| 3 | Opaque proposal boundary | Complete |
+| 4 | Reviewed publication | Complete |
+| 5 | Intent and result review | Complete |
+| 6 | Explicit incompleteness | Complete |
+| 7 | Physical dependency direction | Complete |
+| 8 | `Int64` vertical slice | Complete |
+| 9 | `List<T>` vertical slice | Complete |
+| 10 | Expanded representative program | Complete |
+| 11 | Agent edit scenario through query -> simulate -> review -> commit -> execute | Complete |
+| 12 | `Float64` vertical slice | Complete |
+| 13 | Reproducibility | Complete for implemented representative scenarios |
+| 14 | Evaluation record | **Pending — remaining M1 gate** |
 
-1. **System-issued identity** — ordinary agent operations that create semantic entities do not require the agent to invent stable IDs.
-2. **Bounded inspection** — the agent can perform the representative edit scenarios using semantic query APIs rather than raw whole-snapshot traversal as the normal path.
-3. **Opaque proposal boundary** — the agent can review a proposal but cannot mutate its internal low-level transaction request or preview receipt through the supported facade.
-4. **Reviewed publication** — a commit is bound to an exact reviewed base and proposed result; stale or mismatched proposals are rejected.
-5. **Intent and result review** — Change Review exposes requested intent and resulting semantic change separately.
-6. **Explicit incompleteness** — unresolved decisions remain typed obligations; incomplete publication requires explicit policy and cannot lower accidentally.
-7. **Physical dependency direction** — semantic, execution, backend, viewer, and tool components no longer rely only on convention to preserve their dependency direction.
-8. **`Int64` vertical slice** — literals and the accepted minimal integer operations work through validation, persistence, both IR layers, viewer/query projections, C# generation, compilation, and execution.
-9. **`List<T>` vertical slice** — ordered list construction and the accepted pure specialized collection operations work end to end without introducing implicit effect ordering or lambda semantics.
-10. **Expanded representative program** — a multi-user validation program exercises the new collection/numeric subset together with existing `Result`, union, effect, and capability semantics.
-11. **Agent edit scenario** — at least one non-trivial cross-function change to the expanded representative program is completed through query -> simulate -> review -> commit -> execute with no raw snapshot edit.
-12. **`Float64` vertical slice** — binary64 literals and the accepted initial IEEE operations have deterministic persistence/fingerprint/backend behavior, including explicit treatment of signed zero, infinity, and NaN policy.
-13. **Reproducibility** — canonical snapshot artifacts, fingerprints, execution IR, and generated backend source are reproducible for the representative scenarios.
-14. **Evaluation record** — the project records agent-editing results and identifies concrete design changes to retain, revise, or investigate in Milestone 2.
+## Verification baseline
+
+Latest accepted code verification:
+
+```text
+feature head: 79fccfba86c1c00add0a9c50248c55336e7c563b
+.NET SDK:     10.0.111
+build:        0 warnings / 0 errors
+full suite:   158 passed / 0 failed / 0 skipped
+M1-J Float64: 8 passed / 0 failed
+result:       VERIFICATION PASSED
+```
+
+The verified implementation tree was squash-merged as `54c26d1dbfc615ef60b00a714552004cf191fefe`. Subsequent accepted changes before this status update were documentation-only.
 
 ## Non-goals
 
