@@ -28,8 +28,8 @@ Examples of the existing style:
 
 ```text
 nayamnyam.snapshot.v0
-nayamnyam.typed-semantic-ir.v1
-nayamnyam.execution-ir.v1
+nyamnyam.typed-semantic-ir.v1
+nyamnyam.execution-ir.v1
 ```
 
 Exact naming can evolve, but version identity must be carried by the serialized artifact rather than inferred from filename, Git revision, or parser behavior.

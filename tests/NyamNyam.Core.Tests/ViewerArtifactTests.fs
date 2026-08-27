@@ -128,7 +128,7 @@ module ViewerArtifactTests =
         let json = SnapshotCodec.serialize fixture.Snapshot |> unwrap
         let root = repoRoot ()
         let tempRoot =
-            Path.Combine(Path.GetTempPath(), "nayamnyam-viewer-export-" + Guid.NewGuid().ToString("N"))
+            Path.Combine(Path.GetTempPath(), "nyamnyam-viewer-export-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try

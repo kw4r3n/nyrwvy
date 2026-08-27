@@ -433,7 +433,7 @@ module Float64Tests =
     let ``generated C# executes IEEE binary64 arithmetic equality division and classification`` () =
         let fixture = createFixture ()
         let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nayamnyam-float64-" + Guid.NewGuid().ToString("N"))
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyamnyam-float64-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try

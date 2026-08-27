@@ -85,7 +85,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         (artifact: CSharpArtifact)
         : string =
         let tempRoot =
-            Path.Combine(Path.GetTempPath(), "nayamnyam-m0-e2e-" + Guid.NewGuid().ToString("N"))
+            Path.Combine(Path.GetTempPath(), "nyamnyam-m0-e2e-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try

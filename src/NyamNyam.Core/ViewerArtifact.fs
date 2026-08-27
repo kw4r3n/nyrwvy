@@ -35,12 +35,12 @@ module ViewerArtifact =
         |> fun value -> value.ToLowerInvariant()
 
     let private focusFileName functionId =
-        "nayamnyam-focus-function-"
+        "nyamnyam-focus-function-"
         + utf8Hex (StableId.value functionId)
         + ".html"
 
     let private reviewFileName transactionId =
-        "nayamnyam-change-review-transaction-"
+        "nyamnyam-change-review-transaction-"
         + utf8Hex (StableId.value transactionId)
         + ".html"
 

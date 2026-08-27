@@ -126,7 +126,7 @@ module NyasonTests =
                   $"json-chars={json.Length}"
                   $"nyason-chars={nyason.Length}" ]
 
-        let path = Path.Combine(Path.GetTempPath(), "nayamnyam-encoding-comparison.txt")
+        let path = Path.Combine(Path.GetTempPath(), "nyamnyam-encoding-comparison.txt")
         File.WriteAllText(path, metrics + Environment.NewLine)
         Assert.True(jsonBytes > 0)
         Assert.True(nyasonBytes > 0)

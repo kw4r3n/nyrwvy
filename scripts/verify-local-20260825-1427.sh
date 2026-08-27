@@ -46,7 +46,7 @@ The script requires a .NET 10 SDK and runs:
  23. Float64Tests explicitly (at least 8 passing tests, including generated C# build/run)
  24. the JSON/Nyason comparison report produced by the test suite
 
-A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
+A timestamped log is written under ${TMPDIR:-/tmp}/nyamnyam-verification/.
 EOF
 }
 
@@ -92,7 +92,7 @@ else
 fi
 
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
-LOG_DIR="${TMPDIR:-/tmp}/nayamnyam-verification"
+LOG_DIR="${TMPDIR:-/tmp}/nyamnyam-verification"
 LOG_FILE="$LOG_DIR/local-verify-$TIMESTAMP.log"
 RESULT_DIR="$LOG_DIR/results-$TIMESTAMP"
 mkdir -p "$LOG_DIR" "$RESULT_DIR"
@@ -290,7 +290,7 @@ run_required_filter \
   8 \
   "m1-j-float64.trx"
 
-ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
+ENCODING_REPORT="${TMPDIR:-/tmp}/nyamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
   echo "ERROR: expected encoding comparison report was not produced: $ENCODING_REPORT" >&2
   exit 1

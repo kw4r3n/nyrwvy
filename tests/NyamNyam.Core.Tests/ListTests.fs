@@ -354,7 +354,7 @@ module ListTests =
     let ``generated C# executes basic List construction append concat and length`` () =
         let fixture = createFixture ()
         let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nayamnyam-list-basic-" + Guid.NewGuid().ToString("N"))
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyamnyam-list-basic-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
         try
             let projectFile =

@@ -74,7 +74,7 @@ NyFunctions.{mainFunctionName}(empty, console);
 
     let private executeArtifact (fixture: MilestoneOneFixture) (artifact: CSharpArtifact): string =
         let tempRoot =
-            Path.Combine(Path.GetTempPath(), "nayamnyam-agent-execution-" + Guid.NewGuid().ToString("N"))
+            Path.Combine(Path.GetTempPath(), "nyamnyam-agent-execution-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try

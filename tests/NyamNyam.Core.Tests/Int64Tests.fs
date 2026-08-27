@@ -297,7 +297,7 @@ module Int64Tests =
     let ``generated C# executes Int64 wrapping arithmetic and comparisons`` () =
         let fixture = createFixture ()
         let artifact = emit fixture
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nayamnyam-int64-" + Guid.NewGuid().ToString("N"))
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyamnyam-int64-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try

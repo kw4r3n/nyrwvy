@@ -478,7 +478,7 @@ module ListHigherOrderTests =
     let ``generated C# executes pure higher-order List and empty Any All semantics`` () =
         let fixture = createFixture ()
         let artifact = emit fixture.Snapshot
-        let tempRoot = Path.Combine(Path.GetTempPath(), "nayamnyam-list-ho-" + Guid.NewGuid().ToString("N"))
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyamnyam-list-ho-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
         try
             let projectFile =

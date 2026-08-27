@@ -151,7 +151,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
     let ``generated C# compiles and runs the representative M0 behavior`` () =
         let fixture, _, artifact = emitRepresentative ()
         let tempRoot =
-            Path.Combine(Path.GetTempPath(), "nayamnyam-csharp-backend-" + Guid.NewGuid().ToString("N"))
+            Path.Combine(Path.GetTempPath(), "nyamnyam-csharp-backend-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
 
         try
