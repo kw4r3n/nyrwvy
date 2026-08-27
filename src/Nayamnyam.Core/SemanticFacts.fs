@@ -52,7 +52,7 @@ module SemanticFacts =
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
-        | SemanticNodeKind.MatchResult(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
         | SemanticNodeKind.StringLiteral _
