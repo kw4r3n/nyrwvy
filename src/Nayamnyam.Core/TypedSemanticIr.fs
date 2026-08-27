@@ -79,6 +79,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | BoolLiteral of bool
     | UnitLiteral
     | Int64Literal of int64
+    | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -89,6 +90,15 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Subtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Multiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Divide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64IsNaN of valueNodeId: GraphNodeId
+    | Float64IsFinite of valueNodeId: GraphNodeId
+    | Float64IsInfinite of valueNodeId: GraphNodeId
     | ListEmpty
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -221,6 +231,8 @@ module TypedSemanticIr =
                         Ok TypedSemanticNodeKind.UnitLiteral
                     | SemanticNodeKind.Int64Literal value ->
                         Ok(TypedSemanticNodeKind.Int64Literal value)
+                    | SemanticNodeKind.Float64Literal bits ->
+                        Ok(TypedSemanticNodeKind.Float64Literal bits)
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringIsEmpty valueNodeId)
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
@@ -241,6 +253,24 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64IsNaN valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64IsNaN valueNodeId)
+                    | SemanticNodeKind.Float64IsFinite valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64IsFinite valueNodeId)
+                    | SemanticNodeKind.Float64IsInfinite valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64IsInfinite valueNodeId)
                     | SemanticNodeKind.ListEmpty _ ->
                         Ok TypedSemanticNodeKind.ListEmpty
                     | SemanticNodeKind.ListConstruct(_, itemNodeIds) ->
