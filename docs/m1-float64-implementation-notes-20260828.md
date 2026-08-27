@@ -4,7 +4,17 @@
 
 Implementation note for the Milestone 1 Float64 vertical slice.
 
-Compiler/runtime verification remains pending until the repository local verifier completes on the exact branch head.
+Compiler/runtime verification completed successfully on exact feature head `79fccfba86c1c00add0a9c50248c55336e7c563b` with .NET SDK `10.0.111`.
+
+Verification result:
+
+- Release build: 0 warnings, 0 errors;
+- full test suite: 158 passed, 0 failed, 0 skipped;
+- M1-J `Float64Tests`: 8 passed, 0 failed;
+- local verifier: `VERIFICATION PASSED`;
+- verification log: `local-verify-20260828-061106.log`.
+
+The verified feature content was squash-merged into `rebuild/fsharp-m0-20260825` as `54c26d1dbfc615ef60b00a714552004cf191fefe`.
 
 ## Semantic contract
 
