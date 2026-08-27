@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 4
+    let schemaVersion = 5
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -41,6 +41,8 @@ module ExecutionIrCodec =
             objectValue [ property "kind" (quote "primitiveUnit") ]
         | TypeRef.Primitive PrimitiveType.Int64 ->
             objectValue [ property "kind" (quote "primitiveInt64") ]
+        | TypeRef.Primitive PrimitiveType.Float64 ->
+            objectValue [ property "kind" (quote "primitiveFloat64") ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")
@@ -180,6 +182,10 @@ module ExecutionIrCodec =
           property "leftValueId" (executionValueIdValue leftValueId)
           property "rightValueId" (executionValueIdValue rightValueId) ]
 
+    let private writeUnaryInstruction kind valueId =
+        [ property "kind" (quote kind)
+          property "valueId" (executionValueIdValue valueId) ]
+
     let private writeListCallbackInstruction kind sourceListValueId callbackFieldName callbackFunctionId =
         [ property "kind" (quote kind)
           property "sourceListValueId" (executionValueIdValue sourceListValueId)
@@ -204,6 +210,9 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.Int64Literal value ->
             [ property "kind" (quote "int64Literal")
               property "value" (value.ToString(CultureInfo.InvariantCulture)) ]
+        | ExecutionInstructionKind.Float64Literal bits ->
+            [ property "kind" (quote "float64Literal")
+              property "bits" (quote (Float64Bits.toHex bits)) ]
         | ExecutionInstructionKind.StringIsEmpty valueId ->
             [ property "kind" (quote "stringIsEmpty")
               property "valueId" (executionValueIdValue valueId) ]
@@ -227,6 +236,24 @@ module ExecutionIrCodec =
             writeBinaryInstruction "int64GreaterThan" leftValueId rightValueId
         | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64GreaterThanOrEqual" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Add" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Subtract" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Multiply" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Divide(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Divide" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Equal(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Equal" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64LessThan(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64LessThan" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64IsNaN valueId ->
+            writeUnaryInstruction "float64IsNaN" valueId
+        | ExecutionInstructionKind.Float64IsFinite valueId ->
+            writeUnaryInstruction "float64IsFinite" valueId
+        | ExecutionInstructionKind.Float64IsInfinite valueId ->
+            writeUnaryInstruction "float64IsInfinite" valueId
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
         | ExecutionInstructionKind.ListConstruct itemValueIds ->
