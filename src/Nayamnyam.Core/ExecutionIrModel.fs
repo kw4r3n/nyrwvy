@@ -81,6 +81,7 @@ type ExecutionInstructionKind =
     | BoolLiteral of bool
     | UnitLiteral
     | Int64Literal of int64
+    | Float64Literal of Float64Bits
     | StringIsEmpty of ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | Int64WrappingAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -91,6 +92,15 @@ type ExecutionInstructionKind =
     | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Add of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Subtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Multiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Divide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64IsNaN of valueId: ExecutionValueId
+    | Float64IsFinite of valueId: ExecutionValueId
+    | Float64IsInfinite of valueId: ExecutionValueId
     | ListEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId

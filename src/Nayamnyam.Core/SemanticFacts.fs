@@ -20,8 +20,17 @@ module SemanticFacts =
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Float64IsNaN valueNodeId
+        | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId
         | SemanticNodeKind.ListMap(listNodeId, _)
@@ -50,6 +59,7 @@ module SemanticFacts =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
@@ -77,6 +87,7 @@ module SemanticFacts =
             | SemanticNodeKind.BoolLiteral _
             | SemanticNodeKind.UnitLiteral
             | SemanticNodeKind.Int64Literal _
+            | SemanticNodeKind.Float64Literal _
             | SemanticNodeKind.StringIsEmpty _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.Int64WrappingAdd _
@@ -87,6 +98,15 @@ module SemanticFacts =
             | SemanticNodeKind.Int64LessThanOrEqual _
             | SemanticNodeKind.Int64GreaterThan _
             | SemanticNodeKind.Int64GreaterThanOrEqual _
+            | SemanticNodeKind.Float64Add _
+            | SemanticNodeKind.Float64Subtract _
+            | SemanticNodeKind.Float64Multiply _
+            | SemanticNodeKind.Float64Divide _
+            | SemanticNodeKind.Float64Equal _
+            | SemanticNodeKind.Float64LessThan _
+            | SemanticNodeKind.Float64IsNaN _
+            | SemanticNodeKind.Float64IsFinite _
+            | SemanticNodeKind.Float64IsInfinite _
             | SemanticNodeKind.ListEmpty _
             | SemanticNodeKind.ListConstruct _
             | SemanticNodeKind.ListLength _
@@ -193,6 +213,12 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64WrappingMultiply _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
+                    | SemanticNodeKind.Float64Literal _
+                    | SemanticNodeKind.Float64Add _
+                    | SemanticNodeKind.Float64Subtract _
+                    | SemanticNodeKind.Float64Multiply _
+                    | SemanticNodeKind.Float64Divide _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Float64)
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.Int64Equal _
@@ -200,6 +226,11 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64LessThanOrEqual _
                     | SemanticNodeKind.Int64GreaterThan _
                     | SemanticNodeKind.Int64GreaterThanOrEqual _
+                    | SemanticNodeKind.Float64Equal _
+                    | SemanticNodeKind.Float64LessThan _
+                    | SemanticNodeKind.Float64IsNaN _
+                    | SemanticNodeKind.Float64IsFinite _
+                    | SemanticNodeKind.Float64IsInfinite _
                     | SemanticNodeKind.ListAny _
                     | SemanticNodeKind.ListAll _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)

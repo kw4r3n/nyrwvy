@@ -43,12 +43,16 @@ module CSharpBackend =
         else
             value.ToString(CultureInfo.InvariantCulture) + "L"
 
+    let private renderFloat64Literal bits =
+        "BitConverter.UInt64BitsToDouble(0x" + Float64Bits.toHex bits + "UL)"
+
     let rec private formatType (typeRef: TypeRef) =
         match typeRef with
         | TypeRef.Primitive PrimitiveType.String -> "string"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
+        | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
@@ -315,6 +319,8 @@ module CSharpBackend =
             writer.Line(target + " = NyUnit.Value;")
         | ExecutionInstructionKind.Int64Literal value ->
             writer.Line(target + " = " + renderInt64Literal value + ";")
+        | ExecutionInstructionKind.Float64Literal bits ->
+            writer.Line(target + " = " + renderFloat64Literal bits + ";")
         | ExecutionInstructionKind.StringIsEmpty sourceValueId ->
             writer.Line(target + " = " + valueName sourceValueId + ".Length == 0;")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
@@ -335,6 +341,24 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId ">" rightValueId false
         | ExecutionInstructionKind.Int64GreaterThanOrEqual(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId ">=" rightValueId false
+        | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "+" rightValueId false
+        | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "-" rightValueId false
+        | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "*" rightValueId false
+        | ExecutionInstructionKind.Float64Divide(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "/" rightValueId false
+        | ExecutionInstructionKind.Float64Equal(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "==" rightValueId false
+        | ExecutionInstructionKind.Float64LessThan(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "<" rightValueId false
+        | ExecutionInstructionKind.Float64IsNaN valueId ->
+            writer.Line(target + " = double.IsNaN(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64IsFinite valueId ->
+            writer.Line(target + " = double.IsFinite(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64IsInfinite valueId ->
+            writer.Line(target + " = double.IsInfinity(" + valueName valueId + ");")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.ListConstruct itemValueIds ->

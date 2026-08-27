@@ -209,6 +209,11 @@ module ExecutionIr =
                     | Error error, _
                     | _, Error error -> Error error
 
+                let lowerUnaryNode node valueNodeId constructor =
+                    requireNodeValue environment valueNodeId
+                    |> Result.map (fun valueId ->
+                        addInstruction currentBlock node (constructor valueId))
+
                 let lowerNodeValues (nodeIds: GraphNodeId list): Result<ExecutionValueId list, ExecutionIrError> =
                     let rec loop acc remaining =
                         match remaining with
@@ -244,6 +249,8 @@ module ExecutionIr =
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.UnitLiteral)
                         | TypedSemanticNodeKind.Int64Literal value ->
                             Ok(addInstruction currentBlock node (ExecutionInstructionKind.Int64Literal value))
+                        | TypedSemanticNodeKind.Float64Literal bits ->
+                            Ok(addInstruction currentBlock node (ExecutionInstructionKind.Float64Literal bits))
                         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
@@ -270,6 +277,24 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThan(left, right))
                         | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThanOrEqual(left, right))
+                        | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Add(left, right))
+                        | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Subtract(left, right))
+                        | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Multiply(left, right))
+                        | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Divide(left, right))
+                        | TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Equal(left, right))
+                        | TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64LessThan(left, right))
+                        | TypedSemanticNodeKind.Float64IsNaN valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsNaN
+                        | TypedSemanticNodeKind.Float64IsFinite valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsFinite
+                        | TypedSemanticNodeKind.Float64IsInfinite valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsInfinite
                         | TypedSemanticNodeKind.ListEmpty ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.ListEmpty)
                         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
@@ -494,6 +519,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.BoolLiteral _
                         | TypedSemanticNodeKind.UnitLiteral
                         | TypedSemanticNodeKind.Int64Literal _
+                        | TypedSemanticNodeKind.Float64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -504,6 +530,15 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64LessThanOrEqual _
                         | TypedSemanticNodeKind.Int64GreaterThan _
                         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
+                        | TypedSemanticNodeKind.Float64Add _
+                        | TypedSemanticNodeKind.Float64Subtract _
+                        | TypedSemanticNodeKind.Float64Multiply _
+                        | TypedSemanticNodeKind.Float64Divide _
+                        | TypedSemanticNodeKind.Float64Equal _
+                        | TypedSemanticNodeKind.Float64LessThan _
+                        | TypedSemanticNodeKind.Float64IsNaN _
+                        | TypedSemanticNodeKind.Float64IsFinite _
+                        | TypedSemanticNodeKind.Float64IsInfinite _
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _

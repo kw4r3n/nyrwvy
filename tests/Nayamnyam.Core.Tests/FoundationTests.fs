@@ -30,6 +30,7 @@ module FoundationTests =
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
                 | SemanticNodeKind.Int64Literal _
+                | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -40,6 +41,15 @@ module FoundationTests =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Subtract _
+                | SemanticNodeKind.Float64Multiply _
+                | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64Equal _
+                | SemanticNodeKind.Float64LessThan _
+                | SemanticNodeKind.Float64IsNaN _
+                | SemanticNodeKind.Float64IsFinite _
+                | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

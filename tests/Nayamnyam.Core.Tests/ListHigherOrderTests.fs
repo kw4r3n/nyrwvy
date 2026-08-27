@@ -423,10 +423,10 @@ module ListHigherOrderTests =
 
         assertNodes fromJson
         assertNodes fromNyason
-        Assert.Contains("\"schemaVersion\":7", json)
+        Assert.Contains("\"schemaVersion\":8", json)
         Assert.Contains("\"mapperFunctionId\"", json)
         Assert.Contains("\"predicateFunctionId\"", json)
-        Assert.Contains("nayamnyam.snapshot.v3", nyason)
+        Assert.Contains("nayamnyam.snapshot.v4", nyason)
         Assert.Contains("list-map {", nyason)
         Assert.Contains("list-filter {", nyason)
         Assert.Contains("list-any {", nyason)
@@ -455,10 +455,10 @@ module ListHigherOrderTests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":4", typedJson)
+        Assert.Contains("\"schemaVersion\":5", typedJson)
         Assert.Contains("\"listMap\"", typedJson)
         Assert.Contains(StableId.value fixture.PositiveFunctionId, typedJson)
-        Assert.Contains("\"schemaVersion\":4", executionJson)
+        Assert.Contains("\"schemaVersion\":5", executionJson)
         Assert.Contains("\"listFilter\"", executionJson)
 
     [<Fact>]

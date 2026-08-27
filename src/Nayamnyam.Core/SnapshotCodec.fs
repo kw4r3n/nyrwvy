@@ -18,7 +18,7 @@ type SnapshotCodecError =
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
-    let private schemaVersion = 7
+    let private schemaVersion = 8
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -93,6 +93,11 @@ module SnapshotCodec =
             invalidShape $"Property '{name}' must be a signed 64-bit integer."
         number
 
+    let private readFloat64Bits (name: string) (element: JsonElement) =
+        match Float64Bits.tryParseHex (readString name element) with
+        | Ok bits -> bits
+        | Error error -> invalidShape $"Property '{name}' is not canonical binary64 bits: {error}"
+
     let private readId<'Kind> (name: string) (element: JsonElement): StableId<'Kind> =
         let text = readString name element
         match StableId.tryCreate<'Kind> text with
@@ -133,6 +138,7 @@ module SnapshotCodec =
                 | PrimitiveType.Bool -> "bool"
                 | PrimitiveType.Unit -> "unit"
                 | PrimitiveType.Int64 -> "int64"
+                | PrimitiveType.Float64 -> "float64"
             )
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
@@ -295,6 +301,14 @@ module SnapshotCodec =
         writer.WriteString("leftNodeId", StableId.value leftNodeId)
         writer.WriteString("rightNodeId", StableId.value rightNodeId)
 
+    let private writeUnaryNode
+        (writer: Utf8JsonWriter)
+        (kind: string)
+        (valueNodeId: GraphNodeId)
+        =
+        writer.WriteString("kind", kind)
+        writer.WriteString("valueNodeId", StableId.value valueNodeId)
+
     let private writeListCallbackNode
         (writer: Utf8JsonWriter)
         (kind: string)
@@ -328,6 +342,9 @@ module SnapshotCodec =
         | SemanticNodeKind.Int64Literal value ->
             writer.WriteString("kind", "int64Literal")
             writer.WriteNumber("value", value)
+        | SemanticNodeKind.Float64Literal bits ->
+            writer.WriteString("kind", "float64Literal")
+            writer.WriteString("bits", Float64Bits.toHex bits)
         | SemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -351,6 +368,24 @@ module SnapshotCodec =
             writeBinaryNode writer "int64GreaterThan" leftNodeId rightNodeId
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Add" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Subtract" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Multiply" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Divide" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Equal" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64LessThan" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64IsNaN valueNodeId ->
+            writeUnaryNode writer "float64IsNaN" valueNodeId
+        | SemanticNodeKind.Float64IsFinite valueNodeId ->
+            writeUnaryNode writer "float64IsFinite" valueNodeId
+        | SemanticNodeKind.Float64IsInfinite valueNodeId ->
+            writeUnaryNode writer "float64IsInfinite" valueNodeId
         | SemanticNodeKind.ListEmpty itemType ->
             writer.WriteString("kind", "listEmpty")
             writer.WritePropertyName("itemType")
@@ -595,6 +630,7 @@ module SnapshotCodec =
                 | "bool" -> PrimitiveType.Bool
                 | "unit" -> PrimitiveType.Unit
                 | "int64" -> PrimitiveType.Int64
+                | "float64" -> PrimitiveType.Float64
                 | value -> invalidShape $"Unsupported primitive type '{value}'."
             TypeRef.Primitive primitive
         | "named" ->
@@ -722,6 +758,14 @@ module SnapshotCodec =
             (readId<GraphNodeTag> "leftNodeId" element)
             (readId<GraphNodeTag> "rightNodeId" element)
 
+    let private readUnaryNode kind element constructor =
+        ensureProperties
+            kind
+            (set [ "id"; "kind"; "valueNodeId" ])
+            (set [ "id"; "kind"; "valueNodeId" ])
+            element
+        constructor (readId<GraphNodeTag> "valueNodeId" element)
+
     let private readListCallbackNode
         context
         callbackFieldName
@@ -760,6 +804,9 @@ module SnapshotCodec =
             | "int64Literal" ->
                 ensureProperties "Int64 literal node" (set [ "id"; "kind"; "value" ]) (set [ "id"; "kind"; "value" ]) element
                 SemanticNodeKind.Int64Literal(readInt64 "value" element)
+            | "float64Literal" ->
+                ensureProperties "Float64 literal node" (set [ "id"; "kind"; "bits" ]) (set [ "id"; "kind"; "bits" ]) element
+                SemanticNodeKind.Float64Literal(readFloat64Bits "bits" element)
             | "stringIsEmpty" ->
                 ensureProperties "StringIsEmpty node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringIsEmpty(readId<GraphNodeTag> "valueNodeId" element)
@@ -786,6 +833,24 @@ module SnapshotCodec =
                 readBinaryNode "Int64GreaterThan node" element (fun left right -> SemanticNodeKind.Int64GreaterThan(left, right))
             | "int64GreaterThanOrEqual" ->
                 readBinaryNode "Int64GreaterThanOrEqual node" element (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
+            | "float64Add" ->
+                readBinaryNode "Float64Add node" element (fun left right -> SemanticNodeKind.Float64Add(left, right))
+            | "float64Subtract" ->
+                readBinaryNode "Float64Subtract node" element (fun left right -> SemanticNodeKind.Float64Subtract(left, right))
+            | "float64Multiply" ->
+                readBinaryNode "Float64Multiply node" element (fun left right -> SemanticNodeKind.Float64Multiply(left, right))
+            | "float64Divide" ->
+                readBinaryNode "Float64Divide node" element (fun left right -> SemanticNodeKind.Float64Divide(left, right))
+            | "float64Equal" ->
+                readBinaryNode "Float64Equal node" element (fun left right -> SemanticNodeKind.Float64Equal(left, right))
+            | "float64LessThan" ->
+                readBinaryNode "Float64LessThan node" element (fun left right -> SemanticNodeKind.Float64LessThan(left, right))
+            | "float64IsNaN" ->
+                readUnaryNode "Float64IsNaN node" element SemanticNodeKind.Float64IsNaN
+            | "float64IsFinite" ->
+                readUnaryNode "Float64IsFinite node" element SemanticNodeKind.Float64IsFinite
+            | "float64IsInfinite" ->
+                readUnaryNode "Float64IsInfinite node" element SemanticNodeKind.Float64IsInfinite
             | "listEmpty" ->
                 ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))

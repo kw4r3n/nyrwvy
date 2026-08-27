@@ -28,6 +28,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Bool -> "Bool"
         | TypeRef.Primitive PrimitiveType.Unit -> "Unit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
+        | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
@@ -75,6 +76,7 @@ module ViewerHtml =
         | ViewerNodeRole.BoolLiteral value -> "bool literal " + (if value then "true" else "false")
         | ViewerNodeRole.UnitLiteral -> "unit literal"
         | ViewerNodeRole.Int64Literal value -> "Int64 literal " + string value
+        | ViewerNodeRole.Float64Literal bits -> "Float64 literal 0x" + Float64Bits.toHex bits
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
         | ViewerNodeRole.StringContains -> "string contains"
         | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
@@ -85,6 +87,15 @@ module ViewerHtml =
         | ViewerNodeRole.Int64LessThanOrEqual -> "Int64 less than or equal"
         | ViewerNodeRole.Int64GreaterThan -> "Int64 greater than"
         | ViewerNodeRole.Int64GreaterThanOrEqual -> "Int64 greater than or equal"
+        | ViewerNodeRole.Float64Add -> "Float64 add"
+        | ViewerNodeRole.Float64Subtract -> "Float64 subtract"
+        | ViewerNodeRole.Float64Multiply -> "Float64 multiply"
+        | ViewerNodeRole.Float64Divide -> "Float64 divide"
+        | ViewerNodeRole.Float64Equal -> "Float64 equal"
+        | ViewerNodeRole.Float64LessThan -> "Float64 less than"
+        | ViewerNodeRole.Float64IsNaN -> "Float64 is NaN"
+        | ViewerNodeRole.Float64IsFinite -> "Float64 is finite"
+        | ViewerNodeRole.Float64IsInfinite -> "Float64 is infinite"
         | ViewerNodeRole.ListEmpty -> "List empty"
         | ViewerNodeRole.ListConstruct -> "List construct"
         | ViewerNodeRole.ListLength -> "List length"
@@ -297,7 +308,6 @@ module ViewerHtml =
             || not (List.isEmpty model.MissingTypeIds)
             || not (List.isEmpty model.MissingCapabilityIds)
             || not (List.isEmpty model.MissingEffectIds)
-
         if anyMissing then
             writer.Line("<section class=\"missing\"><h3>Unresolved declarations</h3><ul>")
             for id in model.MissingFunctionIds do

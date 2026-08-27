@@ -17,6 +17,7 @@ module SnapshotValidator =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
@@ -30,8 +31,17 @@ module SnapshotValidator =
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Float64IsNaN valueNodeId
+        | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId
         | SemanticNodeKind.ListMap(listNodeId, _)
@@ -72,8 +82,17 @@ module SnapshotValidator =
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Float64IsNaN valueNodeId
+        | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId
         | SemanticNodeKind.ListMap(listNodeId, _)
@@ -102,6 +121,7 @@ module SnapshotValidator =
         | SemanticNodeKind.BoolLiteral _
         | SemanticNodeKind.UnitLiteral
         | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
@@ -403,18 +423,42 @@ module SnapshotValidator =
                 | Some _
                 | None -> ()
 
-            let requireInt64Operands nodeId leftNodeId rightNodeId =
-                let expectedType = TypeRef.Primitive PrimitiveType.Int64
+            let requireBinaryOperands code role expectedType nodeId leftNodeId rightNodeId =
                 requireNodeType
-                    "Int64OperandTypeMismatch"
-                    $"Int64 node '{StableId.value nodeId}' requires an Int64 left operand."
+                    code
+                    $"{role} node '{StableId.value nodeId}' requires a {role} left operand."
                     expectedType
                     leftNodeId
                 requireNodeType
-                    "Int64OperandTypeMismatch"
-                    $"Int64 node '{StableId.value nodeId}' requires an Int64 right operand."
+                    code
+                    $"{role} node '{StableId.value nodeId}' requires a {role} right operand."
                     expectedType
                     rightNodeId
+
+            let requireInt64Operands nodeId leftNodeId rightNodeId =
+                requireBinaryOperands
+                    "Int64OperandTypeMismatch"
+                    "Int64"
+                    (TypeRef.Primitive PrimitiveType.Int64)
+                    nodeId
+                    leftNodeId
+                    rightNodeId
+
+            let requireFloat64Operands nodeId leftNodeId rightNodeId =
+                requireBinaryOperands
+                    "Float64OperandTypeMismatch"
+                    "Float64"
+                    (TypeRef.Primitive PrimitiveType.Float64)
+                    nodeId
+                    leftNodeId
+                    rightNodeId
+
+            let requireFloat64Operand nodeId valueNodeId =
+                requireNodeType
+                    "Float64OperandTypeMismatch"
+                    $"Float64 node '{StableId.value nodeId}' requires a Float64 operand."
+                    (TypeRef.Primitive PrimitiveType.Float64)
+                    valueNodeId
 
             let validateListCallback
                 (nodeId: GraphNodeId)
@@ -532,7 +576,8 @@ module SnapshotValidator =
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.BoolLiteral _
                     | SemanticNodeKind.UnitLiteral
-                    | SemanticNodeKind.Int64Literal _ -> ()
+                    | SemanticNodeKind.Int64Literal _
+                    | SemanticNodeKind.Float64Literal _ -> ()
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -559,6 +604,17 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                         requireInt64Operands node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
+                        requireFloat64Operands node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.Float64IsNaN valueNodeId
+                    | SemanticNodeKind.Float64IsFinite valueNodeId
+                    | SemanticNodeKind.Float64IsInfinite valueNodeId ->
+                        requireFloat64Operand node.Id valueNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
                     | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
@@ -1003,6 +1059,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
                 | SemanticNodeKind.Int64Literal _
+                | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -1013,6 +1070,15 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Subtract _
+                | SemanticNodeKind.Float64Multiply _
+                | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64Equal _
+                | SemanticNodeKind.Float64LessThan _
+                | SemanticNodeKind.Float64IsNaN _
+                | SemanticNodeKind.Float64IsFinite _
+                | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
