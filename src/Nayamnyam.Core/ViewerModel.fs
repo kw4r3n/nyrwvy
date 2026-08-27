@@ -36,6 +36,7 @@ type ViewerNodeRole =
     | BoolLiteral of bool
     | UnitLiteral
     | Int64Literal of int64
+    | Float64Literal of Float64Bits
     | StringIsEmpty
     | StringContains
     | Int64WrappingAdd
@@ -46,6 +47,15 @@ type ViewerNodeRole =
     | Int64LessThanOrEqual
     | Int64GreaterThan
     | Int64GreaterThanOrEqual
+    | Float64Add
+    | Float64Subtract
+    | Float64Multiply
+    | Float64Divide
+    | Float64Equal
+    | Float64LessThan
+    | Float64IsNaN
+    | Float64IsFinite
+    | Float64IsInfinite
     | ListEmpty
     | ListConstruct
     | ListLength
@@ -167,6 +177,7 @@ module ViewerProjection =
         | SemanticNodeKind.BoolLiteral value -> ViewerNodeRole.BoolLiteral value, []
         | SemanticNodeKind.UnitLiteral -> ViewerNodeRole.UnitLiteral, []
         | SemanticNodeKind.Int64Literal value -> ViewerNodeRole.Int64Literal value, []
+        | SemanticNodeKind.Float64Literal bits -> ViewerNodeRole.Float64Literal bits, []
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
         | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
@@ -177,6 +188,15 @@ module ViewerProjection =
         | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
         | SemanticNodeKind.Int64GreaterThan _ -> ViewerNodeRole.Int64GreaterThan, []
         | SemanticNodeKind.Int64GreaterThanOrEqual _ -> ViewerNodeRole.Int64GreaterThanOrEqual, []
+        | SemanticNodeKind.Float64Add _ -> ViewerNodeRole.Float64Add, []
+        | SemanticNodeKind.Float64Subtract _ -> ViewerNodeRole.Float64Subtract, []
+        | SemanticNodeKind.Float64Multiply _ -> ViewerNodeRole.Float64Multiply, []
+        | SemanticNodeKind.Float64Divide _ -> ViewerNodeRole.Float64Divide, []
+        | SemanticNodeKind.Float64Equal _ -> ViewerNodeRole.Float64Equal, []
+        | SemanticNodeKind.Float64LessThan _ -> ViewerNodeRole.Float64LessThan, []
+        | SemanticNodeKind.Float64IsNaN _ -> ViewerNodeRole.Float64IsNaN, []
+        | SemanticNodeKind.Float64IsFinite _ -> ViewerNodeRole.Float64IsFinite, []
+        | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
@@ -291,6 +311,7 @@ module ViewerProjection =
                 | SemanticNodeKind.BoolLiteral _
                 | SemanticNodeKind.UnitLiteral
                 | SemanticNodeKind.Int64Literal _
+                | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -301,6 +322,15 @@ module ViewerProjection =
                 | SemanticNodeKind.Int64LessThanOrEqual _
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
+                | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Subtract _
+                | SemanticNodeKind.Float64Multiply _
+                | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64Equal _
+                | SemanticNodeKind.Float64LessThan _
+                | SemanticNodeKind.Float64IsNaN _
+                | SemanticNodeKind.Float64IsFinite _
+                | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
