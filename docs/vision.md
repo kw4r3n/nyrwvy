@@ -2,7 +2,7 @@
 
 ## Mission
 
-Nayamnyam exists to make program understanding and program change safer for AI agents while remaining inspectable and governable by humans.
+NyamNyam exists to make program understanding and program change safer for AI agents while remaining inspectable and governable by humans.
 
 It is not primarily a textual programming language with AI assistance added around it. It is an AI-native semantic programming system whose authoritative form is a persistent typed semantic graph. AI agents interact with that graph through constrained queries and validated semantic operations. Humans primarily inspect structure, consequences, unresolved decisions, and execution behavior through graph-oriented views.
 
@@ -20,7 +20,7 @@ This creates recurring failure modes for AI-assisted development:
 - review focuses on textual churn rather than semantic consequences;
 - large amounts of context are consumed rediscovering facts the compiler already knows.
 
-Nayamnyam addresses these problems by making semantic identity, relations, constraints, changes, and unresolved work explicit parts of the program model.
+NyamNyam addresses these problems by making semantic identity, relations, constraints, changes, and unresolved work explicit parts of the program model.
 
 ## Priority order
 
@@ -64,7 +64,7 @@ Humans may eventually perform constrained semantic operations through the viewer
 
 ### The system
 
-The Nayamnyam runtime and toolchain are responsible for:
+The NyamNyam runtime and toolchain are responsible for:
 
 - maintaining stable identity;
 - enforcing graph integrity;
@@ -102,7 +102,7 @@ The primary human interface presents focused semantic relationships, execution f
 
 ### Backend independence
 
-Nayamnyam semantics are defined independently of C#, Rust, Kotlin, or any other host language. Backend limitations are reported during lowering rather than silently becoming core-language semantics.
+NyamNyam semantics are defined independently of C#, Rust, Kotlin, or any other host language. Backend limitations are reported during lowering rather than silently becoming core-language semantics.
 
 ### Conservative failure
 
@@ -126,7 +126,7 @@ A giant force-directed graph is not the product goal. Graph slicing, stable layo
 
 ## Non-goals
 
-Nayamnyam is not initially intended to be:
+NyamNyam is not initially intended to be:
 
 - a conventional text-first language optimized for manual typing;
 - a macro system or DSL embedded inside C# or another host language;
@@ -139,7 +139,7 @@ Nayamnyam is not initially intended to be:
 
 ## Success conditions
 
-Nayamnyam is succeeding when the following are true:
+NyamNyam is succeeding when the following are true:
 
 1. An agent can make common repository-wide changes without locating and editing every textual occurrence.
 2. Renaming or moving an entity does not require reconstructing its identity.
@@ -156,14 +156,14 @@ Nayamnyam is succeeding when the following are true:
 
 The previous RAST project explored explicit AST-oriented syntax, conservative semantic checking, effect annotations, Result/Option handling, package resolution, backend-neutral IR, and Kotlin/C# generation.
 
-Nayamnyam inherits lessons and selected semantic rules from that work, but changes the center of gravity:
+NyamNyam inherits lessons and selected semantic rules from that work, but changes the center of gravity:
 
 ```text
 RAST:
 text -> syntax AST -> semantic checking -> resolved IR -> backend
 
-Nayamnyam:
+NyamNyam:
 queries and semantic operations -> persistent semantic graph -> validation -> execution IR -> backend
 ```
 
-RAST is therefore a reference implementation and migration source, not the foundation of Nayamnyam's runtime architecture.
+RAST is therefore a reference implementation and migration source, not the foundation of NyamNyam's runtime architecture.

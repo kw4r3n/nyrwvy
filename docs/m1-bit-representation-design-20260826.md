@@ -8,7 +8,7 @@ The purpose of this note is to avoid coupling future bit manipulation to `Int64`
 
 ## Core direction
 
-If Nayamnyam needs first-class bit manipulation, introduce a dedicated fixed-width representation domain rather than adding bitwise behavior directly to numeric semantic types.
+If NyamNyam needs first-class bit manipulation, introduce a dedicated fixed-width representation domain rather than adding bitwise behavior directly to numeric semantic types.
 
 Candidate types:
 
@@ -36,7 +36,7 @@ This keeps representation semantics separate from numeric semantics.
 
 ## Why this is separate from `Int64` and `Float64`
 
-Nayamnyam should distinguish:
+NyamNyam should distinguish:
 
 ```text
 Int64    signed 64-bit integer semantics

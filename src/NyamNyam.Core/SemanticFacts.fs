@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 /// Reproducible derived facts over one semantic snapshot.
 /// This module never mutates the graph and never invents fallback semantics.

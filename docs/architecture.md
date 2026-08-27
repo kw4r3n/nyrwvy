@@ -2,7 +2,7 @@
 
 ## Status
 
-This document fixes Nayamnyam's high-level boundaries and invariants while deliberately leaving storage formats, concrete ID encodings, graph database choices, layout algorithms, and detailed IR schemas open.
+This document fixes NyamNyam's high-level boundaries and invariants while deliberately leaving storage formats, concrete ID encodings, graph database choices, layout algorithms, and detailed IR schemas open.
 
 The architecture should be treated as stable direction, not as a frozen implementation design.
 
@@ -87,7 +87,7 @@ A transaction never exposes a partially applied authoritative state.
 
 #### Commit classes
 
-Nayamnyam distinguishes structural validity from executable completeness.
+NyamNyam distinguishes structural validity from executable completeness.
 
 - **Rejected transaction** — violates graph integrity, references nonexistent entities without an explicit unresolved-reference construct, breaks ownership rules, uses an unsupported operation schema, or otherwise cannot form a valid snapshot. Nothing commits.
 - **Valid incomplete transaction** — produces a structurally valid snapshot containing explicit blocking obligations. It may be committed only when the transaction policy permits obligations. Backend lowering is forbidden.
@@ -281,7 +281,7 @@ The initial viewer is read-only and supports understanding and review rather tha
 
 ## Lowering pipeline
 
-Nayamnyam uses two conceptual IR boundaries.
+NyamNyam uses two conceptual IR boundaries.
 
 ### Typed Semantic IR
 
@@ -355,7 +355,7 @@ Given the same:
 - lowering profile;
 - backend version and configuration;
 
-Nayamnyam should produce the same semantic diff, execution IR, and generated source apart from explicitly declared nondeterministic metadata.
+NyamNyam should produce the same semantic diff, execution IR, and generated source apart from explicitly declared nondeterministic metadata.
 
 Canonical serialization is required for storage and testing even though humans are not expected to edit it directly.
 

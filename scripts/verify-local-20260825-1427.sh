@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Local verification fallback for Nayamnyam when GitHub Actions is unavailable.
+# Local verification fallback for NyamNyam when GitHub Actions is unavailable.
 # Mirrors CI, then explicitly re-runs phase-specific test modules and verifies
 # that the expected tests actually appeared in the TRX result.
 
@@ -117,7 +117,7 @@ run_required_filter() {
   local trx_path="$RESULT_DIR/$trx_name"
 
   echo "--- $label ---"
-  dotnet test tests/Nayamnyam.Core.Tests/Nayamnyam.Core.Tests.fsproj \
+  dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
     --configuration Release \
     --no-build \
     --no-restore \
@@ -140,7 +140,7 @@ run_required_filter() {
   echo
 }
 
-echo "=== Nayamnyam local verification ==="
+echo "=== NyamNyam local verification ==="
 echo "time: $(date --iso-8601=seconds)"
 echo "repo: $ROOT_DIR"
 echo "branch: $BRANCH"
@@ -159,15 +159,15 @@ if [[ "$CLEAN" -eq 1 ]]; then
 fi
 
 echo "--- Restore ---"
-dotnet restore Nayamnyam.slnx
+dotnet restore NyamNyam.slnx
 echo
 
 echo "--- Release build ---"
-dotnet build Nayamnyam.slnx --configuration Release --no-restore
+dotnet build NyamNyam.slnx --configuration Release --no-restore
 echo
 
 echo "--- Full test suite ---"
-dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
 echo
 
 run_required_filter \

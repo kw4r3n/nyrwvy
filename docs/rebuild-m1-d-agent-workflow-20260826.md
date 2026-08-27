@@ -94,7 +94,7 @@ nyason-bytes=16205
 nyason-to-json-byte-ratio=1.920
 ```
 
-This is only a regression/evidence datum. Later M1 documentation explicitly strengthens Nyason as a Nayamnyam-native encoding candidate and does not treat JSON similarity or byte size alone as the deciding criteria.
+This is only a regression/evidence datum. Later M1 documentation explicitly strengthens Nyason as a NyamNyam-native encoding candidate and does not treat JSON similarity or byte size alone as the deciding criteria.
 
 ## Conclusion
 

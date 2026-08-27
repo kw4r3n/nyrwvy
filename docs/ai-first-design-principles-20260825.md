@@ -4,7 +4,7 @@
 
 These principles refine the accepted direction in D-001 through D-005. They are the default tie-breakers for semantic-core design unless implementation evidence shows that they reduce AI reliability.
 
-Nayamnyam does not optimize its authoritative representation for pleasant manual source authoring. A separate projection or future language can serve that goal. The semantic core is optimized first for reliable AI comprehension and editing, with human reviewability recovered through queries, structured projections, and the viewer.
+NyamNyam does not optimize its authoritative representation for pleasant manual source authoring. A separate projection or future language can serve that goal. The semantic core is optimized first for reliable AI comprehension and editing, with human reviewability recovered through queries, structured projections, and the viewer.
 
 ## Priority rule
 

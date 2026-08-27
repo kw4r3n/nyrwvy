@@ -1,9 +1,9 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Diagnostics
 open System.IO
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module CSharpBackendTests =
@@ -62,7 +62,7 @@ module CSharpBackendTests =
         let adapterName = CSharpBackendNames.capabilityAdapterName fixture.ConsoleCapabilityId
         let mainFunctionName = CSharpBackendNames.functionName fixture.MainFunctionId
 
-        $"""using Nayamnyam.Generated;
+        $"""using NyamNyam.Generated;
 
 var console = new {adapterName}();
 var policy = new {policyTypeName}();

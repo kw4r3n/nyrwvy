@@ -136,7 +136,7 @@ A second transaction adds:
 policy: ValidationPolicy
 ```
 
-The existing `main -> validate_*` call is intentionally submitted with `LeaveMissing`, even though `main` already owns a possible policy value. Nayamnyam therefore does not guess that the available value is the intended repair.
+The existing `main -> validate_*` call is intentionally submitted with `LeaveMissing`, even though `main` already owns a possible policy value. NyamNyam therefore does not guess that the available value is the intended repair.
 
 The proposed snapshot remains structurally valid with one blocking `MissingArgument` obligation and evaluates as incomplete. A follow-up transaction explicitly selects `main`'s policy value node, updates the same authoritative direct-call node, resolves the obligation with transaction provenance, and restores semantic completeness.
 

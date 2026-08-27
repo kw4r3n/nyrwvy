@@ -1,10 +1,10 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Diagnostics
 open System.Globalization
 open System.IO
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 type private Float64Fixture =
@@ -459,7 +459,7 @@ module Float64Tests =
                     Environment.NewLine
                     ([ "using System;"
                        "using System.Globalization;"
-                       "using Nayamnyam.Generated;"
+                       "using NyamNyam.Generated;"
                        "" ]
                      @ [ callDouble fixture.AddFunctionId
                          callDouble fixture.SubtractFunctionId

@@ -1,6 +1,6 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module ExecutionIrCodecTests =

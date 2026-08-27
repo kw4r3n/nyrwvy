@@ -1,7 +1,7 @@
 open System
 open System.IO
 open System.Text
-open Nayamnyam.Core
+open NyamNyam.Core
 
 type private FocusArguments =
     { InputPath: string
@@ -11,7 +11,7 @@ type private FocusArguments =
 
 let private usage =
     """Usage:
-  dotnet run --project tools/Nayamnyam.ViewerExport -- \
+  dotnet run --project tools/NyamNyam.ViewerExport -- \
     focus --input <snapshot-path> --format <json|nyason> \
     --function-id <stable-function-id> [--output <html-path>]
 

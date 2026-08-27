@@ -204,7 +204,7 @@ For Milestone 0, the conceptual boundary between the two IR stages is now concre
 
 ### Typed Semantic IR
 
-Represents validated Nayamnyam language meaning:
+Represents validated NyamNyam language meaning:
 
 - complete types;
 - stable semantic references;

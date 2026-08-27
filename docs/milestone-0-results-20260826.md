@@ -4,7 +4,7 @@
 
 **Milestone 0 passes as an architectural proof.**
 
-The representative Nayamnyam program is created and persisted as a typed semantic graph, edited through semantic transactions with stable identity, reviewed through graph-derived projections, lowered through two backend-neutral stages, emitted as deterministic C#, compiled, and executed on .NET. The required incomplete-signature lifecycle is represented explicitly through blocking obligations rather than guessed values.
+The representative NyamNyam program is created and persisted as a typed semantic graph, edited through semantic transactions with stable identity, reviewed through graph-derived projections, lowered through two backend-neutral stages, emitted as deterministic C#, compiled, and executed on .NET. The required incomplete-signature lifecycle is represented explicitly through blocking obligations rather than guessed values.
 
 This is not a claim that the language is production-ready. The result is specifically that the Milestone 0 architecture is coherent enough to justify proceeding to Milestone 1.
 
@@ -30,7 +30,7 @@ See `rebuild-phase-o-m0-e2e-20260826.md` for the full focused-test evidence.
 
 ### 1. Graph authority — PASS
 
-The representative program is constructed directly as semantic graph data in the F# fixture; no human-authored Nayamnyam source parser participates in the lifecycle. Snapshot JSON/Nyason, viewer HTML, Typed Semantic IR, Execution IR, and generated C# are downstream representations.
+The representative program is constructed directly as semantic graph data in the F# fixture; no human-authored NyamNyam source parser participates in the lifecycle. Snapshot JSON/Nyason, viewer HTML, Typed Semantic IR, Execution IR, and generated C# are downstream representations.
 
 The Phase O test persists and reloads the graph canonically before any execution and then continues the entire lifecycle from the reloaded snapshot.
 
@@ -99,7 +99,7 @@ semantic graph / query
 
 No generated C# is parsed back into semantic state and RAST is not a runtime dependency.
 
-**Packaging caveat:** several downstream layers currently live in the same `Nayamnyam.Core` .NET assembly for rebuild convenience. Their source dependency direction is correct, but separate projects/assemblies would make the boundary mechanically stronger and should be considered in Milestone 1.
+**Packaging caveat:** several downstream layers currently live in the same `NyamNyam.Core` .NET assembly for rebuild convenience. Their source dependency direction is correct, but separate projects/assemblies would make the boundary mechanically stronger and should be considered in Milestone 1.
 
 ### 9. Structured failure — PASS
 

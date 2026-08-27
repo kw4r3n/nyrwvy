@@ -1,9 +1,9 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Diagnostics
 open System.IO
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module ListHigherOrderTests =
@@ -496,7 +496,7 @@ module ListHigherOrderTests =
             let harness =
                 String.concat Environment.NewLine
                     [ "using System;"
-                      "using Nayamnyam.Generated;"
+                      "using NyamNyam.Generated;"
                       ""
                       call fixture.FilteredLengthFunctionId
                       call fixture.AnyPositiveFunctionId

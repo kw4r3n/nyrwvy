@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 /// Typed Semantic IR is a derived, backend-neutral projection of one fully
 /// validated and semantically complete snapshot. It intentionally excludes

@@ -1,10 +1,10 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Diagnostics
 open System.IO
 open System.Text
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module ViewerArtifactTests =
@@ -17,7 +17,7 @@ module ViewerArtifactTests =
         let rec find (directory: DirectoryInfo) =
             if isNull directory then
                 failwith "Could not locate repository root."
-            elif File.Exists(Path.Combine(directory.FullName, "Nayamnyam.slnx")) then
+            elif File.Exists(Path.Combine(directory.FullName, "NyamNyam.slnx")) then
                 directory.FullName
             else
                 find directory.Parent
@@ -46,7 +46,7 @@ module ViewerArtifactTests =
         [ "run"
           "--no-build"
           "--configuration"; "Release"
-          "--project"; "tools/Nayamnyam.ViewerExport/Nayamnyam.ViewerExport.fsproj"
+          "--project"; "tools/NyamNyam.ViewerExport/NyamNyam.ViewerExport.fsproj"
           "--" ] @ tail
 
     [<Fact>]

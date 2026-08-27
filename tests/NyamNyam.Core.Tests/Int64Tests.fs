@@ -1,10 +1,10 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Diagnostics
 open System.Globalization
 open System.IO
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 type private Int64Fixture =
@@ -316,7 +316,7 @@ module Int64Tests =
             let harness =
                 String.concat
                     Environment.NewLine
-                    ([ "using System;"; "using Nayamnyam.Generated;"; "" ]
+                    ([ "using System;"; "using NyamNyam.Generated;"; "" ]
                      @ [ call fixture.AddFunctionId
                          call fixture.SubtractFunctionId
                          call fixture.MultiplyFunctionId

@@ -4,7 +4,7 @@
 
 Accepted policy for Milestone 1 and later schema evolution.
 
-Nayamnyam has multiple serialized/public contracts, but none may silently reinterpret old data. Schema evolution is explicit, versioned, and separated from semantic editing.
+NyamNyam has multiple serialized/public contracts, but none may silently reinterpret old data. Schema evolution is explicit, versioned, and separated from semantic editing.
 
 ## Contracts that require independent versioning
 

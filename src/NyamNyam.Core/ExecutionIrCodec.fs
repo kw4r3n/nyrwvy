@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 open System.Globalization
 open System.Text.Json

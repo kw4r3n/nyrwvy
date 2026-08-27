@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 type QueryCallSite =
     { CallerFunctionId: FunctionId

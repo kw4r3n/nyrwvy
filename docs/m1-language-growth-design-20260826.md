@@ -19,7 +19,7 @@ A separate exact-bit representation domain such as future `Bits64` is a deferred
 
 ## Design constraints
 
-New constructs follow the existing Nayamnyam rules:
+New constructs follow the existing NyamNyam rules:
 
 - semantic role should be visible from the node kind itself;
 - no implicit numeric conversions;

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Milestone 0 validates the central Nayamnyam claim with one small executable program:
+Milestone 0 validates the central NyamNyam claim with one small executable program:
 
 > A persistent typed semantic graph can serve as the authoritative program representation, support safe meaning-level change, present useful graph-oriented review information to a human, and deterministically lower to an existing execution platform.
 

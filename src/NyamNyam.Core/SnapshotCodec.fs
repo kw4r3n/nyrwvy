@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 open System
 open System.Collections.Generic
@@ -14,7 +14,7 @@ type SnapshotCodecError =
     | InvalidSnapshot of ValidationIssue list
 
 /// JSON remains a strict reference codec and benchmark baseline.
-/// It is not a decision that JSON is Nayamnyam's long-term canonical encoding;
+/// It is not a decision that JSON is NyamNyam's long-term canonical encoding;
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =

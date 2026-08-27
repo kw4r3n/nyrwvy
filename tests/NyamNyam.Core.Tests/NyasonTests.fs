@@ -1,10 +1,10 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
 open System.Globalization
 open System.IO
 open System.Text
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module NyasonTests =

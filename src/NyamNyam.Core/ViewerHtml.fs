@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 open System.Net
 open System.Text
@@ -364,7 +364,7 @@ module ViewerHtml =
 
     let renderFocusDocument (model: ViewerFocusModel): string =
         let writer = HtmlWriter()
-        emitDocumentStart writer ("Nayamnyam Focus — " + model.Function.DisplayName)
+        emitDocumentStart writer ("NyamNyam Focus — " + model.Function.DisplayName)
         emitFocusBody writer model
         emitDocumentEnd writer
         writer.ToString()
@@ -418,7 +418,7 @@ module ViewerHtml =
 
     let renderChangeReviewDocument (model: ViewerChangeReviewModel): string =
         let writer = HtmlWriter()
-        emitDocumentStart writer "Nayamnyam Change Review"
+        emitDocumentStart writer "NyamNyam Change Review"
         writer.Line("<header><h1>Change Review</h1>")
         writer.Line("<p>Transaction: " + code (stableText "transaction:" model.TransactionId) + "</p>")
         writer.Line("<p>Base snapshot: " + code (stableText "snapshot:" model.BaseSnapshotId) + "</p>")

@@ -1,6 +1,6 @@
-# Nayamnyam
+# NyamNyam
 
-**Nayamnyam is an AI-native semantic programming system in which programs are represented as persistent typed semantic graphs and changed through validated semantic operations.**
+**NyamNyam is an AI-native semantic programming system in which programs are represented as persistent typed semantic graphs and changed through validated semantic operations.**
 
 The project reverses several conventional programming assumptions:
 
@@ -51,7 +51,7 @@ The following direction is accepted unless implementation evidence requires revi
 4. Explicit obligations represent unresolved work instead of guessed code.
 5. The ordinary agent path is bounded query -> operation intent -> simulate -> review -> commit/reject.
 6. Human-authored source code is not a primary requirement.
-7. Nayamnyam is an independent programming system, not an extension of a host language.
+7. NyamNyam is an independent programming system, not an extension of a host language.
 8. Lowering passes through backend-neutral IR before reaching C#/.NET.
 9. The semantic model is implemented in F#/.NET; generated C# remains the first execution backend.
 10. When design choices conflict, AI semantic comprehension and edit reliability take priority over source-level elegance or brevity.
@@ -98,7 +98,7 @@ Ordinary agent code is not expected to replace raw snapshots, mutate Nyason dire
 The implementation is split into build-enforced assemblies:
 
 ```text
-Nayamnyam.Semantics
+NyamNyam.Semantics
       ^        ^
       |        |
 Execution    Viewer
@@ -107,10 +107,10 @@ Execution    Viewer
 Backend.CSharp  Tools
 ```
 
-- `Nayamnyam.Semantics` owns stable IDs, the semantic graph, validation/readiness, queries, transactions, fingerprints, and the agent workflow facade.
-- `Nayamnyam.Execution` owns Typed Semantic IR and backend-neutral Execution IR.
-- `Nayamnyam.Backend.CSharp` consumes Execution IR and emits deterministic C#.
-- `Nayamnyam.Viewer` consumes semantic query/review projections and renders read-only artifacts.
+- `NyamNyam.Semantics` owns stable IDs, the semantic graph, validation/readiness, queries, transactions, fingerprints, and the agent workflow facade.
+- `NyamNyam.Execution` owns Typed Semantic IR and backend-neutral Execution IR.
+- `NyamNyam.Backend.CSharp` consumes Execution IR and emits deterministic C#.
+- `NyamNyam.Viewer` consumes semantic query/review projections and renders read-only artifacts.
 - tools compose those public APIs and own filesystem/process integration.
 
 Generated C# and viewer artifacts never become upstream semantic authority.
@@ -130,9 +130,9 @@ See:
 The repository uses the .NET 10 SDK:
 
 ```shell
-dotnet restore Nayamnyam.slnx
-dotnet build Nayamnyam.slnx --configuration Release --no-restore
-dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+dotnet restore NyamNyam.slnx
+dotnet build NyamNyam.slnx --configuration Release --no-restore
+dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
 ```
 
 The stricter accepted local verification path is:
@@ -178,4 +178,4 @@ Detailed rebuild phase records remain under `docs/rebuild-*` as historical verif
 
 ## Relationship to RAST
 
-Nayamnyam is informed by earlier Readable AST Language work, including conservative semantic checking, explicit Result/Option handling, effect-oriented design, and backend-neutral IR experiments. RAST remains external to this repository; migrated rules or tests should record provenance rather than creating a runtime dependency.
+NyamNyam is informed by earlier Readable AST Language work, including conservative semantic checking, explicit Result/Option handling, effect-oriented design, and backend-neutral IR experiments. RAST remains external to this repository; migrated rules or tests should record provenance rather than creating a runtime dependency.

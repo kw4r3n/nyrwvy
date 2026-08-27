@@ -1,7 +1,7 @@
-namespace Nayamnyam.Core.Tests
+namespace NyamNyam.Core.Tests
 
 open System
-open Nayamnyam.Core
+open NyamNyam.Core
 open Xunit
 
 module AgentWorkflowTests =

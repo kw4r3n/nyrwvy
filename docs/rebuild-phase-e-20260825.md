@@ -9,9 +9,9 @@ The exact semantic-core and test branch tree at `dea036dd544953e8e16936b67a34377
 Verification commands:
 
 ```shell
-dotnet restore Nayamnyam.slnx
-dotnet build Nayamnyam.slnx --configuration Release --no-restore
-dotnet test Nayamnyam.slnx --configuration Release --no-build --no-restore
+dotnet restore NyamNyam.slnx
+dotnet build NyamNyam.slnx --configuration Release --no-restore
+dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
 ```
 
 Environment and result:

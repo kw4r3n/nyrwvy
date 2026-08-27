@@ -56,7 +56,7 @@ Equivalent JSON and Nyason snapshots produce byte-identical Focus viewer artifac
 A thin package-free .NET CLI is provided at:
 
 ```text
-tools/Nayamnyam.ViewerExport
+tools/NyamNyam.ViewerExport
 ```
 
 The first command is intentionally small:
