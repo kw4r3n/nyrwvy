@@ -1,4 +1,4 @@
-namespace Nayamnyam.Core
+namespace NyamNyam.Core
 
 [<Struct; StructuralEquality; StructuralComparison>]
 type ExecutionValueId = internal ExecutionValueId of string
