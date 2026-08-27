@@ -26,7 +26,7 @@ The script requires a .NET 10 SDK and runs:
   3. the full test suite
   4. ExecutionIrTests explicitly (at least 6 passing tests)
   5. ExecutionIrCodecTests explicitly (at least 3 passing tests)
-  6. CSharpBackendTests explicitly (at least 4 passing tests, including generated C# build/run)
+  6. CSharpBackendTests explicitly (at least 5 passing tests, including generated C# build/run)
   7. SemanticQueryTests explicitly (at least 7 passing tests)
   8. ChangeReviewQueryTests explicitly (at least 3 passing tests)
   9. ViewerTests explicitly (at least 6 passing tests)
@@ -40,7 +40,8 @@ The script requires a .NET 10 SDK and runs:
  17. AssemblyBoundaryTests explicitly (at least 5 passing tests)
  18. Int64Tests explicitly (at least 7 passing tests, including generated C# build/run)
  19. ListTests explicitly (at least 7 passing tests, including generated C# build/run)
- 20. the JSON/Nyason comparison report produced by the test suite
+ 20. ListHigherOrderTests explicitly (at least 7 passing tests, including generated C# build/run)
+ 21. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -181,7 +182,7 @@ run_required_filter \
 run_required_filter \
   "Phase J C# backend tests" \
   "FullyQualifiedName~CSharpBackendTests" \
-  4 \
+  5 \
   "phase-j-csharp-backend.trx"
 
 run_required_filter \
@@ -261,6 +262,12 @@ run_required_filter \
   "FullyQualifiedName~ListTests" \
   7 \
   "m1-g-list-basic.trx"
+
+run_required_filter \
+  "M1-H pure higher-order List tests" \
+  "FullyQualifiedName~ListHigherOrderTests" \
+  7 \
+  "m1-h-list-higher-order.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then

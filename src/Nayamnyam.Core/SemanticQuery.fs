@@ -51,45 +51,52 @@ module SemanticQuery =
         |> List.collect (fun owner ->
             ValueGraph.collectNodes owner.Body
             |> List.choose (fun node ->
-                match node.Kind with
-                | SemanticNodeKind.DirectCall(calleeId, _) ->
-                    Some
-                        { CallerFunctionId = owner.Id
-                          CallNodeId = node.Id
-                          CalleeFunctionId = calleeId }
-                | SemanticNodeKind.ParameterReference _
-                | SemanticNodeKind.PatternReference _
-                | SemanticNodeKind.StringLiteral _
-                | SemanticNodeKind.BoolLiteral _
-                | SemanticNodeKind.UnitLiteral
-                | SemanticNodeKind.Int64Literal _
-                | SemanticNodeKind.StringIsEmpty _
-                | SemanticNodeKind.StringContains _
-                | SemanticNodeKind.Int64WrappingAdd _
-                | SemanticNodeKind.Int64WrappingSubtract _
-                | SemanticNodeKind.Int64WrappingMultiply _
-                | SemanticNodeKind.Int64Equal _
-                | SemanticNodeKind.Int64LessThan _
-                | SemanticNodeKind.Int64LessThanOrEqual _
-                | SemanticNodeKind.Int64GreaterThan _
-                | SemanticNodeKind.Int64GreaterThanOrEqual _
-                | SemanticNodeKind.ListEmpty _
-                | SemanticNodeKind.ListConstruct _
-                | SemanticNodeKind.ListLength _
-                | SemanticNodeKind.ListAppendItem _
-                | SemanticNodeKind.ListConcat _
-                | SemanticNodeKind.CapabilityInvoke _
-                | SemanticNodeKind.ProductConstruct _
-                | SemanticNodeKind.FieldAccess _
-                | SemanticNodeKind.UnionConstruct _
-                | SemanticNodeKind.OptionNone _
-                | SemanticNodeKind.OptionSome _
-                | SemanticNodeKind.ResultOk _
-                | SemanticNodeKind.ResultErr _
-                | SemanticNodeKind.Conditional _
-                | SemanticNodeKind.MatchUnion _
-                | SemanticNodeKind.MatchOption _
-                | SemanticNodeKind.MatchResult _ -> None))
+                let calleeId =
+                    match node.Kind with
+                    | SemanticNodeKind.DirectCall(functionId, _)
+                    | SemanticNodeKind.ListMap(_, functionId)
+                    | SemanticNodeKind.ListFilter(_, functionId)
+                    | SemanticNodeKind.ListAny(_, functionId)
+                    | SemanticNodeKind.ListAll(_, functionId) -> Some functionId
+                    | SemanticNodeKind.ParameterReference _
+                    | SemanticNodeKind.PatternReference _
+                    | SemanticNodeKind.StringLiteral _
+                    | SemanticNodeKind.BoolLiteral _
+                    | SemanticNodeKind.UnitLiteral
+                    | SemanticNodeKind.Int64Literal _
+                    | SemanticNodeKind.StringIsEmpty _
+                    | SemanticNodeKind.StringContains _
+                    | SemanticNodeKind.Int64WrappingAdd _
+                    | SemanticNodeKind.Int64WrappingSubtract _
+                    | SemanticNodeKind.Int64WrappingMultiply _
+                    | SemanticNodeKind.Int64Equal _
+                    | SemanticNodeKind.Int64LessThan _
+                    | SemanticNodeKind.Int64LessThanOrEqual _
+                    | SemanticNodeKind.Int64GreaterThan _
+                    | SemanticNodeKind.Int64GreaterThanOrEqual _
+                    | SemanticNodeKind.ListEmpty _
+                    | SemanticNodeKind.ListConstruct _
+                    | SemanticNodeKind.ListLength _
+                    | SemanticNodeKind.ListAppendItem _
+                    | SemanticNodeKind.ListConcat _
+                    | SemanticNodeKind.CapabilityInvoke _
+                    | SemanticNodeKind.ProductConstruct _
+                    | SemanticNodeKind.FieldAccess _
+                    | SemanticNodeKind.UnionConstruct _
+                    | SemanticNodeKind.OptionNone _
+                    | SemanticNodeKind.OptionSome _
+                    | SemanticNodeKind.ResultOk _
+                    | SemanticNodeKind.ResultErr _
+                    | SemanticNodeKind.Conditional _
+                    | SemanticNodeKind.MatchUnion _
+                    | SemanticNodeKind.MatchOption _
+                    | SemanticNodeKind.MatchResult _ -> None
+
+                calleeId
+                |> Option.map (fun functionId ->
+                    { CallerFunctionId = owner.Id
+                      CallNodeId = node.Id
+                      CalleeFunctionId = functionId })))
         |> List.sortBy (fun site ->
             StableId.value site.CallerFunctionId,
             StableId.value site.CallNodeId,

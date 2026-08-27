@@ -32,7 +32,7 @@ module internal CSharpBackendValidation =
         |> List.distinct
         |> List.sortBy StableId.value
 
-    let private collectCallTargets (program: ExecutionProgram) =
+    let private collectFunctionTargets (program: ExecutionProgram) =
         program.Functions
         |> List.collect (fun (functionEntity: ExecutionFunction) ->
             functionEntity.Blocks
@@ -40,7 +40,11 @@ module internal CSharpBackendValidation =
                 block.Instructions
                 |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
-                    | ExecutionInstructionKind.DirectCall(functionId, _) -> Some functionId
+                    | ExecutionInstructionKind.DirectCall(functionId, _)
+                    | ExecutionInstructionKind.ListMap(_, functionId)
+                    | ExecutionInstructionKind.ListFilter(_, functionId)
+                    | ExecutionInstructionKind.ListAny(_, functionId)
+                    | ExecutionInstructionKind.ListAll(_, functionId) -> Some functionId
                     | _ -> None)))
         |> List.distinct
         |> List.sortBy StableId.value
@@ -123,7 +127,7 @@ module internal CSharpBackendValidation =
                     |> Map.ofList
 
                 match
-                    collectCallTargets program
+                    collectFunctionTargets program
                     |> List.tryFind (fun functionId -> not (Map.containsKey functionId functionsById))
                 with
                 | Some functionId -> Error(CSharpBackendError.UnknownCallTarget functionId)

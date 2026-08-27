@@ -105,6 +105,40 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         | result -> failwithf "Expected MissingCapabilityBinding, got %A" result
 
     [<Fact>]
+    let ``C# backend rejects unknown higher-order List callback targets`` () =
+        let _, execution = lowerRepresentative ()
+        let unknown = StableId.createForTesting<FunctionTag> "function-m1-h-unknown-list-callback"
+
+        let poison makeKind =
+            match execution.Functions with
+            | [] -> failwith "Representative execution program has no functions."
+            | functionEntity :: remainingFunctions ->
+                match functionEntity.Blocks with
+                | [] -> failwith "Representative execution function has no blocks."
+                | block :: remainingBlocks ->
+                    match block.Instructions with
+                    | [] -> failwith "Representative execution block has no instructions."
+                    | instruction :: remainingInstructions ->
+                        let poisonedInstruction =
+                            { instruction with Kind = makeKind instruction.Result.Id }
+                        let poisonedBlock =
+                            { block with Instructions = poisonedInstruction :: remainingInstructions }
+                        let poisonedFunction =
+                            { functionEntity with Blocks = poisonedBlock :: remainingBlocks }
+                        { execution with Functions = poisonedFunction :: remainingFunctions }
+
+        let cases: (string * (ExecutionValueId -> ExecutionInstructionKind)) list =
+            [ "ListMap", fun source -> ExecutionInstructionKind.ListMap(source, unknown)
+              "ListFilter", fun source -> ExecutionInstructionKind.ListFilter(source, unknown)
+              "ListAny", fun source -> ExecutionInstructionKind.ListAny(source, unknown)
+              "ListAll", fun source -> ExecutionInstructionKind.ListAll(source, unknown) ]
+
+        for label, makeKind in cases do
+            match CSharpBackend.emit (poison makeKind) CSharpBackendProfile.empty with
+            | Error(CSharpBackendError.UnknownCallTarget functionId) -> Assert.Equal(unknown, functionId)
+            | result -> failwithf "%s should reject its unknown callback target, got %A" label result
+
+    [<Fact>]
     let ``generated C# does not recover semantic identity from display names`` () =
         let _, _, artifact = emitRepresentative ()
         for forbidden in [ "validate_user"; "report_validation"; "RawUserInput" ] do

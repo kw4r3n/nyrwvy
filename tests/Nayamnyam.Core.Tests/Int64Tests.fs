@@ -244,7 +244,7 @@ module Int64Tests =
             | SemanticNodeKind.Int64WrappingAdd _ -> ()
             | other -> failwithf "Expected Int64WrappingAdd after round-trip, got %A" other
 
-        Assert.Contains("\"schemaVersion\":6", json)
+        Assert.Contains("\"schemaVersion\":7", json)
         Assert.Contains("int64-wrapping-add", nyason)
         Assert.Contains("primitive-int64", nyason)
 
@@ -279,7 +279,7 @@ module Int64Tests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":3", typedJson)
+        Assert.Contains("\"schemaVersion\":4", typedJson)
         Assert.Contains("\"primitiveInt64\"", typedJson)
         Assert.Contains("\"int64WrappingAdd\"", executionJson)
 

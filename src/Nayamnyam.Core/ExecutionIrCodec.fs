@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 3
+    let schemaVersion = 4
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -180,6 +180,11 @@ module ExecutionIrCodec =
           property "leftValueId" (executionValueIdValue leftValueId)
           property "rightValueId" (executionValueIdValue rightValueId) ]
 
+    let private writeListCallbackInstruction kind sourceListValueId callbackFieldName callbackFunctionId =
+        [ property "kind" (quote kind)
+          property "sourceListValueId" (executionValueIdValue sourceListValueId)
+          property callbackFieldName (stableIdValue callbackFunctionId) ]
+
     let private writeInstructionKind (kind: ExecutionInstructionKind): string list =
         match kind with
         | ExecutionInstructionKind.ReadParameter sourceValueId ->
@@ -239,6 +244,14 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listConcat")
               property "leftListValueId" (executionValueIdValue leftListValueId)
               property "rightListValueId" (executionValueIdValue rightListValueId) ]
+        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
+            writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId
+        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->
+            writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId
+        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId) ->
+            writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId
+        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId) ->
+            writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)

@@ -15,7 +15,7 @@ exception private NyasonSchemaException of string
 
 [<RequireQualifiedAccess>]
 module NyasonCodec =
-    let schemaId = "nayamnyam.snapshot.v2"
+    let schemaId = "nayamnyam.snapshot.v3"
 
     let private shape message = raise (NyasonShapeException message)
 
@@ -393,6 +393,13 @@ module NyasonCodec =
               "left", encodeId "node" leftNodeId
               "right", encodeId "node" rightNodeId ]
 
+    and private encodeListCallbackNode tag nodeId sourceListNodeId callbackFunctionId =
+        record
+            tag
+            [ nodeId
+              "source", encodeId "node" sourceListNodeId
+              "callback", encodeId "function" callbackFunctionId ]
+
     and private encodeNode (node: SemanticNode) =
         let nodeId = "id", encodeId "node" node.Id
         match node.Kind with
@@ -452,6 +459,14 @@ module NyasonCodec =
                 [ nodeId
                   "left", encodeId "node" leftListNodeId
                   "right", encodeId "node" rightListNodeId ]
+        | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+            encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId
+        | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
+            encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId
+        | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
+            encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId
+        | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+            encodeListCallbackNode "list-all" nodeId sourceListNodeId predicateFunctionId
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             record
                 "direct-call"
@@ -570,6 +585,14 @@ module NyasonCodec =
                 (decodeId<GraphNodeTag> "node" (require "left" fields))
                 (decodeId<GraphNodeTag> "node" (require "right" fields)) }
 
+    and private decodeListCallbackNode tag value constructor =
+        let fields = recordFields tag [ "id"; "source"; "callback" ] [] value
+        { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+          Kind =
+            constructor
+                (decodeId<GraphNodeTag> "node" (require "source" fields))
+                (decodeId<FunctionTag> "function" (require "callback" fields)) }
+
     and private decodeNode value: SemanticNode =
         match value with
         | NyasonValue.Record("parameter-reference", _) ->
@@ -656,6 +679,14 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "left" fields),
                     decodeId<GraphNodeTag> "node" (require "right" fields)
                 ) }
+        | NyasonValue.Record("list-map", _) ->
+            decodeListCallbackNode "list-map" value (fun source callback -> SemanticNodeKind.ListMap(source, callback))
+        | NyasonValue.Record("list-filter", _) ->
+            decodeListCallbackNode "list-filter" value (fun source callback -> SemanticNodeKind.ListFilter(source, callback))
+        | NyasonValue.Record("list-any", _) ->
+            decodeListCallbackNode "list-any" value (fun source callback -> SemanticNodeKind.ListAny(source, callback))
+        | NyasonValue.Record("list-all", _) ->
+            decodeListCallbackNode "list-all" value (fun source callback -> SemanticNodeKind.ListAll(source, callback))
         | NyasonValue.Record("direct-call", _) ->
             let fields = recordFields "direct-call" [ "id"; "target-function"; "arguments" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

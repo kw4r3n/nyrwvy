@@ -42,6 +42,10 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListLength _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _
+                | TypedSemanticNodeKind.ListMap _
+                | TypedSemanticNodeKind.ListFilter _
+                | TypedSemanticNodeKind.ListAny _
+                | TypedSemanticNodeKind.ListAll _
                 | TypedSemanticNodeKind.DirectCall _
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _

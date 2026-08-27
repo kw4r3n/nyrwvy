@@ -18,7 +18,7 @@ type SnapshotCodecError =
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
-    let private schemaVersion = 6
+    let private schemaVersion = 7
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -295,6 +295,17 @@ module SnapshotCodec =
         writer.WriteString("leftNodeId", StableId.value leftNodeId)
         writer.WriteString("rightNodeId", StableId.value rightNodeId)
 
+    let private writeListCallbackNode
+        (writer: Utf8JsonWriter)
+        (kind: string)
+        (sourceListNodeId: GraphNodeId)
+        (callbackFieldName: string)
+        (callbackFunctionId: FunctionId)
+        =
+        writer.WriteString("kind", kind)
+        writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+        writer.WriteString(callbackFieldName, StableId.value callbackFunctionId)
+
     let rec private writeNode (writer: Utf8JsonWriter) (node: SemanticNode) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value node.Id)
@@ -351,7 +362,7 @@ module SnapshotCodec =
             writer.WritePropertyName("itemNodeIds")
             writer.WriteStartArray()
             // List item order is semantic. Do not sort.
-            itemNodeIds |> List.iter (StableId.value >> writer.WriteStringValue)
+            itemNodeIds |> List.iter (fun itemNodeId -> writer.WriteStringValue(StableId.value itemNodeId))
             writer.WriteEndArray()
         | SemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
@@ -364,6 +375,14 @@ module SnapshotCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+        | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
+        | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId
+        | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId
+        | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -703,6 +722,21 @@ module SnapshotCodec =
             (readId<GraphNodeTag> "leftNodeId" element)
             (readId<GraphNodeTag> "rightNodeId" element)
 
+    let private readListCallbackNode
+        context
+        callbackFieldName
+        element
+        constructor
+        =
+        ensureProperties
+            context
+            (set [ "id"; "kind"; "sourceListNodeId"; callbackFieldName ])
+            (set [ "id"; "kind"; "sourceListNodeId"; callbackFieldName ])
+            element
+        constructor
+            (readId<GraphNodeTag> "sourceListNodeId" element)
+            (readId<FunctionTag> callbackFieldName element)
+
     let rec private readNode (element: JsonElement): SemanticNode =
         let id = readId<GraphNodeTag> "id" element
         let kind = readString "kind" element
@@ -788,6 +822,18 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "leftListNodeId" element,
                     readId<GraphNodeTag> "rightListNodeId" element
                 )
+            | "listMap" ->
+                readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback ->
+                    SemanticNodeKind.ListMap(source, callback))
+            | "listFilter" ->
+                readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback ->
+                    SemanticNodeKind.ListFilter(source, callback))
+            | "listAny" ->
+                readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback ->
+                    SemanticNodeKind.ListAny(source, callback))
+            | "listAll" ->
+                readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback ->
+                    SemanticNodeKind.ListAll(source, callback))
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)

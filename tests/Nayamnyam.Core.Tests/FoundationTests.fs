@@ -45,6 +45,10 @@ module FoundationTests =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _

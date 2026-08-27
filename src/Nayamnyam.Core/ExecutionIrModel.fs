@@ -96,6 +96,10 @@ type ExecutionInstructionKind =
     | ListLength of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
+    | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId
+    | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
+    | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
+    | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list

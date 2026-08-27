@@ -51,6 +51,10 @@ type ViewerNodeRole =
     | ListLength
     | ListAppendItem
     | ListConcat
+    | ListMap
+    | ListFilter
+    | ListAny
+    | ListAll
     | DirectCall
     | CapabilityInvoke
     | ProductConstruct
@@ -145,6 +149,10 @@ module ViewerProjection =
 
     let private relationKey relation = string relation.Kind + ":" + targetKey relation.Target
 
+    let private callbackRelation functionId =
+        [ { Kind = ViewerRelationKind.CallsFunction
+            Target = ViewerTarget.Function functionId } ]
+
     let private roleAndSemanticRelations (node: SemanticNode): ViewerNodeRole * ViewerRelation list =
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId ->
@@ -174,6 +182,14 @@ module ViewerProjection =
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
+        | SemanticNodeKind.ListMap(_, mapperFunctionId) ->
+            ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
+        | SemanticNodeKind.ListFilter(_, predicateFunctionId) ->
+            ViewerNodeRole.ListFilter, callbackRelation predicateFunctionId
+        | SemanticNodeKind.ListAny(_, predicateFunctionId) ->
+            ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
+        | SemanticNodeKind.ListAll(_, predicateFunctionId) ->
+            ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,
             [ { Kind = ViewerRelationKind.CallsFunction
@@ -290,6 +306,10 @@ module ViewerProjection =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _

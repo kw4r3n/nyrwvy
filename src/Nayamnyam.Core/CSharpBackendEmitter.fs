@@ -93,6 +93,7 @@ module CSharpBackend =
         writer.Push()
         writer.Line("private readonly T[] _items;")
         writer.Line("private NyList(T[] items) => _items = items;")
+        writer.Line("internal static NyList<T> FromOwnedArray(T[] items) => new(items);")
         writer.Line("public static NyList<T> Empty() => new(Array.Empty<T>());")
         writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
         writer.Line("public long Length => _items.LongLength;")
@@ -112,6 +113,54 @@ module CSharpBackend =
         writer.Line("Array.Copy(_items, 0, next, 0, _items.Length);")
         writer.Line("Array.Copy(other._items, 0, next, _items.Length, other._items.Length);")
         writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public NyList<U> Map<U>(Func<T, U> mapper)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var next = new U[_items.Length];")
+        writer.Line("for (var i = 0; i < _items.Length; i++)")
+        writer.Push()
+        writer.Line("next[i] = mapper(_items[i]);")
+        writer.Pop()
+        writer.Line("return NyList<U>.FromOwnedArray(next);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public NyList<T> Filter(Func<T, bool> predicate)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var buffer = new T[_items.Length];")
+        writer.Line("var count = 0;")
+        writer.Line("for (var i = 0; i < _items.Length; i++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (!predicate(_items[i])) continue;")
+        writer.Line("buffer[count++] = _items[i];")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("var next = new T[count];")
+        writer.Line("Array.Copy(buffer, next, count);")
+        writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public bool Any(Func<T, bool> predicate)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("for (var i = 0; i < _items.Length; i++)")
+        writer.Push()
+        writer.Line("if (predicate(_items[i])) return true;")
+        writer.Pop()
+        writer.Line("return false;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public bool All(Func<T, bool> predicate)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("for (var i = 0; i < _items.Length; i++)")
+        writer.Push()
+        writer.Line("if (!predicate(_items[i])) return false;")
+        writer.Pop()
+        writer.Line("return true;")
         writer.Pop()
         writer.Line("}")
         writer.Pop()
@@ -206,6 +255,9 @@ module CSharpBackend =
     let private valueName (valueId: ExecutionValueId) =
         CSharpBackendNames.executionValueName valueId
 
+    let private callbackName (functionId: FunctionId) =
+        "NyFunctions." + CSharpBackendNames.functionName functionId
+
     let private renderNamedCallArguments (arguments: ExecutionCallArgument list) =
         arguments
         |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
@@ -293,6 +345,14 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
+        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callbackName mapperFunctionId + ");")
+        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callbackName predicateFunctionId + ");")
+        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callbackName predicateFunctionId + ");")
+        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callbackName predicateFunctionId + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")

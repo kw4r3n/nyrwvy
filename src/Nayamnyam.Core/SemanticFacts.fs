@@ -23,7 +23,11 @@ module SemanticFacts =
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId
+        | SemanticNodeKind.ListMap(listNodeId, _)
+        | SemanticNodeKind.ListFilter(listNodeId, _)
+        | SemanticNodeKind.ListAny(listNodeId, _)
+        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -88,6 +92,10 @@ module SemanticFacts =
             | SemanticNodeKind.ListLength _
             | SemanticNodeKind.ListAppendItem _
             | SemanticNodeKind.ListConcat _
+            | SemanticNodeKind.ListMap _
+            | SemanticNodeKind.ListFilter _
+            | SemanticNodeKind.ListAny _
+            | SemanticNodeKind.ListAll _
             | SemanticNodeKind.DirectCall _
             | SemanticNodeKind.CapabilityInvoke _
             | SemanticNodeKind.ProductConstruct _
@@ -191,12 +199,15 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64LessThan _
                     | SemanticNodeKind.Int64LessThanOrEqual _
                     | SemanticNodeKind.Int64GreaterThan _
-                    | SemanticNodeKind.Int64GreaterThanOrEqual _ ->
+                    | SemanticNodeKind.Int64GreaterThanOrEqual _
+                    | SemanticNodeKind.ListAny _
+                    | SemanticNodeKind.ListAll _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.ListEmpty itemType
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
-                    | SemanticNodeKind.ListAppendItem(listNodeId, _) ->
+                    | SemanticNodeKind.ListAppendItem(listNodeId, _)
+                    | SemanticNodeKind.ListFilter(listNodeId, _) ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
@@ -211,6 +222,11 @@ module SemanticFacts =
                           Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ]))
                             when leftItemType = rightItemType ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
+                        | _ -> None
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId functionsById with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ mapper.ResultType ]))
                         | _ -> None
                     | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
                         Map.tryFind targetFunctionId functionsById

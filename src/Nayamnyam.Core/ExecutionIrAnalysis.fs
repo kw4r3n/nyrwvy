@@ -42,7 +42,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
-        | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListLength listNodeId
+        | TypedSemanticNodeKind.ListMap(listNodeId, _)
+        | TypedSemanticNodeKind.ListFilter(listNodeId, _)
+        | TypedSemanticNodeKind.ListAny(listNodeId, _)
+        | TypedSemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -90,6 +94,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListLength _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
+            | TypedSemanticNodeKind.ListMap _
+            | TypedSemanticNodeKind.ListFilter _
+            | TypedSemanticNodeKind.ListAny _
+            | TypedSemanticNodeKind.ListAll _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _
@@ -157,6 +165,10 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListLength _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
+        | TypedSemanticNodeKind.ListMap _
+        | TypedSemanticNodeKind.ListFilter _
+        | TypedSemanticNodeKind.ListAny _
+        | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.ProductConstruct _
         | TypedSemanticNodeKind.FieldAccess _
         | TypedSemanticNodeKind.UnionConstruct _
@@ -259,6 +271,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListLength _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
+            | TypedSemanticNodeKind.ListMap _
+            | TypedSemanticNodeKind.ListFilter _
+            | TypedSemanticNodeKind.ListAny _
+            | TypedSemanticNodeKind.ListAll _
             | TypedSemanticNodeKind.DirectCall _
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _

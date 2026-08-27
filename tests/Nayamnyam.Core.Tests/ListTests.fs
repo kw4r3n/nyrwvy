@@ -21,8 +21,7 @@ module ListTests =
           SecondListNodeId: GraphNodeId
           ConcatenatedListNodeId: GraphNodeId
           PipelineLengthNodeId: GraphNodeId
-          EmptyListNodeId: GraphNodeId
-          EmptyLengthNodeId: GraphNodeId }
+          EmptyListNodeId: GraphNodeId }
 
     let private functionId name = StableId.createForTesting<FunctionTag> ("function-list-" + name)
     let private parameterId name = StableId.createForTesting<ParameterTag> ("parameter-list-" + name)
@@ -33,8 +32,7 @@ module ListTests =
     let private int64ListType = listOf int64Type
 
     let private createFixture (): ListFixture =
-        // Deliberately choose IDs whose lexical order differs from semantic list order.
-        // Any accidental ID-sorting of ListConstruct items will therefore be observable.
+        // Lexical ID order deliberately differs from semantic list order.
         let firstItemNodeId = nodeId "z-first-item"
         let secondItemNodeId = nodeId "a-second-item"
         let firstListNodeId = nodeId "first-list"
@@ -85,8 +83,7 @@ module ListTests =
                       { Id = emptyLengthNodeId; Kind = SemanticNodeKind.ListLength emptyListNodeId } ]
                   ResultNodeId = emptyLengthNodeId } }
 
-        // Keep an explicit List<T> signature in the authoritative snapshot so the
-        // persistence codecs are tested for List type references, not only List nodes.
+        // Explicit List<T> signature ensures persistence codecs exercise List TypeRef too.
         let identityParameterId = parameterId "identity-input"
         let identityNodeId = nodeId "identity-input"
         let identity: SemanticFunction =
@@ -124,8 +121,7 @@ module ListTests =
           SecondListNodeId = secondListNodeId
           ConcatenatedListNodeId = concatenatedListNodeId
           PipelineLengthNodeId = pipelineLengthNodeId
-          EmptyListNodeId = emptyListNodeId
-          EmptyLengthNodeId = emptyLengthNodeId }
+          EmptyListNodeId = emptyListNodeId }
 
     let private unwrap label result =
         match result with
@@ -145,20 +141,18 @@ module ListTests =
 
     let private replacePipelineNodeKind
         (fixture: ListFixture)
-        (nodeIdToChange: GraphNodeId)
+        (targetNodeId: GraphNodeId)
         (kind: SemanticNodeKind)
         (snapshot: Snapshot)
         : Snapshot =
         let functions =
             snapshot.Functions
             |> List.map (fun functionEntity ->
-                if functionEntity.Id <> fixture.PipelineFunctionId then
-                    functionEntity
+                if functionEntity.Id <> fixture.PipelineFunctionId then functionEntity
                 else
                     let nodes =
                         functionEntity.Body.Nodes
-                        |> List.map (fun node ->
-                            if node.Id = nodeIdToChange then { node with Kind = kind } else node)
+                        |> List.map (fun node -> if node.Id = targetNodeId then { node with Kind = kind } else node)
                     { functionEntity with Body = { functionEntity.Body with Nodes = nodes } })
         { snapshot with Functions = functions }
 
@@ -179,9 +173,7 @@ module ListTests =
         startInfo.RedirectStandardError <- true
         startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
         startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-        for argument in arguments do
-            startInfo.ArgumentList.Add(argument)
-
+        for argument in arguments do startInfo.ArgumentList.Add(argument)
         use childProcess = Process.Start(startInfo)
         if isNull childProcess then failwith "Failed to start dotnet process."
         let stdoutTask = childProcess.StandardOutput.ReadToEndAsync()
@@ -194,9 +186,7 @@ module ListTests =
         let fixture = createFixture ()
         Assert.Empty(SnapshotValidator.validate fixture.Snapshot)
 
-        let focus =
-            SemanticQuery.focusFunction fixture.Snapshot fixture.PipelineFunctionId
-            |> unwrap "pipeline focus"
+        let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.PipelineFunctionId |> unwrap "pipeline focus"
         let typesByNode = focus.NodeTypes |> List.map (fun item -> item.NodeId, item.Type) |> Map.ofList
         Assert.Equal(Some int64ListType, Map.find fixture.FirstListNodeId typesByNode)
         Assert.Equal(Some int64ListType, Map.find fixture.AppendedListNodeId typesByNode)
@@ -206,9 +196,10 @@ module ListTests =
         let dependencies =
             SemanticQuery.getDependencies fixture.Snapshot fixture.PipelineFunctionId fixture.ConcatenatedListNodeId
             |> unwrap "concat dependencies"
-        let expectedDependencies =
-            [ fixture.AppendedListNodeId; fixture.SecondListNodeId ] |> List.sortBy StableId.value
-        Assert.Equal<GraphNodeId list>(expectedDependencies, dependencies)
+        Assert.Equal<GraphNodeId list>(
+            [ fixture.AppendedListNodeId; fixture.SecondListNodeId ] |> List.sortBy StableId.value,
+            dependencies
+        )
 
         let viewer = ViewerProjection.focus focus
         let roles = viewer.Graph.Nodes |> List.map (fun node -> node.Role)
@@ -217,15 +208,13 @@ module ListTests =
               ViewerNodeRole.ListAppendItem
               ViewerNodeRole.ListConcat
               ViewerNodeRole.ListLength ] do
-            if not (List.contains role roles) then
-                failwithf "Viewer omitted List role %A." role
+            Assert.Contains(role, roles)
 
-        let emptyFocus =
+        let emptyViewer =
             SemanticQuery.focusFunction fixture.Snapshot fixture.EmptyLengthFunctionId
             |> unwrap "empty focus"
             |> ViewerProjection.focus
-        if emptyFocus.Graph.Nodes |> List.exists (fun node -> node.Role = ViewerNodeRole.ListEmpty) |> not then
-            failwith "Viewer omitted ListEmpty."
+        Assert.Contains(ViewerNodeRole.ListEmpty, emptyViewer.Graph.Nodes |> List.map (fun node -> node.Role))
 
         let html = ViewerHtml.renderFocusDocument viewer
         Assert.Contains("List construct", html)
@@ -259,12 +248,10 @@ module ListTests =
                 fixture
                 fixture.SecondListNodeId
                 (SemanticNodeKind.ListConstruct(stringType, [ fixture.FourthItemNodeId; fixture.FifthItemNodeId ]))
-        stringRight
-        |> SnapshotValidator.validate
-        |> requireIssue "ListConcatItemTypeMismatch"
+        stringRight |> SnapshotValidator.validate |> requireIssue "ListConcatItemTypeMismatch"
 
         let malformedParameter: SemanticParameter =
-            { Id = StableId.createForTesting<ParameterTag> "parameter-list-malformed"
+            { Id = parameterId "malformed"
               DisplayName = "malformed"
               Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, []) }
         let malformed =
@@ -274,35 +261,33 @@ module ListTests =
                     |> List.map (fun functionEntity ->
                         if functionEntity.Id = fixture.PipelineFunctionId then
                             { functionEntity with Parameters = functionEntity.Parameters @ [ malformedParameter ] }
-                        else
-                            functionEntity) }
-        malformed
-        |> SnapshotValidator.validate
-        |> requireIssue "BuiltinGenericArityMismatch"
+                        else functionEntity) }
+        malformed |> SnapshotValidator.validate |> requireIssue "BuiltinGenericArityMismatch"
 
     [<Fact>]
     let ``JSON and Nyason round-trip List nodes without reordering items`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization"
-        let jsonRoundTrip = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
+        let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
         let nyason = NyasonCodec.serialize fixture.Snapshot |> unwrap "Nyason serialization"
-        let nyasonRoundTrip = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
+        let fromNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         let firstConstructItems snapshot =
-            let functionEntity = pipelineFunction fixture snapshot
-            let node = functionEntity.Body.Nodes |> List.find (fun node -> node.Id = fixture.FirstListNodeId)
+            let node =
+                pipelineFunction fixture snapshot
+                |> fun functionEntity -> functionEntity.Body.Nodes |> List.find (fun node -> node.Id = fixture.FirstListNodeId)
             match node.Kind with
-            | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) -> itemType, itemNodeIds
+            | SemanticNodeKind.ListConstruct(itemType, items) -> itemType, items
             | other -> failwithf "Expected ListConstruct, got %A" other
 
-        for restored in [ jsonRoundTrip; nyasonRoundTrip ] do
+        for restored in [ fromJson; fromNyason ] do
             let itemType, items = firstConstructItems restored
             Assert.Equal(int64Type, itemType)
             Assert.Equal<GraphNodeId list>([ fixture.FirstItemNodeId; fixture.SecondItemNodeId ], items)
 
-        Assert.Contains("\"schemaVersion\":6", json)
+        Assert.Contains("\"schemaVersion\":7", json)
         Assert.Contains("\"generic\":\"list\"", json)
-        Assert.Contains("nayamnyam.snapshot.v2", nyason)
+        Assert.Contains("nayamnyam.snapshot.v3", nyason)
         Assert.Contains("list-type {", nyason)
         Assert.Contains("list-construct {", nyason)
 
@@ -310,9 +295,7 @@ module ListTests =
     let ``Typed and Execution IR preserve all basic List roles and item order`` () =
         let fixture = createFixture ()
         let typed, execution = lower fixture
-
-        let typedPipeline = typed.Functions |> List.find (fun functionEntity -> functionEntity.Id = fixture.PipelineFunctionId)
-        let typedKinds = typed.Functions |> List.collect (fun functionEntity -> functionEntity.Body.Nodes) |> List.map (fun node -> node.Kind)
+        let typedKinds = typed.Functions |> List.collect (fun f -> f.Body.Nodes) |> List.map (fun node -> node.Kind)
         for label, predicate in
             [ "Typed ListEmpty", (function TypedSemanticNodeKind.ListEmpty -> true | _ -> false)
               "Typed ListConstruct", (function TypedSemanticNodeKind.ListConstruct _ -> true | _ -> false)
@@ -321,53 +304,44 @@ module ListTests =
               "Typed ListConcat", (function TypedSemanticNodeKind.ListConcat _ -> true | _ -> false) ] do
             requireMatch label predicate typedKinds
 
-        let typedFirstConstruct =
-            typedPipeline.Body.Nodes |> List.find (fun node -> node.OriginNodeId = fixture.FirstListNodeId)
-        match typedFirstConstruct.Kind with
-        | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
-            Assert.Equal<GraphNodeId list>([ fixture.FirstItemNodeId; fixture.SecondItemNodeId ], itemNodeIds)
+        let typedPipeline = typed.Functions |> List.find (fun f -> f.Id = fixture.PipelineFunctionId)
+        match typedPipeline.Body.Nodes |> List.find (fun node -> node.OriginNodeId = fixture.FirstListNodeId) |> fun node -> node.Kind with
+        | TypedSemanticNodeKind.ListConstruct items ->
+            Assert.Equal<GraphNodeId list>([ fixture.FirstItemNodeId; fixture.SecondItemNodeId ], items)
         | other -> failwithf "Expected typed ListConstruct, got %A" other
 
-        let executionInstructions =
-            execution.Functions
-            |> List.collect (fun functionEntity -> functionEntity.Blocks)
-            |> List.collect (fun block -> block.Instructions)
-        let executionKinds = executionInstructions |> List.map (fun instruction -> instruction.Kind)
+        let instructions =
+            execution.Functions |> List.collect (fun f -> f.Blocks) |> List.collect (fun block -> block.Instructions)
+        let kinds = instructions |> List.map (fun instruction -> instruction.Kind)
         for label, predicate in
             [ "Execution ListEmpty", (function ExecutionInstructionKind.ListEmpty -> true | _ -> false)
               "Execution ListConstruct", (function ExecutionInstructionKind.ListConstruct _ -> true | _ -> false)
               "Execution ListLength", (function ExecutionInstructionKind.ListLength _ -> true | _ -> false)
               "Execution ListAppendItem", (function ExecutionInstructionKind.ListAppendItem _ -> true | _ -> false)
               "Execution ListConcat", (function ExecutionInstructionKind.ListConcat _ -> true | _ -> false) ] do
-            requireMatch label predicate executionKinds
+            requireMatch label predicate kinds
 
         let valueIdFor originNodeId =
-            executionInstructions
-            |> List.find (fun instruction -> instruction.OriginNodeId = originNodeId)
-            |> fun instruction -> instruction.Result.Id
-        let firstConstructInstruction =
-            executionInstructions
-            |> List.find (fun instruction -> instruction.OriginNodeId = fixture.FirstListNodeId)
-        match firstConstructInstruction.Kind with
-        | ExecutionInstructionKind.ListConstruct itemValueIds ->
+            instructions |> List.find (fun instruction -> instruction.OriginNodeId = originNodeId) |> fun instruction -> instruction.Result.Id
+        match instructions |> List.find (fun instruction -> instruction.OriginNodeId = fixture.FirstListNodeId) |> fun instruction -> instruction.Kind with
+        | ExecutionInstructionKind.ListConstruct values ->
             Assert.Equal<ExecutionValueId list>(
                 [ valueIdFor fixture.FirstItemNodeId; valueIdFor fixture.SecondItemNodeId ],
-                itemValueIds
+                values
             )
         | other -> failwithf "Expected execution ListConstruct, got %A" other
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":3", typedJson)
+        Assert.Contains("\"schemaVersion\":4", typedJson)
         Assert.Contains("\"kind\":\"list\"", typedJson)
         Assert.Contains("\"listConstruct\"", typedJson)
-        Assert.Contains("\"schemaVersion\":3", executionJson)
+        Assert.Contains("\"schemaVersion\":4", executionJson)
         Assert.Contains("\"listConstruct\"", executionJson)
 
     [<Fact>]
     let ``C# source uses an immutable-style dedicated NyList runtime`` () =
-        let fixture = createFixture ()
-        let artifact = emit fixture
+        let artifact = createFixture () |> emit
         Assert.Contains("public sealed class NyList<T>", artifact.Source)
         Assert.Contains("private readonly T[] _items;", artifact.Source)
         Assert.Contains("public long Length => _items.LongLength;", artifact.Source)
@@ -382,7 +356,6 @@ module ListTests =
         let artifact = emit fixture
         let tempRoot = Path.Combine(Path.GetTempPath(), "nayamnyam-list-basic-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore
-
         try
             let projectFile =
                 """<Project Sdk="Microsoft.NET.Sdk">
@@ -397,14 +370,12 @@ module ListTests =
 """
             let call functionId = "Console.WriteLine(NyFunctions." + CSharpBackendNames.functionName functionId + "());"
             let harness =
-                String.concat
-                    Environment.NewLine
+                String.concat Environment.NewLine
                     [ "using System;"
                       "using Nayamnyam.Generated;"
                       ""
                       call fixture.PipelineFunctionId
                       call fixture.EmptyLengthFunctionId ]
-
             File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), projectFile)
             File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
@@ -413,22 +384,18 @@ module ListTests =
                 runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
             if buildExit <> 0 then
                 failwithf "Generated List C# build failed.\nstdout:\n%s\nstderr:\n%s\nsource:\n%s" buildOut buildErr artifact.Source
-
             let assemblyPath = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
             let runExit, runOut, runErr = runDotnet tempRoot [ assemblyPath ]
             if runExit <> 0 then
                 failwithf "Generated List C# execution failed.\nstdout:\n%s\nstderr:\n%s" runOut runErr
-
-            let normalized = runOut.Replace("\r\n", "\n").Trim()
-            Assert.Equal("5\n0", normalized)
+            Assert.Equal("5\n0", runOut.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``ListConstruct item order is semantic fingerprint state`` () =
         let fixture = createFixture ()
-        let originalFingerprint =
-            SemanticFingerprint.compute fixture.Snapshot |> unwrap "original semantic fingerprint"
+        let original = SemanticFingerprint.compute fixture.Snapshot |> unwrap "original semantic fingerprint"
         let reordered =
             fixture.Snapshot
             |> replacePipelineNodeKind
@@ -436,6 +403,5 @@ module ListTests =
                 fixture.FirstListNodeId
                 (SemanticNodeKind.ListConstruct(int64Type, [ fixture.SecondItemNodeId; fixture.FirstItemNodeId ]))
         Assert.Empty(SnapshotValidator.validate reordered)
-        let reorderedFingerprint =
-            SemanticFingerprint.compute reordered |> unwrap "reordered semantic fingerprint"
-        Assert.NotEqual(originalFingerprint, reorderedFingerprint)
+        let changed = SemanticFingerprint.compute reordered |> unwrap "reordered semantic fingerprint"
+        Assert.NotEqual(original, changed)

@@ -94,6 +94,10 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
     | DirectCall of FunctionId * TypedSemanticArgument list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
@@ -247,6 +251,14 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+                        Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId))
+                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
+                        Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId))
+                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
+                        Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId))
+                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+                        Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->
                         Ok(
                             TypedSemanticNodeKind.DirectCall(

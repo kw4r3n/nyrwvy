@@ -34,6 +34,7 @@
     <Compile Include="MilestoneZeroEndToEndTests.fs" />
     <Compile Include="Int64Tests.fs" />
     <Compile Include="ListTests.fs" />
+    <Compile Include="ListHigherOrderTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

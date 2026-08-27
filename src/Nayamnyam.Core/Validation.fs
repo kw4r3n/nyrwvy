@@ -33,7 +33,11 @@ module SnapshotValidator =
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId
+        | SemanticNodeKind.ListMap(listNodeId, _)
+        | SemanticNodeKind.ListFilter(listNodeId, _)
+        | SemanticNodeKind.ListAny(listNodeId, _)
+        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -71,7 +75,11 @@ module SnapshotValidator =
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId
+        | SemanticNodeKind.ListMap(listNodeId, _)
+        | SemanticNodeKind.ListFilter(listNodeId, _)
+        | SemanticNodeKind.ListAny(listNodeId, _)
+        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -408,6 +416,52 @@ module SnapshotValidator =
                     expectedType
                     rightNodeId
 
+            let validateListCallback
+                (nodeId: GraphNodeId)
+                (sourceListNodeId: GraphNodeId)
+                (callbackFunctionId: FunctionId)
+                (predicateResultRequired: bool)
+                =
+                let sourceItemType =
+                    match nodeType sourceListNodeId with
+                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) -> Some itemType
+                    | Some _ ->
+                        add
+                            "ListHigherOrderSourceTypeMismatch"
+                            $"Higher-order List node '{StableId.value nodeId}' requires List<T> input."
+                        None
+                    | None -> None
+
+                match Map.tryFind callbackFunctionId functionsById with
+                | None ->
+                    add
+                        "UnknownListCallbackFunction"
+                        $"Higher-order List node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
+                | Some callback ->
+                    if callback.Parameters.Length <> 1 then
+                        add
+                            "ListCallbackArityMismatch"
+                            $"Higher-order List node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter."
+                    else
+                        match sourceItemType with
+                        | Some itemType when callback.Parameters.Head.Type <> itemType ->
+                            add
+                                "ListCallbackParameterTypeMismatch"
+                                $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
+                        | Some _
+                        | None -> ()
+
+                    if not (List.isEmpty callback.RequiredEffects) then
+                        add
+                            "ListCallbackEffectsNotAllowed"
+                            $"Higher-order List node '{StableId.value nodeId}' requires a pure callback with no required effects."
+
+                    if predicateResultRequired
+                       && callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
+                        add
+                            "ListPredicateResultTypeMismatch"
+                            $"Higher-order List node '{StableId.value nodeId}' predicate callback must return Bool."
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -563,6 +617,12 @@ module SnapshotValidator =
                                 $"ListConcat node '{StableId.value node.Id}' requires List<T> as its right input."
                         | None, _
                         | _, None -> ()
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+                        validateListCallback node.Id sourceListNodeId mapperFunctionId false
+                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId)
+                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId)
+                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+                        validateListCallback node.Id sourceListNodeId predicateFunctionId true
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
@@ -958,6 +1018,10 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _

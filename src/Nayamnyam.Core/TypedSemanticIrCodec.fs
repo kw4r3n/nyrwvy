@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 3
+    let schemaVersion = 4
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -228,6 +228,17 @@ module TypedSemanticIrCodec =
         writer.WriteString("leftNodeId", StableId.value leftNodeId)
         writer.WriteString("rightNodeId", StableId.value rightNodeId)
 
+    and private writeListCallbackNode
+        (writer: Utf8JsonWriter)
+        (kind: string)
+        (sourceListNodeId: GraphNodeId)
+        (callbackFieldName: string)
+        (callbackFunctionId: FunctionId)
+        =
+        writer.WriteString("kind", kind)
+        writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+        writer.WriteString(callbackFieldName, StableId.value callbackFunctionId)
+
     and private writeNode (writer: Utf8JsonWriter) (node: TypedSemanticNode) =
         writer.WriteStartObject()
         writer.WriteString("originNodeId", StableId.value node.OriginNodeId)
@@ -282,7 +293,7 @@ module TypedSemanticIrCodec =
             writer.WritePropertyName("itemNodeIds")
             writer.WriteStartArray()
             // List item order is semantic. Do not sort.
-            itemNodeIds |> List.iter (StableId.value >> writer.WriteStringValue)
+            itemNodeIds |> List.iter (fun itemNodeId -> writer.WriteStringValue(StableId.value itemNodeId))
             writer.WriteEndArray()
         | TypedSemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
@@ -295,6 +306,14 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
+        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId
+        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId
+        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)

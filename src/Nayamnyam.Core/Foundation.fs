@@ -131,6 +131,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
     | DirectCall of FunctionId * ArgumentBinding list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
@@ -221,6 +225,10 @@ module ValueGraph =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -278,6 +286,10 @@ module ValueGraph =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
