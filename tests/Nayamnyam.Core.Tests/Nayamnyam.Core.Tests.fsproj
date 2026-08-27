@@ -38,6 +38,7 @@
     <Compile Include="MilestoneOneGraph.fs" />
     <Compile Include="MilestoneOneEndToEndTests.fs" />
     <Compile Include="AgentExecutionTests.fs" />
+    <Compile Include="Float64Tests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
