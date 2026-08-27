@@ -74,6 +74,11 @@ module AgentWorkspace =
     let private snapshot (workspace: AgentWorkspace): Snapshot =
         SemanticWorkspace.currentSnapshot workspace.Workspace
 
+    /// Trusted bridge for the downstream Execution assembly. This remains
+    /// internal so the ordinary agent-facing API never exposes the raw snapshot.
+    let internal snapshotForExecution (workspace: AgentWorkspace): Snapshot =
+        snapshot workspace
+
     let getFunction workspace functionId = SemanticQuery.getFunction (snapshot workspace) functionId
     let getType workspace typeId = SemanticQuery.getType (snapshot workspace) typeId
     let getCallers workspace functionId = SemanticQuery.getCallers (snapshot workspace) functionId

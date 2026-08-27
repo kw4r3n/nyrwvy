@@ -4,6 +4,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Nayamnyam.Execution" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="../Nayamnyam.Core/StableId.fs" Link="StableId.fs" />
     <Compile Include="../Nayamnyam.Core/StableIdAllocator.fs" Link="StableIdAllocator.fs" />
     <Compile Include="../Nayamnyam.Core/Foundation.fs" Link="Foundation.fs" />

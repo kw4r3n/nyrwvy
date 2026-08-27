@@ -42,7 +42,8 @@ The script requires a .NET 10 SDK and runs:
  19. ListTests explicitly (at least 7 passing tests, including generated C# build/run)
  20. ListHigherOrderTests explicitly (at least 7 passing tests, including generated C# build/run)
  21. MilestoneOneEndToEndTests explicitly (at least 1 expanded-program + agent-edit lifecycle test)
- 22. the JSON/Nyason comparison report produced by the test suite
+ 22. AgentExecutionTests explicitly (at least 3 post-commit execution handoff tests)
+ 23. the JSON/Nyason comparison report produced by the test suite
 
 A timestamped log is written under ${TMPDIR:-/tmp}/nayamnyam-verification/.
 EOF
@@ -275,6 +276,12 @@ run_required_filter \
   "FullyQualifiedName~MilestoneOneEndToEndTests" \
   1 \
   "m1-i-expanded-program.trx"
+
+run_required_filter \
+  "M1-I post-commit agent execution handoff" \
+  "FullyQualifiedName~AgentExecutionTests" \
+  3 \
+  "m1-i-agent-execution.trx"
 
 ENCODING_REPORT="${TMPDIR:-/tmp}/nayamnyam-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then

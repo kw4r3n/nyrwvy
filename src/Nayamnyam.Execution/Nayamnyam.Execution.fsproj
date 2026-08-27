@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Nayamnyam.Core/TypedSemanticIr.fs" Link="TypedSemanticIr.fs" />
+    <Compile Include="../Nayamnyam.Core/AgentExecution.fs" Link="AgentExecution.fs" />
     <Compile Include="../Nayamnyam.Core/TypedSemanticIrCodec.fs" Link="TypedSemanticIrCodec.fs" />
     <Compile Include="../Nayamnyam.Core/ExecutionIrModel.fs" Link="ExecutionIrModel.fs" />
     <Compile Include="../Nayamnyam.Core/ExecutionIrAnalysis.fs" Link="ExecutionIrAnalysis.fs" />
