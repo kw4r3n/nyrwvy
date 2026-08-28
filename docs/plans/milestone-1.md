@@ -8,7 +8,7 @@ Milestone 1 has completed its implementation-oriented infrastructure and accepte
 | --- | --- | --- |
 | M1.1 — Editing infrastructure | Complete | Production identity, fingerprints, review receipts, bounded agent workflow, reviewed publication, physical boundaries, trusted post-commit execution projection |
 | M1.2 — Language growth | Complete for the accepted scope | `Int64`, immutable ordered `List<T>`, pure higher-order List operations, expanded representative program, cross-function agent edit, `Float64` |
-| M1.3 — Evaluate the AI-first claim | Pending | Versioned agent task runs and an evaluation record are still required |
+| M1.3 — Evaluate the AI-first claim | Pending | v1 task corpus is frozen; recorded runs and unresolved structural-edit coverage are still required |
 
 Milestone 1 is therefore not closed as a whole. Exact implementation verification belongs in [verification records](../verification/) rather than this plan.
 
@@ -68,6 +68,10 @@ Run a small, versioned set of semantic-editing tasks through the agent-facing wo
 A conventional source-editing baseline is desirable where a fair comparison can be constructed. Milestone 1 does not require a predetermined percentage improvement; it requires enough evidence to identify which design choices improve or hurt agent reliability.
 
 See the [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
+
+The first concrete protocol is frozen as [`m1-agent-corpus-v1`](../experiments/m1-agent-evaluation-corpus-v1.md), with a separate [run-record template](../experiments/m1-agent-evaluation-run-template-v1.md). It covers the currently supported rename/signature/obligation/stale-review workflow and explicitly records where the ordinary agent operation surface cannot yet express structural List or numeric edits.
+
+Freezing the corpus is not completion of M1.3. Recorded model runs, reviewable evidence, and an explicit resolution of any task-class coverage required by the accepted methodology are still necessary before the evaluation gate can be closed.
 
 ## Accepted agent workflow
 
@@ -137,7 +141,7 @@ Milestone 1 maintains two distinct purposes:
 | 11 | Agent edit scenario through query -> simulate -> review -> commit -> execute | Complete |
 | 12 | `Float64` vertical slice | Complete |
 | 13 | Reproducibility for implemented representative scenarios | Complete |
-| 14 | Evaluation record | **Pending — remaining M1 gate** |
+| 14 | Evaluation record | **Pending — corpus v1 frozen; runs/coverage resolution still required** |
 
 ## Non-goals
 
