@@ -455,7 +455,7 @@ export const NyamNyamEvalPlugin: Plugin = async () => ({
 
             await runCommand(
               "dotnet",
-              ["run", "--project", "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj", "--no-restore", "--nologo", "--verbosity", "quiet", "--", "--fixture", fixture, "--output", inputPath],
+              ["run", "--project", "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj", "--no-restore", "--", "--fixture", fixture, "--output", inputPath],
               context.worktree,
             )
             await ensurePrivateFile(inputPath)
@@ -467,9 +467,6 @@ export const NyamNyamEvalPlugin: Plugin = async () => ({
                 "--project",
                 "tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj",
                 "--no-restore",
-                "--nologo",
-                "--verbosity",
-                "quiet",
                 "--",
                 "--input",
                 inputPath,

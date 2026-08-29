@@ -1,6 +1,6 @@
 ---
 description: Run one frozen NyamNyam Mode A evaluation task only through the persistent nyamnyam_eval tools.
-mode: subagent
+mode: primary
 permission:
   read: deny
   glob: deny
