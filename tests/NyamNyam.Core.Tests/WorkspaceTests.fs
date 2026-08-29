@@ -195,3 +195,48 @@ module WorkspaceTests =
         match SemanticWorkspace.commit advanced reuseRequest with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "SnapshotAlreadyPublished" -> ()
         | result -> failwithf "Expected published-snapshot ID reuse rejection, got %A" result
+
+    [<Fact>]
+    let ``trusted validated publication preserves prior workspace history`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let workspace = createWorkspace fixture
+        let firstRequest =
+            renameRequest
+                fixture
+                fixture.Snapshot.Id
+                "transaction-workspace-trusted-first"
+                "snapshot-workspace-trusted-first"
+                "validate_profile"
+
+        let advanced =
+            match SemanticWorkspace.commit workspace firstRequest with
+            | WorkspaceCommitResult.Committed(nextWorkspace, _) -> nextWorkspace
+            | WorkspaceCommitResult.Rejected diagnostics ->
+                failwithf "Unexpected ordinary commit rejection: %A" diagnostics
+
+        let beforeTrustedPublish = current advanced
+        let trustedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-workspace-trusted-published"
+        let trustedSnapshot =
+            { beforeTrustedPublish with
+                Id = trustedSnapshotId
+                ParentId = Some beforeTrustedPublish.Id
+                Functions =
+                    beforeTrustedPublish.Functions
+                    |> List.map (fun functionEntity ->
+                        if functionEntity.Id = fixture.ReportFunctionId then
+                            { functionEntity with DisplayName = "report_trusted" }
+                        else
+                            functionEntity) }
+
+        match SemanticWorkspace.publishValidatedSnapshot advanced trustedSnapshot with
+        | Error diagnostics -> failwithf "Trusted publication was rejected: %A" diagnostics
+        | Ok published ->
+            if current published <> trustedSnapshot then
+                failwith "Trusted publication did not install the exact validated snapshot."
+
+            let expectedHistory = [ beforeTrustedPublish; fixture.Snapshot ]
+            if SemanticWorkspace.previousSnapshots published <> expectedHistory then
+                failwithf
+                    "Trusted publication lost workspace history. Expected %A, got %A"
+                    (expectedHistory |> List.map (fun snapshot -> snapshot.Id))
+                    (SemanticWorkspace.previousSnapshots published |> List.map (fun snapshot -> snapshot.Id))
