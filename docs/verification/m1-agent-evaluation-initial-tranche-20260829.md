@@ -1,6 +1,6 @@
 # M1 agent evaluation initial autonomous tranche - 2026-08-29
 
-**Status:** Protocol preflight and unqualified autonomous-agent trials. M1.3 remains pending.
+**Status:** Protocol preflight, unqualified trials, and one controlled condition-v2.1 sample per covered task. M1.3 remains pending.
 
 This record reports every attempted run for the first `m1-agent-corpus-v1` tranche for Issue #36. It does not modify the frozen corpus, its oracle, the agent authority boundary, or the Milestone 1 plan status.
 
@@ -330,4 +330,66 @@ Infrastructure commit `99189bb` implements the runner-side portions of #37 and #
 - E5 perturbation now triggers only when the effective review diff is exactly one net target rename and records its structured before/after receipt, readiness, and semantic diff only in harness artifacts/operator session data; multi-operation requests do not trigger it, and advance failures invalidate the run and discard the triggering proposal. Agent-visible metrics omit harness events and receipts.
 - Artifact persistence failure invalidates the run record without hiding the semantic commit result. Finalization makes the terminal artifact state explicit, rejects later commands, and returns a nonzero runner exit when final artifact status is not durable and terminal.
 
-No condition-v2 model run has been recorded yet. The selected #38 direction is the provider-specific OpenCode persistent client/agent tool described in [condition v2](../experiments/m1-agent-evaluation-condition-v2.md). It preserves opaque proposal state in one OpenCode-owned runner process and deliberately does not add cross-process checkpoint/resume authority.
+At the time of this readiness note, no condition-v2 model run had been recorded. The selected #38 direction is the provider-specific OpenCode persistent client/agent tool described in [condition v2](../experiments/m1-agent-evaluation-condition-v2.md). It preserves opaque proposal state in one OpenCode-owned runner process and deliberately does not add cross-process checkpoint/resume authority.
+
+## Controlled condition v2 attempts and v2.1 tranche
+
+The following runs use the persistent OpenCode adapter and fresh fixtures. All artifacts are durable, terminal, and private under `/home/kw4/.local/share/nyamnyam/evaluation-runs/`; each cited session directory contains `events.jsonl`, metrics, metadata, final state, and, after a ready commit, exact committed-workspace Typed Semantic IR, Execution IR, generated C#, compiler/execution outputs, and `verification.json`.
+
+All runs requested and recorded model `openai/gpt-5.6-terra`, provider/runtime `opencode`, prompt revision `m1-agent-corpus-v1`, and the stated tool revision. OpenCode did not report a reasoning configuration, so it is recorded as `unavailable` rather than inferred.
+
+### Superseded condition v2 attempts
+
+| Run ID | Task | Tool revision | Terminal result | Classification |
+| --- | --- | --- | --- | --- |
+| `m1-v2-e1-a1` | E1 | `condition-v2-014f018` | committed and exact verification passed; 9 protocol errors | S3; retain, not comparable to v2.1 |
+| `m1-v2-e2-a1` | E2 | `condition-v2-014f018` | no commit; 38 protocol errors, one rejected simulation, two reject actions | S0 / `tool-protocol-error` |
+
+`m1-v2-e1-a1` is session `ses_fb23e0925ffew6fkaIo4Cz2tW5-1788010955794-f4427311-7f21-42fa-b410-3ba3155b4b0a/session-7b7c46ef334e454d89452051e8d97d59`. It reached a verified E1 result but guessed unsupported request schemas before the valid rename. `m1-v2-e2-a1` is session `ses_fb23ca45dffefoa6RosuvI6aLT-1788011049178-4f369b31-21b4-4d53-91a4-0bd6fdcc3849/session-ec1958cc3e8947aa8f4ad33f27253c80`; it never reached a valid proposal. These attempts exposed missing task-independent JSON request/operation schema in the tool instructions. Commit `41d60b4` introduced that schema and named the resulting condition v2.1; the corpus, task prompts, seed IDs, oracles, fixture choice, and mutation authority did not change.
+
+### Condition v2.1 summary
+
+| Run ID | Task | Fixture | Primary level | Verification | Calls / queries / simulations / commits | Protocol errors |
+| --- | --- | --- | --- | --- | ---: | ---: |
+| `m1-v2.1-e1-a1` | E1 | `m0` | S4 | passed | 3 / 1 / 1 / 1 | 0 |
+| `m1-v2.1-e2-a1` | E2 | `m1` | S4 | passed | 5 / 3 / 1 / 1 | 0 |
+| `m1-v2.1-e3-a1` | E3 | `m0` | S4 | passed | 8 / 4 / 2 / 2 | 0 |
+| `m1-v2.1-e4-a1` | E4 | `m1` | S4 | passed | 3 / 1 / 1 / 1 | 0 |
+| `m1-v2.1-e5-a1` | E5 | `m0` | S4 | passed | 6 / 1 / 2 / 1 | 0 |
+
+E5's one rejected commit is the required stale-review transition, not an avoidable retry. Its metrics record one rejection and two commit attempts.
+
+### `m1-v2.1-e1-a1` - identity-preserving rename
+
+- Artifact session: `ses_fb2394cf6ffeQwRdRTEyLkxBoi-1788011266038-419f4d37-ab17-4cb0-9f21-65dddbd6ff9a/session-29d6dba4a1c74e32851f2cb964898537`.
+- The agent queried `function-validate-user`, reviewed one `renameFunction` to `validate_profile`, and committed it. The review/publication changed only that function display name; the original function identity was retained.
+- Exact committed-workspace verification passed with transaction `01a04dc7-207e-78f5-8860-e1123fda013b`. Final readiness was semantic-ready, the semantic fingerprint remained `sha256:1c04b4c278074bb10519a3a722373717b51100faf67d6e7aede295b9f87bf25e`, and the snapshot fingerprint changed to `sha256:4c5d0c8882057ea67320d878c136abe725bf012936161f9a5218a69ce9203ed5`.
+
+### `m1-v2.1-e2-a1` - resolvable signature evolution
+
+- Artifact session: `ses_fb238993bffekzni6A9s7NTf7c-1788011312642-96134896-b2b7-4a85-adca-4b66e402df9f/session-e67ea0bd165f4cd5b0f8e24d0b5bf8f1`.
+- The agent queried the target, its callers, and `function-m1-main`; it reviewed and committed one `context: Unit` parameter plus the sole `node-m1-main-report-results` attachment using existing `node-m1-main-unit-context`.
+- The review was scoped to the target/caller relationship with no open obligation. Exact committed-workspace verification passed for transaction `01a04dc7-a829-7574-bb53-649d529ba5d3`.
+
+### `m1-v2.1-e3-a1` - explicit incompleteness and resolution
+
+- Artifact session: `ses_fb237f9e6ffeupDV8jBAYjNeWc-1788011353300-a8801563-17bb-4c1d-a636-7457c2ad5b51/session-cd90ba2c6bba4157ad022f0608bf18e9`.
+- The first reviewed change added `policy: Policy` with `leaveMissing(node-main-validate-call)` and was published through `commitAllowIncomplete`. The second change queried the generated obligation and resolved that same obligation with existing `node-main-policy`; it did not manufacture a default.
+- The final workspace had no open obligation and exact committed-workspace verification passed for the phase-two transaction `01a04dc8-68eb-76e2-831b-85237188d4e1`.
+
+### `m1-v2.1-e4-a1` - stable higher-order reference
+
+- Artifact session: `ses_fb23754bbffedkpTWzoBYJ14HM-1788011395296-adaa9e31-b655-4a6c-8a37-a35c55644da1/session-24ccc7b1df3b4c5d96208a8cfcdc9be8`.
+- The only reviewed/publication change renamed `function-validate-user` to `validate_account_input`. Stable callback identity therefore preserves the existing `ListMap` relation; no collection operation or unrelated structural change occurred.
+- Exact committed-workspace verification passed for transaction `01a04dc8-de01-7da1-8d27-e7cf7fa817bb`. As required by the corpus, this remains partial collection coverage, not evidence for specialized collection-node construction/selection.
+
+### `m1-v2.1-e5-a1` - stale reviewed proposal recovery
+
+- Artifact session: `ses_fb236cebeffeyKRcDXdbH3n3ku-1788011429738-46c1bbb0-f176-42cf-bcec-9af1a93d7667/session-3e4f08adcbd94b5ab16e2d4c342275ff`.
+- After the first valid reviewed target rename, the harness committed its configured `RawUserInput` -> `RawAccountInput` type-display perturbation. The first agent commit failed closed with `StaleBaseSnapshot`.
+- The agent queried current state, created/reviewed a fresh rename proposal, and committed it. The harness receipt records the perturbation transaction `01a04dc9-5af9-764f-9a6c-0776b9ad4267`; its semantic fingerprint was unchanged and the type rename remains in the advanced base. The agent's fresh transaction was `01a04dc9-7d92-70b5-be58-977ac11c85f0`.
+- Exact committed-workspace verification passed. The agent-owned final diff is only the requested function rename; the harness-owned type rename is excluded from churn.
+
+## Controlled tranche interpretation
+
+The controlled v2.1 sample supplies one terminal, exact-verified result for every corpus task that the current bounded operation surface can express. It also removes the v1 shell-session restart confounder and v2 schema-guessing condition from those samples. It is not a basis for an M1.3 completion claim: it has one sample per task, reasoning configuration is not emitted by the runtime, and the frozen structural List/numeric coverage decision remains unresolved.
