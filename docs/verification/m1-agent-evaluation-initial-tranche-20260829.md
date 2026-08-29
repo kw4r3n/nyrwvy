@@ -194,7 +194,7 @@ This is partial collection coverage only. It demonstrates reference stability un
 
 - Starting fixture/state: the E1 `m0` initial state above.
 - Seed supplied: `${validate_user}` = `function-validate-user`.
-- Harness configuration: `--stale-perturbation-type-id type-raw-user-input --stale-perturbation-name RawAccountInput`. This option is process startup infrastructure and is not a protocol command.
+- Harness configuration: `--stale-perturbation-trigger-function-id function-validate-user --stale-perturbation-trigger-name validate_profile --stale-perturbation-type-id type-raw-user-input --stale-perturbation-name RawAccountInput`. These options are process startup infrastructure and are not protocol commands; the advance occurs only after the first valid reviewed target rename proposal.
 - Timeline: focus target; simulate rename `proposal-1`; harness commits its type rename after review; agent commits `proposal-1` and receives `StaleBaseSnapshot`; agent queries the changed type and fresh focus; simulates fresh `proposal-2`; reviews and commits it; queries final target/callers; final state.
 - Agent proposal 1 receipt: transaction `01a04c81-9da0-76d4-854f-5ac2f2b2a31c`; base `snapshot-m0-initial`; commit rejected with `StaleBaseSnapshot`.
 - Harness event: committed transaction `01a04c81-9de8-7715-8894-90bfddb07cba`, published snapshot `01a04c81-9de8-744c-969b-5f723a52064c`, renaming `type-raw-user-input` to `RawAccountInput`.
@@ -327,12 +327,7 @@ Infrastructure commit `99189bb` implements the runner-side portions of #37 and #
 
 - `--artifact-dir` creates a unique durable run directory with JSONL events, atomic metrics, run metadata, and terminal run state. Harness-provided model, runtime, reasoning, prompt, and tool revisions are recorded, or explicitly `unavailable`.
 - `--verification-fixture m0|m1` requires an artifact directory and runs only after a semantically-ready reviewed commit. It verifies the exact committed workspace through Typed Semantic IR, Execution IR, C# emission/build, and fixture behavior; detailed artifacts remain harness-only rather than agent-visible.
-- E5 perturbation now records a structured harness receipt with before/after fingerprints, readiness, and semantic diff.
-- Artifact persistence failure invalidates the run record without hiding the semantic commit result. Finalization makes the terminal artifact state explicit and rejects later commands.
+- E5 perturbation now triggers only when the effective review diff is exactly one net target rename and records its structured before/after receipt, readiness, and semantic diff only in harness artifacts/operator session data; multi-operation requests do not trigger it, and advance failures invalidate the run and discard the triggering proposal. Agent-visible metrics omit harness events and receipts.
+- Artifact persistence failure invalidates the run record without hiding the semantic commit result. Finalization makes the terminal artifact state explicit, rejects later commands, and returns a nonzero runner exit when final artifact status is not durable and terminal.
 
-No condition-v2 model run has been recorded yet. The remaining #38 choice is outside the runner's semantic operation surface:
-
-1. Provide a provider-specific persistent client/agent tool that owns one `Session` process from query through finalization. This keeps opaque proposals only in memory and preserves the present no-raw-snapshot boundary.
-2. Add harness-owned cross-process session resume/checkpointing. This would require storing/restoring the current workspace and opaque proposal state, increasing persistence and recovery authority at the harness boundary.
-
-The choice determines the condition-v2 tool interface and must be made before new controlled runs are compared with condition v1.
+No condition-v2 model run has been recorded yet. The selected #38 direction is the provider-specific OpenCode persistent client/agent tool described in [condition v2](../experiments/m1-agent-evaluation-condition-v2.md). It preserves opaque proposal state in one OpenCode-owned runner process and deliberately does not add cross-process checkpoint/resume authority.
