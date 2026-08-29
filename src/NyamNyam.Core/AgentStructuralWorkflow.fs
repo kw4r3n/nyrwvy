@@ -318,11 +318,8 @@ module AgentStructuralWorkflow =
                         let rendered = ids |> List.map StableId.value |> String.concat ", "
                         AgentStructuralCommitResult.Rejected [ diagnostic "BlockingObligations" $"The proposed snapshot has blocking obligations: {rendered}." ]
                     | _ ->
-                        match AgentWorkspace.createFromValidatedSnapshot proposal.ProposedSnapshot with
-                        | Error issues ->
-                            AgentStructuralCommitResult.Rejected(
-                                issues |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
-                            )
+                        match AgentWorkspace.publishValidatedSnapshot workspace proposal.ProposedSnapshot with
+                        | Error diagnostics -> AgentStructuralCommitResult.Rejected diagnostics
                         | Ok nextWorkspace ->
                             AgentStructuralCommitResult.Committed(
                                 nextWorkspace,
