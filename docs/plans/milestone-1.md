@@ -1,16 +1,16 @@
 # Milestone 1 — Agent-safe semantic editing and language growth
 
-**Status:** Current plan — M1.3 pending
+**Status:** Complete for the accepted M1 claim
 
-Milestone 1 has completed its implementation-oriented infrastructure and accepted language-growth gates. The remaining milestone gate is **M1.3 — the recorded AI-agent evaluation**.
+Milestone 1 has completed its implementation-oriented infrastructure, accepted language-growth gates, and recorded AI-agent evaluation for its bounded operation surface.
 
 | Slice | Status | Outcome |
 | --- | --- | --- |
 | M1.1 — Editing infrastructure | Complete | Production identity, fingerprints, review receipts, bounded agent workflow, reviewed publication, physical boundaries, trusted post-commit execution projection |
 | M1.2 — Language growth | Complete for the accepted scope | `Int64`, immutable ordered `List<T>`, pure higher-order List operations, expanded representative program, cross-function agent edit, `Float64` |
-| M1.3 — Evaluate the AI-first claim | Pending | v1 task corpus is frozen; recorded runs and unresolved structural-edit coverage are still required |
+| M1.3 — Evaluate the AI-first claim | Complete for bounded operations | Post-main v2.1 evidence records 15 runs; arbitrary List/numeric structural editing is explicitly outside the M1 claim |
 
-Milestone 1 is therefore not closed as a whole. Exact implementation verification belongs in [verification records](../verification/) rather than this plan.
+Exact implementation verification and evaluation evidence belong in [verification records](../verification/) rather than this plan.
 
 ## Primary goal
 
@@ -51,7 +51,7 @@ Explicit numeric conversion experiments remain deferred until precision, roundin
 
 ## M1.3 — Evaluate the AI-first claim
 
-This is the remaining Milestone 1 gate.
+This gate is complete for the accepted bounded-operation claim.
 
 Run a small, versioned set of semantic-editing tasks through the agent-facing workflow and record at least:
 
@@ -71,7 +71,7 @@ See the [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
 
 The first concrete protocol is frozen as [`m1-agent-corpus-v1`](../experiments/m1-agent-evaluation-corpus-v1.md), with a separate [run-record template](../experiments/m1-agent-evaluation-run-template-v1.md). It covers the currently supported rename/signature/obligation/stale-review workflow and explicitly records where the ordinary agent operation surface cannot yet express structural List or numeric edits.
 
-Freezing the corpus is not completion of M1.3. Recorded model runs, reviewable evidence, and an explicit resolution of any task-class coverage required by the accepted methodology are still necessary before the evaluation gate can be closed.
+The post-main condition-v2.1 tranche supplies three fresh runs per E1-E5 task with durable artifacts and exact committed-workspace verification. E1/E2/E4/E5 were task-correct in all three repetitions; E3 is recorded as a 3/3 task-oracle mismatch (`Policy` rather than `policy`). Per [M1-D13](../decisions/milestone-1.md#M1-D13), arbitrary List/numeric structural editing remains explicitly outside this M1 claim. See the [evaluation record](../verification/m1-agent-evaluation-initial-tranche-20260829.md).
 
 ## Accepted agent workflow
 

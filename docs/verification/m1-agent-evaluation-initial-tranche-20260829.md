@@ -306,20 +306,11 @@ E4 is not evidence for specialized collection-node selection. The ordinary `Agen
 
 Numeric structural editing is also blocked. `Int64` and `Float64` semantics exist, but no ordinary bounded operation can construct or alter their expression structure. The corpus's numeric task class is therefore unexercised. This is a product/evaluation limitation, not a reason to reinterpret E4 as collection-construction coverage.
 
-Per the frozen corpus, M1.3 requires either a bounded structural editing operation plus a new corpus version, or an explicit design decision that structural editing lies outside the M1 agent claim. Neither has happened.
+Per the frozen corpus, M1.3 requires either a bounded structural editing operation plus a new corpus version, or an explicit design decision that structural editing lies outside the M1 agent claim. M1-D13 selects the latter.
 
 ## M1.3 decision
 
-**Pending.** The protocol preflight and fresh-agent E1-E5 trials are recorded. The runner-observable semantic outcomes show that the bounded operations can support explicit obligation and stale-review recovery, but there is not yet a qualifying controlled autonomous tranche. M1.3 cannot be marked complete because:
-
-1. exact committed-state lowering/backend/behavioral evidence is missing from condition v1 (#37);
-2. the fresh trial agents' model identifier and reasoning configuration were not emitted, so the required same-model condition cannot be verified;
-3. E1/E2/E4 and E3 exposed runner-client/session/schema protocol friction that must be measured or improved before interpreting semantic reliability;
-4. only one trial per task is insufficient for the methodology's stochastic-agent conclusions;
-5. structural List selection and numeric structural editing remain blocked; and
-6. the required explicit decision on the blocked structural-edit coverage has not been made.
-
-The immediate next step is to resolve #37 and #38 in a separately versioned runner condition, then run controlled autonomous samples without rewriting or deleting this evidence.
+**Complete for the bounded-operation claim.** The post-main condition-v2.1 tranche provides three fresh controlled runs for every executable corpus task, exact committed-state verification, durable evidence, and an explicit structural-edit scope decision. E3's 3/3 `Policy`/`policy` mismatch remains a task-oracle UX finding, not a success claim. M1 does not claim arbitrary List/numeric structural editing; M1-D13 defers that operation-surface growth and its new-corpus evaluation to a later milestone.
 
 ## Condition v2 readiness
 

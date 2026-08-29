@@ -237,3 +237,16 @@ Do not generalize specialized semantic nodes merely because several nodes share 
 In M1, use concrete roles such as `ListMap`, `ListFilter`, `Float64IsNaN`, and explicit integer arithmetic variants. Measure agent use before introducing generic higher-order calls, numeric operator families, or overloaded operation bags.
 
 Generalization is accepted only when it reduces complexity without forcing semantic role back into ambient type inference or string/operator metadata.
+
+## M1-D13 — Arbitrary structural editing is outside the M1 agent claim
+
+### Decision
+
+M1 evaluates the safety and usability of the currently supported bounded semantic operations: rename, signature evolution with explicit call-site plans, obligation resolution, reviewed publication, and stale-review recovery. Arbitrary value-graph construction, specialized List-node construction/selection, and numeric expression structural editing are outside the M1 agent claim.
+
+### Consequences
+
+- M1 does not claim that an agent can construct `ListMap`, `ListFilter`, `ListAny`, `ListAll`, or numeric expression graphs;
+- E4 remains evidence only for stable higher-order callback preservation;
+- future structural operations require their own bounded authority design, a new corpus version, and separate evaluation evidence;
+- the limitation remains visible in M1 verification records rather than being inferred away from implemented language semantics.
