@@ -102,6 +102,19 @@ module AgentEvalVerificationProtocolTests =
     let private temporaryDirectory label =
         Path.Combine(Path.GetTempPath(), "nyamnyam-agent-verification-" + label + "-" + Guid.NewGuid().ToString("N"))
 
+    let private assertPrivateArtifactTree (root: string) =
+        if not (OperatingSystem.IsWindows()) then
+            let privateDirectory =
+                UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute
+            let privateFile = UnixFileMode.UserRead ||| UnixFileMode.UserWrite
+            Assert.Equal(privateDirectory, File.GetUnixFileMode(root))
+
+            for path in Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories) do
+                if (File.GetAttributes(path) &&& FileAttributes.Directory) = FileAttributes.Directory then
+                    Assert.Equal(privateDirectory, File.GetUnixFileMode(path))
+                else
+                    Assert.Equal(privateFile, File.GetUnixFileMode(path))
+
     let private verificationReport (session: Session) =
         session.VerificationReports
         |> List.tryLast
@@ -208,6 +221,7 @@ module AgentEvalVerificationProtocolTests =
 
             Assert.Equal("committed", resultStatus commitResponse)
             assertPassedEvidence session commitResponse |> ignore
+            assertPrivateArtifactTree artifactDirectory
         finally
             if Directory.Exists(artifactDirectory) then
                 Directory.Delete(artifactDirectory, true)
@@ -228,6 +242,7 @@ module AgentEvalVerificationProtocolTests =
 
             Assert.Equal("committed", resultStatus commitResponse)
             assertPassedEvidence session commitResponse |> ignore
+            assertPrivateArtifactTree artifactDirectory
         finally
             if Directory.Exists(artifactDirectory) then
                 Directory.Delete(artifactDirectory, true)

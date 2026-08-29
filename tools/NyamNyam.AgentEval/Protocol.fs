@@ -8,8 +8,10 @@ open System.Text.Json
 open NyamNyam.Core
 
 type StalePerturbation =
-    { TypeId: TypeId
-      NewDisplayName: string }
+    { TriggerFunctionId: FunctionId
+      TriggerNewDisplayName: string
+      AdvanceTypeId: TypeId
+      AdvanceNewDisplayName: string }
 
 type SessionRunMetadata =
     { Model: string option
@@ -608,6 +610,7 @@ module private ArtifactWriter =
 
         stream.Write(bytes, 0, bytes.Length)
         stream.Flush(true)
+        ArtifactPermissions.ensureFile path
 
     let private writeAtomically path (value: string) =
         let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
@@ -615,6 +618,7 @@ module private ArtifactWriter =
         try
             writeText temporaryPath FileMode.CreateNew value
             File.Move(temporaryPath, path, true)
+            ArtifactPermissions.ensureFile path
         finally
             if File.Exists temporaryPath then
                 File.Delete temporaryPath
@@ -643,11 +647,11 @@ module private ArtifactWriter =
                 Error "Artifact directory must not be blank."
             else
                 let fullDirectory = Path.GetFullPath(directory)
-                Directory.CreateDirectory(fullDirectory) |> ignore
+                ArtifactPermissions.ensureDirectory fullDirectory
                 let sessionDirectory =
                     Path.Combine(fullDirectory, "session-" + Guid.NewGuid().ToString("N"))
 
-                Directory.CreateDirectory(sessionDirectory) |> ignore
+                ArtifactPermissions.ensureDirectory sessionDirectory
 
                 let paths =
                     { DirectoryPath = sessionDirectory
@@ -706,6 +710,7 @@ type Session internal
     let mutable finalizationAttempted = false
     let mutable finalizationDurable = false
     let mutable perturbationApplied = false
+    let mutable harnessFailure = false
 
     let usageSnapshot () =
         { usage with
@@ -715,8 +720,8 @@ type Session internal
 
     let artifactStatus () =
         { Enabled = artifactWriter.IsSome
-          Invalidated = not (List.isEmpty artifactFailures)
-          Durable = artifactWriter.IsSome && List.isEmpty artifactFailures
+          Invalidated = harnessFailure || not (List.isEmpty artifactFailures)
+          Durable = artifactWriter.IsSome && not harnessFailure && List.isEmpty artifactFailures
           Terminal = artifactWriter.IsSome && finalizationDurable
           FinalizationAttempted = finalizationAttempted
           FinalizationDurable = artifactWriter.IsSome && finalizationDurable
@@ -735,47 +740,64 @@ type Session internal
               "state", box state
               "artifactPersistence", Encode.artifactStatus terminalStatus ]
 
-    let metricsFor (responseBytesOverride: int64 option) =
+    let metricsFor includeHarnessData (responseBytesOverride: int64 option) =
         let value = usageSnapshot ()
         let responseBytes = responseBytesOverride |> Option.defaultValue value.ResponseBytes
 
-        JsonOutput.objectValue
-            [ "toolCalls", box value.ToolCalls
-              "queries", box value.Queries
-              "queryCount", box value.QueryCount
-              "focusQueries", box value.FocusQueryCount
-              "focusQueryCount", box value.FocusQueryCount
-              "focusCount", box value.FocusQueryCount
-              "simulations", box value.SimulationCount
-              "simulationCount", box value.SimulationCount
-              "commitAttempts", box value.CommitAttemptCount
-              "commitAttemptCount", box value.CommitAttemptCount
-              "commits", box value.CommitCount
-              "commitCount", box value.CommitCount
-              "rejectedSimulations", box value.RejectedSimulationCount
-              "rejectedCommits", box value.RejectedCommitCount
-              "rejectActions", box value.AgentRejectCount
-              "rejects", box value.RejectCount
-              "rejectCount", box value.RejectCount
-              "protocolErrors", box value.ProtocolErrorCount
-              "eventCount", box value.EventCount
-              "requestBytes", box value.RequestBytes
-              "responseBytes", box responseBytes
-              "contextBytes", box value.ContextBytes
-              "queryContextBytes", box value.QueryContextBytes
-              "focusContextBytes", box value.FocusContextBytes
-              "focusEntityCount", box value.FocusEntityCount
-              "pendingProposalCount", box proposals.Count
-              "harnessEvents", value.HarnessEvents |> List.map box |> JsonOutput.arrayValue
-              "harnessReceipts", value.HarnessReceipts |> List.map Encode.harnessReceipt |> JsonOutput.arrayValue
-              "artifactPersistence", Encode.artifactStatus (artifactStatus ()) ]
+        let harnessData =
+            if includeHarnessData then
+                [ "harnessEvents", value.HarnessEvents |> List.map box |> JsonOutput.arrayValue
+                  "harnessReceipts", value.HarnessReceipts |> List.map Encode.harnessReceipt |> JsonOutput.arrayValue ]
+            else
+                []
 
-    let metrics () = metricsFor None
+        JsonOutput.objectValue
+            ([ "toolCalls", box value.ToolCalls
+               "queries", box value.Queries
+               "queryCount", box value.QueryCount
+               "focusQueries", box value.FocusQueryCount
+               "focusQueryCount", box value.FocusQueryCount
+               "focusCount", box value.FocusQueryCount
+               "simulations", box value.SimulationCount
+               "simulationCount", box value.SimulationCount
+               "commitAttempts", box value.CommitAttemptCount
+               "commitAttemptCount", box value.CommitAttemptCount
+               "commits", box value.CommitCount
+               "commitCount", box value.CommitCount
+               "rejectedSimulations", box value.RejectedSimulationCount
+               "rejectedCommits", box value.RejectedCommitCount
+               "rejectActions", box value.AgentRejectCount
+               "rejects", box value.RejectCount
+               "rejectCount", box value.RejectCount
+               "protocolErrors", box value.ProtocolErrorCount
+               "eventCount", box value.EventCount
+               "requestBytes", box value.RequestBytes
+               "responseBytes", box responseBytes
+               "contextBytes", box value.ContextBytes
+               "queryContextBytes", box value.QueryContextBytes
+               "focusContextBytes", box value.FocusContextBytes
+               "focusEntityCount", box value.FocusEntityCount
+               "pendingProposalCount", box proposals.Count ]
+             @ harnessData
+             @ [ "artifactPersistence", Encode.artifactStatus (artifactStatus ()) ])
+
+    let agentMetrics () = metricsFor false None
+    let artifactMetrics () = metricsFor true None
 
     let recordHarnessEvent message =
         usage <-
             { usage with
                 HarnessEvents = message :: usage.HarnessEvents }
+
+    let harnessFailureResult () =
+        JsonOutput.objectValue
+            [ "status", box "harnessFailure"
+              "errorKind", box "harness"
+              "detail", box "The harness stale-workspace advance failed; the run is invalidated." ]
+
+    let invalidateHarnessRun detail =
+        harnessFailure <- true
+        recordHarnessEvent ("stale-perturbation-advance-failed:" + detail)
 
     let recordHarnessReceipt (receipt: HarnessReceipt) =
         usage <-
@@ -866,35 +888,36 @@ type Session internal
               "errorKind", box "query"
               "detail", box (sprintf "%A" error) ]
 
-    let applyHarnessPerturbation () =
-        match config.StalePerturbation, perturbationApplied with
-        | None, _
-        | _, true -> ()
-        | Some perturbation, false ->
+    let applyHarnessPerturbation shouldApply =
+        match shouldApply, config.StalePerturbation, perturbationApplied with
+        | false, _, _
+        | _, None, _
+        | _, _, true -> true
+        | true, Some perturbation, false ->
             match
                 AgentWorkspace.currentSnapshotFingerprint workspace,
                 AgentWorkspace.currentSemanticFingerprint workspace
             with
             | Error error, _
             | _, Error error ->
-                perturbationApplied <- true
-                recordHarnessEvent $"stale-perturbation could not capture base identity: {error}"
+                invalidateHarnessRun $"base identity capture failed: {error}"
+                false
             | Ok baseSnapshotFingerprint, Ok baseSemanticFingerprint ->
                 let intent =
                     AgentOperationIntent.RenameDisplayName(
-                        AgentRenameTarget.Type perturbation.TypeId,
-                        perturbation.NewDisplayName
+                        AgentRenameTarget.Type perturbation.AdvanceTypeId,
+                        perturbation.AdvanceNewDisplayName
                     )
 
                 match AgentWorkflow.simulate workspace [ intent ] with
                 | Error error ->
-                    perturbationApplied <- true
-                    recordHarnessEvent $"stale-perturbation simulation failed: {error}"
+                    invalidateHarnessRun $"simulation failed: {error}"
+                    false
                 | Ok proposal ->
                     match AgentWorkflow.commit workspace proposal with
                     | AgentCommitResult.Rejected diagnostics ->
-                        perturbationApplied <- true
-                        recordHarnessEvent $"stale-perturbation commit failed: {diagnostics}"
+                        invalidateHarnessRun $"commit failed: {diagnostics}"
+                        false
                     | AgentCommitResult.Committed(nextWorkspace, publication) ->
                         workspace <- nextWorkspace
                         perturbationApplied <- true
@@ -910,14 +933,15 @@ type Session internal
                               Readiness = publication.Readiness
                               Diff = publication.Diff }
                         recordHarnessEvent "stale-perturbation-committed"
+                        true
 
     let responseWithMetrics body =
         let rec build responseBytes =
             let response =
                 JsonOutput.objectValue
                     (body
-                     @ [ "artifactPersistence", Encode.artifactStatus (artifactStatus ())
-                         "metrics", metricsFor (Some responseBytes) ])
+                     @ [ "artifactPersistence", Encode.artifactStatus (artifactStatus ());
+                           "metrics", metricsFor false (Some responseBytes) ])
                 |> JsonOutput.serialize
 
             let nextResponseBytes = usage.ResponseBytes + JsonOutput.utf8ByteCount response
@@ -979,14 +1003,14 @@ type Session internal
         | Some writer ->
             let metricsWritten =
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
             if not metricsWritten then
                 tryWriteRunState "inProgress" "run-state" |> ignore
 
             if artifactFailures.Length <> failuresBefore then
                 if not (tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)) then
+                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
                     tryWriteRunState "inProgress" "run-state" |> ignore
 
             let response =
@@ -1009,7 +1033,7 @@ type Session internal
                 let failuresBeforeMetricsRetry = artifactFailures.Length
 
                 if not (tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)) then
+                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
                     tryWriteRunState "inProgress" "run-state" |> ignore
 
                 if artifactFailures.Length = failuresBeforeMetricsRetry then
@@ -1034,7 +1058,7 @@ type Session internal
               "snapshotFingerprint", snapshotFingerprint
               "semanticFingerprint", semanticFingerprint
               "proposalHandles", proposals |> Map.toList |> List.map (fst >> box) |> JsonOutput.arrayValue
-              "metrics", metrics () ]
+              "metrics", agentMetrics () ]
 
     let requireProposal handle =
         match Map.tryFind handle proposals with
@@ -1072,6 +1096,7 @@ type Session internal
     let executeCommand (root: JsonElement) =
         let command = JsonInput.requiredString "command" root
         match command with
+        | _ when harnessFailure -> harnessFailureResult ()
         | "state" -> stateResult ()
         | "getFunction" ->
             recordQuery ()
@@ -1153,7 +1178,6 @@ type Session internal
                       "detail", box (sprintf "%A" error) ]
             | Ok proposal ->
                 let handle = proposalHandle ()
-                proposals <- Map.add handle proposal proposals
                 let review = AgentChangeProposal.review proposal
                 let result =
                     JsonOutput.objectValue
@@ -1162,8 +1186,24 @@ type Session internal
                           "transactionId", box (StableId.value (AgentChangeProposal.transactionId proposal))
                           "proposedSnapshotId", box (StableId.value (AgentChangeProposal.proposedSnapshotId proposal))
                           "review", Encode.review review ]
-                applyHarnessPerturbation ()
-                result
+                let isTriggerProposal =
+                    match config.StalePerturbation, review.ResultingChange.Diff with
+                    | Some perturbation,
+                      { Renames = [ FunctionRenamed(functionId, _, newDisplayName) ]
+                        ParametersAdded = []
+                        ArgumentsAttached = []
+                        ObligationsCreated = []
+                        ObligationsResolved = [] } ->
+                        functionId = perturbation.TriggerFunctionId
+                        && newDisplayName = perturbation.TriggerNewDisplayName
+                    | _ -> false
+
+                if applyHarnessPerturbation isTriggerProposal then
+                    proposals <- Map.add handle proposal proposals
+                    result
+                else
+                    tryWriteRunState "inProgress" "run-state" |> ignore
+                    harnessFailureResult ()
         | "commit" ->
             usage <-
                 { usage with
@@ -1234,7 +1274,7 @@ type Session internal
                   "transactionId", box (StableId.value receipt.TransactionId)
                   "retainedSnapshotId", box (StableId.value receipt.RetainedSnapshotId) ]
         | "metrics" ->
-            JsonOutput.objectValue [ "status", box "ok"; "metrics", metrics () ]
+            JsonOutput.objectValue [ "status", box "ok"; "metrics", agentMetrics () ]
         | value -> raise (JsonInput.ProtocolInputException $"Unsupported command '{value}'.")
 
     do
@@ -1243,7 +1283,7 @@ type Session internal
         | Some writer ->
             let metricsWritten =
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
             if not metricsWritten then
                 tryWriteRunState "inProgress" "run-state" |> ignore
@@ -1252,7 +1292,7 @@ type Session internal
 
             if not stateWritten then
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                 |> ignore
 
     member _.Usage: SessionUsage = usageSnapshot ()
@@ -1331,7 +1371,7 @@ type Session internal
 
                 if not pendingWritten then
                     tryArtifactWrite "metrics" (fun () ->
-                        JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                        JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                     |> ignore
 
                     let invalidatedTerminalWritten = tryWriteRunState "terminal" "run-state"
@@ -1339,7 +1379,7 @@ type Session internal
                 else
                     let metricsWritten =
                         tryArtifactWrite "metrics" (fun () ->
-                            JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                            JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
                     if metricsWritten then
                         let terminalWritten = tryWriteRunState "terminal" "finalization"
@@ -1347,7 +1387,7 @@ type Session internal
 
                         if not terminalWritten then
                             tryArtifactWrite "metrics" (fun () ->
-                                JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                                JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                             |> ignore
 
                             let invalidatedTerminalWritten = tryWriteRunState "terminal" "run-state"
@@ -1360,7 +1400,7 @@ type Session internal
                 if finalizationDurable then
                     let metricsWritten =
                         tryArtifactWrite "metrics" (fun () ->
-                            JsonOutput.serialize (metrics ()) |> writer.WriteMetrics)
+                            JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
                     if not metricsWritten then
                         tryWriteRunState "terminal" "run-state" |> ignore

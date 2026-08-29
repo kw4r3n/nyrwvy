@@ -17,7 +17,10 @@ module AgentEvalCommandLine =
         """Usage:
   dotnet run --project tools/NyamNyam.AgentEval -- \
     --input <snapshot.json> \
-    [--stale-perturbation-type-id <type-id> --stale-perturbation-name <new-display-name>] \
+    [--stale-perturbation-trigger-function-id <function-id> \
+     --stale-perturbation-trigger-name <new-display-name> \
+     --stale-perturbation-type-id <type-id> \
+     --stale-perturbation-name <new-display-name>] \
     [--verification-fixture <m0|m1>] \
     [--artifact-dir <directory>] \
     [--model <model>] \
@@ -34,6 +37,8 @@ The stale-perturbation, verification, artifact, and metadata options are harness
         let allowed =
             set
                 [ "--input"
+                  "--stale-perturbation-trigger-function-id"
+                  "--stale-perturbation-trigger-name"
                   "--stale-perturbation-type-id"
                   "--stale-perturbation-name"
                   "--verification-fixture"
@@ -89,33 +94,39 @@ The stale-perturbation, verification, artifact, and metadata options are harness
                     match verificationFixture, Map.tryFind "--artifact-dir" options with
                     | Some _, None -> Error "--verification-fixture requires --artifact-dir."
                     | _ ->
+                        let common stalePerturbation =
+                            { InputPath = inputPath
+                              StalePerturbation = stalePerturbation
+                              VerificationFixture = verificationFixture
+                              ArtifactDirectory = Map.tryFind "--artifact-dir" options
+                              RunMetadata = runMetadata options }
+
                         match
+                            Map.tryFind "--stale-perturbation-trigger-function-id" options,
+                            Map.tryFind "--stale-perturbation-trigger-name" options,
                             Map.tryFind "--stale-perturbation-type-id" options,
                             Map.tryFind "--stale-perturbation-name" options
                         with
-                        | None, None ->
-                            Ok
-                                { InputPath = inputPath
-                                  StalePerturbation = None
-                                  VerificationFixture = verificationFixture
-                                  ArtifactDirectory = Map.tryFind "--artifact-dir" options
-                                  RunMetadata = runMetadata options }
-                        | Some typeIdText, Some newDisplayName ->
-                            match StableId.tryCreate<TypeTag> typeIdText with
-                            | Error error -> Error $"Invalid stale-perturbation type ID: {error}."
-                            | Ok typeId ->
-                                Ok
-                                    { InputPath = inputPath
-                                      StalePerturbation =
-                                        Some
-                                            { TypeId = typeId
-                                              NewDisplayName = newDisplayName }
-                                      VerificationFixture = verificationFixture
-                                      ArtifactDirectory = Map.tryFind "--artifact-dir" options
-                                      RunMetadata = runMetadata options }
+                        | None, None, None, None -> Ok(common None)
+                        | Some triggerFunctionIdText,
+                          Some triggerNewDisplayName,
+                          Some advanceTypeIdText,
+                          Some advanceNewDisplayName ->
+                            match StableId.tryCreate<FunctionTag> triggerFunctionIdText with
+                            | Error error -> Error $"Invalid stale-perturbation trigger function ID: {error}."
+                            | Ok triggerFunctionId ->
+                                match StableId.tryCreate<TypeTag> advanceTypeIdText with
+                                | Error error -> Error $"Invalid stale-perturbation type ID: {error}."
+                                | Ok advanceTypeId ->
+                                    Ok(
+                                        common
+                                            (Some
+                                                { TriggerFunctionId = triggerFunctionId
+                                                  TriggerNewDisplayName = triggerNewDisplayName
+                                                  AdvanceTypeId = advanceTypeId
+                                                  AdvanceNewDisplayName = advanceNewDisplayName }))
                         | _ ->
-                            Error
-                                "--stale-perturbation-type-id and --stale-perturbation-name must be supplied together.")))
+                            Error "The stale perturbation trigger and advance options must be supplied together.")))
 
 let private createSession (parsed: AgentEvalArguments) =
     try
@@ -141,7 +152,17 @@ let private createSession (parsed: AgentEvalArguments) =
     | :? IOException as error -> Error $"I/O error: {error.Message}"
     | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}"
 
+let finalizationExitCode (status: SessionArtifactStatus) =
+    if not status.Enabled then
+        0
+    elif status.FinalizationAttempted && status.Terminal && status.Durable && status.FinalizationDurable then
+        0
+    else
+        1
+
 let private runSession (session: Session) =
+    let mutable finalStatus: SessionArtifactStatus option = None
+
     try
         let mutable running = true
         while running do
@@ -152,9 +173,11 @@ let private runSession (session: Session) =
                 session.ExecuteLine(line) |> Console.Out.WriteLine
                 Console.Out.Flush()
     finally
-        session.Finalize() |> ignore
+        finalStatus <- Some(session.Finalize())
 
-    0
+    finalStatus
+    |> Option.map finalizationExitCode
+    |> Option.defaultValue 1
 
 [<EntryPoint>]
 let main argv =

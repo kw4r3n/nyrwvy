@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="../../tests/NyamNyam.Core.Tests/MilestoneZeroGraph.fs" Link="MilestoneZeroGraph.fs" />
     <Compile Include="../../tests/NyamNyam.Core.Tests/MilestoneOneGraph.fs" Link="MilestoneOneGraph.fs" />
+    <Compile Include="ArtifactPermissions.fs" />
     <Compile Include="Verification.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Program.fs" />

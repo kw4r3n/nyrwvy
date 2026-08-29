@@ -138,6 +138,7 @@ module private VerificationArtifacts =
 
         stream.Write(bytes, 0, bytes.Length)
         stream.Flush(true)
+        ArtifactPermissions.ensureFile path
 
     let writeAtomically path (value: string) =
         let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
@@ -145,6 +146,7 @@ module private VerificationArtifacts =
         try
             writeText temporaryPath value
             File.Move(temporaryPath, path, true)
+            ArtifactPermissions.ensureFile path
         finally
             if File.Exists temporaryPath then
                 File.Delete temporaryPath
@@ -463,8 +465,11 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                   "proposedSemanticFingerprint", box (SemanticFingerprint.value receipt.ProposedSemanticFingerprint) ]
 
         try
-            Directory.CreateDirectory(runDirectory) |> ignore
+            ArtifactPermissions.ensureDirectory runDirectory
+            ArtifactPermissions.restrictTree runDirectory
             inProgressValue () |> serialize |> VerificationArtifacts.writeAtomically evidencePath
+            ArtifactPermissions.restrictTree runDirectory
+            addStage "artifactPermissions" "passed" None [ "runDirectory", runDirectory ]
 
             let snapshotFingerprintResult = AgentWorkspace.currentSnapshotFingerprint workspace
             let semanticFingerprintResult = AgentWorkspace.currentSemanticFingerprint workspace
@@ -594,21 +599,25 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                  match VerificationProcess.run runDirectory [ "build"; Path.GetFileName(projectPath); "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ] with
                  | Error error -> failStage "compile" error []
                  | Ok result ->
-                     VerificationArtifacts.writeText compileStandardOutputPath result.StandardOutput
-                     VerificationArtifacts.writeText compileStandardErrorPath result.StandardError
+                     try
+                         ArtifactPermissions.restrictTree runDirectory
+                         VerificationArtifacts.writeText compileStandardOutputPath result.StandardOutput
+                         VerificationArtifacts.writeText compileStandardErrorPath result.StandardError
 
-                     let details =
-                         [ "exitCode", string result.ExitCode
-                           "timedOut", string result.TimedOut
-                           "stdout", compileStandardOutputPath
-                           "stderr", compileStandardErrorPath ]
+                         let details =
+                             [ "exitCode", string result.ExitCode
+                               "timedOut", string result.TimedOut
+                               "stdout", compileStandardOutputPath
+                               "stderr", compileStandardErrorPath ]
 
-                     if result.TimedOut then
-                         failStage "compile" "Generated C# fixture harness compilation timed out." details
-                     elif result.ExitCode = 0 then
-                         addStage "compile" "passed" None details
-                     else
-                         failStage "compile" "Generated C# fixture harness did not compile." details
+                         if result.TimedOut then
+                             failStage "compile" "Generated C# fixture harness compilation timed out." details
+                         elif result.ExitCode = 0 then
+                             addStage "compile" "passed" None details
+                         else
+                             failStage "compile" "Generated C# fixture harness did not compile." details
+                     with
+                     | _ -> failStage "artifactPermissions" "Per-run artifact permissions could not be enforced." []
 
             if Option.isNone failure then
                 match fixtureSpecValue with
@@ -617,6 +626,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                      match VerificationProcess.run runDirectory [ assemblyPath ] with
                      | Error error -> failStage "execute" error []
                      | Ok result ->
+                         ArtifactPermissions.restrictTree runDirectory
                          VerificationArtifacts.writeText executionStandardOutputPath result.StandardOutput
                          VerificationArtifacts.writeText executionStandardErrorPath result.StandardError
                          let actualOutput = VerificationArtifacts.normalizeOutput result.StandardOutput
@@ -640,7 +650,14 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
          with
          | _ -> failStage "verification" "Unexpected verification failure." []
 
-        [ "snapshotIdentity"; "fixtureHarness"; "typedSemanticIr"; "executionIr"; "csharpEmission"; "compile"; "execute" ]
+        [ "snapshotIdentity"
+          "artifactPermissions"
+          "fixtureHarness"
+          "typedSemanticIr"
+          "executionIr"
+          "csharpEmission"
+          "compile"
+          "execute" ]
         |> List.iter skipStage
 
         let status =
@@ -667,6 +684,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
               EvidenceDurable = evidenceDurable }
 
         try
+            ArtifactPermissions.restrictTree runDirectory
             reportValue
                 { report with EvidenceDurable = true }
                 publication

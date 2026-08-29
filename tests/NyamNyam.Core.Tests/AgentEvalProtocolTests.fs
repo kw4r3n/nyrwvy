@@ -126,6 +126,42 @@ module AgentEvalProtocolTests =
         | Ok _ -> failwith "A metadata option without a value must be rejected."
         | Error error -> Assert.Contains("missing its value", error, StringComparison.Ordinal)
 
+    [<Fact>]
+    let ``CLI stale perturbation requires a complete startup trigger and advance configuration`` () =
+        let parsed =
+            Program.AgentEvalCommandLine.parse
+                [ "--input"
+                  "snapshot.json"
+                  "--stale-perturbation-trigger-function-id"
+                  "function-validate-user"
+                  "--stale-perturbation-trigger-name"
+                  "validate_profile"
+                  "--stale-perturbation-type-id"
+                  "type-raw-user-input"
+                  "--stale-perturbation-name"
+                  "RawAccountInput" ]
+
+        match parsed with
+        | Error error -> failwithf "Unexpected stale perturbation parse failure: %s" error
+        | Ok arguments ->
+            let perturbation = arguments.StalePerturbation |> Option.defaultWith (fun () -> failwith "Missing perturbation.")
+            Assert.Equal("function-validate-user", StableId.value perturbation.TriggerFunctionId)
+            Assert.Equal("validate_profile", perturbation.TriggerNewDisplayName)
+            Assert.Equal("type-raw-user-input", StableId.value perturbation.AdvanceTypeId)
+            Assert.Equal("RawAccountInput", perturbation.AdvanceNewDisplayName)
+
+        match
+            Program.AgentEvalCommandLine.parse
+                [ "--input"
+                  "snapshot.json"
+                  "--stale-perturbation-type-id"
+                  "type-raw-user-input"
+                  "--stale-perturbation-name"
+                  "RawAccountInput" ]
+        with
+        | Ok _ -> failwith "A stale perturbation without its trigger configuration must be rejected."
+        | Error error -> Assert.Contains("supplied together", error, StringComparison.Ordinal)
+
     let private simulateRenameFunction functionId newDisplayName =
         command
             [ "command", box "simulate"
@@ -136,10 +172,49 @@ module AgentEvalProtocolTests =
                           "functionId", box (StableId.value functionId)
                           "newDisplayName", box newDisplayName ] ] ]
 
+    let private simulateRenameType typeId newDisplayName =
+        command
+            [ "command", box "simulate"
+              "operations",
+                arrayValue
+                    [ objectValue
+                        [ "kind", box "renameType"
+                          "typeId", box (StableId.value typeId)
+                          "newDisplayName", box newDisplayName ] ] ]
+
+    let private simulateOperations operations =
+        command
+            [ "command", box "simulate"
+              "operations", arrayValue operations ]
+
     let private commitCommand commandName handle =
         command
             [ "command", box commandName
               "proposalHandle", box handle ]
+
+    [<Fact>]
+    let ``runner returns a failure exit code for an invalidated final artifact status`` () =
+        let validStatus =
+            { Enabled = true
+              Invalidated = false
+              Durable = true
+              Terminal = true
+              FinalizationAttempted = true
+              FinalizationDurable = true
+              Failures = [] }
+
+        let invalidatedStatus = { validStatus with Invalidated = true; Durable = false }
+        Assert.Equal(0, Program.finalizationExitCode validStatus)
+        Assert.Equal(1, Program.finalizationExitCode invalidatedStatus)
+
+        let failedFinalizationStatus = { validStatus with Terminal = false; FinalizationDurable = false }
+        Assert.Equal(1, Program.finalizationExitCode failedFinalizationStatus)
+
+        let notAttemptedStatus = { validStatus with FinalizationAttempted = false }
+        Assert.Equal(1, Program.finalizationExitCode notAttemptedStatus)
+
+        let disabledStatus = { validStatus with Enabled = false; Durable = false; Terminal = false; FinalizationDurable = false }
+        Assert.Equal(0, Program.finalizationExitCode disabledStatus)
 
     [<Fact>]
     let ``evaluation protocol preserves reviewed proposal across rename commit`` () =
@@ -264,14 +339,36 @@ module AgentEvalProtocolTests =
             { SessionConfig.defaultValue with
                 StalePerturbation =
                     Some
-                        { TypeId = rawUserInput.Id
-                          NewDisplayName = "RawAccountInput" } }
+                        { TriggerFunctionId = fixture.ValidateFunctionId
+                          TriggerNewDisplayName = "validate_profile"
+                          AdvanceTypeId = rawUserInput.Id
+                          AdvanceNewDisplayName = "RawAccountInput" } }
         let session = createSession fixture.Snapshot config
+
+        let unrelatedProposal =
+            simulateRenameType fixture.PolicyTypeId "ValidationPolicyPreview"
+            |> execute session
+
+        Assert.Equal("proposed", resultStatus unrelatedProposal)
+        Assert.Empty(session.Usage.HarnessReceipts)
+        Assert.Empty(session.Usage.HarnessEvents)
 
         let staleProposal =
             simulateRenameFunction fixture.ValidateFunctionId "validate_profile"
             |> execute session
         let staleHandle = proposalHandle staleProposal
+        use staleProposalDocument = JsonDocument.Parse(staleProposal)
+        let reviewedRename =
+            staleProposalDocument.RootElement
+                .GetProperty("result")
+                .GetProperty("review")
+                .GetProperty("diff")
+                .GetProperty("renames")
+            |> fun values -> values.EnumerateArray() |> Seq.exactlyOne
+        Assert.Equal("function", reviewedRename.GetProperty("kind").GetString())
+        Assert.Equal(StableId.value fixture.ValidateFunctionId, reviewedRename.GetProperty("id").GetString())
+        Assert.Equal("validate_profile", reviewedRename.GetProperty("newDisplayName").GetString())
+        Assert.Equal(1, session.Usage.HarnessReceipts.Length)
 
         let staleCommit = commitCommand "commit" staleHandle |> execute session
         Assert.Equal("rejected", resultStatus staleCommit)
@@ -298,37 +395,160 @@ module AgentEvalProtocolTests =
 
         let metricsResponse = command [ "command", box "metrics" ] |> execute session
         use metricsDocument = JsonDocument.Parse(metricsResponse)
+        Assert.DoesNotContain("harnessEvents", metricsResponse, StringComparison.Ordinal)
+        Assert.DoesNotContain("harnessReceipts", metricsResponse, StringComparison.Ordinal)
+        let agentMetrics = metricsDocument.RootElement.GetProperty("result").GetProperty("metrics")
+        let mutable exposedHarnessEvents = Unchecked.defaultof<JsonElement>
+        let mutable exposedHarnessReceipts = Unchecked.defaultof<JsonElement>
+        Assert.False(agentMetrics.TryGetProperty("harnessEvents", &exposedHarnessEvents))
+        Assert.False(agentMetrics.TryGetProperty("harnessReceipts", &exposedHarnessReceipts))
         let harnessEvents =
-            metricsDocument.RootElement
-                .GetProperty("result")
-                .GetProperty("metrics")
-                .GetProperty("harnessEvents")
-        Assert.Equal(1, harnessEvents.GetArrayLength())
+            session.Usage.HarnessEvents
+        Assert.Equal(1, harnessEvents.Length)
 
-        let harnessReceipts =
-            metricsDocument.RootElement
-                .GetProperty("result")
-                .GetProperty("metrics")
-                .GetProperty("harnessReceipts")
-        Assert.Equal(1, harnessReceipts.GetArrayLength())
-        let harnessReceipt = harnessReceipts[0]
-        Assert.Equal("stalePerturbation", harnessReceipt.GetProperty("kind").GetString())
-        Assert.False(harnessReceipt.GetProperty("transactionId").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.Equal(StableId.value fixture.Snapshot.Id, harnessReceipt.GetProperty("baseSnapshotId").GetString())
-        Assert.False(harnessReceipt.GetProperty("publishedSnapshotId").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.False(harnessReceipt.GetProperty("baseSnapshotFingerprint").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.False(harnessReceipt.GetProperty("publishedSnapshotFingerprint").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.False(harnessReceipt.GetProperty("baseSemanticFingerprint").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.False(harnessReceipt.GetProperty("semanticFingerprint").GetString() |> String.IsNullOrWhiteSpace)
-        Assert.Equal("semanticallyReady", harnessReceipt.GetProperty("readiness").GetProperty("kind").GetString())
-        Assert.Equal(1, harnessReceipt.GetProperty("semanticDiff").GetProperty("renames").GetArrayLength())
-        let harnessRename =
-            harnessReceipt.GetProperty("semanticDiff").GetProperty("renames")
-            |> fun values -> values.EnumerateArray() |> Seq.head
+        let harnessReceipt = session.Usage.HarnessReceipts |> List.exactlyOne
+        Assert.Equal("stalePerturbation", harnessReceipt.Kind)
+        Assert.False(String.IsNullOrWhiteSpace(harnessReceipt.TransactionId |> StableId.value))
+        Assert.Equal(fixture.Snapshot.Id, harnessReceipt.BaseSnapshotId)
+        Assert.False(String.IsNullOrWhiteSpace(harnessReceipt.PublishedSnapshotId |> StableId.value))
+        Assert.Equal(TransactionReadiness.SemanticallyReady, harnessReceipt.Readiness)
+        Assert.Single(harnessReceipt.Diff.Renames) |> ignore
         Assert.Equal(
-            StableId.value rawUserInput.Id,
-            harnessRename.GetProperty("id").GetString()
+            rawUserInput.Id,
+            match harnessReceipt.Diff.Renames with
+            | [ TypeRenamed(typeId, _, _) ] -> typeId
+            | _ -> failwith "Expected one injected type rename."
         )
+
+    [<Fact>]
+    let ``E5 trigger requires one effective target rename and ignores requested operation lists`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let rawUserInput =
+            fixture.Snapshot.Types
+            |> List.find (fun semanticType -> semanticType.DisplayName = "RawUserInput")
+
+        let config =
+            { SessionConfig.defaultValue with
+                StalePerturbation =
+                    Some
+                        { TriggerFunctionId = fixture.ValidateFunctionId
+                          TriggerNewDisplayName = "validate_profile"
+                          AdvanceTypeId = rawUserInput.Id
+                          AdvanceNewDisplayName = "RawAccountInput" } }
+        let session = createSession fixture.Snapshot config
+
+        let multiOperationResponse =
+            simulateOperations
+                [ objectValue
+                      [ "kind", box "renameFunction"
+                        "functionId", box (StableId.value fixture.ValidateFunctionId)
+                        "newDisplayName", box "validate_profile" ]
+                  objectValue
+                      [ "kind", box "renameType"
+                        "typeId", box (StableId.value fixture.PolicyTypeId)
+                        "newDisplayName", box "ValidationPolicyPreview" ] ]
+            |> execute session
+
+        Assert.Equal("proposed", resultStatus multiOperationResponse)
+        Assert.Empty(session.Usage.HarnessReceipts)
+        Assert.Empty(session.Usage.HarnessEvents)
+
+        let nonTargetResponse = simulateRenameType fixture.PolicyTypeId "ValidationPolicyOther" |> execute session
+        Assert.Equal("proposed", resultStatus nonTargetResponse)
+        Assert.Empty(session.Usage.HarnessReceipts)
+        Assert.Empty(session.Usage.HarnessEvents)
+
+        let targetResponse = simulateRenameFunction fixture.ValidateFunctionId "validate_profile" |> execute session
+        Assert.Equal("proposed", resultStatus targetResponse)
+        Assert.Single(session.Usage.HarnessReceipts) |> ignore
+
+    [<Fact>]
+    let ``failed E5 harness advance invalidates the run and discards the triggering proposal`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let missingTypeId = StableId.createForTesting<TypeTag> "type-missing-for-e5"
+        let artifactDirectory =
+            Path.Combine(Path.GetTempPath(), "nyamnyam-agent-eval-harness-failure-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(artifactDirectory) |> ignore
+
+        try
+            let config =
+                { SessionConfig.defaultValue with
+                    StalePerturbation =
+                        Some
+                            { TriggerFunctionId = fixture.ValidateFunctionId
+                              TriggerNewDisplayName = "validate_profile"
+                              AdvanceTypeId = missingTypeId
+                              AdvanceNewDisplayName = "RawAccountInput" } }
+            let session =
+                match Session.createWithArtifactDirectory fixture.Snapshot config artifactDirectory with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected harness-failure session creation error: %A" error
+
+            let failedResponse = simulateRenameFunction fixture.ValidateFunctionId "validate_profile" |> execute session
+            Assert.Equal("harnessFailure", resultStatus failedResponse)
+            Assert.Contains("run is invalidated", failedResponse, StringComparison.Ordinal)
+            Assert.True(session.ArtifactStatus.Invalidated)
+            Assert.Empty(session.Usage.HarnessReceipts)
+            Assert.Contains(
+                session.Usage.HarnessEvents,
+                fun message -> message.StartsWith("stale-perturbation-advance-failed:", StringComparison.Ordinal)
+            )
+
+            let paths = session.ArtifactPaths |> Option.defaultWith (fun () -> failwith "Missing artifact paths.")
+            use stateDocument = JsonDocument.Parse(File.ReadAllText(paths.RunStatePath, Encoding.UTF8))
+            Assert.Equal("invalidated", stateDocument.RootElement.GetProperty("artifactPersistence").GetProperty("status").GetString())
+
+            let blockedCommit = commitCommand "commit" "proposal-1" |> execute session
+            Assert.Equal("harnessFailure", resultStatus blockedCommit)
+            Assert.Equal(0, session.Usage.CommitAttemptCount)
+            Assert.Equal(0, session.Usage.CommitCount)
+        finally
+            if Directory.Exists(artifactDirectory) then
+                Directory.Delete(artifactDirectory, true)
+
+    [<Fact>]
+    let ``harness receipt stays in artifacts and operator usage rather than protocol metrics`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let rawUserInput =
+            fixture.Snapshot.Types
+            |> List.find (fun semanticType -> semanticType.DisplayName = "RawUserInput")
+        let artifactDirectory =
+            Path.Combine(Path.GetTempPath(), "nyamnyam-agent-eval-harness-artifact-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(artifactDirectory) |> ignore
+
+        try
+            let config =
+                { SessionConfig.defaultValue with
+                    StalePerturbation =
+                        Some
+                            { TriggerFunctionId = fixture.ValidateFunctionId
+                              TriggerNewDisplayName = "validate_profile"
+                              AdvanceTypeId = rawUserInput.Id
+                              AdvanceNewDisplayName = "RawAccountInput" } }
+
+            let session =
+                match Session.createWithArtifactDirectory fixture.Snapshot config artifactDirectory with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected artifact session creation failure: %A" error
+
+            let response = simulateRenameFunction fixture.ValidateFunctionId "validate_profile" |> execute session
+            Assert.DoesNotContain("harnessEvents", response, StringComparison.Ordinal)
+            Assert.DoesNotContain("harnessReceipts", response, StringComparison.Ordinal)
+
+            let paths = session.ArtifactPaths |> Option.defaultWith (fun () -> failwith "Missing artifact paths.")
+            use metricsDocument = JsonDocument.Parse(File.ReadAllText(paths.MetricsPath, Encoding.UTF8))
+            let metrics = metricsDocument.RootElement
+            let persistedReceipts = metrics.GetProperty("harnessReceipts")
+            Assert.Single(persistedReceipts.EnumerateArray()) |> ignore
+
+            let events = File.ReadAllLines(paths.EventLogPath, Encoding.UTF8)
+            Assert.Single(events) |> ignore
+            use eventDocument = JsonDocument.Parse(events[0])
+            Assert.Single(eventDocument.RootElement.GetProperty("harnessReceipts").EnumerateArray()) |> ignore
+            Assert.Single(session.Usage.HarnessReceipts) |> ignore
+        finally
+            if Directory.Exists(artifactDirectory) then
+                Directory.Delete(artifactDirectory, true)
 
     [<Fact>]
     let ``session usage separates queries focus simulations commits rejects and protocol errors`` () =
@@ -469,6 +689,10 @@ module AgentEvalProtocolTests =
             use metricsDocument = JsonDocument.Parse(File.ReadAllText(paths.MetricsPath, Encoding.UTF8))
             let metrics = metricsDocument.RootElement
             let usage = session.Usage
+            let mutable harnessEvents = Unchecked.defaultof<JsonElement>
+            let mutable harnessReceipts = Unchecked.defaultof<JsonElement>
+            Assert.True(metrics.TryGetProperty("harnessEvents", &harnessEvents))
+            Assert.True(metrics.TryGetProperty("harnessReceipts", &harnessReceipts))
             Assert.Equal(3, metrics.GetProperty("eventCount").GetInt32())
             Assert.Equal(1, metrics.GetProperty("queryCount").GetInt32())
             Assert.Equal(1, metrics.GetProperty("focusQueryCount").GetInt32())
@@ -496,6 +720,34 @@ module AgentEvalProtocolTests =
             )
             Assert.True(finalMetricsPersistence.GetProperty("terminal").GetBoolean())
             Assert.True(finalMetricsPersistence.GetProperty("finalizationDurable").GetBoolean())
+        finally
+            if Directory.Exists(tempRoot) then
+                Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``artifact root session directory and files are private on Unix`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let tempRoot =
+            Path.Combine(Path.GetTempPath(), "nyamnyam-agent-eval-permissions-" + Guid.NewGuid().ToString("N"))
+
+        Directory.CreateDirectory(tempRoot) |> ignore
+
+        try
+            let session =
+                match Session.createWithArtifactDirectory fixture.Snapshot SessionConfig.defaultValue tempRoot with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected artifact session creation failure: %A" error
+
+            if not (OperatingSystem.IsWindows()) then
+                let privateDirectory =
+                    UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute
+                let privateFile = UnixFileMode.UserRead ||| UnixFileMode.UserWrite
+                let paths = session.ArtifactPaths |> Option.defaultWith (fun () -> failwith "Missing artifact paths.")
+                Assert.Equal(privateDirectory, File.GetUnixFileMode(tempRoot))
+                Assert.Equal(privateDirectory, File.GetUnixFileMode(paths.DirectoryPath))
+
+                [ paths.EventLogPath; paths.MetricsPath; paths.RunMetadataPath; paths.RunStatePath ]
+                |> List.iter (fun path -> Assert.Equal(privateFile, File.GetUnixFileMode(path)))
         finally
             if Directory.Exists(tempRoot) then
                 Directory.Delete(tempRoot, true)
@@ -818,6 +1070,7 @@ module AgentEvalProtocolTests =
             Assert.True(finalStatus.FinalizationDurable)
             Assert.True(finalStatus.Invalidated)
             Assert.False(finalStatus.Durable)
+            Assert.Equal(1, Program.finalizationExitCode finalStatus)
             Assert.True(File.Exists(paths.RunStatePath))
 
             use stateDocument = JsonDocument.Parse(File.ReadAllText(paths.RunStatePath, Encoding.UTF8))
