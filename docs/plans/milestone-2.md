@@ -11,8 +11,8 @@ Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 ex
 | Area | Status | Evidence / authority |
 | --- | --- | --- |
 | M2.0 structural-edit contract | **Accepted** | [M2 decisions](../decisions/milestone-2.md), [current spec](../specs/bounded-structural-editing.md) |
-| M2.1 Float64 body-replacement implementation | **Implemented and locally verified** | PR #46, [verification record](../verification/m2-float64-structural-editing-20260830.md) |
-| M2.2 controlled agent evaluation | **Not started** | runner command + frozen M2 corpus still required |
+| M2.1 Float64 body-replacement implementation | **Implemented and locally verified** | PR #46, [implementation verification](../verification/m2-float64-structural-editing-20260830.md), [contract coverage](../verification/m2-structural-contract-coverage-20260830.md) |
+| M2.2 controlled agent evaluation | **Ready for recorded runs** | `m2-structural-v1`, [protocol verification](../verification/m2-structural-agent-eval-v1-20260830.md), frozen `m2-agent-corpus-v1`, [freeze verification](../verification/m2-agent-corpus-v1-freeze-20260830.md) |
 | Optional specialized List extension | **Deferred pending evidence** | decide after controlled structural-edit evaluation |
 
 The current implementation exposes the first structural operation through `AgentStructuralWorkflow`; it does not widen M1 `AgentOperationIntent` into a generic graph-builder surface.
@@ -57,11 +57,18 @@ The exact current contract is maintained in [Bounded structural editing](../spec
 
 ## M2.2 — Controlled agent evaluation
 
-The next milestone gate is not more semantic breadth. It is establishing a reproducible agent-facing evaluation condition for the structural operation that now exists.
+The next milestone gate is recorded model evidence, not more semantic breadth. The restricted runner and frozen structural corpus now exist and have deterministic local verification.
 
 ### Runner boundary
 
-Add a versioned persistent runner command that exposes only the accepted structural request:
+The current versioned persistent runner is:
+
+```text
+tools/NyamNyam.AgentEval.Structural
+protocol: m2-structural-v1
+```
+
+It exposes only the accepted structural request:
 
 - target `FunctionId`;
 - expected base `SnapshotId`;
@@ -69,7 +76,7 @@ Add a versioned persistent runner command that exposes only the accepted structu
 - closed Float64 recipe;
 - exact Float64 hexadecimal transport where text encoding is required.
 
-The runner must not expose:
+The runner does not expose:
 
 - raw snapshots or graph payloads;
 - caller-created production node IDs;
@@ -77,28 +84,40 @@ The runner must not expose:
 - JSON/Nyason mutation;
 - privileged fixture controls as agent commands.
 
-M1 corpus/tool revisions remain frozen and are not reinterpreted after this addition.
+The exact verified protocol condition is recorded in [M2 structural agent-eval protocol verification](../verification/m2-structural-agent-eval-v1-20260830.md). M1 corpus/tool revisions remain frozen and are not reinterpreted by this addition.
 
-### Corpus
+### Frozen corpus
 
-Freeze `m2-agent-corpus-v1` before observed model runs. The corpus should cover at least:
+`m2-agent-corpus-v1` is frozen before observed model runs.
+
+Frozen condition:
+
+```text
+branch: eval/m2-agent-corpus-v1-20260830
+sha:    efce0cac15565941c11c8af8d1a52e7ecafaa5c6
+protocol: m2-structural-v1
+```
+
+The corpus covers:
 
 1. successful parameter-plus-literal body replacement;
 2. expected-base and expected-result mismatch recovery;
 3. foreign/wrong-type parameter rejection;
 4. recipe depth/node-limit rejection;
-5. obligation-protected body rejection;
-6. exact system-owned identity allocation;
+5. open/resolved obligation-protected body rejection;
+6. exact system-owned identity allocation and materialization order;
 7. structural before/after review completeness;
 8. stale proposal rejection and fresh recovery;
 9. exact committed-state lowering/execution;
 10. zero unrelated semantic churn.
 
-Task oracles should inspect durable semantic artifacts and execution results rather than relying on agent prose.
+Task oracles inspect deterministic semantic artifacts and execution results rather than relying on agent prose. The machine-readable corpus, deterministic fixture bindings, exporter support, and expected failure classes are regression-tested at the frozen SHA. See [M2 structural agent corpus v1 freeze verification](../verification/m2-agent-corpus-v1-freeze-20260830.md).
+
+Any prompt, oracle, fixture-binding, or harness-semantics change after this freeze requires a new corpus version.
 
 ### Evaluation record
 
-Record every attempt, including unsuccessful ones, with:
+Issue #51 is now the active evidence gate. Record every attempt, including unsuccessful ones, with:
 
 - repository/tool/corpus revisions;
 - model/runtime/reasoning metadata where available;
@@ -122,9 +141,9 @@ It is not part of the current M2 completion claim.
 
 1. **Complete:** define and accept the first bounded structural contract.
 2. **Complete:** implement and locally verify the Float64 complete-body replacement slice.
-3. Add/version the restricted runner command.
-4. Freeze `m2-agent-corpus-v1` before model runs.
-5. Run and review a controlled evaluation tranche.
+3. **Complete:** add and verify the restricted `m2-structural-v1` runner condition.
+4. **Complete:** freeze `m2-agent-corpus-v1` before model runs at `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`.
+5. **Next:** run and review a controlled evaluation tranche under issue #51.
 6. Decide from evidence whether specialized List structure belongs in M2 or a later milestone.
 7. Update current references and close only the evidenced M2 claim.
 
@@ -139,9 +158,9 @@ It is not part of the current M2 completion claim.
 | 5 | Requested structural intent and materialized result remain distinct review facts | **Complete** |
 | 6 | Float64 recipe passes semantic-to-execution behavior | **Complete for implemented slice** |
 | 7 | Clean local verification exists for the exact implementation head | **Complete** |
-| 8 | Versioned structural agent runner and frozen M2 corpus exist | Not started |
+| 8 | Versioned structural agent runner and frozen M2 corpus exist | **Complete** |
 | 9 | Controlled structural agent evaluation record exists | Not started |
-| 10 | Current docs accurately state the implemented versus evaluated scope | **Complete after this documentation update** |
+| 10 | Current docs accurately state the implemented versus evaluated scope | **Complete** |
 
 ## Non-goals
 
