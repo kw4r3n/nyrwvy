@@ -9,11 +9,10 @@ Source text is not the authoritative program form. Stable semantic identity, rel
 NyamNyam is an active research and implementation project.
 
 - **Milestone 0 is complete:** the graph-first architecture has passed an end-to-end lifecycle from persistence through reviewed editing and generated execution.
-- **Milestone 1.1 is complete:** production stable IDs, fingerprints, preview receipts, the bounded agent workflow, reviewed publication, and physical assembly boundaries are implemented.
-- **Milestone 1.2 is complete for the accepted scope:** `Int64`, immutable ordered `List<T>`, pure higher-order List operations, a larger representative program, a non-trivial cross-function agent edit, and explicit IEEE 754 binary64 `Float64` semantics use the same pipeline.
-- **Milestone 1.3 is next:** the remaining milestone gate is the recorded AI-agent evaluation defined in the active evaluation plan.
+- **Milestone 1 is complete for the accepted bounded-operation claim:** production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence are in place.
+- **Milestone 2 is proposed:** the candidate next step is a deliberately bounded structural expression-editing surface. It is planning material, not current agent capability or an accepted language contract.
 
-Exact build/test evidence belongs under verification records rather than this landing page.
+Exact build/test and evaluation evidence belongs under verification records rather than this landing page.
 
 ## Core model
 
@@ -66,9 +65,10 @@ Useful entry points:
 
 - [Vision](docs/concepts/vision.md) — mission, priorities, principles, non-goals, and success conditions.
 - [Architecture](docs/developer/architecture.md) — current high-level boundaries and invariants.
-- [Current language subset](docs/reference/language-subset.md) — implemented semantic surface at a glance.
+- [Current language subset](docs/reference/language-subset.md) — implemented semantic and ordinary agent-editing surfaces at a glance.
 - [Decisions](docs/decisions/README.md) — accepted rationale and bounded open questions.
-- [Milestone 1 plan](docs/plans/milestone-1.md) — current milestone state and remaining evaluation gate.
+- [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
+- [Proposed Milestone 2 plan](docs/plans/milestone-2.md) — candidate next work on bounded structural expression editing.
 - [Contributor/reviewer entry point](docs/developer/README.md) — implementation-oriented navigation.
 
 Historical and superseded material is kept separately under [`docs-archive/`](docs-archive/README.md) and is not authoritative for current behavior.
