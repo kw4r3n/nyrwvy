@@ -8,6 +8,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/NyamNyam.ViewerExport/NyamNyam.ViewerExport.fsproj" />
     <Project Path="tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
+    <Project Path="tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
     <Project Path="tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj" />
   </Folder>
   <Folder Name="/tests/">
