@@ -320,3 +320,19 @@ Per the frozen corpus, M1.3 requires either a bounded structural editing operati
 6. the required explicit decision on the blocked structural-edit coverage has not been made.
 
 The immediate next step is to resolve #37 and #38 in a separately versioned runner condition, then run controlled autonomous samples without rewriting or deleting this evidence.
+
+## Condition v2 readiness
+
+Infrastructure commit `99189bb` implements the runner-side portions of #37 and #38 without changing the frozen corpus or ordinary agent mutation authority.
+
+- `--artifact-dir` creates a unique durable run directory with JSONL events, atomic metrics, run metadata, and terminal run state. Harness-provided model, runtime, reasoning, prompt, and tool revisions are recorded, or explicitly `unavailable`.
+- `--verification-fixture m0|m1` requires an artifact directory and runs only after a semantically-ready reviewed commit. It verifies the exact committed workspace through Typed Semantic IR, Execution IR, C# emission/build, and fixture behavior; detailed artifacts remain harness-only rather than agent-visible.
+- E5 perturbation now records a structured harness receipt with before/after fingerprints, readiness, and semantic diff.
+- Artifact persistence failure invalidates the run record without hiding the semantic commit result. Finalization makes the terminal artifact state explicit and rejects later commands.
+
+No condition-v2 model run has been recorded yet. The remaining #38 choice is outside the runner's semantic operation surface:
+
+1. Provide a provider-specific persistent client/agent tool that owns one `Session` process from query through finalization. This keeps opaque proposals only in memory and preserves the present no-raw-snapshot boundary.
+2. Add harness-owned cross-process session resume/checkpointing. This would require storing/restoring the current workspace and opaque proposal state, increasing persistence and recovery authority at the harness boundary.
+
+The choice determines the condition-v2 tool interface and must be made before new controlled runs are compared with condition v1.
