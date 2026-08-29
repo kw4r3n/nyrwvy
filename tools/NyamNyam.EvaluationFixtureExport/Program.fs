@@ -7,9 +7,9 @@ open NyamNyam.Core.Tests
 let private usage =
     """Usage:
   dotnet run --project tools/NyamNyam.EvaluationFixtureExport -- \
-    --fixture <m0|m1> --output <snapshot.json>
+    --fixture <m0|m1|m2-ready|m2-open-protected|m2-resolved-protected> --output <snapshot.json>
 
-The exported snapshots are produced from the exact MilestoneZeroGraph/MilestoneOneGraph fixture source used by tests.
+The exported snapshots are produced from the exact fixture source linked into the regression test project.
 """
 
 let private parseOptions (arguments: string list): Result<Map<string, string>, string> =
@@ -42,7 +42,15 @@ let private createSnapshot fixtureName =
     match fixtureName with
     | "m0" -> Ok((MilestoneZeroGraph.create ()).Snapshot)
     | "m1" -> Ok((MilestoneOneGraph.create ()).Snapshot)
-    | value -> Error $"Unsupported fixture '{value}'. Expected m0 or m1."
+    | value when value = M2StructuralEvaluationCorpus.readyFixtureName ->
+        Ok((M2StructuralEvaluationCorpus.ready ()).Snapshot)
+    | value when value = M2StructuralEvaluationCorpus.openProtectedFixtureName ->
+        Ok((M2StructuralEvaluationCorpus.openProtected ()).Snapshot)
+    | value when value = M2StructuralEvaluationCorpus.resolvedProtectedFixtureName ->
+        Ok((M2StructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
+    | value ->
+        Error
+            $"Unsupported fixture '{value}'. Expected m0, m1, {M2StructuralEvaluationCorpus.readyFixtureName}, {M2StructuralEvaluationCorpus.openProtectedFixtureName}, or {M2StructuralEvaluationCorpus.resolvedProtectedFixtureName}."
 
 let private export fixtureName outputPath =
     createSnapshot fixtureName
