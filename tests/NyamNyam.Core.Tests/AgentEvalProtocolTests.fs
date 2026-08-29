@@ -42,21 +42,27 @@ module AgentEvalProtocolTests =
 
     let private firstDiagnosticCode response =
         use document = JsonDocument.Parse(response)
-        document.RootElement
-            .GetProperty("result")
-            .GetProperty("diagnostics")[0]
-            .GetProperty("code")
-            .GetString()
+        let diagnostics =
+            document.RootElement
+                .GetProperty("result")
+                .GetProperty("diagnostics")
+
+        diagnostics.EnumerateArray()
+        |> Seq.head
+        |> fun diagnostic -> diagnostic.GetProperty("code").GetString()
 
     let private firstCreatedObligationId response =
         use document = JsonDocument.Parse(response)
-        document.RootElement
-            .GetProperty("result")
-            .GetProperty("review")
-            .GetProperty("diff")
-            .GetProperty("obligationsCreated")[0]
-            .GetProperty("obligationId")
-            .GetString()
+        let obligationsCreated =
+            document.RootElement
+                .GetProperty("result")
+                .GetProperty("review")
+                .GetProperty("diff")
+                .GetProperty("obligationsCreated")
+
+        obligationsCreated.EnumerateArray()
+        |> Seq.head
+        |> fun obligation -> obligation.GetProperty("obligationId").GetString()
 
     let private simulateRenameFunction functionId newDisplayName =
         command
