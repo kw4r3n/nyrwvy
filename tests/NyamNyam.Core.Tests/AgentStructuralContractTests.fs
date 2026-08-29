@@ -322,8 +322,8 @@ module AgentStructuralContractTests =
             failwithf "Structural request authority surface changed. Expected %A, got %A" expectedNames names
 
         let forbiddenPayloadTypes =
-            set [ typeof<Snapshot>; typeof<ValueGraph>; typeof<SemanticNode>; typeof<SemanticNodeKind> ]
-        if fields |> List.exists (fun (_, fieldType) -> Set.contains fieldType forbiddenPayloadTypes) then
+            [ typeof<Snapshot>; typeof<ValueGraph>; typeof<SemanticNode>; typeof<SemanticNodeKind> ]
+        if fields |> List.exists (fun (_, fieldType) -> forbiddenPayloadTypes |> List.exists (fun forbidden -> forbidden = fieldType)) then
             failwithf "Structural request exposes a raw semantic payload: %A" fields
 
         let cases = FSharpType.GetUnionCases(typeof<Float64ExpressionRecipe>)
