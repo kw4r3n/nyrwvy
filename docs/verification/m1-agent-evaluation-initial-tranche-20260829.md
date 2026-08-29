@@ -1,8 +1,8 @@
 # M1 agent evaluation initial autonomous tranche - 2026-08-29
 
-**Status:** Protocol preflight, unqualified trials, and one controlled pre-integration condition-v2.1 sample per covered task. M1.3 remains pending.
+**Status:** Protocol preflight, unqualified trials, and controlled condition-v2.1 evaluation evidence. M1.3 is complete for the bounded-operation claim.
 
-This record reports every attempted run for the first `m1-agent-corpus-v1` tranche for Issue #36. It does not modify the frozen corpus, its oracle, the agent authority boundary, or the Milestone 1 plan status.
+This record reports every attempted run for the first `m1-agent-corpus-v1` tranche for Issue #36. It does not modify the frozen corpus, its oracle, or the agent authority boundary.
 
 ## Evaluation setup
 
@@ -399,7 +399,7 @@ The post-main condition was fixed before launch at merge revision `93810cc111ea1
 
 E5's three artifacts each contain `stale-perturbation-committed`, one `StaleBaseSnapshot` rejection, the harness-owned `RawUserInput` -> `RawAccountInput` receipt, and a final verified agent-owned rename. This expected transition is not an avoidable retry. E3 is an oracle-level semantic mismatch despite its ready, executable final workspace; exact lowering/build/execution validation does not replace task-specific review.
 
-This establishes a 12/15 task-correct post-main result across the currently expressible corpus tasks. It does not resolve the frozen structural List/numeric coverage decision, and M1.3 remains pending.
+This establishes a 12/15 task-correct post-main result across the currently expressible corpus tasks. M1-D13 resolves the remaining scope question by placing arbitrary List/numeric structural editing outside the accepted M1 agent claim; those operations require a future authority design, new corpus version, and separate evaluation.
 
 ### Per-run durable evidence
 
