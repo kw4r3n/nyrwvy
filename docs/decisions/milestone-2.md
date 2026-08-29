@@ -1,215 +1,191 @@
-# Milestone 2 proposed decisions — 2026-08-30
+# Milestone 2 decisions — bounded structural editing
 
-**Status:** Proposed
+**Status:** Accepted
 
-These entries define the current design proposal for the first Milestone 2 structural-editing slice. They are not accepted current behavior. Implementation must not treat them as authority until the proposal is reviewed and accepted.
+These decisions define the accepted contract for the first Milestone 2 structural-editing slice implemented by `AgentStructuralWorkflow`. They refine the earlier M2 proposal using the implementation and local verification evidence recorded in [M2 Float64 structural-edit verification](../verification/m2-float64-structural-editing-20260830.md).
 
-The proposal refines the direction in the [Milestone 2 plan](../plans/milestone-2.md) and remains constrained by the accepted [Milestone 1 decisions](milestone-1.md), especially M1-D06, M1-D07, M1-D12, and M1-D13.
+They remain constrained by the accepted [Milestone 1 decisions](milestone-1.md), especially system-owned identity, exact reviewed publication, conservative obligation handling, and the rule that arbitrary structural editing was outside the M1 claim.
 
 ## M2-D01 — The first structural target is one complete function body
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-The first bounded structural operation replaces the complete body of one existing function.
+The first structural operation replaces the complete body of one existing function. The request targets an existing `FunctionId` and carries exact expectations for the inspected `SnapshotId` and current body `ResultNodeId`.
 
-The request identifies:
-
-- the target by existing `FunctionId`;
-- the exact inspected base by existing `SnapshotId`;
-- the expected current body result by existing `GraphNodeId`; and
-- a closed replacement recipe.
-
-The operation does not initially target an arbitrary node, nested branch, expression slot, serialized position, or viewer coordinate.
+Nested-node replacement, expression-slot identity, serialized positions, viewer coordinates, and general subgraph editing are outside this slice.
 
 ### Reason
 
-A function already has stable semantic identity, an explicit result type, a bounded query surface, and an established Change Review owner. A nested expression slot does not yet have an independent identity contract.
-
-Whole-body replacement also avoids silently introducing dead-node cleanup semantics. The current `ValueGraph` model permits nodes that are not reachable from the result, so replacing only the result or a subgraph would require a separate decision about retained, detached, and collected structure.
+A function already has stable semantic identity, an explicit result type, and a bounded Focus projection. Whole-body replacement avoids inventing local-slot identity and avoids defining detached/dead-node semantics prematurely.
 
 ### Consequences
 
-- the target function identity and signature remain intact;
-- the old body is replaced as one coherent target-scoped change;
-- all old body-node identities leave the authoritative snapshot;
-- general subgraph editing, local-node movement, and expression-slot identity remain outside the first slice;
-- the expected base/result guards are preconditions, while the reviewed transaction receipt remains the publication authority.
+- the function identity and signature remain unchanged;
+- every old body node leaves the new authoritative body;
+- local identity-preserving rewrites remain a later design problem.
 
 ### Revisit conditions
 
-Revisit after whole-body replacement has controlled evaluation evidence and a concrete use case requires preserving or targeting a nested expression independently.
+Revisit when controlled evidence shows that preserving or independently targeting a nested expression has concrete value.
 
-## M2-D02 — The first recipe is a closed, specialized Float64 algebra
+## M2-D02 — Structural editing uses a separate bounded workflow surface
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-The first recipe supports only these semantic roles:
+The first structural operation is exposed through `AgentStructuralWorkflow` and an opaque `AgentStructuralChangeProposal`, sharing the existing opaque `AgentWorkspace` but not adding a structural case to the M1 `AgentOperationIntent` / `SemanticOperation` unions.
+
+The structural request therefore represents exactly one body replacement by construction rather than being one item in a heterogeneous operation list.
+
+### Reason
+
+This keeps the M1 operation contract stable while the new authority surface is evaluated. It also avoids accidentally making the internal `ValueGraph` representation or generic transaction operation list the public structural-authoring API.
+
+### Consequences
+
+- M1 rename/signature/obligation behavior remains unchanged;
+- structural and M1 proposals are distinct opaque proposal types;
+- future composition between structural and non-structural edits requires a separate accepted design.
+
+### Revisit conditions
+
+Revisit only after a concrete atomic multi-operation workflow cannot be represented safely as separate reviewed publications.
+
+## M2-D03 — The first recipe is a closed Float64 algebra
+
+- **Status:** Accepted
+- **Date:** 2026-08-30
+
+### Decision
+
+The accepted recipe is exactly:
 
 ```text
-Float64 parameter reference by ParameterId
-exact Float64 literal by Float64Bits
-Float64Add(left, right)
+Float64ExpressionRecipe =
+  | Parameter(ParameterId)
+  | Literal(Float64Bits)
+  | Add(Float64ExpressionRecipe, Float64ExpressionRecipe)
 ```
 
-The agent does not submit `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, arbitrary node fields, production IDs for new nodes, JSON patches, or Nyason patches.
-
-The recipe is recursively bounded by an explicit maximum node count and depth. New cases require a deliberate authority-surface extension.
+The recipe is limited to 64 materialized nodes and depth 32. It accepts no raw `Snapshot`, `ValueGraph`, `SemanticNode`, storage patch, generated source, or caller-supplied production identity for new nodes.
 
 ### Reason
 
-A small specialized algebra tests structural construction, scoping, system-side identity allocation, review, lowering, and execution without simultaneously introducing conversions, generic operators, collection callbacks, branch scope, or a general graph-builder protocol.
+This is enough to exercise structural construction, scope/type checks, identity allocation, review, publication, lowering, and execution without simultaneously introducing conversions, callbacks, branches, or a generic graph builder.
 
 ### Consequences
 
-- every recipe is statically Float64-shaped once its parameter references are validated;
-- no implicit `Int64`/`Float64` conversion or backend coercion is introduced;
-- arbitrary existing local-node reuse and common-subexpression sharing are not available;
-- List construction and higher-order callback selection remain a later explicit decision.
+- every accepted recipe is Float64-shaped once parameter references are validated;
+- no implicit numeric conversion or generic numeric operator abstraction is introduced;
+- List construction and higher-order structural recipes remain future work.
 
 ### Revisit conditions
 
-Add another recipe case only after the current case has full-pipeline tests and evaluation evidence showing that the extension is useful and remains understandable in review.
+Add recipe cases only with explicit contract, tests, review semantics, and evaluation coverage.
 
-## M2-D03 — Recipe materialization creates a fresh body-local identity set
+## M2-D04 — Replacement body identities are fresh and system-owned
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-The engine validates the target and recipe before materialization, then allocates every new `GraphNodeId` system-side in left-to-right post-order.
+After preflight succeeds, recipe occurrences are materialized left-to-right in post-order. Every occurrence receives a fresh production `GraphNodeId` from `StableIdAllocator`.
 
-Each recipe occurrence materializes one distinct semantic node. Repeated references to the same `ParameterId` therefore create distinct `ParameterReference` nodes unless a later operation explicitly defines sharing.
-
-The target function, its parameters, result type, required effects, callers, and referenced declarations preserve their existing identities. No old body-node identity is reused in the replacement body.
+Repeated `Parameter(p)` occurrences create distinct `ParameterReference` nodes pointing to the same existing `ParameterId`. No old body-node ID is reused by structural similarity.
 
 ### Reason
 
-The distinction between declaration identity and expression-node identity should remain explicit. Reusing old local nodes by structural similarity would require an equivalence and continuity rule that the current model does not define. Letting the engine allocate a fresh, closed body gives one simple and reviewable first contract.
+The model does not yet define semantic continuity for local expression nodes. Fresh body-local identities make the first replacement contract deterministic in shape and reviewable without inventing an equivalence rule.
 
 ### Consequences
 
-- the resulting body has a deterministic dependency/materialization order, although production ID payloads remain opaque UUIDv7 values;
-- old and new node sets are disjoint;
-- unrelated semantic identities remain unchanged;
-- identity-preserving local rewrites are not implied by this operation.
+- old and new body-node ID sets are disjoint;
+- function and parameter identities remain stable;
+- no CSE, constant folding, operand reordering, or identity-preserving local rewrite occurs during materialization.
 
 ### Revisit conditions
 
-Revisit when preserving a local node across a targeted edit provides demonstrable review, provenance, or incremental-processing value and an exact semantic continuity rule can be stated.
+Revisit when local identity continuity has demonstrated value and a precise preservation rule can be stated.
 
-## M2-D04 — Durable obligations referencing the old body block replacement
+## M2-D05 — Durable obligations block removal of their target body
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-Simulation rejects whole-body replacement when any durable obligation, whether `Open` or `Resolved`, targets a graph node in the old body.
+Simulation rejects replacement when any current obligation, whether `Open` or `Resolved`, targets a node in the old body.
 
-The first operation does not delete, rewrite, resolve, or invalidate such obligations automatically.
+The operation does not delete, retarget, resolve, or invalidate that obligation automatically.
 
 ### Reason
 
-Obligations are durable semantic workflow facts and current validation requires their target call node to remain present. The implemented state machine has no `Invalidated` state. Removing the target while silently deleting or rewriting the obligation would violate the accepted conservative obligation policy.
+Obligations are durable workflow facts and current validation requires their target call node to remain meaningful. The current obligation state machine has no accepted invalidation transition for this case.
 
 ### Consequences
 
-- functions with body-targeting obligation history are not eligible for the first replacement operation;
-- rejection is explicit and happens before new body IDs are allocated;
-- adding `Invalidated` or another migration rule remains a separate decision with its own consumers and review behavior.
+- obligation-protected bodies are ineligible for this operation;
+- adding obligation invalidation/migration remains a separate decision.
 
 ### Revisit conditions
 
-Revisit when an implemented obligation-invalidation workflow can preserve attribution, explain the transition, and distinguish invalidation from resolution or deletion.
+Revisit when a concrete consumer requires an explicit invalidation workflow that preserves attribution and reviewability.
 
-## M2-D05 — Structural Change Review exposes both before and after
+## M2-D06 — Structural review separates requested intent from materialized result
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-Change Review for body replacement preserves the requested recipe separately from the resulting structural diff.
+`AgentStructuralChangeReview` preserves the recursive requested recipe separately from `FunctionBodyReplacementDiff`.
 
-The structural diff identifies at least:
+The resulting diff records the owner function, old/new result-node IDs, complete removed-node summaries, and materialized added-node summaries. The review also exposes base and proposed `FunctionFocusView` projections and an exact `TransactionPreviewReceipt`.
 
-- the target `FunctionId`;
-- old and new result-node IDs;
-- every removed old-body node ID;
-- every added node with its allocated ID and role-specific read-only summary; and
-- the affected function.
-
-The review projection exposes bounded base and proposed Focus views for the affected function. Existing proposed-state `FunctionFocus` behavior may be retained for compatibility, but the old body must not be reconstructed only from prose or removed-ID counts.
+Removed summaries are stable-ID ordered; added summaries follow materialization order.
 
 ### Reason
 
-A list of changed IDs cannot explain a structural change by itself. Reviewers need the exact old and new shape, types, literals, parameter references, and dependencies while still distinguishing what the agent requested from what the engine materialized.
+Automatically allocated identities and materialized dependencies are resulting engine facts, not agent-authored intent. Review must show both without requiring raw snapshot comparison or generated code.
 
 ### Consequences
 
-- automatic ID allocation remains visible in resulting change facts;
-- unrelated churn can be checked against the complete removed/added sets and affected-function boundary;
-- read-only structural projection does not grant raw snapshot mutation authority;
-- viewer and evaluation artifacts can compare exact before/after meaning without generated C# becoming the review source.
+- before/after structure is directly inspectable;
+- exact base/proposed fingerprints remain part of review binding;
+- stale publication fails closed rather than rebasing or substituting another result.
 
 ### Revisit conditions
 
-Revisit the projection shape after usability evidence shows which structural facts are necessary or excessively verbose for larger recipes.
+Revisit review layout after larger recipes produce real usability evidence.
 
-## M2-D06 — The first structural operation is exclusive and complete-only
+## M2-D07 — Trusted structural publication preserves workspace history
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-30
 
 ### Decision
 
-A transaction containing the first body-replacement operation contains exactly one operation. It cannot be combined with rename, signature evolution, obligation resolution, or another body replacement in the same request.
+Structural publication uses an assembly-internal `SemanticWorkspace.publishValidatedSnapshot` primitive. It requires the candidate snapshot parent to equal the current snapshot, rejects reuse of a previously published snapshot ID, revalidates the snapshot, and publishes it while retaining `CurrentSnapshot :: PreviousSnapshots` history.
 
-The Float64 recipe cannot intentionally create an incomplete body or a new obligation. Existing unrelated incompleteness remains governed by the ordinary readiness and commit-policy rules; the representative executable scenario begins and ends semantically complete.
-
-### Reason
-
-Composition would immediately require semantics for operation ordering around target guards, newly allocated local IDs, multiple body replacements, and interactions with obligation resolution. Those concerns are useful later but are not necessary to test the first bounded structural authority.
-
-### Consequences
-
-- simulation rejects a mixed or multi-operation structural request explicitly;
-- stale publication still uses the existing exact reviewed-proposal boundary;
-- the initial corpus can attribute structural outcomes to one intent;
-- operation composition remains a later evaluated extension rather than an accidental property.
-
-### Revisit conditions
-
-Revisit after single-operation behavior is reliable and a concrete atomic multi-operation workflow cannot be represented safely as separate reviewed publications.
-
-## M2-D07 — Snapshot semantics reuse existing node kinds; protocol artifacts are versioned
-
-- **Status:** Proposed
-- **Date:** 2026-08-30
-
-### Decision
-
-The first replacement body uses existing `ParameterReference`, `Float64Literal`, and `Float64Add` semantic node kinds, so it does not introduce a new language construct or redefine the snapshot schema by itself.
-
-The new agent intent, structural diff, review projection, runner command, and evaluation artifacts are versioned as interface/protocol changes. Any discovered persistence impact must follow the existing schema-evolution policy rather than being hidden as an implementation detail.
+The structural body itself uses existing semantic node kinds, so this slice does not introduce a new language node or snapshot schema solely because the body was authored through a new workflow.
 
 ### Reason
 
-The semantic result already has defined validation, persistence, lowering, and backend behavior. The new work is editing authority and review semantics. Keeping those concerns separate prevents an operation encoding from becoming a competing program representation.
+Reconstructing a fresh workspace from the proposed snapshot would discard publication history. A shared trusted publication primitive preserves the same workspace-history invariant without exposing raw snapshot publication to ordinary agents.
 
 ### Consequences
 
-- current snapshot codecs remain the semantic baseline unless implementation proves a real schema change is required;
-- recorded M1 corpus/tool conditions are not retroactively reinterpreted;
-- M2 uses a new frozen corpus and tool revision before making an agent-reliability claim.
+- the opaque workspace retains prior snapshots after structural publication;
+- the raw publication primitive remains assembly-internal;
+- snapshot persistence remains governed by existing codecs and schema-evolution policy;
+- runner/evaluation protocol additions are still a separate M2.2 concern.
 
 ### Revisit conditions
 
-Revisit if implementation requires persistent operation logs, review receipts, or protocol artifacts whose compatibility cannot be maintained without an explicit schema version.
+Revisit only if future proposal composition or persistence requirements need a broader publication abstraction.

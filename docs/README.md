@@ -8,12 +8,12 @@ This directory contains the maintained documentation for the current NyamNyam de
 
 - **Why does NyamNyam exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md).
 - **How is the system organized?** Read [Architecture](developer/architecture.md).
-- **What does the implemented language and ordinary agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).
+- **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).
 - **Why was a direction chosen?** Use the [decision register](decisions/README.md).
 - **What remains unresolved?** Read [Open questions](decisions/open-questions.md).
-- **What must an implementation preserve?** Use the maintained [specifications](specs/).
+- **What must an implementation preserve?** Use the maintained [specifications](specs/), including the current [bounded structural editing contract](specs/bounded-structural-editing.md).
 - **What was completed in Milestone 1?** Read the completed [Milestone 1 record](plans/milestone-1.md) and its linked verification evidence.
-- **What is proposed next?** Read the proposed [Milestone 2 plan](plans/milestone-2.md) for bounded structural expression editing.
+- **What is being worked toward now?** Read the active [Milestone 2 plan](plans/milestone-2.md): the first structural slice is implemented, while controlled structural agent evaluation remains pending.
 - **What evidence supports an implemented claim?** Use [verification records](verification/).
 - **What is exploratory rather than a current contract?** Use [experiments](experiments/).
 - **How should documentation itself be maintained?** Read [Documentation conventions](developer/documentation.md).
