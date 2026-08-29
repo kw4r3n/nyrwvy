@@ -71,7 +71,7 @@ See the [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
 
 The first concrete protocol is frozen as [`m1-agent-corpus-v1`](../experiments/m1-agent-evaluation-corpus-v1.md), with a separate [run-record template](../experiments/m1-agent-evaluation-run-template-v1.md). It covers the currently supported rename/signature/obligation/stale-review workflow and explicitly records where the ordinary agent operation surface cannot yet express structural List or numeric edits.
 
-The post-main condition-v2.1 tranche supplies three fresh runs per E1-E5 task with durable artifacts and exact committed-workspace verification. E1/E2/E4/E5 were task-correct in all three repetitions; E3 is recorded as a 3/3 task-oracle mismatch (`Policy` rather than `policy`). Per [M1-D13](../decisions/milestone-1.md#M1-D13), arbitrary List/numeric structural editing remains explicitly outside this M1 claim. See the [evaluation record](../verification/m1-agent-evaluation-initial-tranche-20260829.md).
+The post-main condition-v2.1 tranche supplies three fresh runs per E1-E5 task with durable artifacts and exact committed-workspace verification. E1/E2/E4/E5 were task-correct in all three repetitions; E3 is recorded as a 3/3 task-oracle mismatch (`Policy` rather than `policy`). Per [M1-D13](../decisions/milestone-1.md), arbitrary List/numeric structural editing remains explicitly outside this M1 claim. See the [evaluation record](../verification/m1-agent-evaluation-initial-tranche-20260829.md).
 
 ## Accepted agent workflow
 
@@ -141,7 +141,7 @@ Milestone 1 maintains two distinct purposes:
 | 11 | Agent edit scenario through query -> simulate -> review -> commit -> execute | Complete |
 | 12 | `Float64` vertical slice | Complete |
 | 13 | Reproducibility for implemented representative scenarios | Complete |
-| 14 | Evaluation record | **Pending — corpus v1 frozen; runs/coverage resolution still required** |
+| 14 | Evaluation record | **Complete — post-main v2.1 evidence recorded; structural-edit scope resolved by M1-D13** |
 
 ## Non-goals
 
