@@ -85,12 +85,15 @@ module AgentWorkspace =
     let internal snapshotForStructuralEditing (workspace: AgentWorkspace): Snapshot =
         snapshot workspace
 
-    /// Construct a new opaque agent workspace from an already validated snapshot.
-    /// This is reserved for trusted semantic infrastructure such as the bounded
-    /// structural-editing publication path.
-    let internal createFromValidatedSnapshot (snapshot: Snapshot): Result<AgentWorkspace, ValidationIssue list> =
-        SemanticWorkspace.create snapshot
-        |> Result.map (fun workspace -> { Workspace = workspace })
+    /// Publish an already validated exact snapshot through the opaque agent
+    /// workspace while preserving prior snapshot history. This remains internal
+    /// semantic infrastructure rather than an ordinary agent mutation surface.
+    let internal publishValidatedSnapshot
+        (workspace: AgentWorkspace)
+        (snapshot: Snapshot)
+        : Result<AgentWorkspace, TransactionDiagnostic list> =
+        SemanticWorkspace.publishValidatedSnapshot workspace.Workspace snapshot
+        |> Result.map (fun published -> { Workspace = published })
 
     let getFunction workspace functionId = SemanticQuery.getFunction (snapshot workspace) functionId
     let getType workspace typeId = SemanticQuery.getType (snapshot workspace) typeId
