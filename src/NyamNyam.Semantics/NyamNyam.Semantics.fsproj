@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="NyamNyam.Execution" />
+    <InternalsVisibleTo Include="NyamNyam.Core.Tests" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../NyamNyam.Core/StableId.fs" Link="StableId.fs" />
