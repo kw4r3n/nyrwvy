@@ -21,14 +21,16 @@ module AgentStructuralWorkflowTests =
     let private nodeId name = StableId.createForTesting<GraphNodeTag> ("node-structural-" + name)
     let private snapshotId name = StableId.createForTesting<SnapshotTag> ("snapshot-structural-" + name)
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
+    let private int64Type = TypeRef.Primitive PrimitiveType.Int64
 
-    let private createFixture () =
-        let parameter =
+    let private createFixture (): Fixture =
+        let parameter: SemanticParameter =
             { Id = parameterId "value"
               DisplayName = "value"
               Type = float64Type }
+
         let oldResultId = nodeId "old-result"
-        let target =
+        let target: SemanticFunction =
             { Id = functionId "target"
               DisplayName = "target"
               Parameters = [ parameter ]
@@ -39,8 +41,9 @@ module AgentStructuralWorkflowTests =
                     [ { Id = oldResultId
                         Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 1.0) } ]
                   ResultNodeId = oldResultId } }
+
         let unrelatedResultId = nodeId "unrelated-result"
-        let unrelated =
+        let unrelated: SemanticFunction =
             { Id = functionId "unrelated"
               DisplayName = "unrelated"
               Parameters = []
@@ -51,6 +54,7 @@ module AgentStructuralWorkflowTests =
                     [ { Id = unrelatedResultId
                         Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 99.0) } ]
                   ResultNodeId = unrelatedResultId } }
+
         { Snapshot =
             { Id = snapshotId "initial"
               ParentId = None
@@ -70,7 +74,7 @@ module AgentStructuralWorkflowTests =
         | Ok workspace -> workspace
         | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
 
-    let private request fixture recipe =
+    let private request fixture recipe: AgentReplaceFunctionBodyWithFloat64Recipe =
         { TargetFunctionId = fixture.TargetFunctionId
           ExpectedBaseSnapshotId = fixture.Snapshot.Id
           ExpectedCurrentResultNodeId = fixture.OldResultNodeId
@@ -87,6 +91,11 @@ module AgentStructuralWorkflowTests =
         Assert.True(Guid.TryParseExact(payload, "D", &parsed), $"Not a GUID: {payload}")
         Assert.Equal('7', payload[14])
 
+    let private assertRejectedCode expected result =
+        match result with
+        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) when diagnostic.Code = expected -> ()
+        | other -> failwithf "Expected %s, got %A" expected other
+
     [<Fact>]
     let ``structural simulation materializes a fresh reviewed Float64 body`` () =
         let fixture = createFixture ()
@@ -96,6 +105,7 @@ module AgentStructuralWorkflowTests =
                 Float64ExpressionRecipe.Parameter fixture.TargetParameterId,
                 Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 2.25)
             )
+
         let proposal = simulate workspace (request fixture recipe)
         let review = AgentStructuralChangeProposal.review proposal
 
@@ -106,10 +116,11 @@ module AgentStructuralWorkflowTests =
         Assert.Equal(review.ResultingChange.NewResultNodeId, review.ProposedFocus.Function.Body.ResultNodeId)
         Assert.Equal(1, review.ResultingChange.RemovedNodes.Length)
         Assert.Equal(3, review.ResultingChange.AddedNodes.Length)
-        Assert.Equal(
-            [ "ParameterReference"; "Float64Literal"; "Float64Add" ],
-            review.ResultingChange.AddedNodes |> List.map (fun node -> node.Role)
-        )
+
+        let roles = review.ResultingChange.AddedNodes |> List.map (fun node -> node.Role)
+        if roles <> [ "ParameterReference"; "Float64Literal"; "Float64Add" ] then
+            failwithf "Unexpected structural materialization order: %A" roles
+
         Assert.Equal(Some "4002000000000000", review.ResultingChange.AddedNodes[1].Float64BitsHex)
 
         let oldIds = review.ResultingChange.RemovedNodes |> List.map (fun node -> node.NodeId) |> Set.ofList
@@ -129,6 +140,7 @@ module AgentStructuralWorkflowTests =
                     Float64ExpressionRecipe.Parameter fixture.TargetParameterId
                 ))
             |> simulate workspace
+
         let added = (AgentStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
         Assert.Equal(3, added.Length)
         Assert.NotEqual(added[0].NodeId, added[1].NodeId)
@@ -196,29 +208,42 @@ module AgentStructuralWorkflowTests =
         | result -> failwithf "Expected stale structural rejection, got %A" result
 
     [<Fact>]
-    let ``structural preflight rejects base result and foreign-parameter mismatches`` () =
+    let ``structural preflight rejects target guards and invalid parameters`` () =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let foreign = StableId.createForTesting<ParameterTag> "parameter-structural-foreign"
 
-        let assertCode expected result =
-            match result with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) when diagnostic.Code = expected -> ()
-            | other -> failwithf "Expected %s, got %A" expected other
-
         { request fixture (Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 1.0)) with
             ExpectedBaseSnapshotId = snapshotId "wrong-base" }
         |> AgentStructuralWorkflow.simulate workspace
-        |> assertCode "StructuralExpectedBaseMismatch"
+        |> assertRejectedCode "StructuralExpectedBaseMismatch"
 
         { request fixture (Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 1.0)) with
             ExpectedCurrentResultNodeId = nodeId "wrong-result" }
         |> AgentStructuralWorkflow.simulate workspace
-        |> assertCode "StructuralExpectedResultMismatch"
+        |> assertRejectedCode "StructuralExpectedResultMismatch"
 
         request fixture (Float64ExpressionRecipe.Parameter foreign)
         |> AgentStructuralWorkflow.simulate workspace
-        |> assertCode "StructuralParameterOutOfScope"
+        |> assertRejectedCode "StructuralParameterOutOfScope"
+
+        let target = fixture.Snapshot.Functions |> List.find (fun fn -> fn.Id = fixture.TargetFunctionId)
+        let wrongParameter = { target.Parameters.Head with Type = int64Type }
+        let wrongTarget = { target with Parameters = [ wrongParameter ] }
+        let wrongSnapshot =
+            { fixture.Snapshot with
+                Functions =
+                    fixture.Snapshot.Functions
+                    |> List.map (fun fn -> if fn.Id = wrongTarget.Id then wrongTarget else fn) }
+        Assert.Empty(SnapshotValidator.validate wrongSnapshot)
+        let wrongWorkspace = createWorkspace wrongSnapshot
+        let wrongRequest: AgentReplaceFunctionBodyWithFloat64Recipe =
+            { TargetFunctionId = wrongTarget.Id
+              ExpectedBaseSnapshotId = wrongSnapshot.Id
+              ExpectedCurrentResultNodeId = wrongTarget.Body.ResultNodeId
+              Replacement = Float64ExpressionRecipe.Parameter wrongParameter.Id }
+        AgentStructuralWorkflow.simulate wrongWorkspace wrongRequest
+        |> assertRejectedCode "StructuralParameterTypeMismatch"
 
     let rec private deepRecipe depth =
         if depth <= 1 then
@@ -241,24 +266,21 @@ module AgentStructuralWorkflowTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
-        match AgentStructuralWorkflow.simulate workspace (request fixture (deepRecipe 33)) with
-        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ])
-            when diagnostic.Code = "StructuralRecipeDepthLimitExceeded" -> ()
-        | result -> failwithf "Expected depth bound rejection, got %A" result
+        AgentStructuralWorkflow.simulate workspace (request fixture (deepRecipe 33))
+        |> assertRejectedCode "StructuralRecipeDepthLimitExceeded"
 
-        match AgentStructuralWorkflow.simulate workspace (request fixture (balancedRecipe 7)) with
-        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ])
-            when diagnostic.Code = "StructuralRecipeNodeLimitExceeded" -> ()
-        | result -> failwithf "Expected node-count bound rejection, got %A" result
+        AgentStructuralWorkflow.simulate workspace (request fixture (balancedRecipe 7))
+        |> assertRejectedCode "StructuralRecipeNodeLimitExceeded"
 
     let private obligationSnapshot (resolved: bool) =
         let fixture = createFixture ()
-        let calleeParameter =
+        let calleeParameter: SemanticParameter =
             { Id = parameterId "callee-value"
               DisplayName = "value"
               Type = float64Type }
+
         let calleeResultId = nodeId "callee-result"
-        let callee =
+        let callee: SemanticFunction =
             { Id = functionId "callee"
               DisplayName = "callee"
               Parameters = [ calleeParameter ]
@@ -267,55 +289,60 @@ module AgentStructuralWorkflowTests =
               Body =
                 { Nodes = [ { Id = calleeResultId; Kind = SemanticNodeKind.ParameterReference calleeParameter.Id } ]
                   ResultNodeId = calleeResultId } }
+
         let callId = fixture.OldResultNodeId
         let valueId = nodeId "obligation-value"
-        let arguments =
+        let arguments: ArgumentBinding list =
             if resolved then
                 [ { TargetParameterId = calleeParameter.Id
                     ValueNodeId = valueId } ]
             else
                 []
+
         let bodyNodes =
             (if resolved then [ { Id = valueId; Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 4.0) } ] else [])
             @ [ { Id = callId; Kind = SemanticNodeKind.DirectCall(callee.Id, arguments) } ]
+
         let target =
             fixture.Snapshot.Functions
             |> List.find (fun fn -> fn.Id = fixture.TargetFunctionId)
             |> fun fn -> { fn with Body = { Nodes = bodyNodes; ResultNodeId = callId } }
+
         let origin = StableId.createForTesting<TransactionTag> "transaction-structural-obligation"
         let status =
             if resolved then
                 ObligationStatus.Resolved { TransactionId = origin; ValueNodeId = valueId }
             else
                 ObligationStatus.Open
-        let obligation =
+
+        let obligation: MissingArgumentObligation =
             { Id = StableId.createForTesting<ObligationTag> (if resolved then "obligation-structural-resolved" else "obligation-structural-open")
               OriginTransactionId = origin
               CallNodeId = callId
               ParameterId = calleeParameter.Id
               Status = status }
+
         let snapshot =
             { fixture.Snapshot with
                 Functions = target :: callee :: (fixture.Snapshot.Functions |> List.filter (fun fn -> fn.Id <> target.Id))
                 Obligations = [ obligation ] }
-        fixture, target, snapshot
+
+        target, snapshot
 
     [<Fact>]
     let ``structural preflight rejects open and resolved obligations targeting the old body`` () =
         for resolved in [ false; true ] do
-            let _, target, snapshot = obligationSnapshot resolved
+            let target, snapshot = obligationSnapshot resolved
             Assert.Empty(SnapshotValidator.validate snapshot)
             let workspace = createWorkspace snapshot
-            let guardedRequest =
+            let guardedRequest: AgentReplaceFunctionBodyWithFloat64Recipe =
                 { TargetFunctionId = target.Id
                   ExpectedBaseSnapshotId = snapshot.Id
                   ExpectedCurrentResultNodeId = target.Body.ResultNodeId
                   Replacement = Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 5.0) }
 
-            match AgentStructuralWorkflow.simulate workspace guardedRequest with
-            | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ])
-                when diagnostic.Code = "StructuralBodyReferencedByObligation" -> ()
-            | result -> failwithf "Expected durable obligation rejection, got %A" result
+            AgentStructuralWorkflow.simulate workspace guardedRequest
+            |> assertRejectedCode "StructuralBodyReferencedByObligation"
 
     let private runDotnet (workingDirectory: string) (arguments: string list) =
         let startInfo = ProcessStartInfo("dotnet")
@@ -327,6 +354,7 @@ module AgentStructuralWorkflowTests =
         startInfo.Environment["DOTNET_NOLOGO"] <- "1"
         for argument in arguments do
             startInfo.ArgumentList.Add(argument)
+
         use child = Process.Start(startInfo)
         if isNull child then failwith "Failed to start dotnet."
         let stdout = child.StandardOutput.ReadToEndAsync()
@@ -345,6 +373,7 @@ module AgentStructuralWorkflowTests =
                     Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 2.25)
                 ))
             |> simulate workspace
+
         let committed =
             match AgentStructuralWorkflow.commit workspace proposal with
             | AgentStructuralCommitResult.Committed(next, _) -> next
@@ -356,11 +385,13 @@ module AgentStructuralWorkflowTests =
                 | Ok value -> value
                 | Error error -> failwithf "Typed projection failed: %A" error
         Assert.Equal(AgentWorkspace.currentSnapshotId committed, typed.SourceSnapshotId)
+
         let execution =
             ExecutionIr.lower typed
             |> function
                 | Ok value -> value
                 | Error error -> failwithf "Execution lowering failed: %A" error
+
         let artifact =
             CSharpBackend.emit execution CSharpBackendProfile.empty
             |> function
@@ -384,12 +415,16 @@ using NyamNyam.Generated;
 Console.WriteLine(NyFunctions.{functionName}(1.5).ToString("R", CultureInfo.InvariantCulture));
 """
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness, UTF8Encoding(false))
+
             let buildExit, buildOut, buildErr =
                 runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
-            if buildExit <> 0 then failwithf "Generated build failed.\n%s\n%s\n%s" buildOut buildErr artifact.Source
+            if buildExit <> 0 then
+                failwithf "Generated build failed.\n%s\n%s\n%s" buildOut buildErr artifact.Source
+
             let dll = Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll")
             let runExit, runOut, runErr = runDotnet tempRoot [ dll ]
-            if runExit <> 0 then failwithf "Generated execution failed.\n%s\n%s" runOut runErr
+            if runExit <> 0 then
+                failwithf "Generated execution failed.\n%s\n%s" runOut runErr
             Assert.Equal("3.75", runOut.Trim())
         finally
             if Directory.Exists tempRoot then Directory.Delete(tempRoot, true)
