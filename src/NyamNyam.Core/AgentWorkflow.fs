@@ -79,6 +79,19 @@ module AgentWorkspace =
     let internal snapshotForExecution (workspace: AgentWorkspace): Snapshot =
         snapshot workspace
 
+    /// Trusted bridge for the bounded structural-editing implementation.
+    /// The raw snapshot remains assembly-internal and is never part of the
+    /// ordinary agent request surface.
+    let internal snapshotForStructuralEditing (workspace: AgentWorkspace): Snapshot =
+        snapshot workspace
+
+    /// Construct a new opaque agent workspace from an already validated snapshot.
+    /// This is reserved for trusted semantic infrastructure such as the bounded
+    /// structural-editing publication path.
+    let internal createFromValidatedSnapshot (snapshot: Snapshot): Result<AgentWorkspace, ValidationIssue list> =
+        SemanticWorkspace.create snapshot
+        |> Result.map (fun workspace -> { Workspace = workspace })
+
     let getFunction workspace functionId = SemanticQuery.getFunction (snapshot workspace) functionId
     let getType workspace typeId = SemanticQuery.getType (snapshot workspace) typeId
     let getCallers workspace functionId = SemanticQuery.getCallers (snapshot workspace) functionId
