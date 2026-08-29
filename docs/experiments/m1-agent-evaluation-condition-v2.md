@@ -1,6 +1,6 @@
 # M1 agent evaluation condition v2
 
-**Status:** Condition v2.1 recorded. This document does not change `m1-agent-corpus-v1`.
+**Status:** A condition-v2.1 pre-integration sample is recorded. The post-main-integration condition remains pending. This document does not change `m1-agent-corpus-v1`.
 
 Condition v2 replaces the shell-managed JSON Lines client used in the initial trials with the project-local OpenCode `nyamnyam-eval` agent and its persistent custom tools. The condition exists to remove client lifecycle errors from Mode A semantic reasoning measurements.
 

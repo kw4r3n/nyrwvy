@@ -1,6 +1,6 @@
 # M1 agent evaluation initial autonomous tranche - 2026-08-29
 
-**Status:** Protocol preflight, unqualified trials, and one controlled condition-v2.1 sample per covered task. M1.3 remains pending.
+**Status:** Protocol preflight, unqualified trials, and one controlled pre-integration condition-v2.1 sample per covered task. M1.3 remains pending.
 
 This record reports every attempted run for the first `m1-agent-corpus-v1` tranche for Issue #36. It does not modify the frozen corpus, its oracle, the agent authority boundary, or the Milestone 1 plan status.
 
@@ -332,9 +332,9 @@ Infrastructure commit `99189bb` implements the runner-side portions of #37 and #
 
 At the time of this readiness note, no condition-v2 model run had been recorded. The selected #38 direction is the provider-specific OpenCode persistent client/agent tool described in [condition v2](../experiments/m1-agent-evaluation-condition-v2.md). It preserves opaque proposal state in one OpenCode-owned runner process and deliberately does not add cross-process checkpoint/resume authority.
 
-## Controlled condition v2 attempts and v2.1 tranche
+## Controlled condition v2 attempts and v2.1 pre-integration tranche
 
-The following runs use the persistent OpenCode adapter and fresh fixtures. All artifacts are durable, terminal, and private under `/home/kw4/.local/share/nyamnyam/evaluation-runs/`; each cited session directory contains `events.jsonl`, metrics, metadata, final state, and, after a ready commit, exact committed-workspace Typed Semantic IR, Execution IR, generated C#, compiler/execution outputs, and `verification.json`.
+The following runs use the persistent OpenCode adapter and fresh fixtures. The v2.1 runs occurred at historical branch revision `41d60b4` before the infrastructure reached `main`; that revision is preserved locally by `eval-condition-v2.1-pre-rebase-20260830`. They are controlled pre-integration evidence, not the post-main-integration fixed-revision tranche. All artifacts are durable, terminal, and private under `/home/kw4/.local/share/nyamnyam/evaluation-runs/`; each cited session directory contains `events.jsonl`, metrics, metadata, final state, and, after a ready commit, exact committed-workspace Typed Semantic IR, Execution IR, generated C#, compiler/execution outputs, and `verification.json`.
 
 All runs requested and recorded model `openai/gpt-5.6-terra`, provider/runtime `opencode`, prompt revision `m1-agent-corpus-v1`, and the stated tool revision. OpenCode did not report a reasoning configuration, so it is recorded as `unavailable` rather than inferred.
 
@@ -347,7 +347,7 @@ All runs requested and recorded model `openai/gpt-5.6-terra`, provider/runtime `
 
 `m1-v2-e1-a1` is session `ses_fb23e0925ffew6fkaIo4Cz2tW5-1788010955794-f4427311-7f21-42fa-b410-3ba3155b4b0a/session-7b7c46ef334e454d89452051e8d97d59`. It reached a verified E1 result but guessed unsupported request schemas before the valid rename. `m1-v2-e2-a1` is session `ses_fb23ca45dffefoa6RosuvI6aLT-1788011049178-4f369b31-21b4-4d53-91a4-0bd6fdcc3849/session-ec1958cc3e8947aa8f4ad33f27253c80`; it never reached a valid proposal. These attempts exposed missing task-independent JSON request/operation schema in the tool instructions. Commit `41d60b4` introduced that schema and named the resulting condition v2.1; the corpus, task prompts, seed IDs, oracles, fixture choice, and mutation authority did not change.
 
-### Condition v2.1 summary
+### Condition v2.1 pre-integration summary
 
 | Run ID | Task | Fixture | Primary level | Verification | Calls / queries / simulations / commits | Protocol errors |
 | --- | --- | --- | --- | --- | ---: | ---: |
@@ -392,4 +392,4 @@ E5's one rejected commit is the required stale-review transition, not an avoidab
 
 ## Controlled tranche interpretation
 
-The controlled v2.1 sample supplies one terminal, exact-verified result for every corpus task that the current bounded operation surface can express. It also removes the v1 shell-session restart confounder and v2 schema-guessing condition from those samples. It is not a basis for an M1.3 completion claim: it has one sample per task, reasoning configuration is not emitted by the runtime, and the frozen structural List/numeric coverage decision remains unresolved.
+The controlled pre-integration v2.1 sample supplies one terminal, exact-verified result for every corpus task that the current bounded operation surface can express. It also removes the v1 shell-session restart confounder and v2 schema-guessing condition from those samples. It is not a basis for an M1.3 completion claim: it predates the post-main-integration fixed-revision condition, has one sample per task, records no runtime reasoning configuration, and leaves the frozen structural List/numeric coverage decision unresolved.
