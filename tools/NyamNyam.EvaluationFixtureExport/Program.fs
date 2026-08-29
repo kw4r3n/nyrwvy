@@ -15,7 +15,7 @@ The exported snapshots are produced from the exact MilestoneZeroGraph/MilestoneO
 let private parseOptions (arguments: string list): Result<Map<string, string>, string> =
     let allowed = set [ "--fixture"; "--output" ]
 
-    let rec loop values remaining =
+    let rec loop (values: Map<string, string>) (remaining: string list) =
         match remaining with
         | [] -> Ok values
         | [ key ] -> Error $"Option '{key}' is missing its value."
