@@ -95,6 +95,32 @@ module SemanticWorkspace =
         : bool =
         tryGetSnapshot snapshotId workspace |> Option.isSome
 
+    /// Trusted publication primitive for semantic infrastructure that has already
+    /// produced an exact validated snapshot outside the ordinary SemanticOperation
+    /// transaction path. It preserves the same workspace-history invariant as
+    /// normal publication and remains internal to the semantics assembly.
+    let internal publishValidatedSnapshot
+        (workspace: WorkspaceState)
+        (snapshot: Snapshot)
+        : Result<WorkspaceState, TransactionDiagnostic list> =
+        if snapshot.ParentId <> Some workspace.CurrentSnapshot.Id then
+            Error
+                [ diagnostic
+                    "StaleBaseSnapshot"
+                    "The validated snapshot does not name the current workspace snapshot as its parent." ]
+        elif hasPublishedSnapshotId snapshot.Id workspace then
+            Error
+                [ diagnostic
+                    "SnapshotAlreadyPublished"
+                    "The proposed snapshot ID has already been published in this workspace." ]
+        else
+            match SnapshotValidator.validate snapshot with
+            | issue :: rest -> Error(validationDiagnostics (issue :: rest))
+            | [] ->
+                Ok
+                    { CurrentSnapshot = snapshot
+                      PreviousSnapshots = workspace.CurrentSnapshot :: workspace.PreviousSnapshots }
+
     let private classifyReadiness
         (snapshot: Snapshot)
         : Result<TransactionReadiness, TransactionDiagnostic list> =
