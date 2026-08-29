@@ -393,3 +393,19 @@ E5's one rejected commit is the required stale-review transition, not an avoidab
 ## Controlled tranche interpretation
 
 The controlled pre-integration v2.1 sample supplies one terminal, exact-verified result for every corpus task that the current bounded operation surface can express. It also removes the v1 shell-session restart confounder and v2 schema-guessing condition from those samples. It is not a basis for an M1.3 completion claim: it predates the post-main-integration fixed-revision condition, has one sample per task, records no runtime reasoning configuration, and leaves the frozen structural List/numeric coverage decision unresolved.
+
+## Post-main condition v2.1 tranche
+
+The post-main condition was fixed before launch at merge revision `93810cc111ea17ee15339ff44e65ac33fa485955`, OpenCode `1.18.18`, model `openai/gpt-5.6-terra`, reasoning configuration `unavailable`, prompt revision `m1-agent-corpus-v1`, and tool revision `condition-v2.1-post-main-93810cc`. Three fresh sessions ran for each task. All fifteen artifacts are terminal, durable, and exact-committed-workspace verification passed; every run recorded zero protocol errors.
+
+| Task | Runs | Task outcome | Evidence |
+| --- | ---: | --- | --- |
+| E1 | 3 | S4 | scoped rename, identity preserved |
+| E2 | 3 | S4 | one `context: Unit` parameter and existing Unit attachment |
+| E3 | 3 | S1 | verifier passed, but each agent added `Policy` rather than required `policy` |
+| E4 | 3 | S4 | scoped rename; higher-order callback identity preserved |
+| E5 | 3 | S4 | each received the required stale rejection, then committed a fresh reviewed proposal |
+
+E5's three artifacts each contain `stale-perturbation-committed`, one `StaleBaseSnapshot` rejection, the harness-owned `RawUserInput` -> `RawAccountInput` receipt, and a final verified agent-owned rename. This expected transition is not an avoidable retry. E3 is an oracle-level semantic mismatch despite its ready, executable final workspace; exact lowering/build/execution validation does not replace task-specific review.
+
+This establishes a 12/15 task-correct post-main result across the currently expressible corpus tasks. It does not resolve the frozen structural List/numeric coverage decision, and M1.3 remains pending.
