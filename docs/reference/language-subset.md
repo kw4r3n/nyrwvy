@@ -104,6 +104,21 @@ Float64IsInfinite
 
 Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
 
+## Ordinary agent editing surface
+
+The implemented semantic language and the ordinary agent editing surface are deliberately distinct.
+
+The current bounded `AgentOperationIntent` surface supports:
+
+- display-name rename for types and functions;
+- adding a function parameter with an explicit plan for every affected direct call;
+- resolving a generated missing-argument obligation with an existing compatible value;
+- simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
+
+It does **not** currently construct or replace arbitrary `ValueGraph` structure. An ordinary agent therefore cannot yet author a new numeric expression or construct/select `ListMap`, `ListFilter`, `ListAny`, or `ListAll`, even though those semantic nodes are implemented and executable.
+
+This is the accepted Milestone 1 boundary recorded by M1-D13 in the [Milestone 1 decisions](../decisions/milestone-1.md). The [proposed Milestone 2 plan](../plans/milestone-2.md) explores a bounded structural expression-editing surface without granting raw snapshot mutation.
+
 ## Explicitly outside the current subset
 
 The following are not currently accepted language features merely because a backend could express them:
@@ -123,4 +138,6 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 
 ## Milestone context
 
-This subset represents the accepted Milestone 1 language-growth slice. Future features should be added from explicit semantic contracts and evidence rather than inferred from C# or .NET capabilities. The remaining Milestone 1 gate is the recorded agent evaluation in the [Milestone 1 plan](../plans/milestone-1.md).
+This subset represents the accepted Milestone 1 language-growth slice. Milestone 1 is complete for its bounded-operation claim, including the recorded agent evaluation. Future features should be added from explicit semantic contracts and evidence rather than inferred from C# or .NET capabilities.
+
+Milestone 2 is currently a proposal, not implemented behavior. Its candidate scope is documented in the [Milestone 2 plan](../plans/milestone-2.md).
