@@ -104,20 +104,46 @@ Float64IsInfinite
 
 Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
 
-## Ordinary agent editing surface
+## Agent editing surfaces
 
-The implemented semantic language and the ordinary agent editing surface are deliberately distinct.
+The implemented semantic language and agent editing authority are deliberately distinct.
 
-The current bounded `AgentOperationIntent` surface supports:
+### M1 bounded operation workflow
+
+`AgentWorkflow` / `AgentOperationIntent` supports:
 
 - display-name rename for types and functions;
 - adding a function parameter with an explicit plan for every affected direct call;
 - resolving a generated missing-argument obligation with an existing compatible value;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
 
-It does **not** currently construct or replace arbitrary `ValueGraph` structure. An ordinary agent therefore cannot yet author a new numeric expression or construct/select `ListMap`, `ListFilter`, `ListAny`, or `ListAll`, even though those semantic nodes are implemented and executable.
+### M2 bounded structural workflow
 
-This is the accepted Milestone 1 boundary recorded by M1-D13 in the [Milestone 1 decisions](../decisions/milestone-1.md). The [proposed Milestone 2 plan](../plans/milestone-2.md) explores a bounded structural expression-editing surface without granting raw snapshot mutation.
+`AgentStructuralWorkflow` now supports one accepted structural operation: complete replacement of one `Float64`-returning function body with a closed recipe containing only:
+
+```text
+Parameter(ParameterId)
+Literal(Float64Bits)
+Add(left, right)
+```
+
+The operation:
+
+- targets an existing `FunctionId`, expected base `SnapshotId`, and expected current body result `GraphNodeId`;
+- checks recipe depth/node limits and parameter scope/type before materialization;
+- allocates all replacement body-node IDs system-side;
+- replaces the complete old body with a disjoint fresh body-node set;
+- rejects any old body referenced by an open or resolved obligation;
+- preserves the requested recipe separately from materialized structural diff facts;
+- exposes base and proposed Focus views plus exact review fingerprints;
+- preserves workspace publication history when committed;
+- lowers and executes through the ordinary semantic/execution/backend pipeline.
+
+The exact contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md).
+
+This does **not** mean arbitrary `ValueGraph` editing is accepted. The current structural workflow cannot author arbitrary numeric nodes, branches, calls, capabilities, products, unions, `Option`, `Result`, or List nodes, and cannot target a nested expression independently.
+
+The controlled M2 model-evaluation runner/corpus has not yet been established. Implementation availability and agent-reliability evidence remain separate claims.
 
 ## Explicitly outside the current subset
 
@@ -138,6 +164,6 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 
 ## Milestone context
 
-This subset represents the accepted Milestone 1 language-growth slice. Milestone 1 is complete for its bounded-operation claim, including the recorded agent evaluation. Future features should be added from explicit semantic contracts and evidence rather than inferred from C# or .NET capabilities.
+Milestone 1 is complete for its accepted bounded-operation claim, including its recorded agent evaluation.
 
-Milestone 2 is currently a proposal, not implemented behavior. Its candidate scope is documented in the [Milestone 2 plan](../plans/milestone-2.md).
+Milestone 2 is active. Its first Float64 body-replacement structural slice is implemented and locally verified; the remaining major gate is a versioned structural runner, frozen M2 corpus, and controlled agent-evaluation record. See the [Milestone 2 plan](../plans/milestone-2.md).
