@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="../../tests/NyamNyam.Core.Tests/MilestoneZeroGraph.fs" Link="MilestoneZeroGraph.fs" />
     <Compile Include="../../tests/NyamNyam.Core.Tests/MilestoneOneGraph.fs" Link="MilestoneOneGraph.fs" />
+    <Compile Include="../../tests/NyamNyam.Core.Tests/M2StructuralEvaluationCorpus.fs" Link="M2StructuralEvaluationCorpus.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
