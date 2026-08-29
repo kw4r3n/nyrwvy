@@ -409,3 +409,25 @@ The post-main condition was fixed before launch at merge revision `93810cc111ea1
 E5's three artifacts each contain `stale-perturbation-committed`, one `StaleBaseSnapshot` rejection, the harness-owned `RawUserInput` -> `RawAccountInput` receipt, and a final verified agent-owned rename. This expected transition is not an avoidable retry. E3 is an oracle-level semantic mismatch despite its ready, executable final workspace; exact lowering/build/execution validation does not replace task-specific review.
 
 This establishes a 12/15 task-correct post-main result across the currently expressible corpus tasks. It does not resolve the frozen structural List/numeric coverage decision, and M1.3 remains pending.
+
+### Per-run durable evidence
+
+Each identifier below is relative to the private artifact root `/home/kw4/.local/share/nyamnyam/evaluation-runs/`. All runs started from the documented fixture snapshot, have a terminal `run-state.json`, a finalized `metrics.json`, `events.jsonl`, `run-metadata.json`, and a `verification-*/verification.json` with status `passed`. `c/q/s/ca` means tool calls, bounded queries, simulations, and accepted commits; E5's `r1` is its required stale commit rejection.
+
+| Run | Artifact session | Outcome | c/q/s/ca | Oracle and verification |
+| --- | --- | --- | ---: | --- |
+| E1-A1 | `ses_fb13e927fffeHEdc6XNOLNlrZK-1788027698257-5d80db50-95e4-4894-8821-408943784348/session-8a85561631084e5588b6abc41dd2064f` | S4 | 3/1/1/1 | requested rename only; exact verification passed |
+| E1-A2 | `ses_fb13e9291ffe0fgUoa54CuCye4-1788027698148-dfb6aecf-5568-40c1-a2f3-7bf01f154b84/session-55d3bf9bc33540bc974bb98a4a3b122e` | S4 | 4/2/1/1 | requested rename only; exact verification passed |
+| E1-A3 | `ses_fb13e9295ffeqDvm14hiGkpFdC-1788027699779-55f80804-44e3-43af-9a57-790d14c7d105/session-600c5626fc30442e97872683a7a4d702` | S4 | 3/1/1/1 | requested rename only; exact verification passed |
+| E2-A1 | `ses_fb13d93edffe7l7htNz0YPPhh5-1788027763130-477c45f1-e573-4479-9545-7bbda8861b8c/session-39dc5499e7d748d79c2f641e7a197e72` | S4 | 5/3/1/1 | existing Unit attachment; exact verification passed |
+| E2-A2 | `ses_fb13d9402ffeO041nJKiqBV8nP-1788027763985-ed582a0e-0d16-4178-b1fd-97a27f2702f7/session-9cf06297bf9d40c79f896b7c12f0d37a` | S4 | 5/3/1/1 | existing Unit attachment; exact verification passed |
+| E2-A3 | `ses_fb13d93c1ffeQRXsoDoo0K1jss-1788027763134-6ef65791-5af0-48f6-81ed-9da6e25236e5/session-74c89d5e7d0644158af47d6368c98dad` | S4 | 5/3/1/1 | existing Unit attachment; exact verification passed |
+| E3-A1 | `ses_fb13ce131ffeRaKl6EZjH7RlYS-1788027808921-a813b6ae-76e8-41f5-baac-d0b13bd5b37e/session-2e03800c0b054b40b3701abd1115305d` | S1 | 10/6/2/2 | `Policy` not required `policy`; verifier passed |
+| E3-A2 | `ses_fb13ce056ffeKaLaniFKwtdJdp-1788027809320-89cba938-98bb-4fe1-b841-59b0778b183e/session-bf6e4704aecf4cf48e49149d6f00195b` | S1 | 7/3/2/2 | `Policy` not required `policy`; verifier passed |
+| E3-A3 | `ses_fb13ce076ffezdXkZl1s8Id7XB-1788027809020-56328b4b-c875-4105-b079-4b753a3c2d8f/session-48203c1ec5314c6fb66fd6eb1d5047cf` | S1 | 8/3/2/2 | `Policy` not required `policy`; verifier passed |
+| E4-A1 | `ses_fb13c0a32ffelVSACzij4JfvGF-1788027864472-c0136396-86fc-4912-a974-720a2804e52d/session-d634f3c8196341398dec4c10ebd94114` | S4 | 3/1/1/1 | stable higher-order callback; verifier passed |
+| E4-A2 | `ses_fb13c09e6ffeocqRSKyMb3n7Ig-1788027864287-219bcfc8-d413-49b1-a847-87f23f022168/session-5f8de7d6e0ee43d28ebca475871d4c48` | S4 | 3/1/1/1 | stable higher-order callback; verifier passed |
+| E4-A3 | `ses_fb13c09b6ffePlD3omZUu0TXW5-1788027864300-75fba4b3-9356-4b81-accc-7c34c77ba577/session-4569e273c4a14544bca50fdc5f1a7b64` | S4 | 3/1/1/1 | stable higher-order callback; verifier passed |
+| E5-A1 | `ses_fb13b6fb4ffegSiEw5ouJpbnJt-1788027903732-2bcb08e3-7d3c-4355-8ff0-6c3f7cec1c94/session-2a6dc92e466548228a4653c08dff30fb` | S4 | 6/1/2/1, r1 | stale receipt, fresh review, verifier passed |
+| E5-A2 | `ses_fb13b6fb1ffeO2fo5xyOkbU9gO-1788027903646-a89e553f-5c89-4e45-8afc-c0782d81ae41/session-6fef4bfe109f4ac59aa30817e472b78f` | S4 | 7/2/2/1, r1 | stale receipt, fresh review, verifier passed |
+| E5-A3 | `ses_fb13b6fddffeg23gklTrvSbWQT-1788027903861-15b0a39d-f7dd-4691-809e-3fcce67752f7/session-2fbc7532cdf748d493c3cf2ed823144f` | S4 | 7/2/2/1, r1 | stale receipt, fresh review, verifier passed |
