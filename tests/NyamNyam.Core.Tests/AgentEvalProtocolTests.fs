@@ -32,15 +32,15 @@ module AgentEvalProtocolTests =
             failwithf "Protocol command failed: %s" response
         response
 
-    let private resultStatus response =
+    let private resultStatus (response: string) =
         use document = JsonDocument.Parse(response)
         document.RootElement.GetProperty("result").GetProperty("status").GetString()
 
-    let private proposalHandle response =
+    let private proposalHandle (response: string) =
         use document = JsonDocument.Parse(response)
         document.RootElement.GetProperty("result").GetProperty("proposalHandle").GetString()
 
-    let private firstDiagnosticCode response =
+    let private firstDiagnosticCode (response: string) =
         use document = JsonDocument.Parse(response)
         let diagnostics =
             document.RootElement
@@ -51,7 +51,7 @@ module AgentEvalProtocolTests =
         |> Seq.head
         |> fun diagnostic -> diagnostic.GetProperty("code").GetString()
 
-    let private firstCreatedObligationId response =
+    let private firstCreatedObligationId (response: string) =
         use document = JsonDocument.Parse(response)
         let obligationsCreated =
             document.RootElement
