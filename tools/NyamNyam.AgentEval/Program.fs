@@ -26,6 +26,7 @@ module AgentEvalCommandLine =
     [--model <model>] \
     [--provider-runtime <provider/runtime>] \
     [--reasoning-config <configuration>] \
+    [--opencode-version <version>] \
     [--prompt-revision <revision>] \
     [--tool-revision <revision>]
 
@@ -46,6 +47,7 @@ The stale-perturbation, verification, artifact, and metadata options are harness
                   "--model"
                   "--provider-runtime"
                   "--reasoning-config"
+                  "--opencode-version"
                   "--prompt-revision"
                   "--tool-revision" ]
 
@@ -76,6 +78,7 @@ The stale-perturbation, verification, artifact, and metadata options are harness
         { Model = Map.tryFind "--model" options
           ProviderRuntime = Map.tryFind "--provider-runtime" options
           ReasoningConfig = Map.tryFind "--reasoning-config" options
+          OpenCodeVersion = Map.tryFind "--opencode-version" options
           PromptRevision = Map.tryFind "--prompt-revision" options
           ToolRevision = Map.tryFind "--tool-revision" options }
 

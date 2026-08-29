@@ -35,7 +35,7 @@ On Unix, the adapter sets the absolute artifact root and run directory to `0700`
 
 ## Run setup
 
-1. Restart OpenCode after checking out the revision containing `.opencode/plugins/nyamnyam-eval.ts` and `.opencode/agent/nyamnyam-eval.md`; plugin and agent configuration are loaded only at startup.
+1. Record `opencode --version` and launch OpenCode with that exact value in `NYAMNYAM_EVAL_OPENCODE_VERSION`; the harness persists it as `openCodeVersion` in `run-metadata.json`. Restart OpenCode after checking out the revision containing `.opencode/plugins/nyamnyam-eval.ts` and `.opencode/agent/nyamnyam-eval.md`; plugin and agent configuration are loaded only at startup.
 2. The harness launches OpenCode with `NYAMNYAM_EVAL_FIXTURE=m0` or `NYAMNYAM_EVAL_FIXTURE=m1`, then starts a fresh `nyamnyam-eval` agent with exactly one frozen corpus task prompt and only its permitted seed stable IDs.
 3. Do not provide the corpus oracle, fixture source, runner implementation, or prior run results to the agent.
 4. Use the same model, reasoning configuration, OpenCode system instructions, prompt revision, tool revision, and repository revision for E1-E5 within a condition. The OpenCode adapter records observed model/provider/runtime/reasoning data; the harness may set only prompt/tool revision metadata when they are not otherwise available.

@@ -17,6 +17,7 @@ type SessionRunMetadata =
     { Model: string option
       ProviderRuntime: string option
       ReasoningConfig: string option
+      OpenCodeVersion: string option
       PromptRevision: string option
       ToolRevision: string option }
 
@@ -26,6 +27,7 @@ module SessionRunMetadata =
         { Model = None
           ProviderRuntime = None
           ReasoningConfig = None
+          OpenCodeVersion = None
           PromptRevision = None
           ToolRevision = None }
 
@@ -48,6 +50,7 @@ type SessionArtifactMetadata =
       Model: string
       ProviderRuntime: string
       ReasoningConfig: string
+      OpenCodeVersion: string
       PromptRevision: string
       ToolRevision: string }
 
@@ -588,6 +591,7 @@ module private Encode =
               "model", box value.Model
               "providerRuntime", box value.ProviderRuntime
               "reasoningConfig", box value.ReasoningConfig
+              "openCodeVersion", box value.OpenCodeVersion
               "promptRevision", box value.PromptRevision
               "toolRevision", box value.ToolRevision ]
 
@@ -1436,6 +1440,7 @@ module Session =
                   Model = suppliedValue supplied.Model
                   ProviderRuntime = suppliedValue supplied.ProviderRuntime
                   ReasoningConfig = suppliedValue supplied.ReasoningConfig
+                  OpenCodeVersion = suppliedValue supplied.OpenCodeVersion
                   PromptRevision = suppliedValue supplied.PromptRevision
                   ToolRevision = suppliedValue supplied.ToolRevision }
         | Error error, _

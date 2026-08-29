@@ -129,12 +129,13 @@ export async function ensurePrivateFile(path: string) {
   if (process.platform !== "win32") await chmod(path, 0o600)
 }
 
-function metadataArguments(sessionID: string) {
+export function metadataArguments(sessionID: string) {
   const observed = runMetadata.get(sessionID)
   const metadata = [
     ["--model", observed?.model],
     ["--provider-runtime", observed?.providerRuntime],
     ["--reasoning-config", observed?.reasoningConfig],
+    ["--opencode-version", process.env.NYAMNYAM_EVAL_OPENCODE_VERSION],
     ["--prompt-revision", process.env.NYAMNYAM_EVAL_PROMPT_REVISION],
     ["--tool-revision", process.env.NYAMNYAM_EVAL_TOOL_REVISION],
   ] as const

@@ -10,6 +10,7 @@ import {
   ensurePrivateDirectory,
   ensurePrivateFile,
   finalizeRunnerProcess,
+  metadataArguments,
   resolveArtifactRoot,
   validateRequestLine,
 } from "./nyamnyam-eval"
@@ -67,6 +68,19 @@ test("default artifact root is absolute and outside the worktree", () => {
   } finally {
     if (original === undefined) delete process.env.NYAMNYAM_EVAL_ARTIFACT_ROOT
     else process.env.NYAMNYAM_EVAL_ARTIFACT_ROOT = original
+  }
+})
+
+test("adapter forwards the harness OpenCode version as private run metadata", () => {
+  const original = process.env.NYAMNYAM_EVAL_OPENCODE_VERSION
+
+  try {
+    process.env.NYAMNYAM_EVAL_OPENCODE_VERSION = "1.2.3"
+    expect(metadataArguments("metadata-test")).toContainEqual("--opencode-version")
+    expect(metadataArguments("metadata-test")).toContainEqual("1.2.3")
+  } finally {
+    if (original === undefined) delete process.env.NYAMNYAM_EVAL_OPENCODE_VERSION
+    else process.env.NYAMNYAM_EVAL_OPENCODE_VERSION = original
   }
 })
 

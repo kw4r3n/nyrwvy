@@ -103,6 +103,8 @@ module AgentEvalProtocolTests =
                   "test-provider/runtime"
                   "--reasoning-config"
                   "reasoning=low"
+                  "--opencode-version"
+                  "1.2.3"
                   "--prompt-revision"
                   "prompt-v2"
                   "--tool-revision"
@@ -115,6 +117,7 @@ module AgentEvalProtocolTests =
             Assert.Equal(Some "test-model", arguments.RunMetadata.Model)
             Assert.Equal(Some "test-provider/runtime", arguments.RunMetadata.ProviderRuntime)
             Assert.Equal(Some "reasoning=low", arguments.RunMetadata.ReasoningConfig)
+            Assert.Equal(Some "1.2.3", arguments.RunMetadata.OpenCodeVersion)
             Assert.Equal(Some "prompt-v2", arguments.RunMetadata.PromptRevision)
             Assert.Equal(Some "tool-v3", arguments.RunMetadata.ToolRevision)
 
@@ -829,6 +832,7 @@ module AgentEvalProtocolTests =
             Assert.Equal("unavailable", metadata.GetProperty("model").GetString())
             Assert.Equal("unavailable", metadata.GetProperty("providerRuntime").GetString())
             Assert.Equal("unavailable", metadata.GetProperty("reasoningConfig").GetString())
+            Assert.Equal("unavailable", metadata.GetProperty("openCodeVersion").GetString())
             Assert.Equal("unavailable", metadata.GetProperty("promptRevision").GetString())
             Assert.Equal("unavailable", metadata.GetProperty("toolRevision").GetString())
             Assert.Equal(StableId.value fixture.Snapshot.Id, StableId.value session.RunMetadata.StartingSnapshotId)
@@ -861,6 +865,7 @@ module AgentEvalProtocolTests =
                             Model = Some "test-model"
                             ProviderRuntime = Some "test-provider/runtime"
                             ReasoningConfig = Some "reasoning=low"
+                            OpenCodeVersion = Some "1.2.3"
                             PromptRevision = Some "prompt-v2" } }
 
             let session =
@@ -874,6 +879,7 @@ module AgentEvalProtocolTests =
             Assert.Equal("test-model", metadata.GetProperty("model").GetString())
             Assert.Equal("test-provider/runtime", metadata.GetProperty("providerRuntime").GetString())
             Assert.Equal("reasoning=low", metadata.GetProperty("reasoningConfig").GetString())
+            Assert.Equal("1.2.3", metadata.GetProperty("openCodeVersion").GetString())
             Assert.Equal("prompt-v2", metadata.GetProperty("promptRevision").GetString())
             Assert.Equal("unavailable", metadata.GetProperty("toolRevision").GetString())
         finally
@@ -900,6 +906,8 @@ module AgentEvalProtocolTests =
                           "test-provider/runtime"
                           "--reasoning-config"
                           "reasoning=low"
+                          "--opencode-version"
+                          "1.2.3"
                           "--prompt-revision"
                           "prompt-v2"
                           "--tool-revision"
@@ -923,6 +931,7 @@ module AgentEvalProtocolTests =
             Assert.Equal("test-model", metadata.GetProperty("model").GetString())
             Assert.Equal("test-provider/runtime", metadata.GetProperty("providerRuntime").GetString())
             Assert.Equal("reasoning=low", metadata.GetProperty("reasoningConfig").GetString())
+            Assert.Equal("1.2.3", metadata.GetProperty("openCodeVersion").GetString())
             Assert.Equal("prompt-v2", metadata.GetProperty("promptRevision").GetString())
             Assert.Equal("tool-v3", metadata.GetProperty("toolRevision").GetString())
         finally
