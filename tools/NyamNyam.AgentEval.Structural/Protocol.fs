@@ -286,6 +286,7 @@ type StructuralSessionUsage =
 type StructuralSession internal (initialWorkspace: AgentWorkspace) =
     let mutable workspace = initialWorkspace
     let mutable proposals: Map<string, AgentStructuralChangeProposal> = Map.empty
+    let mutable lastPublication: PublishedStructuralTransaction option = None
     let mutable nextProposalNumber = 1
     let mutable usage =
         { ToolCalls = 0
@@ -406,6 +407,7 @@ type StructuralSession internal (initialWorkspace: AgentWorkspace) =
                       "diagnostics", Encode.diagnostics diagnostics ]
             | AgentStructuralCommitResult.Committed(nextWorkspace, publication) ->
                 workspace <- nextWorkspace
+                lastPublication <- Some publication
                 proposals <- Map.remove handle proposals
                 usage <- { usage with Commits = usage.Commits + 1 }
                 Json.objectValue
@@ -436,8 +438,13 @@ type StructuralSession internal (initialWorkspace: AgentWorkspace) =
         | other -> Input.fail $"Unsupported command '{other}' for protocol {StructuralProtocol.version}."
 
     member _.Usage = usage
+    member internal _.CurrentWorkspace = workspace
+    member internal _.ReplaceWorkspace(nextWorkspace: AgentWorkspace) = workspace <- nextWorkspace
+    member internal _.LastPublication = lastPublication
+    member internal _.PendingProposalCount = proposals.Count
 
     member _.ExecuteLine(line: string): string =
+        lastPublication <- None
         usage <- { usage with ToolCalls = usage.ToolCalls + 1 }
         try
             if String.IsNullOrWhiteSpace line then Input.fail "Input line must contain one JSON command."

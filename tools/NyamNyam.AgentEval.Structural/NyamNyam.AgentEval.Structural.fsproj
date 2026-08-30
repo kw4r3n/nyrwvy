@@ -5,10 +5,16 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../NyamNyam.AgentEval/ArtifactPermissions.fs" Link="ArtifactPermissions.fs" />
+    <Compile Include="StructuralHarnessBindings.fs" />
+    <Compile Include="StructuralVerification.fs" />
     <Compile Include="Protocol.fs" />
+    <Compile Include="StructuralHarness.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
   </ItemGroup>
 </Project>
