@@ -24,6 +24,7 @@
     <Compile Include="AgentStructuralContractTests.fs" />
     <Compile Include="AgentEvalProtocolTests.fs" />
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
+    <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="M2StructuralEvaluationCorpus.fs" />
     <Compile Include="M2StructuralEvaluationCorpusTests.fs" />
     <Compile Include="StructuralEvalHarnessTests.fs" />
@@ -64,5 +65,6 @@
     <ProjectReference Include="../../src/NyamNyam.Viewer/NyamNyam.Viewer.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
   </ItemGroup>
 </Project>
