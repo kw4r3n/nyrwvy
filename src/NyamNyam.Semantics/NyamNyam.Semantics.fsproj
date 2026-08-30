@@ -24,5 +24,6 @@
     <Compile Include="../NyamNyam.Core/ChangeReviewQuery.fs" Link="ChangeReviewQuery.fs" />
     <Compile Include="../NyamNyam.Core/AgentWorkflow.fs" Link="AgentWorkflow.fs" />
     <Compile Include="../NyamNyam.Core/AgentStructuralWorkflow.fs" Link="AgentStructuralWorkflow.fs" />
+    <Compile Include="../NyamNyam.Core/AgentListMapStructuralWorkflow.fs" Link="AgentListMapStructuralWorkflow.fs" />
   </ItemGroup>
 </Project>
