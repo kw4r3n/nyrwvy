@@ -13,7 +13,7 @@ Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 ex
 | M2.0 structural-edit contract | **Accepted** | [M2 decisions](../decisions/milestone-2.md), [current spec](../specs/bounded-structural-editing.md) |
 | M2.1 Float64 body-replacement implementation | **Implemented and locally verified** | PR #46, [implementation verification](../verification/m2-float64-structural-editing-20260830.md), [contract coverage](../verification/m2-structural-contract-coverage-20260830.md) |
 | M2.2 controlled agent evaluation | **Complete for frozen Float64 claim** | `m2-structural-v1`, frozen `m2-agent-corpus-v1`, verified/frozen [condition v1.1](../experiments/m2-agent-evaluation-condition-v1.1.md), [30-attempt evaluation record](../verification/m2-controlled-structural-agent-evaluation-20260831.md) |
-| Optional specialized List extension | **Decision pending** | Issue #52; decide from completed Float64 evidence before widening M2 |
+| M2.3 specialized ListMap extension | **Accepted; implementation next** | [ListMap decision](../decisions/milestone-2-listmap.md), #76 implementation, #77 controlled evaluation |
 
 The current implementation exposes the first structural operation through `AgentStructuralWorkflow`; it does not widen M1 `AgentOperationIntent` into a generic graph-builder surface.
 
@@ -145,17 +145,44 @@ Headline evidence:
 
 The systematic weakness is exact construction of very deep recursive explicit JSON recipes. M2-E6/a1 never reached the boundary, while a2/a3 obtained the expected depth-limit diagnostic with depth-34 recipes rather than the requested depth 33. This is tracked by Issue #73 without changing the frozen oracle. All E10 attempts also retained the old stale proposal handle at terminal state; that lifecycle finding is tracked by Issue #74 and is not an E10 semantic-oracle failure.
 
-The evidence supports the current bounded Float64 structural claim. It does not support arbitrary graph editing, reliable exact construction of huge deep recipes, or any List/higher-order structural claim.
+The evidence supports the current bounded Float64 structural claim. It does not support arbitrary graph editing, reliable exact construction of huge deep recipes, or any List/higher-order structural claim without separate implementation/evaluation.
 
-## Optional specialized List extension
+## M2.3 — Specialized ListMap structural slice
 
-Do not add List structural recipes merely because List nodes already exist.
+Issue #52 is complete and accepts one shallow specialized `ListMap` body-replacement role in M2. The maintained decision is [Milestone 2 ListMap decision](../decisions/milestone-2-listmap.md).
 
-Issue #52 is now unblocked and must choose explicitly whether one specialized List role such as `ListMap` belongs in M2 or should be deferred. The completed Float64 evaluation should drive that decision.
+Logical request direction:
 
-Any accepted List extension must preserve stable callback `FunctionId` references, source-list compatibility, pure-callback constraints, conservative type/effect rejection, system-owned new graph IDs, and exact before/after structural review. It must not imply generic lambdas/closures or a general graph-builder surface.
+```text
+AgentReplaceFunctionBodyWithListMap
+  TargetFunctionId
+  ExpectedBaseSnapshotId
+  ExpectedCurrentResultNodeId
+  SourceParameterId
+  MapperFunctionId
+```
 
-The E6 evidence argues against making deeper generic recursive recipe construction the next proof target. A List extension, if accepted, should therefore be a shallow specialized semantic role that provides materially new higher-order/type/effect evidence rather than simply more recursive syntax.
+The first slice is intentionally not a recursive List recipe language. It permits only:
+
+- a target returning `List<R>`;
+- one target-owned source parameter of type `List<T>`;
+- one existing mapper `FunctionId` compatible with the current pure `T -> R` List callback rule;
+- system-materialized fresh `ParameterReference` and `ListMap` nodes.
+
+It reuses the existing structural invariants for exact guards, obligation protection, requested-vs-materialized review, system-owned graph identity, stale publication failure, zero unrelated churn, and exact committed-state execution.
+
+The completed Float64 evidence is the reason to keep this role shallow. M2-E6 showed that exact construction of very deep recursive JSON is the current ergonomics weakness; the next slice should add higher-order/type/effect evidence instead of adding more recursive syntax.
+
+Implementation is tracked by **#76**. A separate List-specific frozen corpus and controlled evaluation are tracked by **#77**. The existing Float64 corpus/results remain immutable and complete independently.
+
+Out of scope for M2.3:
+
+- arbitrary nested List source recipes;
+- ListFilter/ListAny/ListAll in the same slice;
+- generic call/graph constructors;
+- generic lambdas/closures;
+- effectful List callbacks;
+- unrestricted graph editing.
 
 ## Work sequence
 
@@ -165,8 +192,10 @@ The E6 evidence argues against making deeper generic recursive recipe constructi
 4. **Complete:** freeze `m2-agent-corpus-v1` before valid model runs at `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`.
 5. **Complete:** verify/freeze real OpenCode condition v1.1 at `178f38274890a28ae61a1c70c9d598bc01492256`.
 6. **Complete:** run and review the 30-attempt controlled Stage A/Stage B tranche under Issue #51.
-7. **Next:** decide from evidence under Issue #52 whether a specialized List structural slice belongs in M2 or a later milestone.
-8. Update current references and close only the evidenced M2 claim.
+7. **Complete:** decide under Issue #52 to add one shallow specialized ListMap slice.
+8. **Next:** implement and locally verify the bounded ListMap operation under Issue #76.
+9. Freeze and run the ListMap-specific controlled corpus under Issue #77.
+10. Update current references and close only the evidenced M2 claim.
 
 ## Core exit criteria
 
@@ -183,6 +212,8 @@ The E6 evidence argues against making deeper generic recursive recipe constructi
 | 9 | Real-runtime controlled OpenCode condition is verified | **Complete — v1.1** |
 | 10 | Controlled structural agent evaluation record exists | **Complete — 30 valid attempts** |
 | 11 | Current docs accurately state the implemented versus evaluated scope | **Complete for current state** |
+| 12 | ListMap extension decision is evidence-backed and remains bounded | **Complete — #52** |
+| 13 | Bounded ListMap implementation and controlled evidence exist | Not started |
 
 ## Non-goals
 
