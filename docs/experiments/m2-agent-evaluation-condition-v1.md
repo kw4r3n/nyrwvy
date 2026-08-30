@@ -1,8 +1,10 @@
 # M2 structural agent evaluation condition v1
 
-**Status:** Verified and frozen for recorded runs at `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`. See [condition verification](../verification/m2-controlled-evaluation-condition-v1-20260830.md).
+**Status:** Frozen historical condition at `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`, but **invalid for recorded model evaluation** after the first real OpenCode Stage A attempt exposed a tool-discovery failure. See [local condition verification](../verification/m2-controlled-evaluation-condition-v1-20260830.md), [runtime failure record](../verification/m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md), and the [v1.1 remediation](m2-agent-evaluation-condition-v1.1.md).
 
-This document defines the controlled execution condition for the already frozen `m2-agent-corpus-v1`. It does not modify the corpus, its task oracles, or the agent-visible `m2-structural-v1` protocol.
+This document defines the original controlled execution condition for the already frozen `m2-agent-corpus-v1`. It does not modify the corpus, its task oracles, or the agent-visible `m2-structural-v1` protocol.
+
+Condition v1 passed repository-local .NET/Bun verification, but that verification did not prove that plugin-registered custom tools appeared in a real OpenCode `run` model tool list. In the first corrected Stage A collection, all ten OpenCode sessions loaded this agent's instructions but none exposed a callable `nyamnyam_structural_eval_*` tool; no harness run directory was created. Those attempts are retained as invalid-condition evidence and are not semantic task results.
 
 ## Frozen inputs
 
@@ -38,7 +40,7 @@ The evaluated agent cannot inspect repository files, tests, corpus/oracle files,
 
 The harness selects the task and fixture through environment configuration. The agent's first runner request must be `describeV1`; it discovers the exact command and recipe schema from the frozen runner response rather than receiving a pre-expanded structural command schema in its system instructions.
 
-One OpenCode agent session maps to one persistent `NyamNyam.AgentEval.Structural` process. Opaque proposal handles therefore remain valid across query, simulation, review, commit/reject, stale recovery, and finalization.
+One OpenCode agent session is intended to map to one persistent `NyamNyam.AgentEval.Structural` process. Opaque proposal handles therefore remain valid across query, simulation, review, commit/reject, stale recovery, and finalization once the bridge tool is actually available.
 
 ## Harness-owned startup configuration
 
@@ -54,11 +56,11 @@ NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION=<exact condition revision>
 
 `NYAMNYAM_STRUCTURAL_EVAL_ARTIFACT_ROOT` may override the default private artifact root, but it must be an absolute path outside the evaluation worktree.
 
-The bridge records the checked-out repository revision itself. Model/provider/runtime/reasoning metadata is captured from the OpenCode `chat.message` event where available.
+The bridge records the checked-out repository revision itself. Condition v1 attempted to capture model/provider/runtime/reasoning metadata from the OpenCode `chat.message` plugin hook.
 
 ## Frozen v1 seed interpretation
 
-The frozen corpus states that task seeds may supply stable IDs for existing semantic facts, but it does not enumerate a per-task seed table. Before observing any model output, condition v1 fixes the **minimal seed interpretation** below so later runs cannot selectively reveal more context after seeing failures.
+The frozen corpus states that task seeds may supply stable IDs for existing semantic facts, but it does not enumerate a per-task seed table. Before observing any model output, condition v1 fixed the **minimal seed interpretation** below so later runs cannot selectively reveal more context after seeing failures.
 
 Every task receives the frozen target function ID:
 
@@ -77,11 +79,11 @@ Additional seed IDs are supplied only where the frozen prompt explicitly says a 
 
 The agent must discover the actual current `SnapshotId`, target result-node guard, target parameter IDs/types, and other bounded structural context through `stateV1` / `focusFunctionV1` after first discovering those commands through `describeV1`.
 
-This table does not introduce new semantic information beyond stable bindings already frozen in `corpus.json`; it resolves only which frozen bindings are initially visible to the isolated agent. Changing this seed policy after model observation requires a new named evaluation condition, and changing the task/oracle semantics still requires a corpus version change.
+This seed table remains unchanged in v1.1. Changing it after model observation requires a new named evaluation condition, and changing the task/oracle semantics still requires a corpus version change.
 
 ## Private durable evidence
 
-The runner writes private artifacts under the harness run directory:
+The F# runner/harness was designed to write private artifacts under the harness run directory:
 
 - `run-metadata.json` — frozen corpus/protocol/task/fixture, starting identities, repository/model/runtime revisions;
 - `events.jsonl` — every agent-visible request/response with byte counts;
@@ -96,6 +98,8 @@ For M2-E1 the exact committed behavioral oracle is `evaluate_metric() == 3.75`. 
 
 The harness snapshots every non-target function in the frozen fixture at startup. Terminal `zeroUnrelatedSemanticChurn` compares those facts against the final workspace. For M2-E10, the explicitly harness-owned `unrelated_metric` advance is excluded from agent churn and is checked separately through `harnessPerturbationPreserved`.
 
+None of these artifacts were produced in the runtime-invalid Stage A attempt because the OpenCode bridge start tool was never actually invoked.
+
 ## M2-E10 harness perturbation
 
 Only M2-E10 enables the harness stale-workspace perturbation.
@@ -108,38 +112,38 @@ The evaluated agent has no command or tool argument that can invoke, change, or 
 
 ## Pre-run corpus interpretation limit
 
-Before any model output is observed, the frozen v1 corpus has one wording limitation that must remain explicit in the evaluation record:
+Before any model output was observed, the frozen v1 corpus had one wording limitation that remains explicit:
 
 - M2-E2 and M2-E3 say “requested literal replacement” but do not pin literal bits in the task prompt/seed.
 - Their frozen machine oracle is guard rejection followed by fresh reviewed recovery (`recoverThenCommit`), not a specific final literal value.
 
-The v1 runs must therefore be scored as recovery tasks, while still requiring a valid bounded structural commit and exact committed-state verification. Do not select a preferred literal after observing model behavior. If a later evaluation needs a specific replacement value, create and freeze `m2-agent-corpus-v2`.
+They must therefore be scored as recovery tasks, while still requiring a valid bounded structural commit and exact committed-state verification. Do not select a preferred literal after observing model behavior. If a later evaluation needs a specific replacement value, create and freeze `m2-agent-corpus-v2`.
 
 M2-E8/M2-E9 similarly care about the specified obligation-protection rejection rather than the value of an otherwise-valid literal request. M2-E10 measures stale-reviewed-proposal recovery and preservation of the harness advance; its frozen oracle does not prescribe one target replacement recipe.
 
-## Run controls
+## Historical run controls
 
-For every recorded autonomous attempt:
+Condition v1 intended every recorded autonomous attempt to:
 
-1. check out exact condition revision `6cbf13695fa90b1311ae7ece7da403f7cbeafe05` (or the dedicated condition branch pointing to it), with no tracked or untracked worktree changes;
+1. check out exact revision `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`, with no tracked or untracked worktree changes;
 2. restart OpenCode so project-local agent/plugin configuration is loaded from that revision;
-3. set the task/fixture and exact OpenCode/prompt/tool revision metadata;
-4. give the `nyamnyam-structural-eval` agent exactly one frozen task prompt plus the stable IDs permitted by the seed table above;
-5. do not reveal the corpus oracle or fixture source;
-6. let the agent start one persistent session, discover `describeV1`, act through bounded commands, and finalize once;
-7. retain unsuccessful attempts, protocol errors, semantic rejections, and interrupted/invalid harness runs rather than selectively discarding them;
-8. apply the frozen oracle from durable artifacts after the run.
+3. set task/fixture and exact OpenCode/prompt/tool revision metadata;
+4. give the agent exactly one frozen task prompt plus the permitted seed IDs;
+5. hide corpus oracle and fixture source;
+6. use one persistent session, discover `describeV1`, and finalize once;
+7. retain unsuccessful/invalid attempts;
+8. apply the frozen oracle from durable artifacts.
 
-The first controlled tranche under issue #51 should keep model, reasoning configuration, prompt revision, tool revision, OpenCode version, repository revision, and frozen corpus constant across repeated attempts within a named condition.
+The real-runtime failure occurred before step 6 could begin: the custom bridge tools were not present in the OpenCode model tool list.
 
 ## Classification boundary
 
-- A harness/artifact failure is an invalid controlled run, not an agent semantic failure.
-- A malformed/unsupported agent request is a tool-protocol error and remains part of the attempt record.
-- Expected simulation rejection in M2-E2 through M2-E9 is not itself task failure; recovery requirements and terminal behavior come from the frozen oracle.
+- A harness/artifact/transport failure is an invalid controlled run, not an agent semantic failure.
+- A malformed/unsupported agent request is a tool-protocol error only after a real request tool invocation occurs.
+- Expected simulation rejection in M2-E2 through M2-E9 is not itself task failure.
 - The first stale commit rejection in M2-E10 is protocol-required behavior, not agent error.
 - A semantic commit without durable exact verification is not an execution-oracle pass.
 - `zeroUnrelatedSemanticChurn=false` or `harnessPerturbationPreserved=false` is semantic oracle evidence, not a harness invalidation by itself.
 - Agent prose is never sufficient evidence of success.
 
-Issue #51 is now cleared to begin recorded model execution under the exact frozen condition above. Any condition change after model observation requires a new named condition revision; any task/oracle semantic change requires a new corpus version.
+**Do not start or resume corpus collection under condition v1.** Issue #51 is blocked on the condition v1.1 runtime preflight tracked by Issue #68. The frozen corpus remains unchanged.

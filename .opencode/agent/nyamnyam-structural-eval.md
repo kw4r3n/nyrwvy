@@ -1,6 +1,11 @@
 ---
 description: Run one frozen NyamNyam M2 structural evaluation task only through the persistent structural evaluation tools.
 mode: primary
+tools:
+  "*": false
+  nyamnyam_structural_eval_start: true
+  nyamnyam_structural_eval_request: true
+  nyamnyam_structural_eval_finalize: true
 permission:
   read: deny
   glob: deny
@@ -16,7 +21,6 @@ permission:
   skill: deny
   todowrite: deny
   external_directory: deny
-  "*": deny
   nyamnyam_structural_eval_start: allow
   nyamnyam_structural_eval_request: allow
   nyamnyam_structural_eval_finalize: allow
