@@ -27,6 +27,8 @@
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="M2StructuralEvaluationCorpus.fs" />
     <Compile Include="M2StructuralEvaluationCorpusTests.fs" />
+    <Compile Include="M2ListMapStructuralEvaluationCorpus.fs" />
+    <Compile Include="M2ListMapStructuralEvaluationCorpusTests.fs" />
     <Compile Include="StructuralEvalHarnessTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
@@ -57,6 +59,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="../../evaluation/m2-agent-corpus-v1/corpus.json" Link="evaluation/m2-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../evaluation/m2-listmap-agent-corpus-v1/corpus.json" Link="evaluation/m2-listmap-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />

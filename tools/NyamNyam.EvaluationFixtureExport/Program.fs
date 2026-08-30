@@ -5,9 +5,9 @@ open NyamNyam.Core
 open NyamNyam.Core.Tests
 
 let private usage =
-    """Usage:
+    $"""Usage:
   dotnet run --project tools/NyamNyam.EvaluationFixtureExport -- \
-    --fixture <m0|m1|m2-ready|m2-open-protected|m2-resolved-protected> --output <snapshot.json>
+    --fixture <m0|m1|{M2StructuralEvaluationCorpus.readyFixtureName}|{M2StructuralEvaluationCorpus.openProtectedFixtureName}|{M2StructuralEvaluationCorpus.resolvedProtectedFixtureName}|{M2ListMapStructuralEvaluationCorpus.readyFixtureName}|{M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName}|{M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName}> --output <snapshot.json>
 
 The exported snapshots are produced from the exact fixture source linked into the regression test project.
 """
@@ -33,12 +33,12 @@ let private parseOptions (arguments: string list): Result<Map<string, string>, s
 
     loop Map.empty arguments
 
-let private requiredOption name options =
+let private requiredOption (name: string) (options: Map<string, string>) =
     match Map.tryFind name options with
     | Some value -> Ok value
     | None -> Error $"Missing required {name} argument."
 
-let private createSnapshot fixtureName =
+let private createSnapshot (fixtureName: string): Result<Snapshot, string> =
     match fixtureName with
     | "m0" -> Ok((MilestoneZeroGraph.create ()).Snapshot)
     | "m1" -> Ok((MilestoneOneGraph.create ()).Snapshot)
@@ -48,11 +48,26 @@ let private createSnapshot fixtureName =
         Ok((M2StructuralEvaluationCorpus.openProtected ()).Snapshot)
     | value when value = M2StructuralEvaluationCorpus.resolvedProtectedFixtureName ->
         Ok((M2StructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
+    | value when value = M2ListMapStructuralEvaluationCorpus.readyFixtureName ->
+        Ok((M2ListMapStructuralEvaluationCorpus.ready ()).Snapshot)
+    | value when value = M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName ->
+        Ok((M2ListMapStructuralEvaluationCorpus.openProtected ()).Snapshot)
+    | value when value = M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName ->
+        Ok((M2ListMapStructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
     | value ->
-        Error
-            $"Unsupported fixture '{value}'. Expected m0, m1, {M2StructuralEvaluationCorpus.readyFixtureName}, {M2StructuralEvaluationCorpus.openProtectedFixtureName}, or {M2StructuralEvaluationCorpus.resolvedProtectedFixtureName}."
+        let expected =
+            [ "m0"
+              "m1"
+              M2StructuralEvaluationCorpus.readyFixtureName
+              M2StructuralEvaluationCorpus.openProtectedFixtureName
+              M2StructuralEvaluationCorpus.resolvedProtectedFixtureName
+              M2ListMapStructuralEvaluationCorpus.readyFixtureName
+              M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName
+              M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName ]
+            |> String.concat ", "
+        Error $"Unsupported fixture '{value}'. Expected one of: {expected}."
 
-let private export fixtureName outputPath =
+let private export (fixtureName: string) (outputPath: string) =
     createSnapshot fixtureName
     |> Result.bind (fun snapshot ->
         SnapshotCodec.serialize snapshot
