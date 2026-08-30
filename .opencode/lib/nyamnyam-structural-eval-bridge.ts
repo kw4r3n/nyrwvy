@@ -2,19 +2,17 @@ import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { chmod, mkdir, rm } from "node:fs/promises"
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
-import { tool, type Plugin } from "@opencode-ai/plugin"
 
 const requestTimeoutMs = 120_000
 const childShutdownTimeoutMs = 5_000
 const protocolVersion = "m2-structural-v1"
 const expectedCorpusRevision = "efce0cac15565941c11c8af8d1a52e7ecafaa5c6"
 const evaluationAgent = "nyamnyam-structural-eval"
+
 const sessions = new Map<string, LiveSession>()
 const startingSessions = new Set<string>()
-const startingTasks = new Map<string, Promise<void>>()
 const finalizedSessions = new Set<string>()
 const finalizationFailures = new Set<string>()
-const runMetadata = new Map<string, { model?: string; providerRuntime?: string; reasoningConfig?: string }>()
 
 export const frozenStructuralInputPaths = [
   "evaluation/m2-agent-corpus-v1",
@@ -24,6 +22,12 @@ export const frozenStructuralInputPaths = [
 ] as const
 
 type Fixture = "m2-ready" | "m2-open-protected" | "m2-resolved-protected"
+
+type StructuralToolContext = {
+  agent: string
+  sessionID: string
+  worktree: string
+}
 
 type ResponseWaiter = {
   resolve: (line: string) => void
@@ -142,12 +146,11 @@ export async function ensurePrivateFile(path: string) {
   if (process.platform !== "win32") await chmod(path, 0o600)
 }
 
-export function metadataArguments(sessionID: string) {
-  const observed = runMetadata.get(sessionID)
+export function metadataArguments() {
   const metadata = [
-    ["--model", observed?.model],
-    ["--provider-runtime", observed?.providerRuntime],
-    ["--reasoning-config", observed?.reasoningConfig],
+    ["--model", process.env.NYAMNYAM_STRUCTURAL_EVAL_MODEL],
+    ["--provider-runtime", process.env.NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME],
+    ["--reasoning-config", process.env.NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG],
     ["--opencode-version", process.env.NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION],
     ["--prompt-revision", process.env.NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION],
     ["--tool-revision", process.env.NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION],
@@ -305,18 +308,84 @@ async function withSessionLock<T>(session: LiveSession, operation: () => Promise
   }
 }
 
-async function finalize(sessionID: string) {
-  const session = sessions.get(sessionID)
+export async function startStructuralEvaluation(context: StructuralToolContext): Promise<string> {
+  requireEvaluationAgent(context.agent)
+  if (finalizedSessions.has(context.sessionID)) throw new Error("This structural evaluation agent session already finalized its one permitted run.")
+  if (startingSessions.has(context.sessionID) || sessions.has(context.sessionID)) throw new Error("A structural evaluation session is already active or starting.")
+
+  startingSessions.add(context.sessionID)
+  let child: ChildProcessWithoutNullStreams | undefined
+  let artifactDirectory: string | undefined
+  try {
+    const fixture = configuredFixture()
+    const taskID = configuredTaskID()
+    const artifactRoot = resolveArtifactRoot(context.worktree)
+    await runCommand("git", frozenInputDiffArguments(), context.worktree)
+    await ensurePrivateDirectory(artifactRoot)
+    artifactDirectory = runDirectory(context.sessionID, artifactRoot)
+    await ensurePrivateDirectory(artifactDirectory)
+    const inputPath = join(artifactDirectory, "fixture.json")
+
+    await runCommand(
+      "dotnet",
+      ["run", "--project", "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj", "--no-restore", "--", "--fixture", fixture, "--output", inputPath],
+      context.worktree,
+    )
+    await ensurePrivateFile(inputPath)
+    const repositoryRevision = await runCommand("git", ["rev-parse", "HEAD"], context.worktree)
+
+    const args = [
+      "run", "--project", "tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj", "--no-restore", "--",
+      "--protocol", protocolVersion,
+      "--input", inputPath,
+      "--artifact-dir", artifactDirectory,
+      "--fixture", fixture,
+      "--task-id", taskID,
+      "--repository-revision", repositoryRevision,
+      ...stalePerturbationArguments(taskID),
+      ...metadataArguments(),
+    ]
+    child = spawn("dotnet", args, { cwd: context.worktree, stdio: ["pipe", "pipe", "pipe"] })
+    sessions.set(context.sessionID, createLiveSession(child, artifactDirectory, context.sessionID))
+    return `NyamNyam structural evaluation session started for the frozen ${expectedCorpusRevision} corpus. Send describeV1 first.`
+  } catch (error) {
+    reportHarnessDiagnostic("startup-failed", { sessionID: context.sessionID, worktree: context.worktree, artifactDirectory, error: errorDetails(error) })
+    sessions.delete(context.sessionID)
+    if (child) await stopChild(child).catch(() => undefined)
+    if (artifactDirectory) await rm(artifactDirectory, { recursive: true, force: true }).catch(() => undefined)
+    throw new Error("NyamNyam structural evaluation session could not be started.")
+  } finally {
+    startingSessions.delete(context.sessionID)
+  }
+}
+
+export async function requestStructuralEvaluation(requestText: string, context: StructuralToolContext): Promise<string> {
+  requireEvaluationAgent(context.agent)
+  const session = sessions.get(context.sessionID)
+  if (!session) throw new Error("No active structural evaluation session. Start one first.")
+
+  return await withSessionLock(session, async () => {
+    if (session.closed || session.bridgeError) throw session.bridgeError ?? new Error("NyamNyam structural evaluation session is no longer available.")
+    const request = validateRequestLine(requestText)
+    await new Promise<void>((resolveWrite, reject) => {
+      session.child.stdin.write(`${request}\n`, (error) => (error ? reject(error) : resolveWrite()))
+    })
+    return await readResponse(session)
+  })
+}
+
+export async function finalizeStructuralEvaluation(context: StructuralToolContext): Promise<string> {
+  requireEvaluationAgent(context.agent)
+  const session = sessions.get(context.sessionID)
   if (!session) {
-    if (startingSessions.has(sessionID)) throw new Error("NyamNyam structural evaluation session is still starting.")
-    if (finalizationFailures.has(sessionID)) throw new Error("NyamNyam structural evaluation session finalization failed.")
+    if (startingSessions.has(context.sessionID)) throw new Error("NyamNyam structural evaluation session is still starting.")
+    if (finalizationFailures.has(context.sessionID)) throw new Error("NyamNyam structural evaluation session finalization failed.")
     return "No active NyamNyam structural evaluation session."
   }
 
   return await withSessionLock(session, async () => {
-    sessions.delete(sessionID)
-    finalizedSessions.add(sessionID)
-    runMetadata.delete(sessionID)
+    sessions.delete(context.sessionID)
+    finalizedSessions.add(context.sessionID)
     try {
       session.child.stdin.end()
       let code = await waitForExit(session.child)
@@ -325,130 +394,16 @@ async function finalize(sessionID: string) {
         code = session.child.exitCode
       }
       if (code !== 0) {
-        finalizationFailures.add(sessionID)
-        reportHarnessDiagnostic("finalization-failed", { sessionID, artifactDirectory: session.artifactDirectory, code, stderr: session.stderr })
+        finalizationFailures.add(context.sessionID)
+        reportHarnessDiagnostic("finalization-failed", { sessionID: context.sessionID, artifactDirectory: session.artifactDirectory, code, stderr: session.stderr })
         throw new Error("NyamNyam structural evaluation session finalization failed.")
       }
       return "NyamNyam structural evaluation session finalized."
     } catch (error) {
-      finalizationFailures.add(sessionID)
+      finalizationFailures.add(context.sessionID)
       if (error instanceof Error && error.message.includes("finalization failed")) throw error
-      reportHarnessDiagnostic("finalization-error", { sessionID, artifactDirectory: session.artifactDirectory, error: errorDetails(error), stderr: session.stderr })
+      reportHarnessDiagnostic("finalization-error", { sessionID: context.sessionID, artifactDirectory: session.artifactDirectory, error: errorDetails(error), stderr: session.stderr })
       throw new Error("NyamNyam structural evaluation session finalization failed.")
     }
   })
 }
-
-export const NyamNyamStructuralEvalPlugin: Plugin = async () => ({
-  tool: {
-    nyamnyam_structural_eval_start: tool({
-      description: "Start the single harness-configured persistent NyamNyam M2 structural evaluation session. Fixture, task, corpus revision, artifacts, and stale perturbation are harness-owned.",
-      args: {},
-      async execute(_args, context) {
-        requireEvaluationAgent(context.agent)
-        if (finalizedSessions.has(context.sessionID)) throw new Error("This structural evaluation agent session already finalized its one permitted run.")
-        if (startingSessions.has(context.sessionID) || sessions.has(context.sessionID)) throw new Error("A structural evaluation session is already active or starting.")
-
-        startingSessions.add(context.sessionID)
-        const startTask = (async () => {
-          let child: ChildProcessWithoutNullStreams | undefined
-          let artifactDirectory: string | undefined
-          try {
-            const fixture = configuredFixture()
-            const taskID = configuredTaskID()
-            const artifactRoot = resolveArtifactRoot(context.worktree)
-            await runCommand("git", frozenInputDiffArguments(), context.worktree)
-            await ensurePrivateDirectory(artifactRoot)
-            artifactDirectory = runDirectory(context.sessionID, artifactRoot)
-            await ensurePrivateDirectory(artifactDirectory)
-            const inputPath = join(artifactDirectory, "fixture.json")
-
-            await runCommand(
-              "dotnet",
-              ["run", "--project", "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj", "--no-restore", "--", "--fixture", fixture, "--output", inputPath],
-              context.worktree,
-            )
-            await ensurePrivateFile(inputPath)
-            const repositoryRevision = await runCommand("git", ["rev-parse", "HEAD"], context.worktree)
-
-            const args = [
-              "run", "--project", "tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj", "--no-restore", "--",
-              "--protocol", protocolVersion,
-              "--input", inputPath,
-              "--artifact-dir", artifactDirectory,
-              "--fixture", fixture,
-              "--task-id", taskID,
-              "--repository-revision", repositoryRevision,
-              ...stalePerturbationArguments(taskID),
-              ...metadataArguments(context.sessionID),
-            ]
-            child = spawn("dotnet", args, { cwd: context.worktree, stdio: ["pipe", "pipe", "pipe"] })
-            sessions.set(context.sessionID, createLiveSession(child, artifactDirectory, context.sessionID))
-            return `NyamNyam structural evaluation session started for the frozen ${expectedCorpusRevision} corpus. Send describeV1 first.`
-          } catch (error) {
-            reportHarnessDiagnostic("startup-failed", { sessionID: context.sessionID, worktree: context.worktree, artifactDirectory, error: errorDetails(error) })
-            sessions.delete(context.sessionID)
-            if (child) await stopChild(child).catch(() => undefined)
-            if (artifactDirectory) await rm(artifactDirectory, { recursive: true, force: true }).catch(() => undefined)
-            throw new Error("NyamNyam structural evaluation session could not be started.")
-          }
-        })()
-        const completion = startTask.then(() => undefined, () => undefined)
-        startingTasks.set(context.sessionID, completion)
-        try {
-          return await startTask
-        } finally {
-          startingSessions.delete(context.sessionID)
-          if (startingTasks.get(context.sessionID) === completion) startingTasks.delete(context.sessionID)
-        }
-      },
-    }),
-
-    nyamnyam_structural_eval_request: tool({
-      description: "Send exactly one JSON object to the active m2-structural-v1 session. Discover the exact schema with describeV1; this bridge adds no mutation authority.",
-      args: { request: tool.schema.string().describe("One JSON object for the frozen m2-structural-v1 protocol.") },
-      async execute(args, context) {
-        requireEvaluationAgent(context.agent)
-        const session = sessions.get(context.sessionID)
-        if (!session) throw new Error("No active structural evaluation session. Start one first.")
-        return await withSessionLock(session, async () => {
-          if (session.closed || session.bridgeError) throw session.bridgeError ?? new Error("NyamNyam structural evaluation session is no longer available.")
-          const request = validateRequestLine(args.request)
-          await new Promise<void>((resolveWrite, reject) => {
-            session.child.stdin.write(`${request}\n`, (error) => (error ? reject(error) : resolveWrite()))
-          })
-          return await readResponse(session)
-        })
-      },
-    }),
-
-    nyamnyam_structural_eval_finalize: tool({
-      description: "Finalize the structural evaluation session after its terminal protocol state. Runner finalization durably writes metrics, terminal workspace identity, and committed-state verification evidence.",
-      args: {},
-      async execute(_args, context) {
-        requireEvaluationAgent(context.agent)
-        return await finalize(context.sessionID)
-      },
-    }),
-  },
-  "chat.message": async (input) => {
-    if (!input.model) return
-    runMetadata.set(input.sessionID, {
-      model: `${input.model.providerID}/${input.model.modelID}`,
-      providerRuntime: "opencode",
-      reasoningConfig: input.variant,
-    })
-  },
-  dispose: async () => {
-    await Promise.all([...startingTasks.values()])
-    for (const sessionID of [...sessions.keys()]) {
-      try {
-        await finalize(sessionID)
-      } catch {
-        const session = sessions.get(sessionID)
-        if (session) await stopChild(session.child).catch(() => undefined)
-        sessions.delete(sessionID)
-      }
-    }
-  },
-})

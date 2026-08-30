@@ -13,7 +13,16 @@ import {
   resolveArtifactRoot,
   stalePerturbationArguments,
   validateRequestLine,
-} from "./nyamnyam-structural-eval"
+} from "../lib/nyamnyam-structural-eval-bridge.ts"
+
+test("direct structural tool modules load", async () => {
+  const start = await import("../tools/nyamnyam_structural_eval_start.ts")
+  const request = await import("../tools/nyamnyam_structural_eval_request.ts")
+  const finalize = await import("../tools/nyamnyam_structural_eval_finalize.ts")
+  expect(start.default).toBeDefined()
+  expect(request.default).toBeDefined()
+  expect(finalize.default).toBeDefined()
+})
 
 test("structural bridge retains complete response lines", () => {
   let state = appendResponseChunk({ buffered: "", completedLines: [] }, "first\nsecond")
@@ -52,9 +61,19 @@ test("structural artifact root must remain outside worktree", () => {
 })
 
 test("structural bridge pins corpus fixture and exporter inputs to the frozen revision", () => {
-  const args = frozenInputDiffArguments()
-  expect(args.slice(0, 4)).toEqual(["diff", "--exit-code", "efce0cac15565941c11c8af8d1a52e7ecafaa5c6", "--"])
-  for (const path of frozenStructuralInputPaths) expect(args).toContain(path)
+  expect(frozenStructuralInputPaths).toEqual([
+    "evaluation/m2-agent-corpus-v1",
+    "tests/NyamNyam.Core.Tests/M2StructuralEvaluationCorpus.fs",
+    "tools/NyamNyam.EvaluationFixtureExport/Program.fs",
+    "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj",
+  ])
+  expect(frozenInputDiffArguments()).toEqual([
+    "diff",
+    "--exit-code",
+    "efce0cac15565941c11c8af8d1a52e7ecafaa5c6",
+    "--",
+    ...frozenStructuralInputPaths,
+  ])
 })
 
 test("structural bridge uses harness-only stale perturbation only for E10", () => {
@@ -62,30 +81,42 @@ test("structural bridge uses harness-only stale perturbation only for E10", () =
   expect(stalePerturbationArguments("M2-E10")).toEqual(["--stale-perturbation", "m2-e10"])
 })
 
-test("structural bridge forwards private prompt/tool/OpenCode metadata", () => {
-  const previous = {
-    openCode: process.env.NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION,
-    prompt: process.env.NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION,
-    tool: process.env.NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION,
-  }
+test("structural bridge forwards operator-fixed model and condition metadata", () => {
+  const names = [
+    "NYAMNYAM_STRUCTURAL_EVAL_MODEL",
+    "NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME",
+    "NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG",
+    "NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION",
+    "NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION",
+    "NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION",
+  ] as const
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]))
   try {
+    process.env.NYAMNYAM_STRUCTURAL_EVAL_MODEL = "openai/gpt-5.6-terra"
+    process.env.NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME = "opencode"
+    process.env.NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG = "high"
     process.env.NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION = "test-opencode"
     process.env.NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION = "prompt-v1"
     process.env.NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION = "tool-v1"
-    const args = metadataArguments("no-observed-model")
-    expect(args).toContain("--opencode-version")
-    expect(args).toContain("test-opencode")
-    expect(args).toContain("--prompt-revision")
-    expect(args).toContain("prompt-v1")
-    expect(args).toContain("--tool-revision")
-    expect(args).toContain("tool-v1")
+    const args = metadataArguments()
+    expect(args).toContainEqual("--model")
+    expect(args).toContainEqual("openai/gpt-5.6-terra")
+    expect(args).toContainEqual("--provider-runtime")
+    expect(args).toContainEqual("opencode")
+    expect(args).toContainEqual("--reasoning-config")
+    expect(args).toContainEqual("high")
+    expect(args).toContainEqual("--opencode-version")
+    expect(args).toContainEqual("test-opencode")
+    expect(args).toContainEqual("--prompt-revision")
+    expect(args).toContainEqual("prompt-v1")
+    expect(args).toContainEqual("--tool-revision")
+    expect(args).toContainEqual("tool-v1")
   } finally {
-    if (previous.openCode === undefined) delete process.env.NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION
-    else process.env.NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION = previous.openCode
-    if (previous.prompt === undefined) delete process.env.NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION
-    else process.env.NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION = previous.prompt
-    if (previous.tool === undefined) delete process.env.NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION
-    else process.env.NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION = previous.tool
+    for (const name of names) {
+      const value = previous[name]
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
   }
 })
 
