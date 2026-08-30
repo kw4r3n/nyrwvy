@@ -1,0 +1,236 @@
+{
+  "corpusId": "m2-listmap-agent-corpus-v1",
+  "status": "frozen-on-freeze-branch",
+  "protocolVersion": "m2-listmap-structural-v1",
+  "agentExecutable": "tools/NyamNyam.AgentEval.ListMapStructural",
+  "fixtureExporter": "tools/NyamNyam.EvaluationFixtureExport",
+  "samplingPlan": {
+    "model": "openai/gpt-5.6-terra",
+    "reasoning": "high",
+    "attemptsPerTask": 3,
+    "taskCount": 10,
+    "targetValidAttempts": 30,
+    "stageA": "1 fresh attempt per task; inspect only condition validity/durability",
+    "stageB": "2 further fresh attempts per task if Stage A condition is valid, regardless semantic outcomes"
+  },
+  "fixtures": {
+    "m2-listmap-ready": {
+      "snapshotId": "snapshot-m2-listmap-eval-ready",
+      "targetFunctionId": "function-m2-listmap-eval-target",
+      "sourceListParameterId": "parameter-m2-listmap-eval-target-values",
+      "nonListParameterId": "parameter-m2-listmap-eval-target-count",
+      "targetResultNodeId": "node-m2-listmap-eval-target-result",
+      "compatibleMapperFunctionId": "function-m2-listmap-eval-positive",
+      "wrongInputMapperFunctionId": "function-m2-listmap-eval-string-to-bool",
+      "wrongResultMapperFunctionId": "function-m2-listmap-eval-int-identity",
+      "effectfulMapperFunctionId": "function-m2-listmap-eval-effectful-positive",
+      "missingMapperFunctionId": "function-m2-listmap-eval-missing-mapper",
+      "callerFunctionId": "function-m2-listmap-eval-caller",
+      "callerCallNodeId": "node-m2-listmap-eval-caller-call",
+      "foreignFunctionId": "function-m2-listmap-eval-foreign",
+      "foreignListParameterId": "parameter-m2-listmap-eval-foreign-values",
+      "unrelatedFunctionId": "function-m2-listmap-eval-unrelated",
+      "unrelatedResultNodeId": "node-m2-listmap-eval-unrelated-result"
+    },
+    "m2-listmap-open-protected": {
+      "snapshotId": "snapshot-m2-listmap-eval-open-protected",
+      "targetFunctionId": "function-m2-listmap-eval-target",
+      "sourceListParameterId": "parameter-m2-listmap-eval-target-values",
+      "compatibleMapperFunctionId": "function-m2-listmap-eval-positive",
+      "targetResultNodeId": "node-m2-listmap-eval-open-protected-call",
+      "obligationId": "obligation-m2-listmap-eval-open-protected"
+    },
+    "m2-listmap-resolved-protected": {
+      "snapshotId": "snapshot-m2-listmap-eval-resolved-protected",
+      "targetFunctionId": "function-m2-listmap-eval-target",
+      "sourceListParameterId": "parameter-m2-listmap-eval-target-values",
+      "compatibleMapperFunctionId": "function-m2-listmap-eval-positive",
+      "targetResultNodeId": "node-m2-listmap-eval-resolved-protected-call",
+      "obligationId": "obligation-m2-listmap-eval-resolved-protected"
+    }
+  },
+  "tasks": [
+    {
+      "id": "M2-L1",
+      "class": "successful-reviewed-listmap-replacement",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Replace map_signs's complete body with ListMap using its target-owned values parameter and the existing pure positive mapper. Preserve the target function/signature, caller, declarations, foreign source, and unrelated marker. Review the requested SourceParameterId and MapperFunctionId separately from the complete materialized before/after structural diff before committing.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "expected": {
+        "kind": "commit",
+        "readiness": "semanticallyReady",
+        "addedRoles": ["ParameterReference", "ListMap"],
+        "requestedSourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "requestedMapperFunctionId": "function-m2-listmap-eval-positive",
+        "newGraphNodeIds": "system-owned-fresh",
+        "behavior": "evaluate_listmap() == true",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": [
+        "successful target-owned List<T> source plus pure T -> R mapper",
+        "requested semantic IDs distinct from materialized graph IDs",
+        "system-owned materialized node identities and review order",
+        "exact committed-state lowering and behavioral execution",
+        "zero unrelated semantic churn"
+      ]
+    },
+    {
+      "id": "M2-L2",
+      "class": "foreign-list-source-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs using foreign_values, whose supplied ParameterId belongs to foreign_source, with the otherwise compatible positive mapper. Observe the structured rejection and do not substitute the target's values parameter or commit anything.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-foreign-values",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListSourceParameterOutOfScope",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["foreign List source parameter rejection"]
+    },
+    {
+      "id": "M2-L3",
+      "class": "non-list-source-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs using its target-owned count parameter, which is Int64 rather than List<Int64>, with the compatible positive mapper. Do not introduce a conversion, wrapper list, or substitute source after rejection.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-count",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListSourceTypeMismatch",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["non-List source parameter rejection"]
+    },
+    {
+      "id": "M2-L4",
+      "class": "unknown-mapper-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs using values and the supplied missing mapper FunctionId. Observe the structured rejection; do not choose another mapper or commit anything.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-missing-mapper"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListMapperNotFound",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["unknown mapper FunctionId rejection"]
+    },
+    {
+      "id": "M2-L5",
+      "class": "mapper-input-type-mismatch-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs using values : List<Int64> and the existing pure string-to-bool mapper : String -> Bool. Observe the input-type mismatch; do not convert elements or substitute a mapper.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-string-to-bool"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListMapperInputTypeMismatch",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["mapper input-type mismatch rejection"]
+    },
+    {
+      "id": "M2-L6",
+      "class": "mapper-result-type-mismatch-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs, whose result is List<Bool>, using values : List<Int64> and the existing pure int-identity mapper : Int64 -> Int64. Observe the mapper-result mismatch; do not change the target result type or substitute a mapper.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-int-identity"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListMapperResultTypeMismatch",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["mapper result-type mismatch rejection"]
+    },
+    {
+      "id": "M2-L7",
+      "class": "effectful-mapper-rejection",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Attempt the ListMap replacement on map_signs using values and effectful-positive, which has the otherwise compatible Int64 -> Bool signature but requires an effect. Observe the pure-callback rejection; do not remove the effect requirement or substitute the pure mapper.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-effectful-positive"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralListMapperEffectsNotAllowed",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["effectful mapper rejection under pure callback rule"]
+    },
+    {
+      "id": "M2-L8",
+      "class": "open-obligation-protected-body-rejection",
+      "fixture": "m2-listmap-open-protected",
+      "prompt": "Attempt the otherwise valid values + positive ListMap complete-body replacement on the target whose current body call is referenced by an open durable obligation. Do not resolve, delete, or retarget the obligation.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralBodyReferencedByObligation",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["open-obligation-protected body rejection"]
+    },
+    {
+      "id": "M2-L9",
+      "class": "resolved-obligation-protected-body-rejection",
+      "fixture": "m2-listmap-resolved-protected",
+      "prompt": "Attempt the otherwise valid values + positive ListMap complete-body replacement on the target whose current body call is referenced by a resolved historical obligation. Do not delete or retarget the historical obligation.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "expected": {
+        "kind": "simulationRejected",
+        "diagnostic": "StructuralBodyReferencedByObligation",
+        "zeroUnrelatedSemanticChurn": true
+      },
+      "covers": ["resolved-obligation-protected body rejection"]
+    },
+    {
+      "id": "M2-L10",
+      "class": "stale-reviewed-proposal-recovery",
+      "fixture": "m2-listmap-ready",
+      "prompt": "Create and review the valid values + positive ListMap replacement for map_signs. The harness will then publish one unrelated rename of unrelated_marker. Your reviewed target proposal must fail stale; inspect the advanced workspace, create a fresh reviewed target proposal, and commit it without undoing the harness-owned rename.",
+      "request": {
+        "sourceParameterId": "parameter-m2-listmap-eval-target-values",
+        "mapperFunctionId": "function-m2-listmap-eval-positive"
+      },
+      "harnessPerturbation": {
+        "kind": "renameFunction",
+        "functionId": "function-m2-listmap-eval-unrelated",
+        "newDisplayName": "unrelated_marker_harness_advanced"
+      },
+      "expected": {
+        "kind": "staleThenRecover",
+        "firstCommitDiagnostic": "StaleBaseSnapshot",
+        "preserveHarnessChange": true,
+        "behavior": "evaluate_listmap() == true",
+        "zeroUnrelatedSemanticChurnApartFromHarnessChange": true
+      },
+      "covers": [
+        "stale reviewed proposal rejection after harness-owned unrelated publication",
+        "fresh recovery against advanced workspace",
+        "preservation of harness-owned unrelated semantic change"
+      ]
+    }
+  ]
+}
