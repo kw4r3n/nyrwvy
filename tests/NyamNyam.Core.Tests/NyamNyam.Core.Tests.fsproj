@@ -25,6 +25,7 @@
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="M2StructuralEvaluationCorpus.fs" />
     <Compile Include="M2StructuralEvaluationCorpusTests.fs" />
+    <Compile Include="StructuralEvalHarnessTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
