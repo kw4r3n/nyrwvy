@@ -5,7 +5,12 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../NyamNyam.AgentEval/ArtifactPermissions.fs" Link="ArtifactPermissions.fs" />
+    <Compile Include="ListMapStructuralHarnessBindings.fs" />
+    <Compile Include="ListMapStructuralOracle.fs" />
+    <Compile Include="ListMapStructuralVerification.fs" />
     <Compile Include="Protocol.fs" />
+    <Compile Include="ListMapStructuralHarness.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

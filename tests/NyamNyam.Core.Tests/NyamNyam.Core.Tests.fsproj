@@ -30,6 +30,7 @@
     <Compile Include="M2ListMapStructuralEvaluationCorpus.fs" />
     <Compile Include="M2ListMapStructuralEvaluationCorpusTests.fs" />
     <Compile Include="StructuralEvalHarnessTests.fs" />
+    <Compile Include="ListMapStructuralEvalHarnessTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
