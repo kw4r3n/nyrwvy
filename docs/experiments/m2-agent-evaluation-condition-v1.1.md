@@ -1,11 +1,14 @@
 # M2 structural agent evaluation condition v1.1
 
-**Status:** Candidate remediation after condition v1 real-runtime tool-discovery failure. No valid corpus run may begin until the exact v1.1 candidate passes repository-local verification **and** the real OpenCode runtime preflight.
+**Status:** Verified and frozen for recorded runs at `178f38274890a28ae61a1c70c9d598bc01492256`. See [runtime verification](../verification/m2-controlled-evaluation-condition-v1.1-preflight-20260830.md).
 
-Condition v1.1 preserves every frozen semantic input from v1. Its only intended change is the OpenCode transport used to expose the three persistent bridge tools.
+Condition v1.1 preserves every frozen semantic input from v1. Its only change is the OpenCode transport used to expose the three persistent bridge tools.
 
-## Unchanged frozen inputs
+## Frozen condition
 
+- condition branch: `eval/m2-structural-condition-v1.1-20260830`
+- condition SHA: `178f38274890a28ae61a1c70c9d598bc01492256`
+- integration PR: #71
 - corpus: `m2-agent-corpus-v1`
 - corpus branch: `eval/m2-agent-corpus-v1-20260830`
 - corpus SHA: `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`
@@ -13,7 +16,8 @@ Condition v1.1 preserves every frozen semantic input from v1. Its only intended 
 - task prompts and machine oracles: unchanged
 - fixture source/exporter: unchanged
 - minimal seed interpretation: unchanged from condition v1
-- model condition planned for the first tranche: `openai/gpt-5.6-terra`, variant `high`
+- first tranche model condition: `openai/gpt-5.6-terra`, variant `high`
+- verified OpenCode runtime: `1.18.18`
 
 M2-E2/E3 retain the already-recorded v1 interpretation: they measure guard rejection and fresh recovery; the frozen task does not pin a final literal value.
 
@@ -21,7 +25,7 @@ M2-E2/E3 retain the already-recorded v1 interpretation: they measure guard rejec
 
 Condition v1 passed .NET and Bun tests but failed its first real OpenCode Stage A collection. Ten fresh OpenCode sessions loaded the evaluation-agent instructions yet exposed no callable `nyamnyam_structural_eval_*` tool. No harness run directory was created in any attempt.
 
-That failure is recorded separately in `m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md`. It is a transport-condition failure, not model semantic evidence.
+That failure is recorded in `m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md`. It is a transport-condition failure, not model semantic evidence, and contributes zero valid corpus attempts.
 
 ## Direct custom-tool boundary
 
@@ -45,9 +49,9 @@ The tool names and agent-visible behavior remain exactly:
 - `nyamnyam_structural_eval_request`
 - `nyamnyam_structural_eval_finalize`
 
-The evaluated agent still has no repository/file/shell access and no direct artifact path or fixture-selection control.
+The evaluated agent still has no repository/file/shell access and no direct artifact path or fixture-selection control. Agent tool exposure is explicitly whitelisted to these three bridge tools.
 
-The old M2 plugin-registered tool surface is removed in v1.1. The M1 `nyamnyam-eval` plugin/condition is not changed.
+The old M2 plugin-registered tool surface is removed in v1.1. The historical M1 `nyamnyam-eval` condition is not reinterpreted by this change.
 
 ## Persistent session semantics
 
@@ -72,63 +76,73 @@ The operator fixes and exports the same values used to launch OpenCode:
 NYAMNYAM_STRUCTURAL_EVAL_MODEL=openai/gpt-5.6-terra
 NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME=opencode
 NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG=high
-NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION=<exact version>
+NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION=1.18.18
 NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION=m2-corpus-v1-seed-v1
-NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION=<exact v1.1 condition SHA>
+NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION=178f38274890a28ae61a1c70c9d598bc01492256
 ```
 
 The structural runner persists those harness-owned values in `run-metadata.json`. They must match the actual operator command used for a recorded tranche.
 
-## Repository-local verification
+## Verification evidence
 
-Before runtime preflight, the exact candidate must pass:
+The exact condition SHA passed:
 
 ```text
 bash scripts/verify-local-20260825-1427.sh --clean
 ```
 
-plus focused structural harness/protocol/corpus tests and:
+with 0 warnings/errors and 213/213 tests, plus 16/16 focused structural tests and 8/8 direct-tool Bun tests.
 
-```text
-bun test ./.opencode/tests/nyamnyam-structural-eval.test.ts
-```
-
-The Bun test imports the three direct custom-tool modules as well as the shared bridge implementation. Tests under `.opencode/tests/` are deliberately outside plugin auto-discovery.
-
-## Required real-runtime preflight
-
-Repository-local imports are not sufficient evidence after the v1 failure.
-
-Run on the exact clean candidate:
+The exact same revision then passed:
 
 ```text
 fish scripts/preflight-m2-structural-opencode.fish
 ```
 
-This is **not** a corpus attempt. Its prompt permits only:
+in OpenCode 1.18.18 using `openai/gpt-5.6-terra`, variant `high`.
 
-1. real `nyamnyam_structural_eval_start` invocation;
-2. one real request carrying `{ "command": "describeV1" }`;
-3. real `nyamnyam_structural_eval_finalize` invocation.
+The real runtime emitted exactly one completed tool event for each of start/request/finalize. The runner received exactly one `{ "command": "describeV1" }` request; private metrics reported one tool call, zero simulations/commits/protocol errors, and terminal state with zero semantic churn.
 
-It must produce exactly one private harness run directory whose:
+See [M2 condition v1.1 runtime verification](../verification/m2-controlled-evaluation-condition-v1.1-preflight-20260830.md).
 
-- `events.jsonl` contains `describeV1`;
-- `run-state.json` is terminal;
-- required metadata/artifacts are non-empty;
-- event log contains no simulation or commit command.
+## Frozen seed interpretation
 
-The preflight captures OpenCode stdout and DEBUG stderr for diagnosis. An archive is emitted under `/tmp`.
+Every task receives:
 
-Only after that exact candidate passes may a dedicated v1.1 condition branch be frozen and replacement Stage A collection start from attempt 1/task. Condition-v1 invalid attempts remain historical and are never mixed into the v1.1 sample.
+```text
+targetFunctionId = function-m2-eval-target
+```
 
-## Sampling plan after preflight
+Additional seed IDs remain:
 
-The pre-result sampling plan itself is unchanged:
+| Task | Additional seed |
+| --- | --- |
+| M2-E2 | `staleExpectedBaseSnapshotId = snapshot-m2-eval-wrong-base` |
+| M2-E3 | `wrongExpectedCurrentResultNodeId = node-m2-eval-wrong-result` |
+| M2-E4 | `foreignParameterId = parameter-m2-eval-foreign-value` |
+| M2-E1, E5-E10 | none |
+
+Correct current guards/parameter context must be discovered through the bounded structural runner after `describeV1`.
+
+## Sampling plan
+
+The pre-result sampling plan remains unchanged:
 
 - Stage A: one fresh valid attempt per M2-E1..E10;
-- inspect only harness validity/durability;
+- inspect only harness validity/durability before proceeding;
 - if valid, Stage B adds two fresh attempts per task regardless of semantic Stage A results;
 - target sample: 3 valid attempts/task, 30 valid attempts total.
 
-A semantic failure never cancels Stage B. Another harness/transport failure invalidates v1.1 and requires another named condition revision.
+One fresh OpenCode session and fixture export are required per attempt. Do not continue a previous session. Invalid harness/transport runs are retained but do not enter the 30-valid-attempt sample.
+
+## Classification boundary
+
+- condition-v1 tool-discovery attempts are historical invalid-condition evidence, not semantic task failures;
+- expected simulation rejection in M2-E2 through M2-E9 is not itself task failure;
+- the first stale commit rejection in M2-E10 is required behavior;
+- semantic commits require durable exact-state verification where the frozen oracle requires commit success;
+- agent prose is never sufficient evidence;
+- task/oracle/fixture semantic changes require a new corpus version;
+- later transport/harness-condition changes require a new named evaluation condition.
+
+Condition v1.1 is cleared for #51 Stage A collection under this exact frozen condition.

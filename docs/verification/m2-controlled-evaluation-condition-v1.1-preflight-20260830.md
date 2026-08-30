@@ -1,34 +1,93 @@
 # M2 controlled evaluation condition v1.1 runtime preflight — 2026-08-30
 
-**Status:** The first real-runtime preflight on candidate `66857fb5b216b718220e2b0d7b37a704c41a9f8a` substantively passed the transport/runtime requirements. The preflight shell script itself reported a false positive because it searched the full `describeV1` response for the names of semantic commands. The checker is corrected in the next candidate; exact-condition freeze still requires one final rerun on that exact head.
+**Status:** Verified and frozen for recorded model runs.
 
-## Candidate and runtime
+This record verifies the real OpenCode transport/runtime boundary for M2 controlled condition v1.1. The condition preserves the frozen `m2-agent-corpus-v1`, the `m2-structural-v1` runner protocol, task prompts/oracles/fixtures, minimal seed policy, and F# semantic harness.
 
-- candidate revision: `66857fb5b216b718220e2b0d7b37a704c41a9f8a`
+## Exact revisions
+
+- condition branch: `eval/m2-structural-condition-v1.1-20260830`
+- exact condition SHA: `178f38274890a28ae61a1c70c9d598bc01492256`
+- integration PR: #71
+- main merge commit: `abdb6276b67e36deb917a22f1e81623689ad4905`
+- frozen corpus branch: `eval/m2-agent-corpus-v1-20260830`
+- frozen corpus SHA: `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`
+- protocol: `m2-structural-v1`
 - OpenCode: `1.18.18`
 - model: `openai/gpt-5.6-terra`
 - variant: `high`
-- frozen corpus SHA: `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`
-- protocol: `m2-structural-v1`
-- purpose: harness/tool transport preflight only; not a corpus attempt
 
-## Durable evidence
+The condition SHA is the exact revision that passed both clean repository-local verification and the final real OpenCode runtime preflight. Later documentation/operator-checker changes do not redefine the condition.
 
-The uploaded preflight archive contained exactly one harness run directory plus OpenCode JSON stdout and DEBUG stderr.
+## Repository-local verification
 
-OpenCode emitted real `tool_use` events, each completed successfully:
+Environment:
+
+- .NET SDK: `10.0.111`
+- exact branch head: `178f38274890a28ae61a1c70c9d598bc01492256`
+
+Clean verification:
+
+```text
+bash scripts/verify-local-20260825-1427.sh --clean
+```
+
+Result:
+
+- Release build: **0 warnings, 0 errors**
+- full suite: **213 passed, 0 failed, 0 skipped**
+- all required M0/M1 focused phases: **passed**
+- terminal result: `=== VERIFICATION PASSED ===`
+
+Additional focused structural tests:
+
+```text
+dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
+  --configuration Release --no-build --no-restore \
+  --filter 'FullyQualifiedName~StructuralEvalHarnessTests|FullyQualifiedName~StructuralAgentEvalProtocolTests|FullyQualifiedName~M2StructuralEvaluationCorpusTests'
+```
+
+Result: **16 passed, 0 failed, 0 skipped**.
+
+Direct custom-tool Bun tests:
+
+```text
+bun test ./.opencode/tests/nyamnyam-structural-eval.test.ts
+```
+
+Result: **8 passed, 0 failed**, 32 assertions.
+
+The Bun suite includes direct imports of all three `.opencode/tools/` modules, request framing/validation, frozen-input pinning, E10-only perturbation configuration, operator-fixed metadata, and private Unix permissions.
+
+## Final real-runtime preflight
+
+Command:
+
+```text
+fish scripts/preflight-m2-structural-opencode.fish
+```
+
+Result on exact SHA `178f38274890a28ae61a1c70c9d598bc01492256`:
+
+```text
+=== RUNTIME PREFLIGHT PASSED ===
+```
+
+The uploaded archive contained exactly one harness run directory plus OpenCode JSON stdout and DEBUG stderr.
+
+OpenCode emitted real completed `tool_use` events for each bridge action exactly once:
 
 1. `nyamnyam_structural_eval_start`
-2. `nyamnyam_structural_eval_request` with exact input `{"command":"describeV1"}`
+2. `nyamnyam_structural_eval_request`
 3. `nyamnyam_structural_eval_finalize`
 
-The F# runner's `events.jsonl` contained exactly one request:
+The request tool input was exactly:
 
 ```json
 {"command":"describeV1"}
 ```
 
-The apparent strings `simulateStructuralV1`, `commitStructuralV1`, and `commitStructuralAllowIncompleteV1` occurred only inside the **response schema returned by `describeV1`**. They were not requests.
+The F# runner's `events.jsonl` contained exactly one request, also `describeV1`.
 
 Terminal runner metrics were:
 
@@ -37,42 +96,52 @@ Terminal runner metrics were:
 - `simulations`: 0
 - `commitAttempts`: 0
 - `commits`: 0
+- `agentRejects`: 0
 - `protocolErrors`: 0
+- `rejectedSimulations`: 0
+- `rejectedCommits`: 0
 - `eventCount`: 1
 - `pendingProposalCount`: 0
 - `zeroUnrelatedSemanticChurn`: true
 - `harnessPerturbationApplied`: false
 - `harnessPerturbationPreserved`: true
+- verification reports: none, as expected because no semantic commit occurred
 
-`run-state.json` was terminal and retained the original `snapshot-m2-eval-ready` semantic state. No verification report was expected because no semantic commit occurred.
+`run-state.json` was terminal and retained `snapshot-m2-eval-ready` with the original semantic fingerprint.
 
-`run-metadata.json` correctly recorded the candidate SHA as both repository/tool revision and recorded model/runtime/reasoning/OpenCode metadata.
+`run-metadata.json` recorded:
 
-## Checker false positive
+- corpus revision `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`;
+- protocol `m2-structural-v1`;
+- model `openai/gpt-5.6-terra`;
+- provider/runtime `opencode`;
+- reasoning `high`;
+- OpenCode `1.18.18`;
+- repository/tool revision `178f38274890a28ae61a1c70c9d598bc01492256`.
 
-The original preflight shell script rejected the run with:
+## Earlier checker false positive
 
-```text
-ERROR: preflight performed a semantic simulation/commit.
-```
+The first real-runtime v1.1 preflight on an earlier candidate had already proved the direct tool transport, but the operator shell checker searched the entire `describeV1` response for semantic command names. Because `describeV1` intentionally lists supported commands, that run was falsely reported as if a simulation/commit had occurred.
 
-Its check was equivalent to searching the whole runner event line for semantic command names. Because `describeV1` intentionally returns the supported command names as schema data, the response itself contains those strings.
+The checker was corrected to inspect the exact runner request and private counters. The final exact-condition rerun above passed normally. The false-positive attempt remains evidence and is not a corpus attempt.
 
-This is a **preflight-checker defect**, not a tool-transport/harness defect.
+## Condition-v1 contrast
 
-The checker is changed to validate:
+Condition v1 had loaded the evaluation-agent instructions but exposed no callable M2 bridge tools in ten fresh OpenCode sessions; zero harness run directories were created. Those sessions remain `invalid-condition / opencode-tool-discovery` and count as **0 valid corpus attempts**.
 
-- one real OpenCode `tool_use` event for each of start/request/finalize;
-- the exact `events.jsonl` request field for `describeV1`;
-- runner counters `simulations=0`, `commitAttempts=0`, `commits=0`, `eventCount=1`, `protocolErrors=0`;
-- terminal run state.
+Condition v1.1 removes the failed plugin registration dependency by using direct project-local custom tools under `.opencode/tools/` with shared persistent state under `.opencode/lib/`.
 
-## Other observed runtime note
+## Separate M1 runtime note
 
-OpenCode DEBUG stderr also reported that the separate historical M1 plugin `.opencode/plugins/nyamnyam-eval.ts` failed to load with `Spread syntax requires ...iterable not be null or undefined`. This did not prevent the new direct M2 tools from loading or executing. It is not part of the M2 v1.1 transport failure/fix and should not be mixed into the v1.1 semantic condition claim.
+DEBUG stderr reported an unrelated load failure for the historical M1 plugin `.opencode/plugins/nyamnyam-eval.ts` under OpenCode 1.18.18. It did not prevent the M2 direct tools from loading or executing. This is tracked separately in Issue #70 and is not an M2 v1.1 blocker.
 
 ## Freeze consequence
 
-This run proves that direct `.opencode/tools/` discovery fixes the actual condition-v1 failure mode. However, because the checker itself is part of the condition branch and is being corrected, do not freeze `66857...` as the final v1.1 condition. Run repository-local verification and one final real-runtime preflight on the exact post-checker-fix candidate, then freeze that exact SHA before corpus collection.
+Condition v1.1 is now cleared for the previously fixed #51 sampling plan:
 
-No corpus task was evaluated by this preflight.
+- Stage A: one fresh valid attempt per M2-E1..E10;
+- inspect harness validity/durability only before continuing;
+- if Stage A condition artifacts are valid, Stage B adds two fresh attempts per task regardless of semantic Stage A results;
+- target: 3 valid attempts/task, 30 valid attempts total.
+
+The original condition-v1 invalid attempts do not enter this sample. Any later transport/harness condition change requires another named condition revision; any task/oracle/fixture semantic change requires a new corpus version.
