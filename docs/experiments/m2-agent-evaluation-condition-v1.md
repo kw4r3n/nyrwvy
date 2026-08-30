@@ -1,6 +1,6 @@
 # M2 structural agent evaluation condition v1
 
-**Status:** Candidate condition; no recorded model run may begin until issue #64 is clean-verified and its exact tool revision is recorded.
+**Status:** Verified and frozen for recorded runs at `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`. See [condition verification](../verification/m2-controlled-evaluation-condition-v1-20260830.md).
 
 This document defines the controlled execution condition for the already frozen `m2-agent-corpus-v1`. It does not modify the corpus, its task oracles, or the agent-visible `m2-structural-v1` protocol.
 
@@ -9,8 +9,11 @@ This document defines the controlled execution condition for the already frozen 
 - Corpus: `m2-agent-corpus-v1`.
 - Frozen corpus branch: `eval/m2-agent-corpus-v1-20260830`.
 - Frozen corpus SHA: `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`.
+- Controlled condition branch: `eval/m2-structural-condition-v1-20260830`.
+- Controlled condition SHA: `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`.
 - Agent-visible protocol: `m2-structural-v1`.
 - Corpus freeze evidence: [`m2-agent-corpus-v1-freeze-20260830.md`](../verification/m2-agent-corpus-v1-freeze-20260830.md).
+- Controlled condition evidence: [`m2-controlled-evaluation-condition-v1-20260830.md`](../verification/m2-controlled-evaluation-condition-v1-20260830.md).
 
 The controlled harness may add private evidence and startup configuration. It may not change the JSON commands/cases/authority described by `describeV1`.
 
@@ -118,7 +121,7 @@ M2-E8/M2-E9 similarly care about the specified obligation-protection rejection r
 
 For every recorded autonomous attempt:
 
-1. check out one exact condition revision containing the verified controlled harness, with no tracked or untracked worktree changes;
+1. check out exact condition revision `6cbf13695fa90b1311ae7ece7da403f7cbeafe05` (or the dedicated condition branch pointing to it), with no tracked or untracked worktree changes;
 2. restart OpenCode so project-local agent/plugin configuration is loaded from that revision;
 3. set the task/fixture and exact OpenCode/prompt/tool revision metadata;
 4. give the `nyamnyam-structural-eval` agent exactly one frozen task prompt plus the stable IDs permitted by the seed table above;
@@ -139,4 +142,4 @@ The first controlled tranche under issue #51 should keep model, reasoning config
 - `zeroUnrelatedSemanticChurn=false` or `harnessPerturbationPreserved=false` is semantic oracle evidence, not a harness invalidation by itself.
 - Agent prose is never sufficient evidence of success.
 
-Issue #51 may begin model execution only after this condition is locally verified and its exact revision is recorded before results are observed.
+Issue #51 is now cleared to begin recorded model execution under the exact frozen condition above. Any condition change after model observation requires a new named condition revision; any task/oracle semantic change requires a new corpus version.
