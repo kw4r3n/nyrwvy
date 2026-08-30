@@ -12,7 +12,7 @@ Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 ex
 | --- | --- | --- |
 | M2.0 structural-edit contract | **Accepted** | [M2 decisions](../decisions/milestone-2.md), [current spec](../specs/bounded-structural-editing.md) |
 | M2.1 Float64 body-replacement implementation | **Implemented and locally verified** | PR #46, [implementation verification](../verification/m2-float64-structural-editing-20260830.md), [contract coverage](../verification/m2-structural-contract-coverage-20260830.md) |
-| M2.2 controlled agent evaluation | **Blocked on condition v1.1 runtime preflight** | `m2-structural-v1` and frozen `m2-agent-corpus-v1` remain valid; condition v1 failed real OpenCode tool discovery and is superseded by [v1.1](../experiments/m2-agent-evaluation-condition-v1.1.md) / #68 |
+| M2.2 controlled agent evaluation | **Ready for Stage A recorded runs** | `m2-structural-v1`, frozen `m2-agent-corpus-v1`, verified/frozen [condition v1.1](../experiments/m2-agent-evaluation-condition-v1.1.md), [runtime verification](../verification/m2-controlled-evaluation-condition-v1.1-preflight-20260830.md) |
 | Optional specialized List extension | **Deferred pending evidence** | decide after controlled structural-edit evaluation |
 
 The current implementation exposes the first structural operation through `AgentStructuralWorkflow`; it does not widen M1 `AgentOperationIntent` into a generic graph-builder surface.
@@ -57,11 +57,19 @@ The exact current contract is maintained in [Bounded structural editing](../spec
 
 ## M2.2 — Controlled agent evaluation
 
-The next milestone gate is recorded model evidence, not more semantic breadth. The restricted structural runner and frozen structural corpus are complete and locally verified. The remaining blocker is the OpenCode transport condition used to expose the three persistent bridge tools to the evaluated agent.
+The next milestone gate is recorded model evidence, not more semantic breadth. The structural runner, frozen corpus, and real OpenCode controlled condition are now independently verified.
 
-Condition v1 (`6cbf13695fa90b1311ae7ece7da403f7cbeafe05`) passed repository-local .NET/Bun verification, but the first real OpenCode Stage A attempt exposed no callable `nyamnyam_structural_eval_*` tools in any of ten fresh sessions. No harness run directory or structural protocol event was produced. Those ten sessions are invalid-condition evidence, not semantic task failures. See [runtime failure record](../verification/m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md).
+Condition v1 (`6cbf13695fa90b1311ae7ece7da403f7cbeafe05`) passed repository-local verification but failed real OpenCode tool discovery. Ten fresh sessions exposed no callable M2 bridge tool and produced zero harness run directories. Those sessions remain invalid-condition evidence and contribute zero valid corpus attempts. See [runtime failure record](../verification/m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md).
 
-Issue #68 defines condition v1.1, which preserves all frozen semantic inputs and moves the bridge actions to OpenCode's direct project-local custom-tool discovery path. Recorded corpus runs remain blocked until the exact v1.1 candidate passes both repository-local verification and a real start -> `describeV1` -> finalize runtime preflight.
+Condition v1.1 fixes only the OpenCode transport boundary and is frozen at:
+
+```text
+branch: eval/m2-structural-condition-v1.1-20260830
+sha:    178f38274890a28ae61a1c70c9d598bc01492256
+OpenCode: 1.18.18
+```
+
+That exact revision passed clean local verification, focused structural tests, direct-tool Bun tests, and a real start -> `describeV1` -> finalize OpenCode preflight with terminal durable artifacts and zero semantic changes. See [v1.1 runtime verification](../verification/m2-controlled-evaluation-condition-v1.1-preflight-20260830.md).
 
 ### Runner boundary
 
@@ -88,13 +96,13 @@ The runner does not expose:
 - JSON/Nyason mutation;
 - privileged fixture controls as agent commands.
 
-The verified protocol itself is recorded in [M2 structural agent-eval protocol verification](../verification/m2-structural-agent-eval-v1-20260830.md). The condition-v1 transport failure does not change that runner/protocol claim. M1 corpus/tool revisions remain frozen and are not reinterpreted by this addition.
+The verified protocol itself is recorded in [M2 structural agent-eval protocol verification](../verification/m2-structural-agent-eval-v1-20260830.md). The condition-v1 transport failure did not change that runner/protocol claim. M1 corpus/tool revisions remain frozen and are not reinterpreted by this addition.
 
 ### Frozen corpus
 
 `m2-agent-corpus-v1` remains frozen before valid model runs.
 
-Frozen condition:
+Frozen corpus:
 
 ```text
 branch: eval/m2-agent-corpus-v1-20260830
@@ -121,9 +129,9 @@ Any prompt, oracle, fixture-binding, or semantic harness change after this freez
 
 ### Evaluation record
 
-Issue #51 remains the active evidence gate, but valid collection is paused until #68 proves condition v1.1 in a real OpenCode runtime.
+Issue #51 is the active evidence gate and is cleared for Stage A under condition v1.1.
 
-Once unblocked, record every attempt, including unsuccessful ones, with:
+Record every attempt, including unsuccessful ones, with:
 
 - repository/tool/corpus revisions;
 - model/runtime/reasoning metadata where available;
@@ -133,9 +141,16 @@ Once unblocked, record every attempt, including unsuccessful ones, with:
 - structural semantic churn;
 - exact terminal and verification artifacts.
 
-No success percentage is predetermined. The gate is reviewed evidence that clearly states useful behavior and remaining failure modes.
+The pre-result sampling plan remains 3 valid fresh attempts per task:
 
-The pre-result sampling plan remains 3 valid fresh attempts per task. Invalid harness/transport attempts are retained but do not count toward that sample and require a new named condition rather than silent replacement inside the same condition.
+1. Stage A: one fresh valid attempt per M2-E1..E10;
+2. inspect only harness validity/durability before proceeding;
+3. if valid, Stage B adds two fresh attempts per task regardless of Stage A semantic results;
+4. target: 30 valid attempts total.
+
+Invalid harness/transport attempts are retained but do not count toward the valid sample. Semantic failures do not cancel Stage B.
+
+No success percentage is predetermined. The gate is reviewed evidence that clearly states useful behavior and remaining failure modes.
 
 ## Optional specialized List extension
 
@@ -151,8 +166,8 @@ It is not part of the current M2 completion claim.
 2. **Complete:** implement and locally verify the Float64 complete-body replacement slice.
 3. **Complete:** add and verify the restricted `m2-structural-v1` runner protocol.
 4. **Complete:** freeze `m2-agent-corpus-v1` before valid model runs at `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`.
-5. **In progress:** repair and real-runtime preflight the OpenCode controlled condition under #68 / condition v1.1.
-6. Run and review the controlled evaluation tranche under issue #51.
+5. **Complete:** verify/freeze real OpenCode condition v1.1 at `178f38274890a28ae61a1c70c9d598bc01492256`.
+6. **Next:** run and review the controlled Stage A/Stage B tranche under issue #51.
 7. Decide from evidence whether specialized List structure belongs in M2 or a later milestone.
 8. Update current references and close only the evidenced M2 claim.
 
@@ -168,7 +183,7 @@ It is not part of the current M2 completion claim.
 | 6 | Float64 recipe passes semantic-to-execution behavior | **Complete for implemented slice** |
 | 7 | Clean local verification exists for the exact implementation head | **Complete** |
 | 8 | Versioned structural runner protocol and frozen M2 corpus exist | **Complete** |
-| 9 | Real-runtime controlled OpenCode condition is verified | **In progress — v1.1 preflight required** |
+| 9 | Real-runtime controlled OpenCode condition is verified | **Complete — v1.1** |
 | 10 | Controlled structural agent evaluation record exists | Not started |
 | 11 | Current docs accurately state the implemented versus evaluated scope | **Complete for current state** |
 
