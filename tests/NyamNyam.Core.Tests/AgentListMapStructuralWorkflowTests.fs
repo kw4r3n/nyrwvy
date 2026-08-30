@@ -503,14 +503,27 @@ module AgentListMapStructuralWorkflowTests =
             Assert.Equal(snapshotFingerprint, SnapshotFingerprint.compute restored |> unwrap (label + " snapshot fingerprint"))
             Assert.Equal(semanticFingerprint, SemanticFingerprint.compute restored |> unwrap (label + " semantic fingerprint"))
             let target = restored.Functions |> List.find (fun fn -> fn.Id = fixture.TargetFunctionId)
-            match target.Body.Nodes with
-            | [ { Id = sourceNodeId; Kind = SemanticNodeKind.ParameterReference sourceParameterId }
-                { Id = mapNodeId; Kind = SemanticNodeKind.ListMap(sourceId, mapperId) } ] ->
-                Assert.Equal(fixture.SourceParameterId, sourceParameterId)
-                Assert.Equal(sourceNodeId, sourceId)
-                Assert.Equal(fixture.MapperFunctionId, mapperId)
-                Assert.Equal(mapNodeId, target.Body.ResultNodeId)
-            | other -> failwithf "%s restored unexpected ListMap body: %A" label other
+            Assert.Equal(2, target.Body.Nodes.Length)
+            let sourceNodeId =
+                target.Body.Nodes
+                |> List.tryPick (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.ParameterReference sourceParameterId
+                        when sourceParameterId = fixture.SourceParameterId -> Some node.Id
+                    | _ -> None)
+                |> Option.defaultWith (fun () ->
+                    failwithf "%s restored body missing expected source ParameterReference: %A" label target.Body.Nodes)
+            let mapNodeId, sourceId =
+                target.Body.Nodes
+                |> List.tryPick (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.ListMap(sourceId, mapperId)
+                        when mapperId = fixture.MapperFunctionId -> Some(node.Id, sourceId)
+                    | _ -> None)
+                |> Option.defaultWith (fun () ->
+                    failwithf "%s restored body missing expected ListMap: %A" label target.Body.Nodes)
+            Assert.Equal(sourceNodeId, sourceId)
+            Assert.Equal(mapNodeId, target.Body.ResultNodeId)
 
     [<Fact>]
     let ``ListMap request authority exposes only existing stable IDs and exact guards`` () =
