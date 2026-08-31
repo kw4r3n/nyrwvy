@@ -1,10 +1,10 @@
 # Milestone 2 — Bounded structural expression editing
 
-**Status:** Active
+**Status:** Complete for the accepted bounded Float64 + specialized ListMap scope
 
 Milestone 2 extends NyamNyam's agent-editing authority from the bounded M1 operations into deliberately limited structural expression authoring while preserving graph authority, stable identity, validation, review, and exact publication.
 
-Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 explicitly left arbitrary List/numeric structural editing outside that claim; M2 begins by adding narrow structural surfaces rather than unrestricted graph mutation.
+Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 explicitly left arbitrary List/numeric structural editing outside that claim; M2 adds narrow structural surfaces rather than unrestricted graph mutation. Completion here means the accepted Float64 and shallow specialized ListMap claims are implemented, versioned, locally verified, and supported by frozen controlled-agent evidence. It does **not** mean arbitrary graph editing, generic recursive List recipes, lambdas/closures, or effectful callbacks are accepted.
 
 ## Current state
 
@@ -13,7 +13,7 @@ Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 ex
 | M2.0 structural-edit contract | **Accepted** | [M2 decisions](../decisions/milestone-2.md), [current spec](../specs/bounded-structural-editing.md) |
 | M2.1 Float64 body-replacement implementation | **Implemented and locally verified** | PR #46, [implementation verification](../verification/m2-float64-structural-editing-20260830.md), [contract coverage](../verification/m2-structural-contract-coverage-20260830.md) |
 | M2.2 controlled agent evaluation | **Complete for frozen Float64 claim** | `m2-structural-v1`, frozen `m2-agent-corpus-v1`, verified/frozen [condition v1.1](../experiments/m2-agent-evaluation-condition-v1.1.md), [30-attempt evaluation record](../verification/m2-controlled-structural-agent-evaluation-20260831.md) |
-| M2.3 specialized ListMap extension | **Implementation, protocol, corpus, and condition complete; scored tranche next** | [ListMap decision](../decisions/milestone-2-listmap.md), [implementation verification](../verification/m2-listmap-structural-editing-20260831.md), [protocol verification](../verification/m2-listmap-structural-agent-protocol-v1-20260831.md), [corpus freeze](../verification/m2-listmap-agent-corpus-v1-freeze-20260831.md), [condition preflight](../verification/m2-listmap-controlled-condition-v1-preflight-20260831.md), #77 |
+| M2.3 specialized ListMap extension | **Complete for frozen specialized ListMap claim** | [ListMap decision](../decisions/milestone-2-listmap.md), [implementation verification](../verification/m2-listmap-structural-editing-20260831.md), [protocol verification](../verification/m2-listmap-structural-agent-protocol-v1-20260831.md), [corpus freeze](../verification/m2-listmap-agent-corpus-v1-freeze-20260831.md), [condition preflight](../verification/m2-listmap-controlled-condition-v1-preflight-20260831.md), [30-attempt evaluation record](../verification/m2-listmap-controlled-structural-agent-evaluation-20260831.md) |
 
 The current implementation exposes two separate bounded structural operations through dedicated workflows/protocols; it does not widen M1 `AgentOperationIntent` into a generic graph-builder surface.
 
@@ -145,7 +145,7 @@ Headline evidence:
 
 The systematic weakness is exact construction of very deep recursive explicit JSON recipes. M2-E6/a1 never reached the boundary, while a2/a3 obtained the expected depth-limit diagnostic with depth-34 recipes rather than the requested depth 33. This is tracked by Issue #73 without changing the frozen oracle. All E10 attempts also retained the old stale proposal handle at terminal state; that lifecycle finding is tracked by Issue #74 and is not an E10 semantic-oracle failure.
 
-The evidence supports the current bounded Float64 structural claim. It does not support arbitrary graph editing, reliable exact construction of huge deep recipes, or any List/higher-order structural claim without separate implementation/evaluation.
+The evidence supports the current bounded Float64 structural claim. It does not support arbitrary graph editing or reliable exact construction of huge deep recipes.
 
 ## M2.3 — Specialized ListMap structural slice
 
@@ -210,7 +210,7 @@ Its ten tasks cover:
 
 The freeze passed clean local verification, focused tests, and all three deterministic fixture exports. See [ListMap corpus freeze verification](../verification/m2-listmap-agent-corpus-v1-freeze-20260831.md).
 
-The pre-result sampling plan is fixed at **three fresh attempts per M2-L1..M2-L10 (30 valid attempts target)**. Stage A is one attempt per task and is reviewed only as a condition-validity/durability gate; if valid, Stage B runs the two remaining attempts per task regardless of Stage A semantic outcomes.
+The pre-result sampling plan was fixed at **three fresh attempts per M2-L1..M2-L10 (30 valid attempts target)**. Stage A was one attempt per task and served only as a condition-validity/durability gate; Stage B then ran the two remaining attempts per task without changing frozen prompts/oracles.
 
 ### Frozen ListMap condition
 
@@ -230,9 +230,33 @@ That exact condition passed clean local verification, **26/26** focused .NET tes
 
 The condition uses direct project-local OpenCode tools from the start; it does not repeat the earlier unverified plugin-registration path. M2-L10's unrelated publication is harness-owned and does not widen the agent-visible command set.
 
-No scored `M2-L1..M2-L10` attempt had been run when this condition was frozen. Operator-side prompt wrapping and Stage A/B orchestration are frozen separately under #93 before the first scored observation. Issue #77 owns the final controlled tranche and result interpretation.
+### Frozen operator and completed controlled tranche
 
-The completed Float64 corpus/results remain immutable and independent; ListMap evidence cannot reinterpret or rescore them.
+Operator-side prompt wrapping and Stage A/B orchestration were frozen before the first scored observation at:
+
+```text
+branch: eval/m2-listmap-orchestrator-v1-20260831
+sha:    f7d6d07cd47367dde2272386b6e430fddef6d03a
+prompt revision: m2-listmap-corpus-v1-seed-v1
+```
+
+The completed ListMap tranche contains **30 valid autonomous attempts** across M2-L1..M2-L10. See [M2 ListMap controlled structural agent evaluation](../verification/m2-listmap-controlled-structural-agent-evaluation-20260831.md).
+
+Headline evidence:
+
+- frozen machine-oracle pass: **30/30 (100%)**;
+- exact expected structured diagnostics for rejection tasks: **24/24**;
+- successful reviewed publications: **6/6**;
+- exact two-node system-owned `ParameterReference -> ListMap` materialization and durable Typed Semantic IR -> Execution IR -> C# verification: **6/6**, execution output `true` in all six;
+- M2-L10 stale reviewed-proposal rejection and fresh recovery: **3/3**, with the harness-owned unrelated rename preserved;
+- zero unrelated semantic churn: **30/30**;
+- protocol errors: **0**;
+- explicit agent proposal rejects: **0**;
+- simulations: **33**, exactly the minimum implied by three L1 successes, twenty-four expected rejections, and two simulations in each of three L10 stale-recovery attempts.
+
+The frozen operator's TSV summary initially undercounted L2-L9 because it required `harness-events.jsonl` to be non-empty even when no harness-owned event was expected. Raw durable artifacts established the 30/30 result without changing any oracle. The bug was tracked in #96 and fixed **after** the tranche in #99; frozen Stage A/B evidence remains on the unchanged `f7d6d07c...` operator revision.
+
+The completed Float64 corpus/results remain immutable and independent; ListMap evidence does not reinterpret or rescore them.
 
 Out of scope for M2.3:
 
@@ -256,8 +280,9 @@ Out of scope for M2.3:
 9. **Complete:** add and locally verify dedicated `m2-listmap-structural-v1` protocol under #82/#84.
 10. **Complete:** freeze `m2-listmap-agent-corpus-v1` at `a2ffb5615d37d44bbd910c4f47c36136c31cdce4` before model observation.
 11. **Complete:** verify/freeze real ListMap OpenCode condition v1 at `23bf09d87c03b9c15dd4640b662a05b24aa5e330`.
-12. **Next:** freeze the operator-side prompt/orchestration revision under #93, then run Stage A and Stage B under #77 without changing frozen prompts/oracles.
-13. Update current references and close only the evidenced M2 claim after the controlled ListMap tranche is reviewed.
+12. **Complete:** freeze operator prompt/orchestration at `f7d6d07cd47367dde2272386b6e430fddef6d03a` before scored observation.
+13. **Complete:** run and review the 30-attempt controlled ListMap Stage A/Stage B tranche under #77 and record the result.
+14. **Complete:** fix the post-tranche operator summary bug under #96/#99 without changing frozen evidence.
 
 ## Core exit criteria
 
@@ -272,10 +297,10 @@ Out of scope for M2.3:
 | 7 | Clean local verification exists for exact implementation heads | **Complete for Float64 and ListMap** |
 | 8 | Versioned structural runner protocols and frozen corpora exist | **Complete for Float64 and ListMap** |
 | 9 | Real-runtime controlled OpenCode conditions are verified | **Complete for Float64 v1.1 and ListMap v1** |
-| 10 | Controlled structural agent evaluation record exists | **Complete for Float64; pending for ListMap** |
-| 11 | Current docs accurately state the implemented versus evaluated scope | **Complete through ListMap pre-score state** |
+| 10 | Controlled structural agent evaluation records exist | **Complete for Float64 and ListMap** |
+| 11 | Current docs accurately state the implemented versus evaluated scope | **Complete** |
 | 12 | ListMap extension decision is evidence-backed and remains bounded | **Complete — #52** |
-| 13 | Bounded ListMap implementation and controlled evidence exist | **Implementation/protocol/corpus/condition complete; 30-attempt controlled evidence pending** |
+| 13 | Bounded ListMap implementation and controlled evidence exist | **Complete — 30/30 frozen machine-oracle pass** |
 
 ## Non-goals
 
