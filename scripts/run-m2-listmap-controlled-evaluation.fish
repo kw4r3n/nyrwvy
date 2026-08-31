@@ -1,5 +1,8 @@
 #!/usr/bin/env fish
 
+set -l script_dir (path dirname (status --current-filename))
+source "$script_dir/lib/m2-listmap-evaluation-summary.fish"
+
 set -l condition_sha 23bf09d87c03b9c15dd4640b662a05b24aa5e330
 set -l condition_branch eval/m2-listmap-condition-v1-20260831
 set -l corpus_sha a2ffb5615d37d44bbd910c4f47c36136c31cdce4
@@ -320,17 +323,8 @@ for task_id in $task_ids
             set -l state_path "$run_dir/run-state.json"
             set -l run_metadata_path "$run_dir/run-metadata.json"
             set -l metrics_path "$run_dir/metrics.json"
-            set -l events_path "$run_dir/events.jsonl"
-            set -l harness_events_path "$run_dir/harness-events.jsonl"
 
-            set -l durable 1
-            for required_path in "$state_path" "$run_metadata_path" "$metrics_path" "$events_path" "$harness_events_path"
-                if not test -s "$required_path"
-                    set durable 0
-                end
-            end
-
-            if test $durable -eq 1
+            if m2_listmap_artifact_set_is_durable "$run_dir"
                 set terminal (python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1])).get("state") == "terminal").lower())' "$state_path")
                 set metadata_ok (python3 -c '
 import json, sys
