@@ -7,6 +7,7 @@ set -l condition_sha 23bf09d87c03b9c15dd4640b662a05b24aa5e330
 set -l condition_tag eval/m2-listmap-condition-v1-20260831
 set -l corpus_sha a2ffb5615d37d44bbd910c4f47c36136c31cdce4
 set -l corpus_tag eval/m2-listmap-agent-corpus-v1-20260831
+set -l orchestrator_sha f7d6d07cd47367dde2272386b6e430fddef6d03a
 set -l orchestrator_tag eval/m2-listmap-orchestrator-v1-20260831
 set -l protocol m2-listmap-structural-v1
 set -l model openai/gpt-5.6-terra
@@ -103,17 +104,10 @@ end
 
 set -l current_revision (git rev-parse HEAD)
 if test $dry_run -eq 0
-    set -l orchestrator_revision (git rev-parse "refs/tags/$orchestrator_tag^{commit}" 2>/dev/null)
-    if test -z "$orchestrator_revision"
-        echo "ERROR: freeze tag $orchestrator_tag is unavailable locally; actual scored runs require the frozen orchestrator tag." >&2
-        exit 1
-    end
-    if test "$orchestrator_revision" != "f7d6d07cd47367dde2272386b6e430fddef6d03a"
-        echo "ERROR: freeze tag $orchestrator_tag moved: expected f7d6d07cd47367dde2272386b6e430fddef6d03a, got $orchestrator_revision." >&2
-        exit 1
-    end
-    if test "$current_revision" != "$orchestrator_revision"
-        echo "ERROR: scored runs must execute from frozen orchestrator revision $orchestrator_revision; current HEAD is $current_revision." >&2
+    require_freeze_tag "$orchestrator_tag" "$orchestrator_sha"
+    or exit 1
+    if test "$current_revision" != "$orchestrator_sha"
+        echo "ERROR: scored runs must execute from frozen orchestrator revision $orchestrator_sha; current HEAD is $current_revision." >&2
         exit 1
     end
 end
