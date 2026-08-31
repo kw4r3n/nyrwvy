@@ -17,6 +17,8 @@ Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 ex
 
 The current implementation exposes two separate bounded structural operations through dedicated workflows/protocols; it does not widen M1 `AgentOperationIntent` into a generic graph-builder surface.
 
+Canonical immutable freeze names are maintained as Git tags. Historical verification records may retain `branch` terminology where that describes how the freeze was originally created.
+
 ## Accepted M2.1 slice
 
 The first structural operation replaces the complete body of one existing `Float64`-returning function.
@@ -64,7 +66,7 @@ Condition v1 (`6cbf13695fa90b1311ae7ece7da403f7cbeafe05`) passed repository-loca
 Condition v1.1 fixes only the OpenCode transport boundary and is frozen at:
 
 ```text
-branch: eval/m2-structural-condition-v1.1-20260830
+tag:    eval/m2-structural-condition-v1.1-20260830
 sha:    178f38274890a28ae61a1c70c9d598bc01492256
 OpenCode: 1.18.18
 model: openai/gpt-5.6-terra
@@ -105,7 +107,7 @@ The verified protocol itself is recorded in [M2 structural agent-eval protocol v
 `m2-agent-corpus-v1` was frozen before valid model runs.
 
 ```text
-branch: eval/m2-agent-corpus-v1-20260830
+tag:    eval/m2-agent-corpus-v1-20260830
 sha:    efce0cac15565941c11c8af8d1a52e7ecafaa5c6
 protocol: m2-structural-v1
 ```
@@ -190,7 +192,7 @@ The independent ListMap corpus was frozen before model observation at:
 
 ```text
 corpus: m2-listmap-agent-corpus-v1
-branch: eval/m2-listmap-agent-corpus-v1-20260831
+tag:    eval/m2-listmap-agent-corpus-v1-20260831
 sha:    a2ffb5615d37d44bbd910c4f47c36136c31cdce4
 protocol: m2-listmap-structural-v1
 ```
@@ -218,7 +220,7 @@ The real OpenCode condition is frozen at:
 
 ```text
 condition: m2-listmap-condition-v1
-branch: eval/m2-listmap-condition-v1-20260831
+tag:    eval/m2-listmap-condition-v1-20260831
 sha:    23bf09d87c03b9c15dd4640b662a05b24aa5e330
 OpenCode: 1.18.18
 model: openai/gpt-5.6-terra
@@ -235,7 +237,7 @@ The condition uses direct project-local OpenCode tools from the start; it does n
 Operator-side prompt wrapping and Stage A/B orchestration were frozen before the first scored observation at:
 
 ```text
-branch: eval/m2-listmap-orchestrator-v1-20260831
+tag:    eval/m2-listmap-orchestrator-v1-20260831
 sha:    f7d6d07cd47367dde2272386b6e430fddef6d03a
 prompt revision: m2-listmap-corpus-v1-seed-v1
 ```
