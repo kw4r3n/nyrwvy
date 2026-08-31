@@ -64,5 +64,6 @@ for index in (seq (count $freeze_names))
     end
 end
 
-echo "Materialized "(count $freeze_names)" local evaluation freeze compatibility refs from immutable tags."
+set -l freeze_count (count $freeze_names)
+echo "Materialized $freeze_count local evaluation freeze compatibility refs from immutable tags."
 echo "These refs are local-only and may be removed by a later git fetch --prune; rerun this helper before replaying a historical frozen operator if needed."
