@@ -4,10 +4,11 @@ set -l script_dir (path dirname (status --current-filename))
 source "$script_dir/lib/m2-listmap-evaluation-summary.fish"
 
 set -l condition_sha 23bf09d87c03b9c15dd4640b662a05b24aa5e330
-set -l condition_branch eval/m2-listmap-condition-v1-20260831
+set -l condition_tag eval/m2-listmap-condition-v1-20260831
 set -l corpus_sha a2ffb5615d37d44bbd910c4f47c36136c31cdce4
-set -l corpus_branch eval/m2-listmap-agent-corpus-v1-20260831
-set -l orchestrator_branch eval/m2-listmap-orchestrator-v1-20260831
+set -l corpus_tag eval/m2-listmap-agent-corpus-v1-20260831
+set -l orchestrator_sha f7d6d07cd47367dde2272386b6e430fddef6d03a
+set -l orchestrator_tag eval/m2-listmap-orchestrator-v1-20260831
 set -l protocol m2-listmap-structural-v1
 set -l model openai/gpt-5.6-terra
 set -l variant high
@@ -62,21 +63,21 @@ if test (count $dirty) -ne 0
     exit 1
 end
 
-function require_remote_freeze_ref --argument-names branch expected
-    set -l actual (git rev-parse "refs/remotes/origin/$branch" 2>/dev/null)
+function require_freeze_tag --argument-names tag expected
+    set -l actual (git rev-parse "refs/tags/$tag^{commit}" 2>/dev/null)
     if test -z "$actual"
-        echo "ERROR: origin/$branch is unavailable locally; run git fetch origin first." >&2
+        echo "ERROR: freeze tag $tag is unavailable locally; run git fetch origin --tags first." >&2
         return 1
     end
     if test "$actual" != "$expected"
-        echo "ERROR: origin/$branch moved: expected $expected, got $actual." >&2
+        echo "ERROR: freeze tag $tag moved: expected $expected, got $actual." >&2
         return 1
     end
 end
 
-require_remote_freeze_ref "$condition_branch" "$condition_sha"
+require_freeze_tag "$condition_tag" "$condition_sha"
 or exit 1
-require_remote_freeze_ref "$corpus_branch" "$corpus_sha"
+require_freeze_tag "$corpus_tag" "$corpus_sha"
 or exit 1
 
 for revision in "$condition_sha" "$corpus_sha"
@@ -103,13 +104,10 @@ end
 
 set -l current_revision (git rev-parse HEAD)
 if test $dry_run -eq 0
-    set -l orchestrator_revision (git rev-parse "refs/remotes/origin/$orchestrator_branch" 2>/dev/null)
-    if test -z "$orchestrator_revision"
-        echo "ERROR: origin/$orchestrator_branch is unavailable; actual scored runs require the frozen orchestrator branch." >&2
-        exit 1
-    end
-    if test "$current_revision" != "$orchestrator_revision"
-        echo "ERROR: scored runs must execute from frozen orchestrator revision $orchestrator_revision; current HEAD is $current_revision." >&2
+    require_freeze_tag "$orchestrator_tag" "$orchestrator_sha"
+    or exit 1
+    if test "$current_revision" != "$orchestrator_sha"
+        echo "ERROR: scored runs must execute from frozen orchestrator revision $orchestrator_sha; current HEAD is $current_revision." >&2
         exit 1
     end
 end
