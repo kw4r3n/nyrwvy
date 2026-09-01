@@ -4,9 +4,9 @@
 
 ## Mission
 
-NyamNyam exists to make program understanding and program change safer for AI agents while remaining inspectable and governable by humans.
+NyamNyam exists to make program understanding and program change safer and more effective for AI agents while remaining inspectable and governable by humans.
 
-It is not primarily a textual programming language with AI assistance added around it. Its authoritative form is a persistent typed semantic graph. Agents interact with that graph through bounded semantic queries and validated semantic operations; humans review structure, consequences, unresolved decisions, and execution behavior through semantic projections.
+It is not primarily a textual programming language with AI assistance added around it. Its authoritative form is a persistent typed semantic graph. Agents interact with that graph through semantic queries and validated semantic operations; humans review structure, consequences, unresolved decisions, and execution behavior through semantic projections.
 
 ## Problem statement
 
@@ -28,13 +28,15 @@ NyamNyam makes semantic identity, relationships, constraints, changes, and unres
 
 Evaluate design choices in this order:
 
-1. **Semantic safety of change** — meaning-level edits must not silently produce incomplete or contradictory states.
+1. **Semantic integrity of change** — meaning-level edits must not silently produce contradictory or partially applied states.
 2. **Unambiguous machine interpretation** — semantic roles, targets, relations, and validation results should be structurally explicit.
-3. **Persistent identity** — semantic objects retain identity across rename, movement, reordering, and projection changes.
-4. **Queryable structure** — an agent retrieves the smallest meaningful slice needed for a task.
-5. **Composable operations** — small validated transformations combine with explicit conflict and review behavior.
+3. **Useful agent capability and composability** — once meaning is explicit and validation is preserved, the system should make meaningful work straightforward rather than minimizing authority for its own sake.
+4. **Persistent identity** — semantic objects retain identity across rename, movement, reordering, and projection changes.
+5. **Queryable structure** — an agent retrieves the smallest meaningful slice needed for a task without hiding relevant impact.
 6. **Human understanding and supervision** — a person can understand structure, proposed changes, impact, and unresolved obligations.
 7. **Direct human authoring convenience** — useful when available, but not a leading constraint on the core representation.
+
+This priority order is about the semantic model, not a rule that narrower agent authority is always better. Current bounded operations and protocols are implementation strategies whose value must be judged against NyamNyam's own goals and evidence.
 
 ## Foundational principles
 
@@ -49,6 +51,8 @@ Names are mutable presentation metadata. Stable semantic IDs carry identity.
 ### Operations, not patches
 
 Ordinary changes target semantic objects and request typed transformations. The system owns propagation, validation, and publication.
+
+The operation surface may be narrow or broad depending on the semantic role. A dedicated bounded operation is useful when it clarifies authority or enables an experiment, but it is not automatically preferable to a more general typed operation once that generalization is understood and validated.
 
 ### Explicit incompleteness
 
@@ -66,15 +70,75 @@ Human-facing views emphasize relationships, flow, effects, change impact, and ob
 
 Core semantics are defined independently of C#, Rust, Kotlin, or another backend language. Backend limitations are surfaced downstream instead of silently becoming language rules.
 
-### Conservative failure
+### No invented semantics
 
-Ambiguous, unsupported, unresolved, or unsafe behavior should become a typed diagnostic or explicit obligation rather than permissive inference.
+Missing, ambiguous, unsupported, or unresolved meaning must not be silently repaired merely to keep processing moving. Behavior that violates an explicit semantic contract or authority boundary must still reject. Use structured diagnostics or explicit obligations when appropriate.
+
+This is not a blanket instruction to reject capable operations or minimize agent authority. When semantics are explicit, validated, and reviewable, enabling useful work is preferable to additional restriction that does not protect a concrete NyamNyam invariant.
+
+## Design authority and provisional mechanisms
+
+NyamNyam distinguishes three kinds of design material so that implementation history and evaluation machinery do not become accidental core principles.
+
+### Core NyamNyam principles
+
+These define the project unless deliberately reconsidered:
+
+- the semantic graph is authoritative;
+- semantic identity is explicit and persistent;
+- ordinary changes are typed, validated semantic operations rather than raw representation patches;
+- simulation/review/publication preserve the distinction between requested intent and resulting meaning;
+- publication is atomic at an immutable snapshot boundary;
+- backend and presentation representations do not redefine program semantics.
+
+### Provisional implementation strategies
+
+These are useful current techniques, not permanent requirements:
+
+- one dedicated operation or agent protocol per semantic role;
+- very small closed structural recipes;
+- current proposal-handle/session lifecycle details;
+- current OpenCode adapter shape;
+- current persistence and serialization choices;
+- other restrictions introduced primarily to establish an initial experimental boundary.
+
+A strategy should be retained while it provides clarity or evidence. It should not survive merely because an earlier milestone used it.
+
+### Evaluation and research infrastructure
+
+Controlled corpora, frozen conditions, protocol revisions, orchestrators, model-run metrics, and historical replay support exist to produce trustworthy evidence. They are downstream consumers of NyamNyam's design.
+
+Evaluation can reveal a weakness and motivate a design change, but incidental behavior of an evaluation harness or frozen historical protocol does not become semantic authority. Compatibility needed only to preserve historical evidence belongs in the evaluation layer.
+
+Practices from RAST or other projects may inspire NyamNyam, but they require a NyamNyam-specific justification. Prior use elsewhere is evidence to consider, not authority.
+
+## Evidence already earned
+
+The completed controlled agent evaluations are important evidence, not a template that every later feature must repeat.
+
+M1 and M2 provide evidence that, under the tested conditions, agents can successfully work with several central interaction patterns:
+
+- stable semantic-ID targeting;
+- semantic inspection followed by simulate -> review -> commit;
+- system-owned production identity allocation;
+- structured diagnostics for invalid or stale requests;
+- stale reviewed-proposal rejection followed by fresh inspection and recovery;
+- bounded structural authoring and higher-order references such as the specialized ListMap slice;
+- exact committed-state verification with zero unrelated semantic churn in the recorded conditions.
+
+That evidence can be reused while its assumptions remain materially unchanged. Adding another semantic role that follows the same established interaction model does not by itself require another large controlled model tranche.
+
+A new experimental evaluation is justified when NyamNyam introduces a materially new hypothesis: for example substantially broader structural authoring authority, a different interaction model, new conflict/merge semantics, or another change that could invalidate the evidence above.
+
+See the [verification philosophy](../developer/verification.md) for how routine, milestone, and experimental validation differ.
 
 ## Roles
 
 ### AI agents
 
 Agents are expected to query semantic facts, propose typed operations, simulate changes, inspect review results, and avoid inventing decisions that remain explicitly unresolved. Ordinary agents do not receive direct mutable access to authoritative graph state.
+
+The exact breadth of the typed operation surface is an evolving design question rather than a requirement that every role remain separately bounded forever.
 
 ### Humans
 
@@ -106,11 +170,12 @@ NyamNyam is succeeding when:
 5. humans can understand change intent and consequence without reading all generated code;
 6. the same validated semantic state produces deterministic downstream artifacts;
 7. backend-specific concerns remain isolated behind explicit lowering boundaries;
-8. bounded queries reduce unnecessary whole-repository context without hiding relevant impact;
-9. acceptance, rejection, and incompleteness can be explained from structured facts.
+8. focused queries reduce unnecessary whole-repository context without hiding relevant impact;
+9. acceptance, rejection, and incompleteness can be explained from structured facts;
+10. the system can expand agent capability without turning historical experimental restrictions into permanent architecture by default.
 
 ## Relationship to previous work
 
-NyamNyam is informed by earlier RAST experiments in explicit semantics, conservative validation, effects, `Result`/`Option`, and backend-neutral lowering, but RAST is not a runtime or semantic dependency.
+NyamNyam is informed by earlier RAST experiments in explicit semantics, conservative validation, effects, `Result`/`Option`, and backend-neutral lowering, but RAST is not a runtime, semantic, or design-authority dependency.
 
 Conceptual ancestry does not require special provenance metadata. When concrete material is directly copied or substantially adapted, use ordinary source attribution. See the [RAST provenance decision](../decisions/rast-provenance.md).

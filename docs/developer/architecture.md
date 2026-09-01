@@ -13,15 +13,17 @@ This document defines NyamNyam's maintained high-level boundaries and invariants
 5. Safe unresolved semantic work is represented explicitly as obligations rather than guessed behavior.
 6. Requested operation intent and resulting semantic diff are distinct review facts.
 7. Typed Semantic IR and backend-neutral Execution IR separate program semantics from backend representation.
-8. Generated code, viewer artifacts, indexes, and storage encodings never become competing semantic authority.
+8. Generated code, viewer artifacts, indexes, storage encodings, and evaluation artifacts never become competing semantic authority.
 9. Full validation remains the normative correctness oracle; incremental validation may optimize it but cannot redefine it.
 10. Persistent storage remains replaceable while the permanent medium is unresolved.
+
+These invariants intentionally do not require one dedicated operation or protocol per semantic role. The breadth of an agent-facing typed operation surface may evolve while these invariants remain intact.
 
 ## System flow
 
 ```mermaid
 flowchart TD
-    A[Human request or AI task] --> B[Bounded semantic query]
+    A[Human request or AI task] --> B[Focused semantic query]
     B --> C[Typed operation intent]
     C --> D[Transaction simulation]
     D --> E{Validation}
@@ -51,6 +53,18 @@ Execution    Viewer
 Backend.CSharp  Tools
 ```
 
+Evaluation protocols and controlled harnesses are downstream of these production boundaries:
+
+```text
+semantic / execution / backend contracts
+              ↓
+       tools and adapters
+              ↓
+   evaluation protocols/harnesses
+              ↓
+     recorded evidence
+```
+
 ### `NyamNyam.Semantics`
 
 Owns stable IDs and allocation, semantic graph state, validation/readiness, semantic facts and queries, operations and transactions, obligations, fingerprints, reviewed proposals, and the ordinary agent workflow facade.
@@ -69,7 +83,17 @@ Consumes semantic query/review projections and renders human-facing Focus and Ch
 
 ### `NyamNyam.Tools.*`
 
-Compose public APIs and own filesystem, process, CLI, export, and other operational integration.
+Compose public APIs and own filesystem, process, CLI, export, adapter, and other operational integration.
+
+## Evaluation boundary
+
+Evaluation is evidence about NyamNyam, not upstream authority over NyamNyam.
+
+A controlled evaluation may reveal that an interaction model is confusing, unreliable, or too permissive and thereby justify a production design change. The dependency does not reverse: frozen corpus wording, proposal-handle bookkeeping, OpenCode transport details, orchestration metrics, or historical protocol quirks do not constrain the semantic core merely because they were recorded in an experiment.
+
+When historical replay requires preserving such behavior, keep compatibility in the evaluation or adapter layer. If a protocol is deliberately promoted from evaluation machinery to a maintained product contract, record that as a separate design decision rather than inheriting the status implicitly from a frozen run.
+
+Evidence produced by an expensive experiment remains useful while its assumptions hold. See [Verification philosophy](verification.md) for the distinction between regression validation, milestone validation, and experimental evidence generation.
 
 ## Semantic state and operations
 
@@ -139,9 +163,10 @@ The high-level architecture does not currently fix:
 
 - permanent authoritative persistence medium;
 - general cross-repository import and semantic merge/rebase policy;
+- the eventual breadth and composition model of agent structural-authoring operations;
 - broader workspace graph layout and visualization contracts;
 - ownership/borrowing semantics for future backend needs;
 - cryptographic or organization-specific approval policy;
 - speculative capability metadata for consumers that do not yet exist.
 
-These uncertainties are tracked in [Open questions](../decisions/open-questions.md) and must not be filled silently by implementation convenience.
+These uncertainties are tracked in [Open questions](../decisions/open-questions.md) and must not be filled silently by implementation convenience or historical evaluation precedent.
