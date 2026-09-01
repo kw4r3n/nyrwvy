@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This specification defines the first reusable cross-domain construction surface for agent-authored pure expressions.
+This specification defines the reusable cross-domain construction surface for agent-authored pure expressions.
 
 The purpose is to separate two representations that serve different jobs:
 
@@ -19,7 +19,7 @@ ephemeral typed construction intent
 
 `AgentPureExpressionStructuralWorkflow` replaces the complete body of one existing function with a body materialized from `PureExpressionRecipe`.
 
-The first slice covers primitive scalar expressions only:
+The maintained surface currently covers primitive scalar expressions and pure List construction/query expressions:
 
 ```text
 PureExpressionRecipe =
@@ -48,9 +48,14 @@ PureExpressionRecipe =
   | Float64IsNaN(expr)
   | Float64IsFinite(expr)
   | Float64IsInfinite(expr)
+  | ListEmpty(itemType)
+  | ListConstruct(itemType, items)
+  | ListLength(list)
+  | ListAppendItem(list, item)
+  | ListConcat(left, right)
 ```
 
-This is intentionally a cross-domain scalar slice rather than a generic wrapper around every `SemanticNodeKind`.
+This remains a selected pure construction algebra rather than a generic wrapper around every `SemanticNodeKind`.
 
 ## Request
 
@@ -74,6 +79,8 @@ The construction tree uses the same practical bounds already established by boun
 - materialization is left-to-right post-order;
 - repeated equal subexpressions remain distinct occurrences.
 
+`ListConstruct` materializes its item recipes in list order and then materializes the `ListConstruct` node. An empty `ListConstruct` is one recipe node at depth 1.
+
 There is no caller-controlled CSE, DAG sharing, local-node reuse, or operand reordering.
 
 ## Preflight
@@ -86,10 +93,28 @@ Before allocating replacement graph-node IDs, simulation checks:
 4. recipe depth and node count are within bounds;
 5. every `Parameter` belongs to the target function;
 6. every scalar operation receives operands of its required primitive type;
-7. the inferred recipe result type exactly equals the target function result type;
-8. no open or resolved obligation targets a node in the body being replaced.
+7. every explicit List item `TypeRef` is valid in the current snapshot and has valid builtin-generic arity;
+8. every `ListConstruct` item exactly matches its declared item type;
+9. `ListLength` receives `List<T>`;
+10. `ListAppendItem` receives `List<T>` plus `T`;
+11. `ListConcat` receives two lists of the same exact list type;
+12. the inferred recipe result type exactly equals the target function result type;
+13. no open or resolved obligation targets a node in the body being replaced.
 
-There is no implicit numeric conversion or fallback type coercion.
+There is no implicit numeric conversion, List item conversion, or fallback type coercion.
+
+## Explicit List types
+
+`ListEmpty` and `ListConstruct` carry an explicit item `TypeRef` because their item type cannot always be inferred from a child expression.
+
+The supplied type is construction intent, not a raw graph payload. Before materialization it is checked using current semantic type facts:
+
+- primitive types are valid directly;
+- named types must name a current `TypeId`;
+- capability types must name a current `CapabilityId`;
+- `Option<T>` and `List<T>` require one type argument;
+- `Result<T,E>` requires two type arguments;
+- nested type arguments are validated recursively.
 
 ## Materialization
 
@@ -116,13 +141,13 @@ The requested construction tree and the materialized graph remain separate revie
 
 The earlier `Float64ExpressionRecipe` / `AgentStructuralWorkflow` surface remains available. It is a narrower compatibility surface backed by the same structural interaction model.
 
-The specialized ListMap workflow also remains available. This first pure-expression tranche does not attempt to migrate or remove either surface.
+The specialized ListMap workflow also remains available. General pure-expression authoring now covers List construction/query nodes, but it does not yet cover higher-order List callbacks, so the specialized workflow is not redundant yet.
 
-## Deliberately outside this tranche
+## Deliberately outside the current surface
 
-The first tranche does not author:
+The maintained recipe does not yet author:
 
-- `List<T>` construction or higher-order List operations;
+- `ListMap`, `ListFilter`, `ListAny`, or `ListAll`;
 - products, fields, unions, `Option`, or `Result` construction;
 - direct calls;
 - capability invocation or other effectful behavior;
@@ -133,4 +158,4 @@ The first tranche does not author:
 - caller-supplied production graph-node IDs;
 - semantic merge/rebase or multi-proposal composition.
 
-List expressions are the next intended extension if the scalar cross-domain algebra remains coherent. Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts.
+Higher-order List expressions are the next intended extension because the existing semantic validator already defines a narrow pure unary callback contract. Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts.

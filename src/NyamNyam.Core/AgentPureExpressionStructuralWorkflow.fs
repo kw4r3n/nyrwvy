@@ -1,6 +1,6 @@
 namespace NyamNyam.Core
 
-/// Ephemeral typed construction intent for the first cross-domain pure-expression slice.
+/// Ephemeral typed construction intent for bounded cross-domain pure expressions.
 /// Child expressions are nested recipes; production graph-node IDs remain system-owned.
 [<RequireQualifiedAccess>]
 type PureExpressionRecipe =
@@ -29,6 +29,11 @@ type PureExpressionRecipe =
     | Float64IsNaN of PureExpressionRecipe
     | Float64IsFinite of PureExpressionRecipe
     | Float64IsInfinite of PureExpressionRecipe
+    | ListEmpty of itemType: TypeRef
+    | ListConstruct of itemType: TypeRef * items: PureExpressionRecipe list
+    | ListLength of PureExpressionRecipe
+    | ListAppendItem of list: PureExpressionRecipe * item: PureExpressionRecipe
+    | ListConcat of left: PureExpressionRecipe * right: PureExpressionRecipe
 
 type AgentReplaceFunctionBodyWithPureExpressionRecipe =
     { TargetFunctionId: FunctionId
@@ -69,6 +74,12 @@ module AgentPureExpressionStructuralWorkflow =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
+    let private listType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
+
+    let private listItemType typeRef =
+        match typeRef with
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some itemType
+        | _ -> None
 
     let rec private recipeStats recipe =
         match recipe with
@@ -77,11 +88,13 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.BoolLiteral _
         | PureExpressionRecipe.UnitLiteral
         | PureExpressionRecipe.Int64Literal _
-        | PureExpressionRecipe.Float64Literal _ -> 1, 1
+        | PureExpressionRecipe.Float64Literal _
+        | PureExpressionRecipe.ListEmpty _ -> 1, 1
         | PureExpressionRecipe.StringIsEmpty child
         | PureExpressionRecipe.Float64IsNaN child
         | PureExpressionRecipe.Float64IsFinite child
-        | PureExpressionRecipe.Float64IsInfinite child ->
+        | PureExpressionRecipe.Float64IsInfinite child
+        | PureExpressionRecipe.ListLength child ->
             let count, depth = recipeStats child
             1 + count, 1 + depth
         | PureExpressionRecipe.StringContains(left, right)
@@ -98,18 +111,68 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.Float64Multiply(left, right)
         | PureExpressionRecipe.Float64Divide(left, right)
         | PureExpressionRecipe.Float64Equal(left, right)
-        | PureExpressionRecipe.Float64LessThan(left, right) ->
+        | PureExpressionRecipe.Float64LessThan(left, right)
+        | PureExpressionRecipe.ListAppendItem(left, right)
+        | PureExpressionRecipe.ListConcat(left, right) ->
             let leftCount, leftDepth = recipeStats left
             let rightCount, rightDepth = recipeStats right
             1 + leftCount + rightCount, 1 + max leftDepth rightDepth
+        | PureExpressionRecipe.ListConstruct(_, items) ->
+            let childStats = items |> List.map recipeStats
+            let count = 1 + (childStats |> List.sumBy fst)
+            let depth =
+                match childStats with
+                | [] -> 1
+                | values -> 1 + (values |> List.map snd |> List.max)
+            count, depth
 
-    let private inferType (target: SemanticFunction) recipe =
+    let private validateTypeRef (snapshot: Snapshot) typeRef =
+        let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
+        let capabilityIds = snapshot.Capabilities |> List.map (fun capability -> capability.Id) |> Set.ofList
+
+        let invalid message = diagnostic "PureExpressionInvalidTypeRef" message
+
+        let rec validate typeRef =
+            match typeRef with
+            | TypeRef.Primitive _ -> Ok()
+            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
+            | TypeRef.Named typeId ->
+                Error(invalid $"Type reference names unknown type '{StableId.value typeId}'.")
+            | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
+            | TypeRef.Capability capabilityId ->
+                Error(invalid $"Type reference names unknown capability '{StableId.value capabilityId}'.")
+            | TypeRef.BuiltinGeneric(kind, arguments) ->
+                let expectedArity =
+                    match kind with
+                    | BuiltinGenericType.Option
+                    | BuiltinGenericType.List -> 1
+                    | BuiltinGenericType.Result -> 2
+
+                if List.length arguments <> expectedArity then
+                    Error(invalid $"Builtin generic type '{kind}' requires {expectedArity} type argument(s).")
+                else
+                    let rec validateArguments = function
+                        | [] -> Ok()
+                        | argument :: rest ->
+                            match validate argument with
+                            | Error error -> Error error
+                            | Ok() -> validateArguments rest
+                    validateArguments arguments
+
+        validate typeRef
+
+    let private inferType (snapshot: Snapshot) (target: SemanticFunction) recipe =
         let parametersById = target.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
 
         let typeMismatch role side expected actual =
             diagnostic
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires {expected}, but the recipe produces {actual}."
+
+        let listMismatch role side actual =
+            diagnostic
+                "PureExpressionOperandTypeMismatch"
+                $"{role} {side} operand requires List<T>, but the recipe produces {actual}."
 
         let rec infer recipe =
             let unary role expected result child =
@@ -181,6 +244,54 @@ module AgentPureExpressionStructuralWorkflow =
                 unary "Float64IsFinite" float64Type boolType value
             | PureExpressionRecipe.Float64IsInfinite value ->
                 unary "Float64IsInfinite" float64Type boolType value
+            | PureExpressionRecipe.ListEmpty itemType ->
+                match validateTypeRef snapshot itemType with
+                | Error error -> Error error
+                | Ok() -> Ok(listType itemType)
+            | PureExpressionRecipe.ListConstruct(itemType, items) ->
+                match validateTypeRef snapshot itemType with
+                | Error error -> Error error
+                | Ok() ->
+                    let rec validateItems = function
+                        | [] -> Ok(listType itemType)
+                        | item :: rest ->
+                            match infer item with
+                            | Error error -> Error error
+                            | Ok actual when actual <> itemType ->
+                                Error(typeMismatch "ListConstruct" "item" itemType actual)
+                            | Ok _ -> validateItems rest
+                    validateItems items
+            | PureExpressionRecipe.ListLength list ->
+                match infer list with
+                | Error error -> Error error
+                | Ok actual ->
+                    match listItemType actual with
+                    | Some _ -> Ok int64Type
+                    | None -> Error(listMismatch "ListLength" "value" actual)
+            | PureExpressionRecipe.ListAppendItem(list, item) ->
+                match infer list with
+                | Error error -> Error error
+                | Ok listResultType ->
+                    match listItemType listResultType with
+                    | None -> Error(listMismatch "ListAppendItem" "list" listResultType)
+                    | Some itemType ->
+                        match infer item with
+                        | Error error -> Error error
+                        | Ok actual when actual <> itemType ->
+                            Error(typeMismatch "ListAppendItem" "item" itemType actual)
+                        | Ok _ -> Ok listResultType
+            | PureExpressionRecipe.ListConcat(left, right) ->
+                match infer left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match listItemType leftType with
+                    | None -> Error(listMismatch "ListConcat" "left" leftType)
+                    | Some _ ->
+                        match infer right with
+                        | Error error -> Error error
+                        | Ok rightType when rightType <> leftType ->
+                            Error(typeMismatch "ListConcat" "right" leftType rightType)
+                        | Ok _ -> Ok leftType
 
         infer recipe
 
@@ -221,7 +332,7 @@ module AgentPureExpressionStructuralWorkflow =
                             "The structural recipe contains more than 64 nodes."
                     )
                 else
-                    match inferType target request.Replacement with
+                    match inferType baseSnapshot target request.Replacement with
                     | Error error -> Error error
                     | Ok replacementType when replacementType <> target.ResultType ->
                         Error(
@@ -250,6 +361,13 @@ module AgentPureExpressionStructuralWorkflow =
             @ [ { Id = nodeId
                   Kind = kind (leftResult, rightResult) } ],
             nodeId
+
+        let rec many = function
+            | [] -> [], []
+            | head :: tail ->
+                let headNodes, headResult = materialize head
+                let tailNodes, tailResults = many tail
+                headNodes @ tailNodes, headResult :: tailResults
 
         match recipe with
         | PureExpressionRecipe.Parameter parameterId ->
@@ -308,6 +426,19 @@ module AgentPureExpressionStructuralWorkflow =
             unary SemanticNodeKind.Float64IsFinite value
         | PureExpressionRecipe.Float64IsInfinite value ->
             unary SemanticNodeKind.Float64IsInfinite value
+        | PureExpressionRecipe.ListEmpty itemType ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.ListEmpty itemType } ], nodeId
+        | PureExpressionRecipe.ListConstruct(itemType, items) ->
+            let itemNodes, itemResults = many items
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            itemNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListConstruct(itemType, itemResults) } ], nodeId
+        | PureExpressionRecipe.ListLength list ->
+            unary SemanticNodeKind.ListLength list
+        | PureExpressionRecipe.ListAppendItem(list, item) ->
+            binary SemanticNodeKind.ListAppendItem list item
+        | PureExpressionRecipe.ListConcat(left, right) ->
+            binary SemanticNodeKind.ListConcat left right
 
     let simulate
         (workspace: AgentWorkspace)
