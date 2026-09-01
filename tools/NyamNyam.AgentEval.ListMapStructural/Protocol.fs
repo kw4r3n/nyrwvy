@@ -304,6 +304,15 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
         | Some proposal -> proposal
         | None -> Input.fail $"Unknown ListMap proposal handle '{handle}'."
 
+    let isTerminalCommitRejection (diagnostics: TransactionDiagnostic list) =
+        diagnostics
+        |> List.exists (fun diagnostic ->
+            match diagnostic.Code with
+            | "StaleBaseSnapshot"
+            | "PreviewReceiptBaseMismatch"
+            | "PreviewReceiptResultMismatch" -> true
+            | _ -> false)
+
     let metrics () =
         Json.objectValue
             [ "toolCalls", box usage.ToolCalls
@@ -401,6 +410,8 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             let proposal = requireProposal handle
             match AgentListMapStructuralWorkflow.commit workspace proposal with
             | AgentStructuralCommitResult.Rejected diagnostics ->
+                if isTerminalCommitRejection diagnostics then
+                    proposals <- Map.remove handle proposals
                 Json.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box ListMapStructuralProtocol.version
