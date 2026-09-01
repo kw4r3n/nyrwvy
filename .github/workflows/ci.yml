@@ -30,7 +30,7 @@ jobs:
         run: dotnet restore tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj
 
       - name: Build fast test graph
-        run: dotnet build tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --no-restore
+        run: dotnet build tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --no-restore -m -clp:PerformanceSummary
 
       - name: Test fast suite
         run: dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --no-build --no-restore --settings tests/fast.runsettings
