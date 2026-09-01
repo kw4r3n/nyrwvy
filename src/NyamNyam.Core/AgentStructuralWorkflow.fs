@@ -78,16 +78,160 @@ module AgentStructuralChangeProposal =
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
 
-[<RequireQualifiedAccess>]
-module AgentStructuralWorkflow =
-    let private float64Type = TypeRef.Primitive PrimitiveType.Float64
-
-    let private diagnostic code message: TransactionDiagnostic =
+module internal StructuralTransactionInternals =
+    let diagnostic code message: TransactionDiagnostic =
         { Code = code
           Message = message }
 
-    let private rejected code message =
+    let rejected code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
+
+    let private unionCaseName (kind: SemanticNodeKind) =
+        let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
+        case.Name
+
+    let private summaryExtra (node: SemanticNode) =
+        match node.Kind with
+        | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
+        | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
+        | SemanticNodeKind.DirectCall(functionId, _)
+        | SemanticNodeKind.ListMap(_, functionId)
+        | SemanticNodeKind.ListFilter(_, functionId)
+        | SemanticNodeKind.ListAny(_, functionId)
+        | SemanticNodeKind.ListAll(_, functionId) -> None, Some functionId, None
+        | _ -> None, None, None
+
+    let summarizeNodes
+        (snapshot: Snapshot)
+        (functionEntity: SemanticFunction)
+        (nodes: SemanticNode list)
+        : StructuralNodeSummary list =
+        let nodeTypes = SemanticFacts.nodeTypes snapshot functionEntity
+        nodes
+        |> List.map (fun node ->
+            let parameterId, functionId, bitsHex = summaryExtra node
+            { NodeId = node.Id
+              Role = unionCaseName node.Kind
+              Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
+              Dependencies =
+                SemanticFacts.directValueDependencies node
+                |> List.distinct
+                |> List.sortBy StableId.value
+              ParameterId = parameterId
+              FunctionId = functionId
+              Float64BitsHex = bitsHex })
+
+    let classifyReadiness snapshot =
+        match SnapshotReadiness.evaluate snapshot with
+        | Error issues ->
+            Error(
+                issues
+                |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
+            )
+        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
+        | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
+
+    let createReceipt transactionId baseSnapshot proposedSnapshot =
+        match SnapshotFingerprint.compute baseSnapshot with
+        | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+        | Ok baseFingerprint ->
+            match SnapshotFingerprint.compute proposedSnapshot with
+            | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+            | Ok proposedFingerprint ->
+                match SemanticFingerprint.compute proposedSnapshot with
+                | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+                | Ok semanticFingerprint ->
+                    Ok
+                        { TransactionId = transactionId
+                          BaseSnapshotId = baseSnapshot.Id
+                          BaseSnapshotFingerprint = baseFingerprint
+                          ProposedSnapshotId = proposedSnapshot.Id
+                          ProposedSnapshotFingerprint = proposedFingerprint
+                          ProposedSemanticFingerprint = semanticFingerprint }
+
+    let bodyObligationError (target: SemanticFunction) (snapshot: Snapshot) =
+        let oldBodyIds =
+            ValueGraph.collectNodes target.Body
+            |> List.map (fun node -> node.Id)
+            |> Set.ofList
+
+        snapshot.Obligations
+        |> List.tryFind (fun obligation -> Set.contains obligation.CallNodeId oldBodyIds)
+        |> Option.map (fun obligation ->
+            diagnostic
+                "StructuralBodyReferencedByObligation"
+                $"Obligation '{StableId.value obligation.Id}' targets the body being replaced.")
+
+    let publishReviewedWithPolicy
+        (workspace: AgentWorkspace)
+        (transactionId: TransactionId)
+        (proposedSnapshot: Snapshot)
+        (diff: FunctionBodyReplacementDiff)
+        (readiness: TransactionReadiness)
+        (receipt: TransactionPreviewReceipt)
+        (policy: CommitPolicy)
+        : AgentStructuralCommitResult =
+        let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+
+        if currentSnapshot.Id <> receipt.BaseSnapshotId then
+            AgentStructuralCommitResult.Rejected
+                [ diagnostic
+                      "StaleBaseSnapshot"
+                      "The workspace advanced beyond the reviewed structural proposal." ]
+        else
+            match SnapshotFingerprint.compute currentSnapshot with
+            | Error _ ->
+                AgentStructuralCommitResult.Rejected
+                    [ diagnostic
+                          "FingerprintFailure"
+                          "The base fingerprint could not be recomputed." ]
+            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
+                AgentStructuralCommitResult.Rejected
+                    [ diagnostic
+                          "PreviewReceiptBaseMismatch"
+                          "The current base content differs from the reviewed base." ]
+            | Ok _ ->
+                match SnapshotFingerprint.compute proposedSnapshot, SemanticFingerprint.compute proposedSnapshot with
+                | Ok proposedFingerprint, Ok semanticFingerprint
+                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
+                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
+                    match readiness, policy with
+                    | TransactionReadiness.Incomplete ids, CommitPolicy.RejectBlockingObligations ->
+                        let rendered = ids |> List.map StableId.value |> String.concat ", "
+                        AgentStructuralCommitResult.Rejected
+                            [ diagnostic
+                                  "BlockingObligations"
+                                  $"The proposed snapshot has blocking obligations: {rendered}." ]
+                    | _ ->
+                        match AgentWorkspace.publishValidatedSnapshot workspace proposedSnapshot with
+                        | Error diagnostics -> AgentStructuralCommitResult.Rejected diagnostics
+                        | Ok nextWorkspace ->
+                            AgentStructuralCommitResult.Committed(
+                                nextWorkspace,
+                                { TransactionId = transactionId
+                                  BaseSnapshotId = receipt.BaseSnapshotId
+                                  PublishedSnapshotId = proposedSnapshot.Id
+                                  Diff = diff
+                                  Readiness = readiness
+                                  Receipt = receipt }
+                            )
+                | Ok _, Ok _ ->
+                    AgentStructuralCommitResult.Rejected
+                        [ diagnostic
+                              "PreviewReceiptResultMismatch"
+                              "The proposed state differs from the reviewed receipt." ]
+                | Error _, _
+                | _, Error _ ->
+                    AgentStructuralCommitResult.Rejected
+                        [ diagnostic
+                              "FingerprintFailure"
+                              "The proposed fingerprint could not be recomputed." ]
+
+[<RequireQualifiedAccess>]
+module AgentStructuralWorkflow =
+    open StructuralTransactionInternals
+
+    let private float64Type = TypeRef.Primitive PrimitiveType.Float64
 
     let rec private recipeStats recipe =
         match recipe with
@@ -129,69 +273,6 @@ module AgentStructuralWorkflow =
                   Kind = SemanticNodeKind.Float64Add(leftResult, rightResult) } ],
             nodeId
 
-    let private unionCaseName (kind: SemanticNodeKind) =
-        let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
-        case.Name
-
-    let private summaryExtra (node: SemanticNode) =
-        match node.Kind with
-        | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
-        | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
-        | SemanticNodeKind.DirectCall(functionId, _)
-        | SemanticNodeKind.ListMap(_, functionId)
-        | SemanticNodeKind.ListFilter(_, functionId)
-        | SemanticNodeKind.ListAny(_, functionId)
-        | SemanticNodeKind.ListAll(_, functionId) -> None, Some functionId, None
-        | _ -> None, None, None
-
-    let private summarizeNodes
-        (snapshot: Snapshot)
-        (functionEntity: SemanticFunction)
-        (nodes: SemanticNode list)
-        : StructuralNodeSummary list =
-        let nodeTypes = SemanticFacts.nodeTypes snapshot functionEntity
-        nodes
-        |> List.map (fun node ->
-            let parameterId, functionId, bitsHex = summaryExtra node
-            { NodeId = node.Id
-              Role = unionCaseName node.Kind
-              Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
-              Dependencies =
-                SemanticFacts.directValueDependencies node
-                |> List.distinct
-                |> List.sortBy StableId.value
-              ParameterId = parameterId
-              FunctionId = functionId
-              Float64BitsHex = bitsHex })
-
-    let private classifyReadiness snapshot =
-        match SnapshotReadiness.evaluate snapshot with
-        | Error issues ->
-            Error(
-                issues
-                |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
-            )
-        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
-        | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
-
-    let private createReceipt transactionId baseSnapshot proposedSnapshot =
-        match SnapshotFingerprint.compute baseSnapshot with
-        | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
-        | Ok baseFingerprint ->
-            match SnapshotFingerprint.compute proposedSnapshot with
-            | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
-            | Ok proposedFingerprint ->
-                match SemanticFingerprint.compute proposedSnapshot with
-                | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
-                | Ok semanticFingerprint ->
-                    Ok
-                        { TransactionId = transactionId
-                          BaseSnapshotId = baseSnapshot.Id
-                          BaseSnapshotFingerprint = baseFingerprint
-                          ProposedSnapshotId = proposedSnapshot.Id
-                          ProposedSnapshotFingerprint = proposedFingerprint
-                          ProposedSemanticFingerprint = semanticFingerprint }
-
     /// Validate every agent-controlled precondition before allocating replacement
     /// graph identities. Depth is checked before node count so the two bounded
     /// failure classes remain observable for a deep recipe that also exceeds 64 nodes.
@@ -230,13 +311,8 @@ module AgentStructuralWorkflow =
                     match parameterError with
                     | Some error -> Error error
                     | None ->
-                        let oldBodyIds =
-                            ValueGraph.collectNodes target.Body
-                            |> List.map (fun node -> node.Id)
-                            |> Set.ofList
-                        match baseSnapshot.Obligations |> List.tryFind (fun o -> Set.contains o.CallNodeId oldBodyIds) with
-                        | Some obligation ->
-                            Error(diagnostic "StructuralBodyReferencedByObligation" $"Obligation '{StableId.value obligation.Id}' targets the body being replaced.")
+                        match bodyObligationError target baseSnapshot with
+                        | Some error -> Error error
                         | None -> Ok target
 
     let simulate
@@ -299,40 +375,14 @@ module AgentStructuralWorkflow =
         (AgentStructuralChangeProposal proposal)
         (policy: CommitPolicy)
         : AgentStructuralCommitResult =
-        let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-        let receipt = proposal.Review.Receipt
-        if currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentStructuralCommitResult.Rejected [ diagnostic "StaleBaseSnapshot" "The workspace advanced beyond the reviewed structural proposal." ]
-        else
-            match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ -> AgentStructuralCommitResult.Rejected [ diagnostic "FingerprintFailure" "The base fingerprint could not be recomputed." ]
-            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentStructuralCommitResult.Rejected [ diagnostic "PreviewReceiptBaseMismatch" "The current base content differs from the reviewed base." ]
-            | Ok _ ->
-                match SnapshotFingerprint.compute proposal.ProposedSnapshot, SemanticFingerprint.compute proposal.ProposedSnapshot with
-                | Ok proposedFingerprint, Ok semanticFingerprint
-                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
-                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
-                    match proposal.Review.Readiness, policy with
-                    | TransactionReadiness.Incomplete ids, CommitPolicy.RejectBlockingObligations ->
-                        let rendered = ids |> List.map StableId.value |> String.concat ", "
-                        AgentStructuralCommitResult.Rejected [ diagnostic "BlockingObligations" $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match AgentWorkspace.publishValidatedSnapshot workspace proposal.ProposedSnapshot with
-                        | Error diagnostics -> AgentStructuralCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentStructuralCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = proposal.TransactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
-                                  Diff = proposal.Review.ResultingChange
-                                  Readiness = proposal.Review.Readiness
-                                  Receipt = receipt }
-                            )
-                | Ok _, Ok _ -> AgentStructuralCommitResult.Rejected [ diagnostic "PreviewReceiptResultMismatch" "The proposed state differs from the reviewed receipt." ]
-                | Error _, _
-                | _, Error _ -> AgentStructuralCommitResult.Rejected [ diagnostic "FingerprintFailure" "The proposed fingerprint could not be recomputed." ]
+        publishReviewedWithPolicy
+            workspace
+            proposal.TransactionId
+            proposal.ProposedSnapshot
+            proposal.Review.ResultingChange
+            proposal.Review.Readiness
+            proposal.Review.Receipt
+            policy
 
     let commit workspace proposal =
         publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
