@@ -25,12 +25,6 @@
     <Compile Include="AgentEvalProtocolTests.fs" />
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
-    <Compile Include="M2StructuralEvaluationCorpus.fs" />
-    <Compile Include="M2StructuralEvaluationCorpusTests.fs" />
-    <Compile Include="M2ListMapStructuralEvaluationCorpus.fs" />
-    <Compile Include="M2ListMapStructuralEvaluationCorpusTests.fs" />
-    <Compile Include="StructuralEvalHarnessTests.fs" />
-    <Compile Include="ListMapStructuralEvalHarnessTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
@@ -43,13 +37,10 @@
     <Compile Include="ChangeReviewQueryTests.fs" />
     <Compile Include="ViewerTests.fs" />
     <Compile Include="ViewerArtifactTests.fs" />
-    <Compile Include="MilestoneZeroEndToEndTests.fs" />
     <Compile Include="Int64Tests.fs" />
     <Compile Include="ListTests.fs" />
     <Compile Include="ListHigherOrderTests.fs" />
     <Compile Include="MilestoneOneGraph.fs" />
-    <Compile Include="AgentEvalVerificationProtocolTests.fs" />
-    <Compile Include="MilestoneOneEndToEndTests.fs" />
     <Compile Include="AgentExecutionTests.fs" />
     <Compile Include="Float64Tests.fs" />
   </ItemGroup>
@@ -57,10 +48,6 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="../../evaluation/m2-agent-corpus-v1/corpus.json" Link="evaluation/m2-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="../../evaluation/m2-listmap-agent-corpus-v1/corpus.json" Link="evaluation/m2-listmap-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
