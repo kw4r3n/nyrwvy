@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>FullyQualifiedName~MilestoneZeroEndToEndTests|FullyQualifiedName~MilestoneOneEndToEndTests|FullyQualifiedName~AgentEvalVerificationProtocolTests|FullyQualifiedName~M2StructuralEvaluationCorpusTests|FullyQualifiedName~M2ListMapStructuralEvaluationCorpusTests|FullyQualifiedName~StructuralEvalHarnessTests|FullyQualifiedName~ListMapStructuralEvalHarnessTests|DisplayName~generated C# compiles and runs the representative M0 behavior|DisplayName~reviewed M1 cross-function commit lowers and executes from the exact committed workspace</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>
