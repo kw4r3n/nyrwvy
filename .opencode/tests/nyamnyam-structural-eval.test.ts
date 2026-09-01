@@ -60,7 +60,7 @@ test("structural artifact root must remain outside worktree", () => {
   }
 })
 
-test("structural bridge pins corpus fixture and exporter inputs to the frozen revision", () => {
+test("structural bridge pins corpus fixture and exporter inputs to the compatible frozen baseline", () => {
   expect(frozenStructuralInputPaths).toEqual([
     "evaluation/m2-agent-corpus-v1",
     "tests/NyamNyam.Core.Tests/M2StructuralEvaluationCorpus.fs",
@@ -70,7 +70,7 @@ test("structural bridge pins corpus fixture and exporter inputs to the frozen re
   expect(frozenInputDiffArguments()).toEqual([
     "diff",
     "--exit-code",
-    "efce0cac15565941c11c8af8d1a52e7ecafaa5c6",
+    "a2ffb5615d37d44bbd910c4f47c36136c31cdce4",
     "--",
     ...frozenStructuralInputPaths,
   ])
