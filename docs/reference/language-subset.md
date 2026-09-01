@@ -117,9 +117,37 @@ The implemented semantic language and agent editing authority are deliberately d
 - resolving a generated missing-argument obligation with an existing compatible value;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
 
-### Float64 structural body replacement
+### Pure scalar expression body replacement
 
-`AgentStructuralWorkflow` supports complete replacement of one `Float64`-returning function body with the typed recipe:
+`AgentPureExpressionStructuralWorkflow` is the first reusable cross-domain construction surface. It replaces the complete body of one existing function from a tree-shaped `PureExpressionRecipe` without exposing production graph-node identities.
+
+The current recipe covers:
+
+```text
+Parameter(ParameterId)
+StringLiteral
+BoolLiteral
+UnitLiteral
+Int64Literal
+Float64Literal
+StringIsEmpty
+StringContains
+Int64WrappingAdd / Subtract / Multiply
+Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
+Float64Add / Subtract / Multiply / Divide
+Float64Equal / LessThan
+Float64IsNaN / IsFinite / IsInfinite
+```
+
+Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds, target-owned parameter scope, scalar operand types, exact replacement-result compatibility, and old-body obligation protection. Every recipe occurrence then receives a fresh system-owned `GraphNodeId` in deterministic left-to-right post-order.
+
+The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2.
+
+See [Pure expression structural authoring](../specs/pure-expression-authoring.md).
+
+### Float64 structural compatibility surface
+
+`AgentStructuralWorkflow` remains available for the narrower Float64-only body-replacement recipe:
 
 ```text
 Parameter(ParameterId)
@@ -130,37 +158,31 @@ Multiply(left, right)
 Divide(left, right)
 ```
 
-The operation:
+It preserves the original bounded Float64 interaction surface and frozen M2 evidence. Adjacent Float64 arithmetic roles were added without creating separate operation/protocol families.
 
-- targets an existing `FunctionId`, expected base `SnapshotId`, and expected current body result `GraphNodeId`;
-- checks recipe depth/node limits and parameter scope/type before materialization;
-- allocates all replacement body-node IDs system-side;
-- replaces the complete old body with a disjoint fresh body-node set;
-- rejects any old body referenced by an open or resolved obligation;
-- preserves the requested recipe separately from materialized structural diff facts;
-- exposes base and proposed Focus views plus exact review fingerprints;
-- preserves workspace publication history when committed;
-- lowers and executes through the ordinary semantic/execution/backend pipeline.
-
-The current contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md). `Subtract`, `Multiply`, and `Divide` extend the already-evidenced Float64 recipe interaction model rather than introducing separate operation/protocol families for each arithmetic node.
+The exact narrower contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md).
 
 ### Specialized ListMap body replacement
 
 `AgentListMapStructuralWorkflow` supports complete replacement of one compatible List-returning function body with a shallow `ParameterReference -> ListMap` shape. The source must be a target-owned `List<T>` parameter and the mapper an existing pure unary function compatible with `T -> R`; replacement node identities remain system-owned and the same simulate/review/publication mechanics apply.
 
-The specialized ListMap surface remains separate because its semantic inputs and higher-order function constraints differ from the Float64 expression recipe. Its existence does not imply every List role should receive another permanently separate protocol.
+The specialized ListMap surface remains available while general pure-expression authoring has not yet reached List operations. It does not imply every List role should receive another permanently separate protocol.
 
 ### Current boundary
 
-The current structural authoring surfaces still do **not** accept arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, or caller-owned production node IDs. They also do not yet provide a general typed authoring form for branches, calls, capabilities, products, unions, `Option`, `Result`, or arbitrary List expressions, nor do they target a nested expression independently.
+The reusable `PureExpressionRecipe` currently covers primitive scalar expressions only. It does **not** yet author List expressions, products, unions, `Option`, `Result`, direct calls, capability invocation, branches/matches, pattern bindings, or arbitrary nested-expression replacement.
 
-Those limits describe current implementation, not a standing requirement that agent authority remain one operation per node kind. Broader typed construction should be judged by semantic clarity, validation, reviewability, and evidence rather than by the shape of the M2 bootstrap experiment.
+No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, or caller-owned production node IDs.
+
+Those limits describe the current incremental implementation, not a standing requirement that agent authority remain one operation per semantic role. Broader typed construction should be judged by semantic clarity, validation, reviewability, and evidence rather than by the shape of the M2 bootstrap experiment.
 
 ## Evidence status
 
 Milestone 1 and Milestone 2 both have recorded controlled agent-evaluation evidence.
 
-M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The Float64 and ListMap slices therefore provide evidence for the shared interaction model rather than a requirement to repeat a large model-evaluation tranche for every adjacent semantic role.
+M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The current pure-expression workflow reuses that transaction/review interaction model while broadening the construction algebra across primitive scalar domains.
+
+The broader cross-domain surface is maintained implementation, but it does not retroactively change the frozen M2 evaluation condition or claim that the new algebra has separately undergone controlled model evaluation.
 
 See the [Milestone 2 record](../plans/milestone-2.md) and the maintained [verification philosophy](../developer/verification.md).
 

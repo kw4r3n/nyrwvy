@@ -12,7 +12,7 @@ This directory contains the maintained documentation for the current NyamNyam de
 - **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).
 - **Why was a direction chosen?** Use the [decision register](decisions/README.md).
 - **What remains unresolved?** Read [Open questions](decisions/open-questions.md).
-- **What must an implementation preserve?** Use the maintained [specifications](specs/), including the current [bounded structural editing contract](specs/bounded-structural-editing.md).
+- **What must an implementation preserve?** Use the maintained [specifications](specs/), including [pure expression structural authoring](specs/pure-expression-authoring.md) and the narrower [Float64 bounded structural editing contract](specs/bounded-structural-editing.md).
 - **What was completed in Milestone 1?** Read the completed [Milestone 1 record](plans/milestone-1.md) and its linked verification evidence.
 - **What did Milestone 2 establish?** Read the [Milestone 2 record](plans/milestone-2.md) and its controlled structural-editing evidence.
 - **What evidence supports an implemented claim?** Use [verification records](verification/).
