@@ -106,9 +106,9 @@ Binary64 infinity, NaN, and signed-zero outcomes are normal values under this co
 
 ## Agent editing surfaces
 
-The implemented semantic language and agent editing authority are deliberately distinct.
+The implemented semantic language and agent editing authority are deliberately distinct. Typed agent operations expose useful semantic construction without making raw snapshot or graph payloads ordinary editing authority.
 
-### M1 bounded operation workflow
+### M1 operation workflow
 
 `AgentWorkflow` / `AgentOperationIntent` supports:
 
@@ -117,14 +117,17 @@ The implemented semantic language and agent editing authority are deliberately d
 - resolving a generated missing-argument obligation with an existing compatible value;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
 
-### M2 bounded structural workflow
+### Float64 structural body replacement
 
-`AgentStructuralWorkflow` now supports one accepted structural operation: complete replacement of one `Float64`-returning function body with a closed recipe containing only:
+`AgentStructuralWorkflow` supports complete replacement of one `Float64`-returning function body with the typed recipe:
 
 ```text
 Parameter(ParameterId)
 Literal(Float64Bits)
 Add(left, right)
+Subtract(left, right)
+Multiply(left, right)
+Divide(left, right)
 ```
 
 The operation:
@@ -139,11 +142,27 @@ The operation:
 - preserves workspace publication history when committed;
 - lowers and executes through the ordinary semantic/execution/backend pipeline.
 
-The exact contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md).
+The current contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md). `Subtract`, `Multiply`, and `Divide` extend the already-evidenced Float64 recipe interaction model rather than introducing separate operation/protocol families for each arithmetic node.
 
-This does **not** mean arbitrary `ValueGraph` editing is accepted. The current structural workflow cannot author arbitrary numeric nodes, branches, calls, capabilities, products, unions, `Option`, `Result`, or List nodes, and cannot target a nested expression independently.
+### Specialized ListMap body replacement
 
-The controlled M2 model-evaluation runner/corpus has not yet been established. Implementation availability and agent-reliability evidence remain separate claims.
+`AgentListMapStructuralWorkflow` supports complete replacement of one compatible List-returning function body with a shallow `ParameterReference -> ListMap` shape. The source must be a target-owned `List<T>` parameter and the mapper an existing pure unary function compatible with `T -> R`; replacement node identities remain system-owned and the same simulate/review/publication mechanics apply.
+
+The specialized ListMap surface remains separate because its semantic inputs and higher-order function constraints differ from the Float64 expression recipe. Its existence does not imply every List role should receive another permanently separate protocol.
+
+### Current boundary
+
+The current structural authoring surfaces still do **not** accept arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, or caller-owned production node IDs. They also do not yet provide a general typed authoring form for branches, calls, capabilities, products, unions, `Option`, `Result`, or arbitrary List expressions, nor do they target a nested expression independently.
+
+Those limits describe current implementation, not a standing requirement that agent authority remain one operation per node kind. Broader typed construction should be judged by semantic clarity, validation, reviewability, and evidence rather than by the shape of the M2 bootstrap experiment.
+
+## Evidence status
+
+Milestone 1 and Milestone 2 both have recorded controlled agent-evaluation evidence.
+
+M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The Float64 and ListMap slices therefore provide evidence for the shared interaction model rather than a requirement to repeat a large model-evaluation tranche for every adjacent semantic role.
+
+See the [Milestone 2 record](../plans/milestone-2.md) and the maintained [verification philosophy](../developer/verification.md).
 
 ## Explicitly outside the current subset
 
@@ -166,4 +185,4 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 
 Milestone 1 is complete for its accepted bounded-operation claim, including its recorded agent evaluation.
 
-Milestone 2 is active. Its first Float64 body-replacement structural slice is implemented and locally verified; the remaining major gate is a versioned structural runner, frozen M2 corpus, and controlled agent-evaluation record. See the [Milestone 2 plan](../plans/milestone-2.md).
+Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged.

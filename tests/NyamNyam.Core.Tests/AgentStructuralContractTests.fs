@@ -251,11 +251,14 @@ module AgentStructuralContractTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let recipe =
-            Float64ExpressionRecipe.Add(
+            Float64ExpressionRecipe.Multiply(
                 Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 10.0),
-                Float64ExpressionRecipe.Add(
+                Float64ExpressionRecipe.Subtract(
                     Float64ExpressionRecipe.Parameter fixture.TargetParameterId,
-                    Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 20.0)
+                    Float64ExpressionRecipe.Divide(
+                        Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 20.0),
+                        Float64ExpressionRecipe.Literal(Float64Bits.ofFloat 2.0)
+                    )
                 )
             )
 
@@ -274,7 +277,14 @@ module AgentStructuralContractTests =
             failwithf "Removed-node summaries are not stable-ID ordered. Expected %A, got %A" expectedRemoved actualRemoved
 
         let addedRoles = review.ResultingChange.AddedNodes |> List.map (fun node -> node.Role)
-        let expectedRoles = [ "Float64Literal"; "ParameterReference"; "Float64Literal"; "Float64Add"; "Float64Add" ]
+        let expectedRoles =
+            [ "Float64Literal"
+              "ParameterReference"
+              "Float64Literal"
+              "Float64Literal"
+              "Float64Divide"
+              "Float64Subtract"
+              "Float64Multiply" ]
         if addedRoles <> expectedRoles then
             failwithf "Added-node summaries lost materialization order. Expected %A, got %A" expectedRoles addedRoles
 
@@ -328,17 +338,20 @@ module AgentStructuralContractTests =
 
         let cases = FSharpType.GetUnionCases(typeof<Float64ExpressionRecipe>)
         let caseNames = cases |> Array.map (fun case -> case.Name) |> Array.toList
-        if caseNames <> [ "Parameter"; "Literal"; "Add" ] then
+        let expectedCases = [ "Parameter"; "Literal"; "Add"; "Subtract"; "Multiply"; "Divide" ]
+        if caseNames <> expectedCases then
             failwithf "Float64 recipe authority surface changed: %A" caseNames
 
         let parameterCase = cases |> Array.find (fun case -> case.Name = "Parameter")
         let literalCase = cases |> Array.find (fun case -> case.Name = "Literal")
-        let addCase = cases |> Array.find (fun case -> case.Name = "Add")
         let parameterFields = parameterCase.GetFields() |> Array.map (fun field -> field.PropertyType) |> Array.toList
         let literalFields = literalCase.GetFields() |> Array.map (fun field -> field.PropertyType) |> Array.toList
-        let addFields = addCase.GetFields() |> Array.map (fun field -> field.PropertyType) |> Array.toList
 
         if parameterFields <> [ typeof<ParameterId> ] then failwithf "Parameter recipe payload changed: %A" parameterFields
         if literalFields <> [ typeof<Float64Bits> ] then failwithf "Literal recipe payload changed: %A" literalFields
-        if addFields <> [ typeof<Float64ExpressionRecipe>; typeof<Float64ExpressionRecipe> ] then
-            failwithf "Add recipe payload changed: %A" addFields
+
+        for caseName in [ "Add"; "Subtract"; "Multiply"; "Divide" ] do
+            let binaryCase = cases |> Array.find (fun case -> case.Name = caseName)
+            let binaryFields = binaryCase.GetFields() |> Array.map (fun field -> field.PropertyType) |> Array.toList
+            if binaryFields <> [ typeof<Float64ExpressionRecipe>; typeof<Float64ExpressionRecipe> ] then
+                failwithf "%s recipe payload changed: %A" caseName binaryFields

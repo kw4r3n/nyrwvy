@@ -59,6 +59,10 @@ module private Input =
         | Error error -> fail $"{label} is not a valid stable ID: {error}."
 
     let rec recipe (element: JsonElement): Float64ExpressionRecipe =
+        let binary context constructor =
+            ensureFields context [ "kind"; "left"; "right" ] [ "kind"; "left"; "right" ] element
+            constructor (recipe (property "left" element), recipe (property "right" element))
+
         let kind = requiredString "kind" element
         match kind with
         | "parameter" ->
@@ -71,9 +75,10 @@ module private Input =
             match Float64Bits.tryParseHex (requiredString "bits" element) with
             | Ok bits -> Float64ExpressionRecipe.Literal bits
             | Error error -> fail $"replacement.bits is invalid: {error}"
-        | "add" ->
-            ensureFields "add recipe" [ "kind"; "left"; "right" ] [ "kind"; "left"; "right" ] element
-            Float64ExpressionRecipe.Add(recipe (property "left" element), recipe (property "right" element))
+        | "add" -> binary "add recipe" Float64ExpressionRecipe.Add
+        | "subtract" -> binary "subtract recipe" Float64ExpressionRecipe.Subtract
+        | "multiply" -> binary "multiply recipe" Float64ExpressionRecipe.Multiply
+        | "divide" -> binary "divide recipe" Float64ExpressionRecipe.Divide
         | other -> fail $"Unsupported Float64 recipe kind '{other}'."
 
     let structuralRequest (root: JsonElement): AgentReplaceFunctionBodyWithFloat64Recipe =
@@ -180,6 +185,12 @@ module private Encode =
             objectValue [ "kind", box "literal"; "bits", box (Float64Bits.toHex bits) ]
         | Float64ExpressionRecipe.Add(left, right) ->
             objectValue [ "kind", box "add"; "left", recipe left; "right", recipe right ]
+        | Float64ExpressionRecipe.Subtract(left, right) ->
+            objectValue [ "kind", box "subtract"; "left", recipe left; "right", recipe right ]
+        | Float64ExpressionRecipe.Multiply(left, right) ->
+            objectValue [ "kind", box "multiply"; "left", recipe left; "right", recipe right ]
+        | Float64ExpressionRecipe.Divide(left, right) ->
+            objectValue [ "kind", box "divide"; "left", recipe left; "right", recipe right ]
 
     let request (value: AgentReplaceFunctionBodyWithFloat64Recipe) =
         objectValue
@@ -265,7 +276,10 @@ module private Encode =
                       [ "kind", box "literal"
                         "fields", arrayValue [ box "bits" ]
                         "bitsFormat", box "16 hexadecimal digits; NaN canonicalizes semantically" ]
-                  objectValue [ "kind", box "add"; "fields", arrayValue [ box "left"; box "right" ] ] ]
+                  objectValue [ "kind", box "add"; "fields", arrayValue [ box "left"; box "right" ] ]
+                  objectValue [ "kind", box "subtract"; "fields", arrayValue [ box "left"; box "right" ] ]
+                  objectValue [ "kind", box "multiply"; "fields", arrayValue [ box "left"; box "right" ] ]
+                  objectValue [ "kind", box "divide"; "fields", arrayValue [ box "left"; box "right" ] ] ]
                 |> arrayValue
               "authority",
                 objectValue

@@ -2,16 +2,18 @@
 
 **Status:** Current
 
-This specification defines the implemented first Milestone 2 structural-editing contract. The accepted rationale is recorded in the [Milestone 2 decisions](../decisions/milestone-2.md), and implementation evidence is recorded in [M2 Float64 structural-edit verification](../verification/m2-float64-structural-editing-20260830.md).
+This specification defines the maintained Float64 structural body-replacement contract. The original Milestone 2 rationale is recorded in the [Milestone 2 decisions](../decisions/milestone-2.md), implementation evidence is recorded in [M2 Float64 structural-edit verification](../verification/m2-float64-structural-editing-20260830.md), and the completed controlled evaluation remains documented by the [Milestone 2 record](../plans/milestone-2.md).
+
+The initial M2 experiment exposed only `Parameter` / `Literal` / `Add`. The maintained recipe now also exposes the already-implemented Float64 `Subtract`, `Multiply`, and `Divide` semantic roles through the same typed interaction model.
 
 ## Scope
 
-The current structural operation replaces the complete body of one existing `Float64`-returning function with a body materialized from a closed recipe.
+The current structural operation replaces the complete body of one existing `Float64`-returning function with a body materialized from a typed closed recipe.
 
-The accepted lifecycle is:
+The lifecycle is:
 
 ```text
-bounded AgentWorkspace state
+AgentWorkspace state
   -> AgentReplaceFunctionBodyWithFloat64Recipe
   -> structural preflight
   -> system-side node materialization
@@ -26,11 +28,11 @@ This is not arbitrary graph editing and does not expose raw snapshot/storage mut
 
 ## Workflow boundary
 
-The operation is implemented by `AgentStructuralWorkflow` and is deliberately separate from the M1 `AgentWorkflow`, `AgentOperationIntent`, `SemanticOperation`, and `SemanticDiff` surfaces.
+The operation is implemented by `AgentStructuralWorkflow` and remains separate from the M1 `AgentWorkflow`, `AgentOperationIntent`, `SemanticOperation`, and `SemanticDiff` surfaces because complete-body construction has a different request and review shape.
 
 The structural workflow shares the opaque `AgentWorkspace`. Trusted access to the underlying semantic workspace/snapshot is assembly-internal.
 
-A structural proposal represents exactly one body replacement. There is no accepted operation list that can combine it atomically with rename, signature evolution, obligation resolution, or another body replacement.
+A structural proposal represents exactly one body replacement. There is no current operation list that can combine it atomically with rename, signature evolution, obligation resolution, or another body replacement.
 
 ## Request
 
@@ -42,13 +44,16 @@ AgentReplaceFunctionBodyWithFloat64Recipe
   Replacement: Float64ExpressionRecipe
 ```
 
-The first recipe algebra is exactly:
+The maintained recipe algebra is:
 
 ```text
 Float64ExpressionRecipe =
   | Parameter(ParameterId)
   | Literal(Float64Bits)
   | Add(Float64ExpressionRecipe, Float64ExpressionRecipe)
+  | Subtract(Float64ExpressionRecipe, Float64ExpressionRecipe)
+  | Multiply(Float64ExpressionRecipe, Float64ExpressionRecipe)
+  | Divide(Float64ExpressionRecipe, Float64ExpressionRecipe)
 ```
 
 The request does not accept:
@@ -67,7 +72,7 @@ Before allocating replacement body IDs:
 - maximum recipe depth: **32**;
 - every occurrence counts as one node;
 - leaf depth is 1;
-- `Add(left,right)` depth is `1 + max(depth(left), depth(right))`.
+- every binary arithmetic recipe has depth `1 + max(depth(left), depth(right))`.
 
 Depth is checked before node count so the two diagnostic classes remain distinguishable for a recipe that violates both.
 
@@ -93,12 +98,15 @@ After preflight succeeds, materialization is left-to-right post-order.
 - `Parameter(p)` allocates a fresh node and emits `ParameterReference p`.
 - `Literal(bits)` allocates a fresh node and emits `Float64Literal bits`.
 - `Add(left,right)` materializes `left`, then `right`, allocates a fresh node, and emits `Float64Add(leftResult,rightResult)`.
+- `Subtract(left,right)` emits `Float64Subtract(leftResult,rightResult)` with the same ordering and allocation rules.
+- `Multiply(left,right)` emits `Float64Multiply(leftResult,rightResult)` with the same ordering and allocation rules.
+- `Divide(left,right)` emits `Float64Divide(leftResult,rightResult)` with the same ordering and allocation rules.
 
 Every recipe occurrence gets a distinct `GraphNodeId` from `StableIdAllocator`.
 
-The operation performs no CSE, local-node reuse, constant folding, algebraic simplification, operand reordering, or implicit conversion.
+The operation performs no CSE, local-node reuse, constant folding, algebraic simplification, operand reordering, division-specific fallback, or implicit conversion.
 
-`Float64Bits` remains authoritative, including canonical semantic NaN and preservation of every non-NaN binary64 bit pattern.
+`Float64Bits` remains authoritative, including canonical semantic NaN and preservation of every non-NaN binary64 bit pattern. IEEE 754 infinity, NaN, and signed-zero results remain ordinary Float64 semantics rather than structural diagnostics.
 
 ## Snapshot transition
 
@@ -171,6 +179,8 @@ Commit checks:
 
 A stale or mismatched proposal rejects. The workflow does not automatically rebase or substitute another materialization behind a reviewed receipt.
 
+The maintained agent-evaluation session retires a process-local proposal handle after an unambiguously terminal commit rejection such as `StaleBaseSnapshot` or a receipt-content mismatch. This is orchestration cleanup, not semantic rejection authority and not an agent `reject` action.
+
 ## Publication and history
 
 Publication goes through assembly-internal `SemanticWorkspace.publishValidatedSnapshot`.
@@ -195,7 +205,7 @@ Normal commit rejects blocking obligations. `commitWithPolicy ... AllowBlockingO
 
 ## Persistence and execution
 
-The resulting body uses existing `ParameterReference`, `Float64Literal`, and `Float64Add` semantic nodes. This operation alone therefore does not add a new language node or require a snapshot-schema version bump.
+The resulting body uses existing `ParameterReference`, `Float64Literal`, `Float64Add`, `Float64Subtract`, `Float64Multiply`, and `Float64Divide` semantic nodes. This extension adds no new language node and requires no snapshot-schema version bump.
 
 Once committed, the opaque `AgentWorkspace` remains the execution authority and is projected through the existing:
 
@@ -242,7 +252,7 @@ This contract does not define:
 - existing-local-node reuse;
 - general dead-node analysis/GC;
 - combining structural and M1 operations atomically;
-- List or higher-order structural recipes;
+- a general List or higher-order expression recipe (the specialized ListMap workflow is a separate maintained surface);
 - generic lambdas/closures;
 - implicit numeric conversions or generic numeric operators;
 - branches, matches, calls, effects, capabilities, products, unions, `Option`, or `Result` recipes;
@@ -250,8 +260,12 @@ This contract does not define:
 - a permanent persistence-medium decision;
 - a general visual programming editor.
 
-## Evaluation boundary
+These are current scope boundaries, not evidence that each future semantic role requires a new dedicated protocol.
 
-The implementation contract above is current, but the controlled M2 agent-evaluation condition is not yet established.
+## Evaluation evidence
 
-Before a reliability claim is made, a versioned runner command exposing only this bounded request must be added, a new M2 corpus must be frozen, and controlled runs must be recorded separately from the M1 corpus/tool condition.
+The original bounded Float64 structural interaction was validated by the completed Milestone 2 controlled evaluation. The frozen evaluation condition exercised the initial `Parameter` / `Literal` / `Add` surface and remains historical evidence exactly as recorded.
+
+Adding `Subtract`, `Multiply`, and `Divide` reuses the same target guards, system-owned identity allocation, materialization ordering, review binding, stale handling, publication, and downstream execution path. It therefore extends an already-evidenced interaction model rather than introducing a new experimental claim that requires another controlled model tranche.
+
+See the maintained [verification philosophy](../developer/verification.md) for when a later structural-authoring change should trigger milestone or experimental validation.

@@ -100,7 +100,9 @@ module StructuralAgentEvalProtocolTests =
     let private literal (bits: string): obj = objectValue [ "kind", box "literal"; "bits", box bits ]
     let private parameter (parameterId: ParameterId): obj =
         objectValue [ "kind", box "parameter"; "parameterId", box (StableId.value parameterId) ]
-    let private add (left: obj) (right: obj): obj = objectValue [ "kind", box "add"; "left", left; "right", right ]
+    let private binary kind (left: obj) (right: obj): obj =
+        objectValue [ "kind", box kind; "left", left; "right", right ]
+    let private add left right = binary "add" left right
 
     let private proposalCommand (name: string) (handle: string): string =
         command [ "command", box name; "proposalHandle", box handle ]
@@ -141,7 +143,8 @@ module StructuralAgentEvalProtocolTests =
             result.GetProperty("recipeCases").EnumerateArray()
             |> Seq.map (fun item -> item.GetProperty("kind").GetString())
             |> Seq.toList
-        if recipeCases <> [ "parameter"; "literal"; "add" ] then
+        let expected = [ "parameter"; "literal"; "add"; "subtract"; "multiply"; "divide" ]
+        if recipeCases <> expected then
             failwithf "Unexpected recipe schema: %A" recipeCases
 
         let authority = result.GetProperty("authority")
@@ -180,6 +183,25 @@ module StructuralAgentEvalProtocolTests =
         Assert.Equal("Float64Literal", added[1].GetProperty("role").GetString())
         Assert.Equal("7ff8000000000000", added[1].GetProperty("float64Bits").GetString())
         Assert.Equal("Float64Add", added[2].GetProperty("role").GetString())
+
+    [<Fact>]
+    let ``structural arithmetic recipe cases materialize their semantic roles`` () =
+        let fixture = createFixture ()
+        let cases =
+            [ "subtract", "Float64Subtract"
+              "multiply", "Float64Multiply"
+              "divide", "Float64Divide" ]
+
+        for kind, expectedRole in cases do
+            let session = createSession fixture.Snapshot
+            let replacement = binary kind (parameter fixture.TargetParameterId) (literal "4000000000000000")
+            let response = simulateCommand fixture replacement |> execute session
+            Assert.Equal("proposed", resultStatus response)
+            use document = parse response
+            let review = document.RootElement.GetProperty("result").GetProperty("review")
+            Assert.Equal(kind, review.GetProperty("requestedChange").GetProperty("replacement").GetProperty("kind").GetString())
+            let added = review.GetProperty("resultingChange").GetProperty("addedNodes")
+            Assert.Equal(expectedRole, added[2].GetProperty("role").GetString())
 
     [<Fact>]
     let ``structural protocol retires stale proposals without counting agent rejection`` () =

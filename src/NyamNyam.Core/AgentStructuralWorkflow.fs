@@ -2,7 +2,7 @@ namespace NyamNyam.Core
 
 open Microsoft.FSharp.Reflection
 
-/// Closed M2 recipe for the first bounded structural-editing slice.
+/// Typed Float64 expression recipe for bounded structural body replacement.
 /// Existing semantic objects are referenced by stable ID; new graph-node IDs are
 /// allocated only by AgentStructuralWorkflow.
 [<RequireQualifiedAccess>]
@@ -10,6 +10,9 @@ type Float64ExpressionRecipe =
     | Parameter of ParameterId
     | Literal of Float64Bits
     | Add of Float64ExpressionRecipe * Float64ExpressionRecipe
+    | Subtract of Float64ExpressionRecipe * Float64ExpressionRecipe
+    | Multiply of Float64ExpressionRecipe * Float64ExpressionRecipe
+    | Divide of Float64ExpressionRecipe * Float64ExpressionRecipe
 
 type AgentReplaceFunctionBodyWithFloat64Recipe =
     { TargetFunctionId: FunctionId
@@ -237,7 +240,10 @@ module AgentStructuralWorkflow =
         match recipe with
         | Float64ExpressionRecipe.Parameter _
         | Float64ExpressionRecipe.Literal _ -> 1, 1
-        | Float64ExpressionRecipe.Add(left, right) ->
+        | Float64ExpressionRecipe.Add(left, right)
+        | Float64ExpressionRecipe.Subtract(left, right)
+        | Float64ExpressionRecipe.Multiply(left, right)
+        | Float64ExpressionRecipe.Divide(left, right) ->
             let leftCount, leftDepth = recipeStats left
             let rightCount, rightDepth = recipeStats right
             1 + leftCount + rightCount, 1 + max leftDepth rightDepth
@@ -246,12 +252,25 @@ module AgentStructuralWorkflow =
         match recipe with
         | Float64ExpressionRecipe.Parameter parameterId -> [ parameterId ]
         | Float64ExpressionRecipe.Literal _ -> []
-        | Float64ExpressionRecipe.Add(left, right) ->
+        | Float64ExpressionRecipe.Add(left, right)
+        | Float64ExpressionRecipe.Subtract(left, right)
+        | Float64ExpressionRecipe.Multiply(left, right)
+        | Float64ExpressionRecipe.Divide(left, right) ->
             recipeParameters left @ recipeParameters right
 
     /// Materialization is deterministic in shape/order: left-to-right post-order,
     /// one fresh node for every recipe occurrence, with no CSE or local-node reuse.
     let rec private materialize recipe =
+        let materializeBinary kind left right =
+            let leftNodes, leftResult = materialize left
+            let rightNodes, rightResult = materialize right
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            leftNodes
+            @ rightNodes
+            @ [ { Id = nodeId
+                  Kind = kind (leftResult, rightResult) } ],
+            nodeId
+
         match recipe with
         | Float64ExpressionRecipe.Parameter parameterId ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
@@ -264,14 +283,13 @@ module AgentStructuralWorkflow =
                 Kind = SemanticNodeKind.Float64Literal bits } ],
             nodeId
         | Float64ExpressionRecipe.Add(left, right) ->
-            let leftNodes, leftResult = materialize left
-            let rightNodes, rightResult = materialize right
-            let nodeId = StableIdAllocator.newGraphNodeId ()
-            leftNodes
-            @ rightNodes
-            @ [ { Id = nodeId
-                  Kind = SemanticNodeKind.Float64Add(leftResult, rightResult) } ],
-            nodeId
+            materializeBinary SemanticNodeKind.Float64Add left right
+        | Float64ExpressionRecipe.Subtract(left, right) ->
+            materializeBinary SemanticNodeKind.Float64Subtract left right
+        | Float64ExpressionRecipe.Multiply(left, right) ->
+            materializeBinary SemanticNodeKind.Float64Multiply left right
+        | Float64ExpressionRecipe.Divide(left, right) ->
+            materializeBinary SemanticNodeKind.Float64Divide left right
 
     /// Validate every agent-controlled precondition before allocating replacement
     /// graph identities. Depth is checked before node count so the two bounded
