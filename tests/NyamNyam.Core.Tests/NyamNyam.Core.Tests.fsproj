@@ -54,6 +54,7 @@
     <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
     <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
     <ProjectReference Include="../../src/NyamNyam.Viewer/NyamNyam.Viewer.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.ViewerExport/NyamNyam.ViewerExport.fsproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
