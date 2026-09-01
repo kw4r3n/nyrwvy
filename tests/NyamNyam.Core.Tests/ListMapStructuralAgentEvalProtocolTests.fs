@@ -373,7 +373,7 @@ module ListMapStructuralAgentEvalProtocolTests =
             Assert.Equal(expectedCode, firstDiagnosticCode response)
 
     [<Fact>]
-    let ``ListMap stale proposals remain opaque and explicitly rejectable`` () =
+    let ``ListMap stale proposals are retired without counting agent rejection`` () =
         let fixture = createFixture ()
         let session = createSession fixture.Snapshot
         let simulate =
@@ -398,9 +398,6 @@ module ListMapStructuralAgentEvalProtocolTests =
         Assert.Equal("rejected", resultStatus staleResponse)
         Assert.Equal("StaleBaseSnapshot", firstDiagnosticCode staleResponse)
 
-        let rejectResponse = proposalCommand "rejectListMapV1" secondHandle |> execute session
-        Assert.Equal("rejectedByAgent", resultStatus rejectResponse)
-
         let stateResponse = command [ "command", box "stateV1" ] |> execute session
         use stateDocument = parse stateResponse
         let state = stateDocument.RootElement.GetProperty("result")
@@ -409,7 +406,7 @@ module ListMapStructuralAgentEvalProtocolTests =
         Assert.Equal(2, metrics.GetProperty("simulations").GetInt32())
         Assert.Equal(2, metrics.GetProperty("commitAttempts").GetInt32())
         Assert.Equal(1, metrics.GetProperty("commits").GetInt32())
-        Assert.Equal(1, metrics.GetProperty("rejects").GetInt32())
+        Assert.Equal(0, metrics.GetProperty("rejects").GetInt32())
         Assert.Equal(0, metrics.GetProperty("pendingProposalCount").GetInt32())
 
     [<Fact>]

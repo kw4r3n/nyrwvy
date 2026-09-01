@@ -307,6 +307,15 @@ type StructuralSession internal (initialWorkspace: AgentWorkspace) =
         | Some proposal -> proposal
         | None -> Input.fail $"Unknown structural proposal handle '{handle}'."
 
+    let isTerminalCommitRejection (diagnostics: TransactionDiagnostic list) =
+        diagnostics
+        |> List.exists (fun diagnostic ->
+            match diagnostic.Code with
+            | "StaleBaseSnapshot"
+            | "PreviewReceiptBaseMismatch"
+            | "PreviewReceiptResultMismatch" -> true
+            | _ -> false)
+
     let metrics () =
         Json.objectValue
             [ "toolCalls", box usage.ToolCalls
@@ -400,6 +409,8 @@ type StructuralSession internal (initialWorkspace: AgentWorkspace) =
                     AgentStructuralWorkflow.commit workspace proposal
             match result with
             | AgentStructuralCommitResult.Rejected diagnostics ->
+                if isTerminalCommitRejection diagnostics then
+                    proposals <- Map.remove handle proposals
                 Json.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box StructuralProtocol.version

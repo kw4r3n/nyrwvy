@@ -182,7 +182,7 @@ module StructuralAgentEvalProtocolTests =
         Assert.Equal("Float64Add", added[2].GetProperty("role").GetString())
 
     [<Fact>]
-    let ``structural protocol commits rejects and reports stale opaque proposals`` () =
+    let ``structural protocol retires stale proposals without counting agent rejection`` () =
         let fixture = createFixture ()
         let session = createSession fixture.Snapshot
         let firstResponse = simulateCommand fixture (literal "4000000000000000") |> execute session
@@ -203,13 +203,10 @@ module StructuralAgentEvalProtocolTests =
         let currentSnapshotId = state.GetProperty("snapshotId").GetString()
         if currentSnapshotId = StableId.value fixture.Snapshot.Id then
             failwith "Structural commit did not advance the session snapshot."
-        Assert.Equal(1, state.GetProperty("proposalHandles").GetArrayLength())
-
-        let rejectResponse = proposalCommand "rejectStructuralV1" secondHandle |> execute session
-        Assert.Equal("rejectedByAgent", resultStatus rejectResponse)
-        let finalState = command [ "command", box "stateV1" ] |> execute session
-        use finalDocument = parse finalState
-        Assert.Equal(0, finalDocument.RootElement.GetProperty("result").GetProperty("proposalHandles").GetArrayLength())
+        Assert.Equal(0, state.GetProperty("proposalHandles").GetArrayLength())
+        let metrics = state.GetProperty("metrics")
+        Assert.Equal(0, metrics.GetProperty("rejects").GetInt32())
+        Assert.Equal(0, metrics.GetProperty("pendingProposalCount").GetInt32())
 
     [<Fact>]
     let ``structural diagnostics remain structured and raw node-ID payloads are rejected`` () =
