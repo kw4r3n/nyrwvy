@@ -2,14 +2,20 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   foundation:
-    name: F# foundation build and tests
+    name: F# foundation build and fast tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -26,8 +32,8 @@ jobs:
       - name: Build
         run: dotnet build NyamNyam.slnx --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
+      - name: Test fast suite
+        run: dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore --settings tests/fast.runsettings
 
       - name: Report encoding comparison
         run: cat /tmp/nyamnyam-encoding-comparison.txt
