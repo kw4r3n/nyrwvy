@@ -12,10 +12,13 @@ module AgentPureExpressionStructuralWorkflowTests =
           UnitTargetId: FunctionId
           IntTargetId: FunctionId
           FloatTargetId: FunctionId
+          ListTargetId: FunctionId
           TextParameterId: ParameterId
           SubstringParameterId: ParameterId
           CountParameterId: ParameterId
-          FloatParameterId: ParameterId }
+          FloatParameterId: ParameterId
+          ListParameterId: ParameterId
+          ListItemParameterId: ParameterId }
 
     let private functionId name = StableId.createForTesting<FunctionTag> ("function-pure-structural-" + name)
     let private parameterId name = StableId.createForTesting<ParameterTag> ("parameter-pure-structural-" + name)
@@ -27,6 +30,7 @@ module AgentPureExpressionStructuralWorkflowTests =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
+    let private int64ListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ int64Type ])
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
         { Id = id
@@ -63,6 +67,14 @@ module AgentPureExpressionStructuralWorkflowTests =
             { Id = parameterId "float-value"
               DisplayName = "value"
               Type = float64Type }
+        let listParameter: SemanticParameter =
+            { Id = parameterId "list-source"
+              DisplayName = "source"
+              Type = int64ListType }
+        let listItemParameter: SemanticParameter =
+            { Id = parameterId "list-item"
+              DisplayName = "item"
+              Type = int64Type }
 
         let stringTarget =
             functionWithBody
@@ -109,13 +121,22 @@ module AgentPureExpressionStructuralWorkflowTests =
                 (nodeId "float-result")
                 (SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 0.0))
 
+        let listTarget =
+            functionWithBody
+                (functionId "list")
+                "list_target"
+                [ listParameter; listItemParameter ]
+                int64ListType
+                (nodeId "list-result")
+                (SemanticNodeKind.ListEmpty int64Type)
+
         let snapshot: Snapshot =
             { Id = snapshotId "initial"
               ParentId = None
               Types = []
               Effects = []
               Capabilities = []
-              Functions = [ stringTarget; boolTarget; unitTarget; intTarget; floatTarget ]
+              Functions = [ stringTarget; boolTarget; unitTarget; intTarget; floatTarget; listTarget ]
               Obligations = [] }
 
         Assert.Empty(SnapshotValidator.validate snapshot)
@@ -126,10 +147,13 @@ module AgentPureExpressionStructuralWorkflowTests =
           UnitTargetId = unitTarget.Id
           IntTargetId = intTarget.Id
           FloatTargetId = floatTarget.Id
+          ListTargetId = listTarget.Id
           TextParameterId = textParameter.Id
           SubstringParameterId = substringParameter.Id
           CountParameterId = countParameter.Id
-          FloatParameterId = floatParameter.Id }
+          FloatParameterId = floatParameter.Id
+          ListParameterId = listParameter.Id
+          ListItemParameterId = listItemParameter.Id }
 
     let private createWorkspace snapshot =
         match AgentWorkspace.create snapshot with
@@ -151,6 +175,13 @@ module AgentPureExpressionStructuralWorkflowTests =
     let private assertRejectedCode expected = function
         | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) when diagnostic.Code = expected -> ()
         | other -> failwithf "Expected %s, got %A" expected other
+
+    let private assertRoles expectedRoles proposal =
+        let roles =
+            (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
+            |> List.map (fun node -> node.Role)
+        if roles <> expectedRoles then
+            failwithf "Unexpected materialization order. Expected %A, got %A" expectedRoles roles
 
     [<Fact>]
     let ``pure expression workflow materializes scalar literals across result types`` () =
@@ -196,15 +227,51 @@ module AgentPureExpressionStructuralWorkflowTests =
               [ "ParameterReference"; "Float64Literal"; "Float64Divide"; "Float64IsFinite" ] ]
 
         for recipe, expectedRoles in cases do
-            let proposal = request fixture fixture.BoolTargetId recipe |> simulate workspace
-            let roles =
-                (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
-                |> List.map (fun node -> node.Role)
-            if roles <> expectedRoles then
-                failwithf "Unexpected materialization order. Expected %A, got %A" expectedRoles roles
+            request fixture fixture.BoolTargetId recipe
+            |> simulate workspace
+            |> assertRoles expectedRoles
 
     [<Fact>]
-    let ``pure expression preflight rejects result operand and parameter type violations`` () =
+    let ``pure expression workflow materializes List construction and query recipes`` () =
+        let fixture = createFixture ()
+        let workspace = createWorkspace fixture.Snapshot
+        let cases =
+            [ fixture.ListTargetId,
+              PureExpressionRecipe.ListConstruct(
+                  int64Type,
+                  [ PureExpressionRecipe.Int64Literal 1L
+                    PureExpressionRecipe.Int64Literal 2L ]
+              ),
+              [ "Int64Literal"; "Int64Literal"; "ListConstruct" ]
+              fixture.ListTargetId,
+              PureExpressionRecipe.ListAppendItem(
+                  PureExpressionRecipe.Parameter fixture.ListParameterId,
+                  PureExpressionRecipe.Parameter fixture.ListItemParameterId
+              ),
+              [ "ParameterReference"; "ParameterReference"; "ListAppendItem" ]
+              fixture.ListTargetId,
+              PureExpressionRecipe.ListConcat(
+                  PureExpressionRecipe.Parameter fixture.ListParameterId,
+                  PureExpressionRecipe.ListEmpty int64Type
+              ),
+              [ "ParameterReference"; "ListEmpty"; "ListConcat" ]
+              fixture.IntTargetId,
+              PureExpressionRecipe.ListLength(
+                  PureExpressionRecipe.ListConstruct(
+                      int64Type,
+                      [ PureExpressionRecipe.Int64Literal 10L
+                        PureExpressionRecipe.Int64Literal 20L ]
+                  )
+              ),
+              [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListLength" ] ]
+
+        for targetId, recipe, expectedRoles in cases do
+            request fixture targetId recipe
+            |> simulate workspace
+            |> assertRoles expectedRoles
+
+    [<Fact>]
+    let ``pure expression preflight rejects result operand parameter and explicit List type violations`` () =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
@@ -220,6 +287,18 @@ module AgentPureExpressionStructuralWorkflowTests =
         request fixture fixture.BoolTargetId (PureExpressionRecipe.Parameter foreignParameter)
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionParameterOutOfScope"
+
+        request
+            fixture
+            fixture.ListTargetId
+            (PureExpressionRecipe.ListConstruct(stringType, [ PureExpressionRecipe.Int64Literal 1L ]))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionOperandTypeMismatch"
+
+        let missingType = StableId.createForTesting<TypeTag> "type-pure-structural-missing"
+        request fixture fixture.ListTargetId (PureExpressionRecipe.ListEmpty(TypeRef.Named missingType))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionInvalidTypeRef"
 
     [<Fact>]
     let ``pure expression request exposes construction intent without raw graph authority`` () =
@@ -259,7 +338,12 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Float64LessThan"
               "Float64IsNaN"
               "Float64IsFinite"
-              "Float64IsInfinite" ]
+              "Float64IsInfinite"
+              "ListEmpty"
+              "ListConstruct"
+              "ListLength"
+              "ListAppendItem"
+              "ListConcat" ]
 
         if caseNames <> expectedCases then
             failwithf "Pure-expression recipe authority surface changed: %A" caseNames
