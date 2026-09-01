@@ -2,7 +2,7 @@
 
 **NyamNyam is an AI-native semantic programming system in which programs are persistent typed semantic graphs and changes are validated meaning-level operations.**
 
-Source text is not the authoritative program form. Stable semantic identity, relationships, validation, change review, and unresolved work are represented explicitly so AI agents can make bounded changes without reconstructing program meaning from text, while humans can review what was requested and what will actually change.
+Source text is not the authoritative program form. Stable semantic identity, relationships, validation, change review, and unresolved work are represented explicitly so AI agents can make typed semantic changes without reconstructing program meaning from text, while humans can review what was requested and what will actually change.
 
 ## Current status
 
@@ -10,15 +10,15 @@ NyamNyam is an active research and implementation project.
 
 - **Milestone 0 is complete:** the graph-first architecture has passed an end-to-end lifecycle from persistence through reviewed editing and generated execution.
 - **Milestone 1 is complete for the accepted bounded-operation claim:** production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence are in place.
-- **Milestone 2 is active:** the first bounded structural slice can replace a complete `Float64` function body using a closed `Parameter` / exact `Literal` / `Add` recipe with system-owned node identities, structural before/after review, exact receipt binding, and history-preserving publication. Controlled structural agent evaluation is the next major gate.
+- **Milestone 2 is complete for the accepted structural-editing claim:** controlled evaluation established that agents can inspect, simulate, review, publish, and recover from stale structural proposals with system-owned identities and no unrelated semantic churn. The maintained Float64 body-replacement recipe now covers parameter references, exact literals, and the existing `Add` / `Subtract` / `Multiply` / `Divide` semantic operations; the specialized ListMap slice remains available as a separately typed operation.
 
-Exact build/test and evaluation evidence belongs under verification records rather than this landing page.
+Exact build/test and evaluation evidence belongs under verification records rather than this landing page. Completed controlled evaluations are reusable design evidence; they are not a requirement to repeat the same experiment for every adjacent semantic extension.
 
 ## Core model
 
 ```mermaid
 flowchart TD
-    A[Human intent or AI task] --> B[Bounded semantic query]
+    A[Human intent or AI task] --> B[Focused semantic query]
     B --> C[Operation intent]
     C --> D[Simulate]
     D --> E[Change Review]
@@ -57,6 +57,8 @@ For the stricter repository-local verification path:
 bash scripts/verify-local-20260825-1427.sh --clean
 ```
 
+Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development or CI.
+
 ## Documentation
 
 Start with the [documentation portal](docs/README.md).
@@ -68,7 +70,7 @@ Useful entry points:
 - [Current language subset](docs/reference/language-subset.md) — implemented semantic and agent-editing surfaces at a glance.
 - [Decisions](docs/decisions/README.md) — accepted rationale and bounded open questions.
 - [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
-- [Milestone 2 plan](docs/plans/milestone-2.md) — active bounded structural-editing milestone and remaining evaluation gate.
+- [Milestone 2 record](docs/plans/milestone-2.md) — completed bounded structural-editing milestone and controlled evaluation evidence.
 - [Bounded structural editing spec](docs/specs/bounded-structural-editing.md) — exact current Float64 body-replacement contract.
 - [Contributor/reviewer entry point](docs/developer/README.md) — implementation-oriented navigation.
 
@@ -76,4 +78,4 @@ Historical and superseded material is kept separately under [`docs-archive/`](do
 
 ## Relationship to RAST
 
-NyamNyam is informed by earlier RAST work, but RAST is not a runtime or semantic dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).
+NyamNyam is informed by earlier RAST work, but RAST is not a runtime, semantic, or design-authority dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).
