@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../NyamNyam.Core.Tests/MilestoneZeroGraph.fs" Link="MilestoneZeroGraph.fs" />
+    <Compile Include="../NyamNyam.Core.Tests/MilestoneOneGraph.fs" Link="MilestoneOneGraph.fs" />
+    <Compile Include="M2StructuralEvaluationCorpus.fs" />
+    <Compile Include="M2ListMapStructuralEvaluationCorpus.fs" />
+    <Compile Include="M2StructuralEvaluationCorpusTests.fs" />
+    <Compile Include="M2ListMapStructuralEvaluationCorpusTests.fs" />
+    <Compile Include="StructuralEvalHarnessTests.fs" />
+    <Compile Include="ListMapStructuralEvalHarnessTests.fs" />
+    <Compile Include="AgentEvalVerificationProtocolTests.fs" />
+    <Compile Include="MilestoneZeroEndToEndTests.fs" />
+    <Compile Include="MilestoneOneEndToEndTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../evaluation/m2-agent-corpus-v1/corpus.json" Link="evaluation/m2-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../evaluation/m2-listmap-agent-corpus-v1/corpus.json" Link="evaluation/m2-listmap-agent-corpus-v1/corpus.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Viewer/NyamNyam.Viewer.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
+  </ItemGroup>
+</Project>

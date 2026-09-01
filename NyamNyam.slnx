@@ -14,5 +14,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj" />
+    <Project Path="tests/NyamNyam.Extended.Tests/NyamNyam.Extended.Tests.fsproj" />
   </Folder>
 </Solution>
