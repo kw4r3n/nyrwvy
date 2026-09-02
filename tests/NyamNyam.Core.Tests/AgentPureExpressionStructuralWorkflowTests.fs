@@ -535,7 +535,14 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListMap"
               "ListFilter"
               "ListAny"
-              "ListAll" ]
+              "ListAll"
+              "ProductConstruct"
+              "FieldAccess"
+              "UnionConstruct"
+              "OptionNone"
+              "OptionSome"
+              "ResultOk"
+              "ResultErr" ]
 
         if caseNames <> expectedCases then
             failwithf "Pure-expression recipe authority surface changed: %A" caseNames

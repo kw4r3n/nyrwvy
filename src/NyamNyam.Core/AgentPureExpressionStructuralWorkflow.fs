@@ -38,6 +38,13 @@ type PureExpressionRecipe =
     | ListFilter of source: PureExpressionRecipe * predicateFunctionId: FunctionId
     | ListAny of source: PureExpressionRecipe * predicateFunctionId: FunctionId
     | ListAll of source: PureExpressionRecipe * predicateFunctionId: FunctionId
+    | ProductConstruct of typeId: TypeId * fields: (FieldId * PureExpressionRecipe) list
+    | FieldAccess of source: PureExpressionRecipe * fieldId: FieldId
+    | UnionConstruct of variantId: VariantId * fields: (FieldId * PureExpressionRecipe) list
+    | OptionNone of itemType: TypeRef
+    | OptionSome of PureExpressionRecipe
+    | ResultOk of errorType: TypeRef * value: PureExpressionRecipe
+    | ResultErr of okType: TypeRef * error: PureExpressionRecipe
 
 type AgentReplaceFunctionBodyWithPureExpressionRecipe =
     { TargetFunctionId: FunctionId
@@ -79,6 +86,9 @@ module AgentPureExpressionStructuralWorkflow =
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
     let private listType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
+    let private optionType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
+    let private resultType okType errorType =
+        TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
 
     let private listItemType typeRef =
         match typeRef with
@@ -86,6 +96,17 @@ module AgentPureExpressionStructuralWorkflow =
         | _ -> None
 
     let rec private recipeStats recipe =
+        let fieldStats fields =
+            fields |> List.map (snd >> recipeStats)
+
+        let aggregateChildren childStats =
+            let count = 1 + (childStats |> List.sumBy fst)
+            let depth =
+                match childStats with
+                | [] -> 1
+                | values -> 1 + (values |> List.map snd |> List.max)
+            count, depth
+
         match recipe with
         | PureExpressionRecipe.Parameter _
         | PureExpressionRecipe.StringLiteral _
@@ -93,7 +114,8 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.UnitLiteral
         | PureExpressionRecipe.Int64Literal _
         | PureExpressionRecipe.Float64Literal _
-        | PureExpressionRecipe.ListEmpty _ -> 1, 1
+        | PureExpressionRecipe.ListEmpty _
+        | PureExpressionRecipe.OptionNone _ -> 1, 1
         | PureExpressionRecipe.StringIsEmpty child
         | PureExpressionRecipe.Float64IsNaN child
         | PureExpressionRecipe.Float64IsFinite child
@@ -102,7 +124,11 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.ListMap(child, _)
         | PureExpressionRecipe.ListFilter(child, _)
         | PureExpressionRecipe.ListAny(child, _)
-        | PureExpressionRecipe.ListAll(child, _) ->
+        | PureExpressionRecipe.ListAll(child, _)
+        | PureExpressionRecipe.FieldAccess(child, _)
+        | PureExpressionRecipe.OptionSome child
+        | PureExpressionRecipe.ResultOk(_, child)
+        | PureExpressionRecipe.ResultErr(_, child) ->
             let count, depth = recipeStats child
             1 + count, 1 + depth
         | PureExpressionRecipe.StringContains(left, right)
@@ -126,13 +152,10 @@ module AgentPureExpressionStructuralWorkflow =
             let rightCount, rightDepth = recipeStats right
             1 + leftCount + rightCount, 1 + max leftDepth rightDepth
         | PureExpressionRecipe.ListConstruct(_, items) ->
-            let childStats = items |> List.map recipeStats
-            let count = 1 + (childStats |> List.sumBy fst)
-            let depth =
-                match childStats with
-                | [] -> 1
-                | values -> 1 + (values |> List.map snd |> List.max)
-            count, depth
+            items |> List.map recipeStats |> aggregateChildren
+        | PureExpressionRecipe.ProductConstruct(_, fields)
+        | PureExpressionRecipe.UnionConstruct(_, fields) ->
+            fields |> fieldStats |> aggregateChildren
 
     let private validateTypeRef (snapshot: Snapshot) typeRef =
         let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
@@ -170,8 +193,34 @@ module AgentPureExpressionStructuralWorkflow =
         validate typeRef
 
     let private inferType (snapshot: Snapshot) (target: SemanticFunction) recipe =
-        let parametersById = target.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
-        let functionsById = snapshot.Functions |> List.map (fun functionEntity -> functionEntity.Id, functionEntity) |> Map.ofList
+        let parametersById =
+            target.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
+
+        let functionsById =
+            snapshot.Functions
+            |> List.map (fun functionEntity -> functionEntity.Id, functionEntity)
+            |> Map.ofList
+
+        let typesById =
+            snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id, typeEntity) |> Map.ofList
+
+        let variantsById =
+            snapshot.Types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product _ -> []
+                | SemanticTypeKind.Union variants ->
+                    variants |> List.map (fun variant -> variant.Id, (typeEntity.Id, variant)))
+            |> Map.ofList
+
+        let productFieldsById =
+            snapshot.Types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields ->
+                    fields |> List.map (fun field -> field.Id, (typeEntity.Id, field))
+                | SemanticTypeKind.Union _ -> [])
+            |> Map.ofList
 
         let typeMismatch role side expected actual =
             diagnostic
@@ -233,6 +282,48 @@ module AgentPureExpressionStructuralWorkflow =
                     | Error error -> Error error
                     | Ok actual when actual <> expected -> Error(typeMismatch role "right" expected actual)
                     | Ok _ -> Ok result
+
+            let validateFieldBindings role expectedFields bindings =
+                let duplicateField =
+                    bindings
+                    |> List.countBy fst
+                    |> List.tryFind (fun (_, count) -> count > 1)
+
+                match duplicateField with
+                | Some(fieldId, _) ->
+                    Error(
+                        diagnostic
+                            "PureExpressionDuplicateFieldBinding"
+                            $"{role} binds field '{StableId.value fieldId}' more than once."
+                    )
+                | None ->
+                    let expectedIds = expectedFields |> List.map (fun field -> field.Id) |> Set.ofList
+                    let actualIds = bindings |> List.map fst |> Set.ofList
+
+                    if expectedIds <> actualIds then
+                        Error(
+                            diagnostic
+                                "PureExpressionFieldBindingMismatch"
+                                $"{role} must bind exactly the fields declared by its target."
+                        )
+                    else
+                        let rec validateFields = function
+                            | [] -> Ok()
+                            | field :: rest ->
+                                let _, value =
+                                    bindings |> List.find (fun (fieldId, _) -> fieldId = field.Id)
+
+                                match infer value with
+                                | Error error -> Error error
+                                | Ok actual when actual <> field.Type ->
+                                    Error(
+                                        diagnostic
+                                            "PureExpressionFieldBindingTypeMismatch"
+                                            $"{role} field '{StableId.value field.Id}' requires {field.Type}, but the recipe produces {actual}."
+                                    )
+                                | Ok _ -> validateFields rest
+
+                        validateFields expectedFields
 
             match recipe with
             | PureExpressionRecipe.Parameter parameterId ->
@@ -375,6 +466,68 @@ module AgentPureExpressionStructuralWorkflow =
                         match validateListCallback "ListAll" predicateFunctionId sourceItemType true with
                         | Error error -> Error error
                         | Ok _ -> Ok boolType
+            | PureExpressionRecipe.ProductConstruct(typeId, fields) ->
+                match Map.tryFind typeId typesById with
+                | None ->
+                    Error(
+                        diagnostic
+                            "PureExpressionProductTypeNotFound"
+                            $"Product construction references unknown type '{StableId.value typeId}'."
+                    )
+                | Some { Kind = SemanticTypeKind.Product expectedFields } ->
+                    match validateFieldBindings "ProductConstruct" expectedFields fields with
+                    | Error error -> Error error
+                    | Ok() -> Ok(TypeRef.Named typeId)
+                | Some _ ->
+                    Error(
+                        diagnostic
+                            "PureExpressionProductTargetMismatch"
+                            $"Product construction target '{StableId.value typeId}' is not a product type."
+                    )
+            | PureExpressionRecipe.FieldAccess(source, fieldId) ->
+                match Map.tryFind fieldId productFieldsById with
+                | None ->
+                    Error(
+                        diagnostic
+                            "PureExpressionProductFieldNotFound"
+                            $"Field access references field '{StableId.value fieldId}' that is not owned by a product type."
+                    )
+                | Some(ownerTypeId, field) ->
+                    match infer source with
+                    | Error error -> Error error
+                    | Ok(TypeRef.Named sourceTypeId) when sourceTypeId = ownerTypeId -> Ok field.Type
+                    | Ok actual ->
+                        Error(
+                            diagnostic
+                                "PureExpressionFieldAccessTypeMismatch"
+                                $"Field access requires {TypeRef.Named ownerTypeId}, but the source recipe produces {actual}."
+                        )
+            | PureExpressionRecipe.UnionConstruct(variantId, fields) ->
+                match Map.tryFind variantId variantsById with
+                | None ->
+                    Error(
+                        diagnostic
+                            "PureExpressionUnionVariantNotFound"
+                            $"Union construction references unknown variant '{StableId.value variantId}'."
+                    )
+                | Some(ownerTypeId, variant) ->
+                    match validateFieldBindings "UnionConstruct" variant.Fields fields with
+                    | Error error -> Error error
+                    | Ok() -> Ok(TypeRef.Named ownerTypeId)
+            | PureExpressionRecipe.OptionNone itemType ->
+                match validateTypeRef snapshot itemType with
+                | Error error -> Error error
+                | Ok() -> Ok(optionType itemType)
+            | PureExpressionRecipe.OptionSome value ->
+                infer value |> Result.map optionType
+            | PureExpressionRecipe.ResultOk(errorType, value) ->
+                match validateTypeRef snapshot errorType with
+                | Error error -> Error error
+                | Ok() -> infer value |> Result.map (fun okType -> resultType okType errorType)
+            | PureExpressionRecipe.ResultErr(okType, error) ->
+                match validateTypeRef snapshot okType with
+                | Error error -> Error error
+                | Ok() -> infer error |> Result.map (resultType okType)
 
         infer recipe
 
@@ -429,15 +582,15 @@ module AgentPureExpressionStructuralWorkflow =
                         | None -> Ok target
 
     /// Materialization is deterministic left-to-right post-order with no caller-controlled IDs or CSE.
-    let rec private materialize recipe =
+    let rec private materialize (snapshot: Snapshot) recipe =
         let unary kind child =
-            let childNodes, childResult = materialize child
+            let childNodes, childResult = materialize snapshot child
             let nodeId = StableIdAllocator.newGraphNodeId ()
             childNodes @ [ { Id = nodeId; Kind = kind childResult } ], nodeId
 
         let binary kind left right =
-            let leftNodes, leftResult = materialize left
-            let rightNodes, rightResult = materialize right
+            let leftNodes, leftResult = materialize snapshot left
+            let rightNodes, rightResult = materialize snapshot right
             let nodeId = StableIdAllocator.newGraphNodeId ()
             leftNodes
             @ rightNodes
@@ -448,14 +601,27 @@ module AgentPureExpressionStructuralWorkflow =
         let rec many = function
             | [] -> [], []
             | head :: tail ->
-                let headNodes, headResult = materialize head
+                let headNodes, headResult = materialize snapshot head
                 let tailNodes, tailResults = many tail
                 headNodes @ tailNodes, headResult :: tailResults
 
         let listCallback kind source callbackFunctionId =
-            let sourceNodes, sourceResult = materialize source
+            let sourceNodes, sourceResult = materialize snapshot source
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ [ { Id = nodeId; Kind = kind (sourceResult, callbackFunctionId) } ], nodeId
+
+        let materializeFieldBindings expectedFields bindings =
+            let rec loop = function
+                | [] -> [], []
+                | field :: rest ->
+                    let _, value = bindings |> List.find (fun (fieldId, _) -> fieldId = field.Id)
+                    let valueNodes, valueResult = materialize snapshot value
+                    let restNodes, restBindings = loop rest
+                    valueNodes @ restNodes,
+                    { TargetFieldId = field.Id
+                      ValueNodeId = valueResult } :: restBindings
+
+            loop expectedFields
 
         match recipe with
         | PureExpressionRecipe.Parameter parameterId ->
@@ -535,6 +701,46 @@ module AgentPureExpressionStructuralWorkflow =
             listCallback SemanticNodeKind.ListAny source predicateFunctionId
         | PureExpressionRecipe.ListAll(source, predicateFunctionId) ->
             listCallback SemanticNodeKind.ListAll source predicateFunctionId
+        | PureExpressionRecipe.ProductConstruct(typeId, fields) ->
+            let expectedFields =
+                match snapshot.Types |> List.find (fun typeEntity -> typeEntity.Id = typeId) with
+                | { Kind = SemanticTypeKind.Product expectedFields } -> expectedFields
+                | _ -> failwith "Product recipe passed preflight with a non-product type."
+
+            let fieldNodes, fieldBindings = materializeFieldBindings expectedFields fields
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            fieldNodes
+            @ [ { Id = nodeId
+                  Kind = SemanticNodeKind.ProductConstruct(typeId, fieldBindings) } ],
+            nodeId
+        | PureExpressionRecipe.FieldAccess(source, fieldId) ->
+            let sourceNodes, sourceResult = materialize snapshot source
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.FieldAccess(sourceResult, fieldId) } ], nodeId
+        | PureExpressionRecipe.UnionConstruct(variantId, fields) ->
+            let variant =
+                snapshot.Types
+                |> List.collect (fun typeEntity ->
+                    match typeEntity.Kind with
+                    | SemanticTypeKind.Product _ -> []
+                    | SemanticTypeKind.Union variants -> variants)
+                |> List.find (fun variant -> variant.Id = variantId)
+
+            let fieldNodes, fieldBindings = materializeFieldBindings variant.Fields fields
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            fieldNodes
+            @ [ { Id = nodeId
+                  Kind = SemanticNodeKind.UnionConstruct(variantId, fieldBindings) } ],
+            nodeId
+        | PureExpressionRecipe.OptionNone itemType ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
+        | PureExpressionRecipe.OptionSome value ->
+            unary SemanticNodeKind.OptionSome value
+        | PureExpressionRecipe.ResultOk(errorType, value) ->
+            unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
+        | PureExpressionRecipe.ResultErr(okType, error) ->
+            unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error
 
     let simulate
         (workspace: AgentWorkspace)
@@ -548,7 +754,7 @@ module AgentPureExpressionStructuralWorkflow =
             match validatePreflight request baseSnapshot with
             | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
             | Ok target ->
-                let newNodes, newResultId = materialize request.Replacement
+                let newNodes, newResultId = materialize baseSnapshot request.Replacement
                 let replacementBody =
                     { Nodes = newNodes
                       ResultNodeId = newResultId }
