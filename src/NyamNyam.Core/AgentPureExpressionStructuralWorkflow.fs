@@ -301,7 +301,10 @@ module AgentPureExpressionStructuralWorkflow =
                             $"{role} binds field '{StableId.value fieldId}' more than once."
                     )
                 | None ->
-                    let expectedIds = expectedFields |> List.map (fun field -> field.Id) |> Set.ofList
+                    let expectedIds =
+                        expectedFields
+                        |> List.map (fun (field: SemanticField) -> field.Id)
+                        |> Set.ofList
                     let actualIds = bindings |> List.map fst |> Set.ofList
 
                     if expectedIds <> actualIds then
@@ -311,7 +314,8 @@ module AgentPureExpressionStructuralWorkflow =
                                 $"{role} must bind exactly the fields declared by its target."
                         )
                     else
-                        let rec validateFields = function
+                        let rec validateFields (fields: SemanticField list) =
+                            match fields with
                             | [] -> Ok()
                             | field :: rest ->
                                 let _, value =
@@ -618,7 +622,8 @@ module AgentPureExpressionStructuralWorkflow =
             (expectedFields: SemanticField list)
             (bindings: (FieldId * PureExpressionRecipe) list)
             =
-            let rec loop = function
+            let rec loop (fields: SemanticField list) =
+                match fields with
                 | [] -> [], []
                 | field :: rest ->
                     let _, value = bindings |> List.find (fun (fieldId, _) -> fieldId = field.Id)
