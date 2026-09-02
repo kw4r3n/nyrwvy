@@ -34,6 +34,10 @@ type PureExpressionRecipe =
     | ListLength of PureExpressionRecipe
     | ListAppendItem of list: PureExpressionRecipe * item: PureExpressionRecipe
     | ListConcat of left: PureExpressionRecipe * right: PureExpressionRecipe
+    | ListMap of source: PureExpressionRecipe * mapperFunctionId: FunctionId
+    | ListFilter of source: PureExpressionRecipe * predicateFunctionId: FunctionId
+    | ListAny of source: PureExpressionRecipe * predicateFunctionId: FunctionId
+    | ListAll of source: PureExpressionRecipe * predicateFunctionId: FunctionId
 
 type AgentReplaceFunctionBodyWithPureExpressionRecipe =
     { TargetFunctionId: FunctionId
@@ -94,7 +98,11 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.Float64IsNaN child
         | PureExpressionRecipe.Float64IsFinite child
         | PureExpressionRecipe.Float64IsInfinite child
-        | PureExpressionRecipe.ListLength child ->
+        | PureExpressionRecipe.ListLength child
+        | PureExpressionRecipe.ListMap(child, _)
+        | PureExpressionRecipe.ListFilter(child, _)
+        | PureExpressionRecipe.ListAny(child, _)
+        | PureExpressionRecipe.ListAll(child, _) ->
             let count, depth = recipeStats child
             1 + count, 1 + depth
         | PureExpressionRecipe.StringContains(left, right)
@@ -163,6 +171,7 @@ module AgentPureExpressionStructuralWorkflow =
 
     let private inferType (snapshot: Snapshot) (target: SemanticFunction) recipe =
         let parametersById = target.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
+        let functionsById = snapshot.Functions |> List.map (fun functionEntity -> functionEntity.Id, functionEntity) |> Map.ofList
 
         let typeMismatch role side expected actual =
             diagnostic
@@ -173,6 +182,40 @@ module AgentPureExpressionStructuralWorkflow =
             diagnostic
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires List<T>, but the recipe produces {actual}."
+
+        let validateListCallback role callbackFunctionId sourceItemType predicateResultRequired =
+            match Map.tryFind callbackFunctionId functionsById with
+            | None ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackNotFound"
+                        $"{role} callback function '{StableId.value callbackFunctionId}' does not exist."
+                )
+            | Some callback when callback.Parameters.Length <> 1 ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackArityMismatch"
+                        $"{role} callback function '{StableId.value callback.Id}' must have exactly one parameter."
+                )
+            | Some callback when callback.Parameters.Head.Type <> sourceItemType ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackInputTypeMismatch"
+                        $"{role} callback function '{StableId.value callback.Id}' input type does not match the source list item type."
+                )
+            | Some callback when predicateResultRequired && callback.ResultType <> boolType ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackResultTypeMismatch"
+                        $"{role} callback function '{StableId.value callback.Id}' must return Bool."
+                )
+            | Some callback when not (List.isEmpty callback.RequiredEffects) ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackEffectsNotAllowed"
+                        $"{role} callback function '{StableId.value callback.Id}' must be pure."
+                )
+            | Some callback -> Ok callback
 
         let rec infer recipe =
             let unary role expected result child =
@@ -292,6 +335,46 @@ module AgentPureExpressionStructuralWorkflow =
                         | Ok rightType when rightType <> leftType ->
                             Error(typeMismatch "ListConcat" "right" leftType rightType)
                         | Ok _ -> Ok leftType
+            | PureExpressionRecipe.ListMap(source, mapperFunctionId) ->
+                match infer source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListMap" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListMap" mapperFunctionId sourceItemType false with
+                        | Error error -> Error error
+                        | Ok mapper -> Ok(listType mapper.ResultType)
+            | PureExpressionRecipe.ListFilter(source, predicateFunctionId) ->
+                match infer source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListFilter" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListFilter" predicateFunctionId sourceItemType true with
+                        | Error error -> Error error
+                        | Ok _ -> Ok sourceType
+            | PureExpressionRecipe.ListAny(source, predicateFunctionId) ->
+                match infer source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListAny" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListAny" predicateFunctionId sourceItemType true with
+                        | Error error -> Error error
+                        | Ok _ -> Ok boolType
+            | PureExpressionRecipe.ListAll(source, predicateFunctionId) ->
+                match infer source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListAll" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListAll" predicateFunctionId sourceItemType true with
+                        | Error error -> Error error
+                        | Ok _ -> Ok boolType
 
         infer recipe
 
@@ -369,6 +452,11 @@ module AgentPureExpressionStructuralWorkflow =
                 let tailNodes, tailResults = many tail
                 headNodes @ tailNodes, headResult :: tailResults
 
+        let listCallback kind source callbackFunctionId =
+            let sourceNodes, sourceResult = materialize source
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ [ { Id = nodeId; Kind = kind (sourceResult, callbackFunctionId) } ], nodeId
+
         match recipe with
         | PureExpressionRecipe.Parameter parameterId ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
@@ -439,6 +527,14 @@ module AgentPureExpressionStructuralWorkflow =
             binary SemanticNodeKind.ListAppendItem list item
         | PureExpressionRecipe.ListConcat(left, right) ->
             binary SemanticNodeKind.ListConcat left right
+        | PureExpressionRecipe.ListMap(source, mapperFunctionId) ->
+            listCallback SemanticNodeKind.ListMap source mapperFunctionId
+        | PureExpressionRecipe.ListFilter(source, predicateFunctionId) ->
+            listCallback SemanticNodeKind.ListFilter source predicateFunctionId
+        | PureExpressionRecipe.ListAny(source, predicateFunctionId) ->
+            listCallback SemanticNodeKind.ListAny source predicateFunctionId
+        | PureExpressionRecipe.ListAll(source, predicateFunctionId) ->
+            listCallback SemanticNodeKind.ListAll source predicateFunctionId
 
     let simulate
         (workspace: AgentWorkspace)
