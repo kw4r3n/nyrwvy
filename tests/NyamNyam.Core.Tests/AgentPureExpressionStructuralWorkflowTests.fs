@@ -13,17 +13,25 @@ module AgentPureExpressionStructuralWorkflowTests =
           IntTargetId: FunctionId
           FloatTargetId: FunctionId
           ListTargetId: FunctionId
+          StringListTargetId: FunctionId
           TextParameterId: ParameterId
           SubstringParameterId: ParameterId
           CountParameterId: ParameterId
           FloatParameterId: ParameterId
           ListParameterId: ParameterId
-          ListItemParameterId: ParameterId }
+          ListItemParameterId: ParameterId
+          MapperFunctionId: FunctionId
+          PredicateFunctionId: FunctionId
+          ZeroArityPredicateFunctionId: FunctionId
+          WrongInputPredicateFunctionId: FunctionId
+          WrongResultPredicateFunctionId: FunctionId
+          EffectfulPredicateFunctionId: FunctionId }
 
     let private functionId name = StableId.createForTesting<FunctionTag> ("function-pure-structural-" + name)
     let private parameterId name = StableId.createForTesting<ParameterTag> ("parameter-pure-structural-" + name)
     let private nodeId name = StableId.createForTesting<GraphNodeTag> ("node-pure-structural-" + name)
     let private snapshotId name = StableId.createForTesting<SnapshotTag> ("snapshot-pure-structural-" + name)
+    let private effectId name = StableId.createForTesting<EffectTag> ("effect-pure-structural-" + name)
 
     let private stringType = TypeRef.Primitive PrimitiveType.String
     let private boolType = TypeRef.Primitive PrimitiveType.Bool
@@ -31,6 +39,7 @@ module AgentPureExpressionStructuralWorkflowTests =
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
     let private int64ListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ int64Type ])
+    let private stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
         { Id = id
@@ -130,13 +139,113 @@ module AgentPureExpressionStructuralWorkflowTests =
                 (nodeId "list-result")
                 (SemanticNodeKind.ListEmpty int64Type)
 
+        let stringListTarget =
+            functionWithBody
+                (functionId "string-list")
+                "string_list_target"
+                []
+                stringListType
+                (nodeId "string-list-result")
+                (SemanticNodeKind.ListEmpty stringType)
+
+        let mapperParameter: SemanticParameter =
+            { Id = parameterId "mapper-value"
+              DisplayName = "value"
+              Type = int64Type }
+        let mapper =
+            functionWithBody
+                (functionId "mapper")
+                "mapper"
+                [ mapperParameter ]
+                stringType
+                (nodeId "mapper-result")
+                (SemanticNodeKind.StringLiteral "mapped")
+
+        let predicateParameter: SemanticParameter =
+            { Id = parameterId "predicate-value"
+              DisplayName = "value"
+              Type = int64Type }
+        let predicate =
+            functionWithBody
+                (functionId "predicate")
+                "predicate"
+                [ predicateParameter ]
+                boolType
+                (nodeId "predicate-result")
+                (SemanticNodeKind.BoolLiteral true)
+
+        let zeroArityPredicate =
+            functionWithBody
+                (functionId "predicate-zero-arity")
+                "predicate_zero_arity"
+                []
+                boolType
+                (nodeId "predicate-zero-arity-result")
+                (SemanticNodeKind.BoolLiteral true)
+
+        let wrongInputParameter: SemanticParameter =
+            { Id = parameterId "predicate-wrong-input-value"
+              DisplayName = "value"
+              Type = stringType }
+        let wrongInputPredicate =
+            functionWithBody
+                (functionId "predicate-wrong-input")
+                "predicate_wrong_input"
+                [ wrongInputParameter ]
+                boolType
+                (nodeId "predicate-wrong-input-result")
+                (SemanticNodeKind.BoolLiteral true)
+
+        let wrongResultParameter: SemanticParameter =
+            { Id = parameterId "predicate-wrong-result-value"
+              DisplayName = "value"
+              Type = int64Type }
+        let wrongResultPredicate =
+            functionWithBody
+                (functionId "predicate-wrong-result")
+                "predicate_wrong_result"
+                [ wrongResultParameter ]
+                int64Type
+                (nodeId "predicate-wrong-result-result")
+                (SemanticNodeKind.Int64Literal 1L)
+
+        let callbackEffect: SemanticEffect =
+            { Id = effectId "callback"
+              DisplayName = "callback_effect" }
+        let effectfulParameter: SemanticParameter =
+            { Id = parameterId "predicate-effectful-value"
+              DisplayName = "value"
+              Type = int64Type }
+        let effectfulPredicate =
+            { functionWithBody
+                (functionId "predicate-effectful")
+                "predicate_effectful"
+                [ effectfulParameter ]
+                boolType
+                (nodeId "predicate-effectful-result")
+                (SemanticNodeKind.BoolLiteral true) with
+                RequiredEffects = [ callbackEffect.Id ] }
+
         let snapshot: Snapshot =
             { Id = snapshotId "initial"
               ParentId = None
               Types = []
-              Effects = []
+              Effects = [ callbackEffect ]
               Capabilities = []
-              Functions = [ stringTarget; boolTarget; unitTarget; intTarget; floatTarget; listTarget ]
+              Functions =
+                [ stringTarget
+                  boolTarget
+                  unitTarget
+                  intTarget
+                  floatTarget
+                  listTarget
+                  stringListTarget
+                  mapper
+                  predicate
+                  zeroArityPredicate
+                  wrongInputPredicate
+                  wrongResultPredicate
+                  effectfulPredicate ]
               Obligations = [] }
 
         Assert.Empty(SnapshotValidator.validate snapshot)
@@ -148,12 +257,19 @@ module AgentPureExpressionStructuralWorkflowTests =
           IntTargetId = intTarget.Id
           FloatTargetId = floatTarget.Id
           ListTargetId = listTarget.Id
+          StringListTargetId = stringListTarget.Id
           TextParameterId = textParameter.Id
           SubstringParameterId = substringParameter.Id
           CountParameterId = countParameter.Id
           FloatParameterId = floatParameter.Id
           ListParameterId = listParameter.Id
-          ListItemParameterId = listItemParameter.Id }
+          ListItemParameterId = listItemParameter.Id
+          MapperFunctionId = mapper.Id
+          PredicateFunctionId = predicate.Id
+          ZeroArityPredicateFunctionId = zeroArityPredicate.Id
+          WrongInputPredicateFunctionId = wrongInputPredicate.Id
+          WrongResultPredicateFunctionId = wrongResultPredicate.Id
+          EffectfulPredicateFunctionId = effectfulPredicate.Id }
 
     let private createWorkspace snapshot =
         match AgentWorkspace.create snapshot with
@@ -182,6 +298,12 @@ module AgentPureExpressionStructuralWorkflowTests =
             |> List.map (fun node -> node.Role)
         if roles <> expectedRoles then
             failwithf "Unexpected materialization order. Expected %A, got %A" expectedRoles roles
+
+    let private intList values =
+        PureExpressionRecipe.ListConstruct(
+            int64Type,
+            values |> List.map PureExpressionRecipe.Int64Literal
+        )
 
     [<Fact>]
     let ``pure expression workflow materializes scalar literals across result types`` () =
@@ -271,7 +393,40 @@ module AgentPureExpressionStructuralWorkflowTests =
             |> assertRoles expectedRoles
 
     [<Fact>]
-    let ``pure expression preflight rejects result operand parameter and explicit List type violations`` () =
+    let ``pure expression workflow materializes higher-order List recipes with existing pure callbacks`` () =
+        let fixture = createFixture ()
+        let workspace = createWorkspace fixture.Snapshot
+        let cases =
+            [ fixture.StringListTargetId,
+              PureExpressionRecipe.ListMap(intList [ 1L; 2L ], fixture.MapperFunctionId),
+              [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListMap" ]
+              fixture.ListTargetId,
+              PureExpressionRecipe.ListFilter(intList [ 1L; 2L ], fixture.PredicateFunctionId),
+              [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListFilter" ]
+              fixture.BoolTargetId,
+              PureExpressionRecipe.ListAny(intList [ 1L ], fixture.PredicateFunctionId),
+              [ "Int64Literal"; "ListConstruct"; "ListAny" ]
+              fixture.BoolTargetId,
+              PureExpressionRecipe.ListAll(intList [ 1L ], fixture.PredicateFunctionId),
+              [ "Int64Literal"; "ListConstruct"; "ListAll" ] ]
+
+        for targetId, recipe, expectedRoles in cases do
+            let proposal = request fixture targetId recipe |> simulate workspace
+            assertRoles expectedRoles proposal
+
+        let mapProposal =
+            request
+                fixture
+                fixture.StringListTargetId
+                (PureExpressionRecipe.ListMap(intList [ 1L ], fixture.MapperFunctionId))
+            |> simulate workspace
+        let mapNode =
+            (AgentPureExpressionStructuralChangeProposal.review mapProposal).ResultingChange.AddedNodes
+            |> List.last
+        Assert.Equal(Some fixture.MapperFunctionId, mapNode.FunctionId)
+
+    [<Fact>]
+    let ``pure expression preflight rejects result operand parameter explicit List type and callback violations`` () =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
@@ -299,6 +454,39 @@ module AgentPureExpressionStructuralWorkflowTests =
         request fixture fixture.ListTargetId (PureExpressionRecipe.ListEmpty(TypeRef.Named missingType))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionInvalidTypeRef"
+
+        let missingCallback = StableId.createForTesting<FunctionTag> "function-pure-structural-missing-callback"
+        request fixture fixture.BoolTargetId (PureExpressionRecipe.ListAny(intList [ 1L ], missingCallback))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionListCallbackNotFound"
+
+        request
+            fixture
+            fixture.BoolTargetId
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionListCallbackArityMismatch"
+
+        request
+            fixture
+            fixture.BoolTargetId
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionListCallbackInputTypeMismatch"
+
+        request
+            fixture
+            fixture.BoolTargetId
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionListCallbackResultTypeMismatch"
+
+        request
+            fixture
+            fixture.BoolTargetId
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionListCallbackEffectsNotAllowed"
 
     [<Fact>]
     let ``pure expression request exposes construction intent without raw graph authority`` () =
@@ -343,7 +531,11 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListConstruct"
               "ListLength"
               "ListAppendItem"
-              "ListConcat" ]
+              "ListConcat"
+              "ListMap"
+              "ListFilter"
+              "ListAny"
+              "ListAll" ]
 
         if caseNames <> expectedCases then
             failwithf "Pure-expression recipe authority surface changed: %A" caseNames

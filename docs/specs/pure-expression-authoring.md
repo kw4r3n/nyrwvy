@@ -19,7 +19,7 @@ ephemeral typed construction intent
 
 `AgentPureExpressionStructuralWorkflow` replaces the complete body of one existing function with a body materialized from `PureExpressionRecipe`.
 
-The maintained surface currently covers primitive scalar expressions and pure List construction/query expressions:
+The maintained surface currently covers primitive scalar expressions, pure List construction/query expressions, and higher-order List traversal through existing pure callbacks:
 
 ```text
 PureExpressionRecipe =
@@ -53,6 +53,10 @@ PureExpressionRecipe =
   | ListLength(list)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
+  | ListMap(source, mapperFunctionId)
+  | ListFilter(source, predicateFunctionId)
+  | ListAny(source, predicateFunctionId)
+  | ListAll(source, predicateFunctionId)
 ```
 
 This remains a selected pure construction algebra rather than a generic wrapper around every `SemanticNodeKind`.
@@ -79,7 +83,7 @@ The construction tree uses the same practical bounds already established by boun
 - materialization is left-to-right post-order;
 - repeated equal subexpressions remain distinct occurrences.
 
-`ListConstruct` materializes its item recipes in list order and then materializes the `ListConstruct` node. An empty `ListConstruct` is one recipe node at depth 1.
+`ListConstruct` materializes its item recipes in list order and then materializes the `ListConstruct` node. An empty `ListConstruct` is one recipe node at depth 1. Higher-order List recipes materialize the source expression first and then materialize the traversal node referencing the existing callback `FunctionId`.
 
 There is no caller-controlled CSE, DAG sharing, local-node reuse, or operand reordering.
 
@@ -98,8 +102,12 @@ Before allocating replacement graph-node IDs, simulation checks:
 9. `ListLength` receives `List<T>`;
 10. `ListAppendItem` receives `List<T>` plus `T`;
 11. `ListConcat` receives two lists of the same exact list type;
-12. the inferred recipe result type exactly equals the target function result type;
-13. no open or resolved obligation targets a node in the body being replaced.
+12. every higher-order List source produces `List<T>`;
+13. every higher-order callback names an existing function with exactly one parameter of type `T`;
+14. `ListFilter`, `ListAny`, and `ListAll` callbacks return `Bool`;
+15. higher-order callbacks have no required effects;
+16. the inferred recipe result type exactly equals the target function result type;
+17. no open or resolved obligation targets a node in the body being replaced.
 
 There is no implicit numeric conversion, List item conversion, or fallback type coercion.
 
@@ -116,9 +124,24 @@ The supplied type is construction intent, not a raw graph payload. Before materi
 - `Result<T,E>` requires two type arguments;
 - nested type arguments are validated recursively.
 
+## Higher-order List callbacks
+
+`ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+
+For a source `List<T>`:
+
+- `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
+- `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
+- `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
+- `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
+
+This is the same pure callback boundary enforced by the semantic validator. Effectful callbacks are rejected rather than introducing a traversal-order/effect contract through this authoring surface.
+
 ## Materialization
 
 After preflight succeeds, every recipe occurrence receives a fresh `GraphNodeId` from `StableIdAllocator` and becomes the corresponding existing `SemanticNodeKind`.
+
+Existing declaration references such as higher-order callback `FunctionId`s remain references; the workflow does not allocate or mutate those declarations.
 
 The workflow adds no new persisted semantic node role and therefore does not require a snapshot-schema change.
 
@@ -135,19 +158,18 @@ The workflow reuses the existing structural transaction mechanics:
 - reviewed publication through `publishValidatedSnapshot`;
 - explicit rejection without mutation.
 
-The requested construction tree and the materialized graph remain separate review facts.
+The requested construction tree and the materialized graph remain separate review facts. Higher-order node summaries expose the referenced callback function ID.
 
 ## Compatibility surfaces
 
 The earlier `Float64ExpressionRecipe` / `AgentStructuralWorkflow` surface remains available. It is a narrower compatibility surface backed by the same structural interaction model.
 
-The specialized ListMap workflow also remains available. General pure-expression authoring now covers List construction/query nodes, but it does not yet cover higher-order List callbacks, so the specialized workflow is not redundant yet.
+The specialized `AgentListMapStructuralWorkflow` also remains available for compatibility with the M2 ListMap surface and its frozen evidence. Its semantic capability is now covered by the general recipe through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` plus the same target/result/callback constraints. Removing or wrapping the specialized API is a separate compatibility decision rather than part of this extension.
 
 ## Deliberately outside the current surface
 
 The maintained recipe does not yet author:
 
-- `ListMap`, `ListFilter`, `ListAny`, or `ListAll`;
 - products, fields, unions, `Option`, or `Result` construction;
 - direct calls;
 - capability invocation or other effectful behavior;
@@ -158,4 +180,4 @@ The maintained recipe does not yet author:
 - caller-supplied production graph-node IDs;
 - semantic merge/rebase or multi-proposal composition.
 
-Higher-order List expressions are the next intended extension because the existing semantic validator already defines a narrow pure unary callback contract. Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts.
+Product/union/`Option`/`Result` construction is the next plausible pure extension because it introduces declaration binding shapes but not lexical child scopes. Direct calls remain a separate decision because they interact with argument completeness, effects, and obligations. Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts.
