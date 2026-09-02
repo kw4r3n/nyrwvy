@@ -283,7 +283,11 @@ module AgentPureExpressionStructuralWorkflow =
                     | Ok actual when actual <> expected -> Error(typeMismatch role "right" expected actual)
                     | Ok _ -> Ok result
 
-            let validateFieldBindings role expectedFields bindings =
+            let validateFieldBindings
+                role
+                (expectedFields: SemanticField list)
+                (bindings: (FieldId * PureExpressionRecipe) list)
+                =
                 let duplicateField =
                     bindings
                     |> List.countBy fst
@@ -610,7 +614,10 @@ module AgentPureExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ [ { Id = nodeId; Kind = kind (sourceResult, callbackFunctionId) } ], nodeId
 
-        let materializeFieldBindings expectedFields bindings =
+        let materializeFieldBindings
+            (expectedFields: SemanticField list)
+            (bindings: (FieldId * PureExpressionRecipe) list)
+            =
             let rec loop = function
                 | [] -> [], []
                 | field :: rest ->
