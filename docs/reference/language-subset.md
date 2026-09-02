@@ -121,7 +121,7 @@ The implemented semantic language and agent editing authority are deliberately d
 
 `AgentPureExpressionStructuralWorkflow` is the reusable cross-domain construction surface. It replaces the complete body of one existing function from a tree-shaped `PureExpressionRecipe` without exposing production graph-node identities.
 
-The current recipe covers primitive scalar expressions plus pure List construction/query and higher-order traversal roles:
+The current recipe covers primitive scalar expressions, the implemented pure List family, and structured pure values:
 
 ```text
 Parameter(ParameterId)
@@ -146,13 +146,24 @@ ListMap
 ListFilter
 ListAny
 ListAll
+ProductConstruct
+FieldAccess
+UnionConstruct
+OptionNone
+OptionSome
+ResultOk
+ResultErr
 ```
 
-Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds, target-owned parameter scope, scalar operand types, explicit List item `TypeRef` validity, List item compatibility, higher-order callback existence/arity/input/result/purity, exact replacement-result compatibility, and old-body obligation protection. Every recipe occurrence then receives a fresh system-owned `GraphNodeId` in deterministic left-to-right post-order; `ListConstruct` preserves item order.
+Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds, target-owned parameter scope, scalar/List operand types, explicit `TypeRef` validity, higher-order callback contracts, structured declaration bindings, exact replacement-result compatibility, and old-body obligation protection. Every recipe occurrence then receives a fresh system-owned `GraphNodeId` in deterministic post-order.
 
-`ListEmpty` and `ListConstruct` carry explicit item types because an empty or heterogeneous-free construction cannot always derive its item type from a child. Named/capability references and builtin-generic arity are checked before materialization.
+`ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
 Higher-order List cases reference existing callbacks by `FunctionId`. `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. The workflow does not construct lambdas or permit effectful traversal callbacks.
+
+Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
+
+`OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
 
 The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2.
 
@@ -179,13 +190,13 @@ The exact narrower contract is maintained in [Bounded structural editing](../spe
 
 `AgentListMapStructuralWorkflow` supports the original shallow `ParameterReference -> ListMap` M2 body-replacement shape. The source is a target-owned `List<T>` parameter and the mapper an existing pure unary function compatible with `T -> R`; replacement node identities remain system-owned and the same simulate/review/publication mechanics apply.
 
-The general `PureExpressionRecipe` now covers the same semantic capability through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` while also allowing composed source expressions. The specialized workflow remains available for compatibility and historical evidence; removing or wrapping it is a separate API-cleanup decision rather than a requirement of the general construction model.
+The general `PureExpressionRecipe` covers the same semantic capability through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` while also allowing composed source expressions. The specialized workflow remains available for compatibility and historical evidence; removing or wrapping it is a separate API-cleanup decision rather than a requirement of the general construction model.
 
 ### Current boundary
 
-The reusable `PureExpressionRecipe` currently covers primitive scalar expressions and the implemented pure List expression family, including higher-order traversal with existing pure callbacks. It does **not** yet author products, unions, `Option`, `Result`, direct calls, capability invocation, branches/matches, pattern bindings, or arbitrary nested-expression replacement.
+The reusable `PureExpressionRecipe` covers primitive scalar expressions, the implemented pure List family, product/field/union construction, and `Option`/`Result` construction. It does **not** author direct calls, capability invocation, branches/matches, pattern bindings, or arbitrary nested-expression replacement.
 
-No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, or caller-owned production node IDs.
+No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, `FieldValueBinding`, or caller-owned production node IDs.
 
 Those limits describe the current incremental implementation, not a standing requirement that agent authority remain one operation per semantic role. Broader typed construction should be judged by semantic clarity, validation, reviewability, and evidence rather than by the shape of the M2 bootstrap experiment.
 
@@ -193,7 +204,9 @@ Those limits describe the current incremental implementation, not a standing req
 
 Milestone 1 and Milestone 2 both have recorded controlled agent-evaluation evidence.
 
-M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The current pure-expression workflow reuses that transaction/review interaction model while broadening the construction algebra across primitive scalar and the current pure List domains.
+M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The current pure-expression workflow reuses that transaction/review interaction model across scalar, List, and structured pure-value domains.
+
+The initial cross-domain scalar/List slice also passed the maintained extended verification suite after #117. Later additions that preserve the same construction/review/publication assumptions reuse that architectural evidence unless they materially change those assumptions.
 
 The broader cross-domain surface is maintained implementation, but it does not retroactively change the frozen M2 evaluation condition or claim that the new algebra has separately undergone controlled model evaluation.
 
