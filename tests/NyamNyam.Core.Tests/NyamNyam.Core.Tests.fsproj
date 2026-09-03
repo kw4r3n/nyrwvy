@@ -22,6 +22,7 @@
     <Compile Include="AgentStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuredValueTests.fs" />
+    <Compile Include="AgentPureExpressionDirectCallTests.fs" />
     <Compile Include="AgentListMapStructuralWorkflowTests.fs" />
     <Compile Include="AgentStructuralContractTests.fs" />
     <Compile Include="AgentEvalProtocolTests.fs" />

@@ -19,7 +19,7 @@ ephemeral typed construction intent
 
 `AgentPureExpressionStructuralWorkflow` replaces the complete body of one existing function with a body materialized from `PureExpressionRecipe`.
 
-The maintained surface covers primitive scalar expressions, the current pure List family, and pure structured-value construction:
+The maintained surface covers primitive scalar expressions, the current pure List family, pure structured-value construction, and complete calls to existing pure functions:
 
 ```text
 PureExpressionRecipe =
@@ -64,6 +64,7 @@ PureExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
+  | DirectCall(targetFunctionId, argumentBindings)
 ```
 
 This remains a selected pure construction algebra rather than a generic wrapper around every `SemanticNodeKind`.
@@ -94,6 +95,8 @@ The construction tree uses the same practical bounds already established by boun
 
 Product and union field bindings are caller-supplied by stable `FieldId`, but their list order is not semantic. After preflight verifies the exact binding set, materialization evaluates field recipes in the declaration's field order and stores persistent bindings in that same order.
 
+`DirectCall` arguments are caller-supplied by the callee's stable `ParameterId`, but argument-list order is likewise not semantic. After exact binding validation, argument recipes materialize in callee parameter declaration order and the call node is created last.
+
 There is no caller-controlled CSE, DAG sharing, local-node reuse, or operand reordering.
 
 ## Preflight
@@ -113,8 +116,11 @@ Before allocating replacement graph-node IDs, simulation checks:
 11. `FieldAccess` names a product field and its source produces the exact owning named type;
 12. `UnionConstruct` names an existing variant and binds every variant field exactly once with an exact-compatible value type;
 13. `OptionNone`, `ResultOk`, and `ResultErr` explicit type arguments are valid;
-14. the inferred recipe result type exactly equals the target function result type;
-15. no open or resolved obligation targets a node in the body being replaced.
+14. `DirectCall` names an existing function whose `RequiredEffects` is empty;
+15. every `DirectCall` callee parameter is bound exactly once by its stable `ParameterId`, with no unknown or omitted parameter;
+16. every `DirectCall` argument recipe exactly matches the declared callee parameter type;
+17. the inferred recipe result type exactly equals the target function result type;
+18. no open or resolved obligation targets a node in the body being replaced.
 
 There is no implicit numeric conversion, collection item conversion, or fallback type coercion.
 
@@ -168,11 +174,27 @@ Caller binding order is ignored after validation. Materialization follows declar
 
 These cases add no implicit conversion and no special failure semantics; they materialize the existing semantic constructors.
 
+## Complete pure DirectCall
+
+`DirectCall(targetFunctionId, arguments)` references an existing callee by stable `FunctionId`. Arguments are `(ParameterId, PureExpressionRecipe)` pairs and deliberately do not expose persistent `CallArgumentBinding`, because persistent call bindings contain production `GraphNodeId` references.
+
+The maintained construction surface only accepts **complete pure calls**:
+
+- the callee must exist;
+- the callee must have `RequiredEffects = []`;
+- each callee parameter must be bound exactly once;
+- unknown, duplicate, or omitted parameter IDs are rejected;
+- every child recipe result type must equal the corresponding declared parameter type.
+
+Caller argument-list order is ignored after validation. Materialization follows callee parameter declaration order, allocates argument nodes system-side, creates ordinary persistent `CallArgumentBinding` records, and creates the `DirectCall` node last. The recipe result type is the callee's declared result type.
+
+This surface does **not** create missing-argument obligations. Incomplete calls remain the responsibility of workflows that explicitly own signature evolution and obligation semantics. Effectful calls are also excluded even when the caller already declares matching effects; widening that boundary is a separate decision.
+
 ## Materialization
 
 After preflight succeeds, every recipe occurrence receives a fresh `GraphNodeId` from `StableIdAllocator` and becomes the corresponding existing `SemanticNodeKind`.
 
-Existing declaration references such as callback `FunctionId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
+Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
 
 The workflow adds no new persisted semantic node role and therefore does not require a snapshot-schema change.
 
@@ -201,13 +223,14 @@ The specialized `AgentListMapStructuralWorkflow` also remains available for comp
 
 The maintained recipe does not author:
 
-- direct calls;
+- incomplete direct calls or missing-argument obligation creation;
+- effectful direct calls;
 - capability invocation or other effectful behavior;
 - conditional or match expressions;
 - pattern bindings or `PatternReference`;
 - nested-expression replacement inside an existing body;
-- raw `SemanticNode`, `SemanticNodeKind`, `FieldValueBinding`, `ValueGraph`, or `Snapshot` payloads;
+- raw `SemanticNode`, `SemanticNodeKind`, `FieldValueBinding`, `CallArgumentBinding`, `ValueGraph`, or `Snapshot` payloads;
 - caller-supplied production graph-node IDs;
 - semantic merge/rebase or multi-proposal composition.
 
-Direct calls remain a separate decision because they interact with argument completeness, effects, and obligations. Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts.
+Branch/match/effect constructs remain separate design work because they introduce lexical scope, nested graphs, pattern identity, or effect contracts. Incomplete/effectful calls likewise remain separate because they add obligation or effect-authority semantics beyond complete pure expression construction.

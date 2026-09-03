@@ -45,6 +45,7 @@ type PureExpressionRecipe =
     | OptionSome of PureExpressionRecipe
     | ResultOk of errorType: TypeRef * value: PureExpressionRecipe
     | ResultErr of okType: TypeRef * error: PureExpressionRecipe
+    | DirectCall of targetFunctionId: FunctionId * arguments: (ParameterId * PureExpressionRecipe) list
 
 type AgentReplaceFunctionBodyWithPureExpressionRecipe =
     { TargetFunctionId: FunctionId
@@ -156,6 +157,8 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.ProductConstruct(_, fields)
         | PureExpressionRecipe.UnionConstruct(_, fields) ->
             fields |> fieldStats |> aggregateChildren
+        | PureExpressionRecipe.DirectCall(_, arguments) ->
+            arguments |> List.map (snd >> recipeStats) |> aggregateChildren
 
     let private validateTypeRef (snapshot: Snapshot) typeRef =
         let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
@@ -332,6 +335,64 @@ module AgentPureExpressionStructuralWorkflow =
                                 | Ok _ -> validateFields rest
 
                         validateFields expectedFields
+
+            let validateCallArguments
+                (callee: SemanticFunction)
+                (bindings: (ParameterId * PureExpressionRecipe) list)
+                =
+                let duplicateParameter =
+                    bindings
+                    |> List.countBy fst
+                    |> List.tryFind (fun (_, count) -> count > 1)
+
+                match duplicateParameter with
+                | Some(parameterId, _) ->
+                    Error(
+                        diagnostic
+                            "PureExpressionDuplicateCallArgument"
+                            $"DirectCall binds parameter '{StableId.value parameterId}' more than once."
+                    )
+                | None ->
+                    let parametersById =
+                        callee.Parameters
+                        |> List.map (fun parameter -> parameter.Id, parameter)
+                        |> Map.ofList
+
+                    match bindings |> List.tryFind (fun (parameterId, _) -> not (Map.containsKey parameterId parametersById)) with
+                    | Some(parameterId, _) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallArgumentTargetNotFound"
+                                $"DirectCall targets parameter '{StableId.value parameterId}' not owned by callee '{StableId.value callee.Id}'."
+                        )
+                    | None ->
+                        let actualIds = bindings |> List.map fst |> Set.ofList
+                        match callee.Parameters |> List.tryFind (fun parameter -> not (Set.contains parameter.Id actualIds)) with
+                        | Some parameter ->
+                            Error(
+                                diagnostic
+                                    "PureExpressionCallArgumentMissing"
+                                    $"DirectCall is missing required parameter '{StableId.value parameter.Id}' for callee '{StableId.value callee.Id}'."
+                            )
+                        | None ->
+                            let rec validateParameters (parameters: SemanticParameter list) =
+                                match parameters with
+                                | [] -> Ok()
+                                | parameter :: rest ->
+                                    let _, value =
+                                        bindings |> List.find (fun (parameterId, _) -> parameterId = parameter.Id)
+
+                                    match infer value with
+                                    | Error error -> Error error
+                                    | Ok actual when actual <> parameter.Type ->
+                                        Error(
+                                            diagnostic
+                                                "PureExpressionCallArgumentTypeMismatch"
+                                                $"DirectCall parameter '{StableId.value parameter.Id}' requires {parameter.Type}, but the recipe produces {actual}."
+                                        )
+                                    | Ok _ -> validateParameters rest
+
+                            validateParameters callee.Parameters
 
             match recipe with
             | PureExpressionRecipe.Parameter parameterId ->
@@ -536,6 +597,24 @@ module AgentPureExpressionStructuralWorkflow =
                 match validateTypeRef snapshot okType with
                 | Error error -> Error error
                 | Ok() -> infer error |> Result.map (resultType okType)
+            | PureExpressionRecipe.DirectCall(targetFunctionId, arguments) ->
+                match Map.tryFind targetFunctionId functionsById with
+                | None ->
+                    Error(
+                        diagnostic
+                            "PureExpressionCallTargetNotFound"
+                            $"DirectCall references unknown function '{StableId.value targetFunctionId}'."
+                    )
+                | Some callee when not (List.isEmpty callee.RequiredEffects) ->
+                    Error(
+                        diagnostic
+                            "PureExpressionCallEffectsNotAllowed"
+                            $"DirectCall callee '{StableId.value callee.Id}' must have no required effects."
+                    )
+                | Some callee ->
+                    match validateCallArguments callee arguments with
+                    | Error error -> Error error
+                    | Ok() -> Ok callee.ResultType
 
         infer recipe
 
@@ -634,6 +713,23 @@ module AgentPureExpressionStructuralWorkflow =
                       ValueNodeId = valueResult } :: restBindings
 
             loop expectedFields
+
+        let materializeCallArguments
+            (callee: SemanticFunction)
+            (bindings: (ParameterId * PureExpressionRecipe) list)
+            =
+            let rec loop (parameters: SemanticParameter list) =
+                match parameters with
+                | [] -> [], []
+                | parameter :: rest ->
+                    let _, value = bindings |> List.find (fun (parameterId, _) -> parameterId = parameter.Id)
+                    let valueNodes, valueResult = materialize snapshot value
+                    let restNodes, restBindings = loop rest
+                    valueNodes @ restNodes,
+                    { TargetParameterId = parameter.Id
+                      ValueNodeId = valueResult } :: restBindings
+
+            loop callee.Parameters
 
         match recipe with
         | PureExpressionRecipe.Parameter parameterId ->
@@ -753,6 +849,14 @@ module AgentPureExpressionStructuralWorkflow =
             unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | PureExpressionRecipe.ResultErr(okType, error) ->
             unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error
+        | PureExpressionRecipe.DirectCall(targetFunctionId, arguments) ->
+            let callee = snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = targetFunctionId)
+            let argumentNodes, argumentBindings = materializeCallArguments callee arguments
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            argumentNodes
+            @ [ { Id = nodeId
+                  Kind = SemanticNodeKind.DirectCall(targetFunctionId, argumentBindings) } ],
+            nodeId
 
     let simulate
         (workspace: AgentWorkspace)
