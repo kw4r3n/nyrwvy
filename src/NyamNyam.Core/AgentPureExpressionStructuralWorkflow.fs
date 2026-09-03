@@ -155,9 +155,10 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.ListConstruct(_, items) ->
             items |> List.map recipeStats |> aggregateChildren
         | PureExpressionRecipe.ProductConstruct(_, fields)
-        | PureExpressionRecipe.UnionConstruct(_, fields)
-        | PureExpressionRecipe.DirectCall(_, fields) ->
+        | PureExpressionRecipe.UnionConstruct(_, fields) ->
             fields |> fieldStats |> aggregateChildren
+        | PureExpressionRecipe.DirectCall(_, arguments) ->
+            arguments |> List.map (snd >> recipeStats) |> aggregateChildren
 
     let private validateTypeRef (snapshot: Snapshot) typeRef =
         let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
