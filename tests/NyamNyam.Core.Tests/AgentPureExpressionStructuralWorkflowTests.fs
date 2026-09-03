@@ -542,7 +542,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "OptionNone"
               "OptionSome"
               "ResultOk"
-              "ResultErr" ]
+              "ResultErr"
+              "DirectCall" ]
 
         if caseNames <> expectedCases then
             failwithf "Pure-expression recipe authority surface changed: %A" caseNames
