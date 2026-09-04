@@ -507,6 +507,7 @@ module AgentPureExpressionStructuralWorkflowTests =
         let caseNames = cases |> Array.map (fun case -> case.Name) |> Array.toList
         let expectedCases =
             [ "Parameter"
+              "PatternReference"
               "StringLiteral"
               "BoolLiteral"
               "UnitLiteral"
@@ -547,7 +548,11 @@ module AgentPureExpressionStructuralWorkflowTests =
               "OptionSome"
               "ResultOk"
               "ResultErr"
-              "DirectCall" ]
+              "DirectCall"
+              "Conditional"
+              "MatchUnion"
+              "MatchOption"
+              "MatchResult" ]
 
         if caseNames <> expectedCases then
             failwithf "Pure-expression recipe authority surface changed: %A" caseNames
