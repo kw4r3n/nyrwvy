@@ -10,7 +10,7 @@ It is intentionally not a replacement for the frozen M2 corpus and does not repe
 
 Use protocol `pure-expression-control-flow-v1` through `tools/NyamNyam.AgentEval.PureExpression`.
 
-Each task starts from a fresh built-in deterministic fixture. The agent should begin with `describeV1`, inspect the target when useful, simulate a proposal, inspect the review, and commit only the intended result.
+Each task starts from a fresh built-in deterministic fixture. The agent should begin with `describeV1`, use the returned fixture/schema facts to construct a request, simulate a proposal, inspect the resulting change, and commit only the intended result.
 
 The fixture exposes one target:
 
@@ -59,7 +59,7 @@ For one fresh attempt per selected task, record only evidence needed for the dec
 - whether `describeV1` was used;
 - whether the first semantically intended proposal was accepted;
 - lexical-reference diagnostics encountered;
-- whether the review was inspected before commit;
+- whether the resulting change was inspected before commit;
 - whether recursive `addedNodes` made branch-local `PatternReference` nodes visible;
 - terminal committed/rejected state;
 - a short qualitative note on any confusion around `ScopeDepth`, slots, or union arm construction.
