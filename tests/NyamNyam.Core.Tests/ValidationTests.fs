@@ -15,6 +15,27 @@ module ValidationTests =
         Assert.Empty(issues)
 
     [<Fact>]
+    let ``null string literals are rejected`` () =
+        let fixture = TestGraph.create ()
+        let functionId = StableId.createForTesting<FunctionTag> "function-null-string-literal"
+        let nodeId = StableId.createForTesting<GraphNodeTag> "node-null-string-literal"
+        let functionEntity: SemanticFunction =
+            { Id = functionId
+              DisplayName = "null_string_literal"
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.String
+              RequiredEffects = []
+              Body =
+                { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.StringLiteral null } ]
+                  ResultNodeId = nodeId } }
+
+        let invalid =
+            { fixture.Snapshot with
+                Functions = functionEntity :: fixture.Snapshot.Functions }
+
+        SnapshotValidator.validate invalid |> requireIssue "NullStringLiteral"
+
+    [<Fact>]
     let ``missing call argument requires an explicit open obligation`` () =
         let fixture = TestGraph.create ()
         let policyParameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"

@@ -404,6 +404,12 @@ module AgentPureExpressionStructuralWorkflow =
                             "PureExpressionParameterOutOfScope"
                             $"Parameter '{StableId.value parameterId}' is not owned by the target function."
                     )
+            | PureExpressionRecipe.StringLiteral value when isNull value ->
+                Error(
+                    diagnostic
+                        "PureExpressionNullStringLiteral"
+                        "StringLiteral requires a non-null value."
+                )
             | PureExpressionRecipe.StringLiteral _ -> Ok stringType
             | PureExpressionRecipe.BoolLiteral _ -> Ok boolType
             | PureExpressionRecipe.UnitLiteral -> Ok unitType

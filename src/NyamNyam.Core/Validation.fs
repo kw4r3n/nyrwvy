@@ -573,7 +573,11 @@ module SnapshotValidator =
                             add
                                 "UnknownPatternReference"
                                 $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical match scope."
-                    | SemanticNodeKind.StringLiteral _
+                    | SemanticNodeKind.StringLiteral value ->
+                        if isNull value then
+                            add
+                                "NullStringLiteral"
+                                $"String literal node '{StableId.value node.Id}' has a null value."
                     | SemanticNodeKind.BoolLiteral _
                     | SemanticNodeKind.UnitLiteral
                     | SemanticNodeKind.Int64Literal _
