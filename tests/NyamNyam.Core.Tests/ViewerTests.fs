@@ -78,6 +78,103 @@ module ViewerTests =
             failwithf "Expected two explicit ValidationError variant branches, got %A" unionBranches
 
     [<Fact>]
+    let ``review projections preserve dependency roles order and multiplicity`` () =
+        let floatType = TypeRef.Primitive PrimitiveType.Float64
+        let functionId = StableId.createForTesting<FunctionTag> "function-viewer-dependency-roles"
+        let snapshotId = StableId.createForTesting<SnapshotTag> "snapshot-viewer-dependency-roles"
+        let leftId = StableId.createForTesting<GraphNodeTag> "node-viewer-dependency-left"
+        let rightId = StableId.createForTesting<GraphNodeTag> "node-viewer-dependency-right"
+        let subtractLeftRightId = StableId.createForTesting<GraphNodeTag> "node-viewer-subtract-left-right"
+        let subtractRightLeftId = StableId.createForTesting<GraphNodeTag> "node-viewer-subtract-right-left"
+        let listId = StableId.createForTesting<GraphNodeTag> "node-viewer-list-duplicate"
+
+        let leftNode: SemanticNode =
+            { Id = leftId
+              Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 10.0) }
+        let rightNode: SemanticNode =
+            { Id = rightId
+              Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 3.0) }
+        let subtractLeftRight: SemanticNode =
+            { Id = subtractLeftRightId
+              Kind = SemanticNodeKind.Float64Subtract(leftId, rightId) }
+        let subtractRightLeft: SemanticNode =
+            { Id = subtractRightLeftId
+              Kind = SemanticNodeKind.Float64Subtract(rightId, leftId) }
+        let listNode: SemanticNode =
+            { Id = listId
+              Kind = SemanticNodeKind.ListConstruct(floatType, [ leftId; leftId ]) }
+
+        let functionEntity: SemanticFunction =
+            { Id = functionId
+              DisplayName = "dependency_roles"
+              Parameters = []
+              ResultType = floatType
+              RequiredEffects = []
+              Body =
+                { Nodes = [ leftNode; rightNode; subtractLeftRight; subtractRightLeft; listNode ]
+                  ResultNodeId = subtractLeftRightId } }
+
+        let snapshot: Snapshot =
+            { Id = snapshotId
+              ParentId = None
+              Types = []
+              Effects = []
+              Capabilities = []
+              Functions = [ functionEntity ]
+              Obligations = [] }
+
+        Assert.Empty(SnapshotValidator.validate snapshot)
+
+        let model =
+            SemanticQuery.focusFunction snapshot functionId
+            |> unwrap
+            |> ViewerProjection.focus
+
+        let projected nodeId = model.Graph.Nodes |> List.find (fun node -> node.Id = nodeId)
+        let expectedLeftRight =
+            [ { Role = ValueDependencyRole.LeftOperand; NodeId = leftId }
+              { Role = ValueDependencyRole.RightOperand; NodeId = rightId } ]
+        let expectedRightLeft =
+            [ { Role = ValueDependencyRole.LeftOperand; NodeId = rightId }
+              { Role = ValueDependencyRole.RightOperand; NodeId = leftId } ]
+        let expectedRepeatedList =
+            [ { Role = ValueDependencyRole.ListItem 0; NodeId = leftId }
+              { Role = ValueDependencyRole.ListItem 1; NodeId = leftId } ]
+
+        if (projected subtractLeftRightId).ValueDependencies <> expectedLeftRight then
+            failwithf "Viewer lost left/right dependency roles: %A" (projected subtractLeftRightId).ValueDependencies
+        if (projected subtractRightLeftId).ValueDependencies <> expectedRightLeft then
+            failwithf "Viewer lost swapped left/right dependency roles: %A" (projected subtractRightLeftId).ValueDependencies
+        if (projected listId).ValueDependencies <> expectedRepeatedList then
+            failwithf "Viewer lost repeated List dependency occurrences: %A" (projected listId).ValueDependencies
+
+        let listDependencyRelations =
+            (projected listId).Relations
+            |> List.filter (fun relation -> relation.Kind = ViewerRelationKind.DependsOn)
+        Assert.Equal(2, listDependencyRelations.Length)
+
+        let summaries =
+            StructuralTransactionInternals.summarizeNodes
+                snapshot
+                functionEntity
+                [ subtractLeftRight; subtractRightLeft; listNode ]
+        let summary nodeId = summaries |> List.find (fun node -> node.NodeId = nodeId)
+
+        if (summary subtractLeftRightId).ValueDependencies <> expectedLeftRight then
+            failwithf "Structural review lost left/right dependency roles: %A" (summary subtractLeftRightId).ValueDependencies
+        if (summary subtractRightLeftId).ValueDependencies <> expectedRightLeft then
+            failwithf "Structural review lost swapped left/right dependency roles: %A" (summary subtractRightLeftId).ValueDependencies
+        if (summary listId).ValueDependencies <> expectedRepeatedList then
+            failwithf "Structural review lost repeated List dependency occurrences: %A" (summary listId).ValueDependencies
+
+        if (summary subtractLeftRightId).Dependencies <> [ leftId; rightId ] then
+            failwithf "Structural dependency order changed: %A" (summary subtractLeftRightId).Dependencies
+        if (summary subtractRightLeftId).Dependencies <> [ rightId; leftId ] then
+            failwithf "Structural swapped dependency order changed: %A" (summary subtractRightLeftId).Dependencies
+        if (summary listId).Dependencies <> [ leftId; leftId ] then
+            failwithf "Structural dependency multiplicity was lost: %A" (summary listId).Dependencies
+
+    [<Fact>]
     let ``focus HTML is deterministic under nonsemantic root-node reordering`` () =
         let fixture = MilestoneZeroGraph.create ()
         let source = SemanticQuery.focusFunction fixture.Snapshot fixture.ValidateFunctionId |> unwrap
