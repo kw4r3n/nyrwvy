@@ -21,6 +21,7 @@
     <Compile Include="AgentWorkflowTests.fs" />
     <Compile Include="AgentStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflowTests.fs" />
+    <Compile Include="PureExpressionAuthoritySurfaceTests.fs" />
     <Compile Include="RecipeBoundsTests.fs" />
     <Compile Include="AgentPureExpressionStructuredValueTests.fs" />
     <Compile Include="AgentPureExpressionDirectCallTests.fs" />
