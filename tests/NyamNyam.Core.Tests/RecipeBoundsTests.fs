@@ -42,7 +42,12 @@ module RecipeBoundsTests =
 
     let private listRecipe items = PureExpressionRecipe.ListConstruct(float64Type, items)
 
-    let private simulate snapshot workspace target replacement =
+    let private simulate
+        (snapshot: Snapshot)
+        (workspace: AgentWorkspace)
+        (target: SemanticFunction)
+        (replacement: PureExpressionRecipe)
+        =
         AgentPureExpressionStructuralWorkflow.simulate
             workspace
             { TargetFunctionId = target.Id
