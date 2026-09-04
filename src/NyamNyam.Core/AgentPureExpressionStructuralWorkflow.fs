@@ -96,18 +96,7 @@ module AgentPureExpressionStructuralWorkflow =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some itemType
         | _ -> None
 
-    let rec private recipeStats recipe =
-        let fieldStats fields =
-            fields |> List.map (snd >> recipeStats)
-
-        let aggregateChildren childStats =
-            let count = 1 + (childStats |> List.sumBy fst)
-            let depth =
-                match childStats with
-                | [] -> 1
-                | values -> 1 + (values |> List.map snd |> List.max)
-            count, depth
-
+    let private recipeChildren recipe =
         match recipe with
         | PureExpressionRecipe.Parameter _
         | PureExpressionRecipe.StringLiteral _
@@ -116,7 +105,7 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.Int64Literal _
         | PureExpressionRecipe.Float64Literal _
         | PureExpressionRecipe.ListEmpty _
-        | PureExpressionRecipe.OptionNone _ -> 1, 1
+        | PureExpressionRecipe.OptionNone _ -> Seq.empty
         | PureExpressionRecipe.StringIsEmpty child
         | PureExpressionRecipe.Float64IsNaN child
         | PureExpressionRecipe.Float64IsFinite child
@@ -129,9 +118,7 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.FieldAccess(child, _)
         | PureExpressionRecipe.OptionSome child
         | PureExpressionRecipe.ResultOk(_, child)
-        | PureExpressionRecipe.ResultErr(_, child) ->
-            let count, depth = recipeStats child
-            1 + count, 1 + depth
+        | PureExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | PureExpressionRecipe.StringContains(left, right)
         | PureExpressionRecipe.Int64WrappingAdd(left, right)
         | PureExpressionRecipe.Int64WrappingSubtract(left, right)
@@ -148,17 +135,11 @@ module AgentPureExpressionStructuralWorkflow =
         | PureExpressionRecipe.Float64Equal(left, right)
         | PureExpressionRecipe.Float64LessThan(left, right)
         | PureExpressionRecipe.ListAppendItem(left, right)
-        | PureExpressionRecipe.ListConcat(left, right) ->
-            let leftCount, leftDepth = recipeStats left
-            let rightCount, rightDepth = recipeStats right
-            1 + leftCount + rightCount, 1 + max leftDepth rightDepth
-        | PureExpressionRecipe.ListConstruct(_, items) ->
-            items |> List.map recipeStats |> aggregateChildren
+        | PureExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
+        | PureExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | PureExpressionRecipe.ProductConstruct(_, fields)
-        | PureExpressionRecipe.UnionConstruct(_, fields) ->
-            fields |> fieldStats |> aggregateChildren
-        | PureExpressionRecipe.DirectCall(_, arguments) ->
-            arguments |> List.map (snd >> recipeStats) |> aggregateChildren
+        | PureExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
+        | PureExpressionRecipe.DirectCall(_, arguments) -> arguments |> Seq.map snd
 
     let private validateTypeRef (snapshot: Snapshot) typeRef =
         let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
@@ -646,21 +627,9 @@ module AgentPureExpressionStructuralWorkflow =
                         "The target function result node changed after inspection."
                 )
             | Some target ->
-                let nodeCount, depth = recipeStats request.Replacement
-
-                if depth > 32 then
-                    Error(
-                        diagnostic
-                            "StructuralRecipeDepthLimitExceeded"
-                            "The structural recipe is deeper than 32 nodes."
-                    )
-                elif nodeCount > 64 then
-                    Error(
-                        diagnostic
-                            "StructuralRecipeNodeLimitExceeded"
-                            "The structural recipe contains more than 64 nodes."
-                    )
-                else
+                match validateRecipeBounds recipeChildren request.Replacement with
+                | Error error -> Error error
+                | Ok() ->
                     match inferType baseSnapshot target request.Replacement with
                     | Error error -> Error error
                     | Ok replacementType when replacementType <> target.ResultType ->

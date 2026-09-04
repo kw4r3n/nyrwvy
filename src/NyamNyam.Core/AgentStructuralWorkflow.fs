@@ -200,6 +200,39 @@ module internal StructuralTransactionInternals =
     let rejected code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
+    let validateRecipeBounds
+        (children: 'Recipe -> seq<'Recipe>)
+        (recipe: 'Recipe)
+        : Result<unit, TransactionDiagnostic> =
+        let rec visit depth remaining current =
+            if depth > 32 then
+                Error(
+                    diagnostic
+                        "StructuralRecipeDepthLimitExceeded"
+                        "The structural recipe is deeper than 32 nodes."
+                )
+            elif remaining <= 0 then
+                Error(
+                    diagnostic
+                        "StructuralRecipeNodeLimitExceeded"
+                        "The structural recipe contains more than 64 nodes."
+                )
+            else
+                let mutable nextRemaining = remaining - 1
+                let mutable failure: TransactionDiagnostic option = None
+                use enumerator = (children current).GetEnumerator()
+
+                while Option.isNone failure && enumerator.MoveNext() do
+                    match visit (depth + 1) nextRemaining enumerator.Current with
+                    | Ok remainingAfterChild -> nextRemaining <- remainingAfterChild
+                    | Error error -> failure <- Some error
+
+                match failure with
+                | Some error -> Error error
+                | None -> Ok nextRemaining
+
+        visit 1 64 recipe |> Result.map ignore
+
     let private unionCaseName (kind: SemanticNodeKind) =
         let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
         case.Name
@@ -346,17 +379,14 @@ module AgentStructuralWorkflow =
 
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
 
-    let rec private recipeStats recipe =
+    let private recipeChildren recipe =
         match recipe with
-        | Float64ExpressionRecipe.Parameter _
-        | Float64ExpressionRecipe.Literal _ -> 1, 1
         | Float64ExpressionRecipe.Add(left, right)
         | Float64ExpressionRecipe.Subtract(left, right)
         | Float64ExpressionRecipe.Multiply(left, right)
-        | Float64ExpressionRecipe.Divide(left, right) ->
-            let leftCount, leftDepth = recipeStats left
-            let rightCount, rightDepth = recipeStats right
-            1 + leftCount + rightCount, 1 + max leftDepth rightDepth
+        | Float64ExpressionRecipe.Divide(left, right) -> seq { yield left; yield right }
+        | Float64ExpressionRecipe.Parameter _
+        | Float64ExpressionRecipe.Literal _ -> Seq.empty
 
     let rec private recipeParameters recipe =
         match recipe with
@@ -418,12 +448,9 @@ module AgentStructuralWorkflow =
             | Some target when target.ResultType <> float64Type ->
                 Error(diagnostic "StructuralTargetResultTypeMismatch" "The target function does not return Float64.")
             | Some target ->
-                let nodeCount, depth = recipeStats request.Replacement
-                if depth > 32 then
-                    Error(diagnostic "StructuralRecipeDepthLimitExceeded" "The structural recipe is deeper than 32 nodes.")
-                elif nodeCount > 64 then
-                    Error(diagnostic "StructuralRecipeNodeLimitExceeded" "The structural recipe contains more than 64 nodes.")
-                else
+                match validateRecipeBounds recipeChildren request.Replacement with
+                | Error error -> Error error
+                | Ok() ->
                     let parametersById = target.Parameters |> List.map (fun p -> p.Id, p) |> Map.ofList
                     let parameterError =
                         request.Replacement
