@@ -105,6 +105,7 @@ and ViewerNode =
       Type: TypeRef option
       Role: ViewerNodeRole
       Relations: ViewerRelation list
+      ValueDependencies: ValueDependency list
       Branches: ViewerBranch list }
 
 and ViewerGraph =
@@ -146,19 +147,6 @@ type ViewerChangeReviewModel =
 
 [<RequireQualifiedAccess>]
 module ViewerProjection =
-    let private targetKey target =
-        match target with
-        | ViewerTarget.Node id -> "node:" + StableId.value id
-        | ViewerTarget.Function id -> "function:" + StableId.value id
-        | ViewerTarget.Parameter id -> "parameter:" + StableId.value id
-        | ViewerTarget.PatternBinding id -> "pattern:" + StableId.value id
-        | ViewerTarget.CapabilityOperation id -> "capability-operation:" + StableId.value id
-        | ViewerTarget.Type id -> "type:" + StableId.value id
-        | ViewerTarget.Field id -> "field:" + StableId.value id
-        | ViewerTarget.Variant id -> "variant:" + StableId.value id
-
-    let private relationKey relation = string relation.Kind + ":" + targetKey relation.Target
-
     let private callbackRelation functionId =
         [ { Kind = ViewerRelationKind.CallsFunction
             Target = ViewerTarget.Function functionId } ]
@@ -268,13 +256,12 @@ module ViewerProjection =
 
         let projectNode (node: SemanticNode): ViewerNode =
             let role, semanticRelations = roleAndSemanticRelations node
+            let valueDependencies = ValueDependency.ofNode node
             let dependencyRelations =
-                SemanticFacts.directValueDependencies node
-                |> List.distinct
-                |> List.sortBy StableId.value
-                |> List.map (fun dependencyId ->
+                valueDependencies
+                |> List.map (fun dependency ->
                     { Kind = ViewerRelationKind.DependsOn
-                      Target = ViewerTarget.Node dependencyId })
+                      Target = ViewerTarget.Node dependency.NodeId })
 
             let branches =
                 match node.Kind with
@@ -353,10 +340,8 @@ module ViewerProjection =
             { Id = node.Id
               Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
               Role = role
-              Relations =
-                semanticRelations @ dependencyRelations
-                |> List.distinctBy relationKey
-                |> List.sortBy relationKey
+              Relations = semanticRelations @ dependencyRelations
+              ValueDependencies = valueDependencies
               Branches = branches }
 
         { Nodes =
