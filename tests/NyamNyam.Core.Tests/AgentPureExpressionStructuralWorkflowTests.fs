@@ -430,6 +430,10 @@ module AgentPureExpressionStructuralWorkflowTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
+        request fixture fixture.StringTargetId (PureExpressionRecipe.StringLiteral null)
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "PureExpressionNullStringLiteral"
+
         request fixture fixture.BoolTargetId (PureExpressionRecipe.Int64Literal 1L)
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionResultTypeMismatch"
