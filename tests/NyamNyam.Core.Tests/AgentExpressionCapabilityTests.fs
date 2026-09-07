@@ -93,6 +93,11 @@ module AgentExpressionCapabilityTests =
         | AgentStructuralCommitResult.Committed(next, _) -> review, AgentWorkspace.snapshotForStructuralEditing next
         | other -> failwithf "Unexpected publication failure: %A" other
 
+    let private lower (snapshot: Snapshot) =
+        match TypedSemanticIr.project snapshot with
+        | Ok program -> ExecutionIr.lower program
+        | Error error -> failwithf "Unexpected typed projection failure: %A" error
+
     let private arguments =
         [ countId, ExpressionRecipe.Int64Literal 2L
           textId, ExpressionRecipe.StringLiteral "message" ]
@@ -110,7 +115,7 @@ module AgentExpressionCapabilityTests =
         | other -> failwithf "Expected %s, got %A" expected other
 
     [<Fact>]
-    let ``CapabilityInvoke publishes receiver then declaration-ordered arguments without changing declarations`` () =
+    let ``CapabilityInvoke materialization preserves declaration order and existing execution-readiness boundaries`` () =
         let snapshot = createSnapshot [ ioEffectId; remoteEffectId ]
         let recipe =
             invoke suppliedReceiver
@@ -147,6 +152,30 @@ module AgentExpressionCapabilityTests =
         Assert.Equal<SemanticCapability list>(snapshot.Capabilities, published.Capabilities)
         Assert.Equal<MissingArgumentObligation list>(snapshot.Obligations, published.Obligations)
 
+        // Construction order is not execution order: these two effects are independent.
+        let independentCalls =
+            target.Body.Nodes
+            |> List.choose (fun node ->
+                match node.Kind with
+                | SemanticNodeKind.DirectCall _ -> Some node.Id
+                | _ -> None)
+            |> Set.ofList
+        match lower published with
+        | Error(ExecutionIrError.AmbiguousEffectOrder(ownerId, first, second)) ->
+            Assert.Equal(callerId, ownerId)
+            Assert.Equal<Set<GraphNodeId>>(independentCalls, Set.ofList [ first; second ])
+        | other -> failwithf "Expected the existing ambiguous-effect boundary, got %A" other
+
+        // One effectful receiver or argument is ordered before the invocation by dependency.
+        let orderedRecipes =
+            [ invoke suppliedReceiver arguments
+              invoke receiver [ countId, ExpressionRecipe.Int64Literal 2L; textId, ExpressionRecipe.DirectCall(argumentId, []) ] ]
+        for orderedRecipe in orderedRecipes do
+            let _, orderedSnapshot = publish snapshot orderedRecipe
+            match lower orderedSnapshot with
+            | Ok _ -> ()
+            | Error error -> failwithf "Dependency-ordered invocation did not lower: %A" error
+
     [<Fact>]
     let ``CapabilityInvoke uses a lexical capability value and stays inside its match arm`` () =
         let snapshot = createSnapshot [ ioEffectId ]
@@ -168,6 +197,9 @@ module AgentExpressionCapabilityTests =
                 Assert.Equal(operationId, actualOperationId)
             | other -> failwithf "Expected branch-local invocation, got %A" other
         | other -> failwithf "Invocation escaped its match arm: %A" other
+        match lower published with
+        | Ok _ -> ()
+        | Error error -> failwithf "Branch-local invocation did not lower: %A" error
 
     [<Fact>]
     let ``CapabilityInvoke preflight requires an owned receiver and exact typed argument bindings`` () =

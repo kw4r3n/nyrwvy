@@ -96,7 +96,7 @@ AgentReplaceFunctionBodyWithExpressionRecipe
 
 The request references existing semantic declarations by typed stable ID where needed. It does not accept caller-supplied production IDs for newly materialized graph nodes or pattern bindings. It cannot change the target function's signature or `RequiredEffects`.
 
-## Bounds and ordering
+## Bounds and materialization order
 
 The complete construction tree uses the same practical bounds already established by bounded structural authoring:
 
@@ -108,11 +108,11 @@ The complete construction tree uses the same practical bounds already establishe
 
 Unary operands materialize before their parent. Binary operands materialize left then right, followed by the parent. `ListConstruct` materializes its item recipes in list order and then the construction node. Higher-order List recipes materialize the source expression first and then the traversal node referencing the existing callback `FunctionId`.
 
-Product and union field bindings are caller-supplied by stable `FieldId`, but their list order is not semantic. After preflight verifies the exact binding set, materialization evaluates field recipes in declaration order and stores persistent bindings in that same order.
+Product and union field bindings are caller-supplied by stable `FieldId`, but their list order is not semantic. After preflight verifies the exact binding set, materialization constructs field recipes in declaration order and stores persistent bindings in that same order.
 
 `DirectCall` arguments are caller-supplied by the callee's stable `ParameterId`, but argument-list order is likewise not semantic. After exact binding validation, argument recipes materialize in callee parameter declaration order and the call node is created last.
 
-`CapabilityInvoke` materializes its capability receiver first, arguments in operation parameter declaration order, and the invocation last. Caller binding-list order does not override this order, including when a receiver or argument is effectful.
+`CapabilityInvoke` materializes its capability receiver first, arguments in operation parameter declaration order, and the invocation last. Caller binding-list order does not override this construction order. This is not a runtime sequencing guarantee for independent effectful children; see execution readiness below.
 
 Control-flow condition/input expressions materialize in the current graph. Branch recipes materialize as child `ValueGraph`s, not as eagerly evaluated operands in the parent graph. Union match arms and their pattern-field bindings are canonicalized to declaration order.
 
@@ -145,7 +145,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 21. every `Conditional` condition produces `Bool` and both branches produce exactly the same type;
 22. every match input has the required union/`Option<T>`/`Result<T,E>` shape;
 23. `MatchUnion` contains every declared variant exactly once, with no unknown or duplicate variants;
-24. all branches of one match produce exactly the same type;
+24. all branches of one match produce exactly the same result type;
 25. the inferred recipe result type exactly equals the target function result type;
 26. no open or resolved obligation targets a node in the body being replaced.
 
@@ -170,6 +170,16 @@ A branch is checked even when a literal condition would not select it at runtime
 A missing direct-call requirement produces `ExpressionCallMissingEffectRequirement`; a missing capability-operation requirement produces `ExpressionCapabilityMissingEffectRequirement`.
 
 The workflow never adds or removes target effects automatically. A function may retain declared effects unused by its replacement body. Declaration evolution is a separate authority boundary.
+
+## Execution readiness and effect order
+
+`TransactionReadiness.SemanticallyReady` is not a guarantee of execution readiness. The existing execution layer determines order from graph dependencies, not the physical order of `ValueGraph.Nodes`, caller binding-list order, or fresh node IDs.
+
+The deterministic materialization order above therefore does not sequence independent effects. `ExecutionIr.lower` retains its existing `AmbiguousEffectOrder` rejection when two effectful nodes in one graph are not ordered by a dependency path. Authoring and semantic publication may succeed while that later execution-readiness check rejects the result.
+
+For example, an effectful capability-producing call and an independent effectful message-producing argument both precede their consuming invocation, but neither precedes the other. Declaring both effects does not resolve that ambiguity. In contrast, one effectful receiver or one effectful argument followed by its consuming invocation forms a dependency-ordered chain. Branch-local invocations also keep the existing control-flow boundary.
+
+The authoring surface does not insert hidden sequencing, manufacture data dependencies, or reinterpret stored node order to make an otherwise ambiguous graph executable. Explicit sequencing of independent effects is a separate design question; it is not part of this extension.
 
 ## Explicit types
 
@@ -355,6 +365,7 @@ The maintained recipe does not author:
 - automatic addition or removal of target effect requirements;
 - effect, capability, operation, or signature declarations;
 - effectful higher-order List callbacks;
+- explicit sequencing of otherwise independent effects;
 - nested-expression replacement inside an existing body;
 - raw `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `PatternBindingId`, `FieldValueBinding`, `ArgumentBinding`, `CapabilityArgumentBinding`, `ValueGraph`, or `Snapshot` payloads;
 - caller-supplied production graph-node IDs;
