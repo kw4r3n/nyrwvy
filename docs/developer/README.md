@@ -13,6 +13,10 @@ Use this entry point when changing, reviewing, or validating NyamNyam itself.
 5. Classify the verification need using the [verification philosophy](verification.md) before turning a routine change into a milestone or experimental validation exercise.
 6. If the work follows an active milestone or experiment, use the relevant [plan](../plans/) or [experiment](../experiments/) rather than treating it as an already accepted contract.
 
+## Repository writes
+
+Before a repository mutation, check the actual tool action, explicit non-empty target branch/ref, and intended repository path where applicable. Never use a content write as a tool probe, create scratch files on `main`, or rely on an empty/default branch fallback. Stage related changes on a work branch and inspect the resulting diff before publication; batch file changes into one commit/ref update where possible instead of triggering CI per file.
+
 ## Implementation boundaries
 
 The current production dependency direction is organized around:

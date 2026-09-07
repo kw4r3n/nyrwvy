@@ -108,20 +108,11 @@ Binary64 infinity, NaN, and signed-zero outcomes are normal values under this co
 
 The implemented semantic language and agent editing authority are deliberately distinct. Typed agent operations expose useful semantic construction without making raw snapshot or graph payloads ordinary editing authority.
 
-### M1 operation workflow
+### Expression body replacement
 
-`AgentWorkflow` / `AgentOperationIntent` supports:
+`AgentExpressionStructuralWorkflow` is the reusable cross-domain construction surface. It replaces the complete body of one existing function from a tree-shaped `ExpressionRecipe` without exposing production graph-node or pattern-binding identities.
 
-- display-name rename for types and functions;
-- adding a function parameter with an explicit plan for every affected direct call;
-- resolving a generated missing-argument obligation with an existing compatible value;
-- simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
-
-### Pure expression body replacement
-
-`AgentPureExpressionStructuralWorkflow` is the reusable cross-domain construction surface. It replaces the complete body of one existing function from a tree-shaped `PureExpressionRecipe` without exposing production graph-node or pattern-binding identities.
-
-The current recipe covers primitive scalar expressions, the implemented pure List family, structured pure values, complete calls to existing pure functions, and scoped pure control flow:
+The current recipe covers primitive scalar expressions, the implemented pure-callback List family, structured values, complete direct calls, capability invocation, and scoped control flow:
 
 ```text
 Parameter(ParameterId)
@@ -155,29 +146,45 @@ OptionSome
 ResultOk
 ResultErr
 DirectCall
+CapabilityInvoke
 Conditional
 MatchUnion
 MatchOption
 MatchResult
 ```
 
-Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds across nested branches, target-owned parameter scope, lexical pattern-reference scope/slots, scalar/List operand types, explicit `TypeRef` validity, higher-order callback contracts, structured declaration bindings, complete pure-call contracts, conditional/match input and branch types, exact union arm coverage, exact replacement-result compatibility, and old-body obligation protection. Recipe nodes receive fresh system-owned `GraphNodeId`s; match-arm slots additionally receive fresh system-owned `PatternBindingId`s.
+Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds across all children and nested branches, target-owned parameter scope, lexical pattern-reference scope/slots, scalar/List operand types, explicit `TypeRef` validity, higher-order callback contracts, structured declaration bindings, complete call/invocation contracts, predeclared effect requirements, conditional/match input and branch types, exact union arm coverage, exact replacement-result compatibility, and old-body obligation protection. Recipe nodes receive fresh system-owned `GraphNodeId`s; match-arm slots additionally receive fresh system-owned `PatternBindingId`s.
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. The workflow does not construct lambdas or permit effectful traversal callbacks.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
 
-`DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. The maintained recipe only accepts callees with no required effects and requires every callee parameter to be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `CallArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
+`DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. Every callee required effect must already be declared by the target, and every callee parameter must be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `ArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
 
-Scoped control flow remains part of the same ephemeral construction model rather than exposing child graphs directly. `Conditional` requires a `Bool` condition and equal branch result types. `MatchUnion` is exhaustive and canonicalizes arms and field bindings to declaration order. `MatchOption` and `MatchResult` introduce typed branch bindings. `RecipePatternReference` addresses visible match-arm slots by lexical `ScopeDepth`; structurally empty frames such as `Option.None` still consume one scope depth. Branch recipes materialize as nested `ValueGraph`s, while production pattern identities and binding types remain system-owned and derived from validated semantic facts.
+`CapabilityInvoke` takes an ordinary receiver recipe, an existing `CapabilityOperationId`, and `(CapabilityParameterId, ExpressionRecipe)` bindings. The receiver must produce the operation's exact owning capability type; bindings must exactly cover the operation parameters with no duplicates and exact value types. The operation's effect must already be declared by the target. Materialization creates receiver nodes first, argument nodes in operation declaration order, and the invocation last. Its result type is the existing operation's `ResultType`; failure metadata is not reinterpreted.
+
+All recursive receiver/argument expressions and every branch are checked against the same target effect declaration. No effect is added or removed automatically, and simulation/publication do not execute the authored capability operations. Repeated effectful recipe occurrences are separate evaluations, not shared values.
+
+Deterministic construction order is not a runtime sequencing guarantee. `SemanticallyReady` does not imply execution readiness: the existing execution layer still rejects independent effectful nodes with `AmbiguousEffectOrder` when graph dependencies do not order them. For example, an effectful receiver and an independent effectful argument do not become ordered just because the receiver was materialized first. Dependency-ordered chains and branch-local invocations retain their existing executable semantics; no hidden sequencing or node-list-order semantics are introduced.
+
+Scoped control flow remains part of the same ephemeral construction model rather than exposing child graphs directly. `Conditional` requires a `Bool` condition and equal branch result types. `MatchUnion` is exhaustive and canonicalizes arms and field bindings to declaration order. `MatchOption` and `MatchResult` introduce typed branch bindings. `RecipePatternReference` addresses visible match-arm slots by lexical `ScopeDepth`; structurally empty frames such as `Option.None` still consume one scope depth. Branch recipes materialize as nested `ValueGraph`s, while production pattern identities and binding types remain system-owned and derived from validated semantic facts. Static effect checks cover every branch without hoisting its runtime effects into the parent graph.
 
 The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2. `ResultingChange.AddedNodes` recursively includes branch-local nodes so the review covers the complete materialized result rather than only the parent graph.
 
-See [Pure expression structural authoring](../specs/pure-expression-authoring.md).
+See [Expression structural authoring](../specs/expression-authoring.md). The old `PureExpressionRecipe` and `AgentPureExpression...` names remain thin F# source aliases/forwarders for existing clients, not an independent pure-only interface. Existing diagnostic codes and historical evaluation protocol names are retained.
+
+### M1 operation workflow
+
+`AgentWorkflow` / `AgentOperationIntent` supports:
+
+- display-name rename for types and functions;
+- adding a function parameter with an explicit plan for every affected direct call;
+- resolving a generated missing-argument obligation with an existing compatible value;
+- simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
 
 ### Float64 structural compatibility surface
 
@@ -200,13 +207,13 @@ The exact narrower contract is maintained in [Bounded structural editing](../spe
 
 `AgentListMapStructuralWorkflow` supports the original shallow `ParameterReference -> ListMap` M2 body-replacement shape. The source is a target-owned `List<T>` parameter and the mapper an existing pure unary function compatible with `T -> R`; replacement node identities remain system-owned and the same simulate/review/publication mechanics apply.
 
-The general `PureExpressionRecipe` covers the same semantic capability through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` while also allowing composed source expressions. The specialized workflow remains available for compatibility and historical evidence; removing or wrapping it is a separate API-cleanup decision rather than a requirement of the general construction model.
+The general `ExpressionRecipe` covers the same semantic capability through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` while also allowing composed source expressions. The specialized workflow remains available for compatibility and historical evidence; removing or wrapping it is a separate API-cleanup decision rather than a requirement of the general construction model.
 
 ### Current boundary
 
-The reusable `PureExpressionRecipe` covers primitive scalar expressions, the implemented pure List family, product/field/union construction, `Option`/`Result` construction, complete calls to existing pure functions, and scoped pure conditionals/matches with recipe-local lexical pattern references. It does **not** author incomplete or effectful direct calls, capability invocation, arbitrary references to outer graph nodes, or nested-expression replacement inside an existing body.
+The reusable `ExpressionRecipe` covers primitive scalar expressions, the implemented pure-callback List family, product/field/union construction, `Option`/`Result` construction, complete direct calls and capability invocations within predeclared effects, and scoped conditionals/matches with recipe-local lexical pattern references. It does **not** author incomplete calls, effect/capability/operation declarations, changes to target effect requirements, arbitrary references to outer graph nodes, or nested-expression replacement inside an existing body. A dedicated sequencing construct for independent effects is not part of the surface.
 
-No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `FieldValueBinding`, `CallArgumentBinding`, or caller-owned production node/pattern IDs.
+No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `FieldValueBinding`, `ArgumentBinding`, `CapabilityArgumentBinding`, or caller-owned production node/pattern IDs.
 
 Those limits describe the current incremental implementation, not a standing requirement that agent authority remain one operation per semantic role. Broader typed construction should be judged by semantic clarity, validation, reviewability, and evidence rather than by the shape of the M2 bootstrap experiment.
 
@@ -214,13 +221,13 @@ Those limits describe the current incremental implementation, not a standing req
 
 Milestone 1 and Milestone 2 both have recorded controlled agent-evaluation evidence.
 
-M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The current pure-expression workflow reuses that transaction/review interaction model across scalar, List, structured pure-value, complete pure-call, and scoped control-flow domains.
+M2 established, under its frozen conditions, that agents could inspect stable semantic facts, produce reviewed structural proposals, publish exact reviewed results, preserve unrelated semantic state, reject stale work, and recover through fresh inspection/simulation. The current expression workflow reuses that transaction/review interaction model across scalar, List, structured-value, complete-call, capability-invocation, and scoped control-flow domains.
 
-The initial cross-domain scalar/List slice also passed the maintained extended verification suite after #117. Later pure-expression additions reused that architectural evidence while their interaction assumptions remained materially the same.
+The initial cross-domain scalar/List slice also passed the maintained extended verification suite after #117. Later additions reused that architectural evidence while their interaction assumptions remained materially the same.
 
-Scoped control-flow authoring is a more meaningful interaction extension because agents must understand lexical pattern slots and `ScopeDepth`, while the materialized result includes nested branch graphs and system-owned pattern identities. Its implementation has focused fast coverage, and issue #132 tracks one architectural/extended verification pass plus a small exploratory agent evaluation. This does not alter or retroactively broaden the frozen M2 claim.
+Scoped control-flow authoring is a more meaningful interaction extension because agents must understand lexical pattern slots and `ScopeDepth`, while the materialized result includes nested branch graphs and system-owned pattern identities. Issue #132 records its completed architectural/extended pass and four exploratory tasks with accepted and committed proposals and no reported lexical diagnostic. This does not alter or retroactively broaden the frozen M2 claim.
 
-The broader cross-domain surface is maintained implementation, but it does not claim that the entire algebra has independently undergone a new large controlled model evaluation.
+The broader cross-domain surface is maintained implementation, but it does not claim that the entire algebra has independently undergone a new large controlled model evaluation. Capability authoring reuses existing persistent capability semantics and is covered by focused deterministic authoring and execution-IR lowering contracts; it does not claim a new live model evaluation.
 
 See the [Milestone 2 record](../plans/milestone-2.md) and the maintained [verification philosophy](../developer/verification.md).
 
@@ -245,4 +252,4 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 
 Milestone 1 is complete for its accepted bounded-operation claim, including its recorded agent evaluation.
 
-Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged; scoped lexical control-flow authoring is being verified separately because it introduces a new interaction assumption rather than because it changes the completed M2 milestone.
+Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged; scoped lexical control-flow authoring was verified separately because it introduced a new interaction assumption rather than changing the completed M2 milestone.
