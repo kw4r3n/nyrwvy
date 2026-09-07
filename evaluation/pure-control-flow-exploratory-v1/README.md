@@ -88,4 +88,10 @@ The script uses `openai/gpt-5.6-terra` with the `high` variant by default. Overr
 
 Results and raw OpenCode JSON logs are written under `~/.local/share/nyamnyam/pure-control-flow-exploratory/`. The script prints a compact per-task summary with process exit status, whether a proposal/commit appeared in the tool trace, whether a `PatternReference` appeared, and any lexical-scope diagnostic code.
 
+If only summary extraction needs to be repeated, reuse the existing model logs rather than rerunning the tasks:
+
+```shell
+./scripts/run-pure-control-flow-exploratory.fish --summarize ~/.local/share/nyamnyam/pure-control-flow-exploratory/<run-directory>
+```
+
 Do not run PCF-E5 by default. Add that recovery observation only if PCF-E4 exposes uncertainty that is worth probing.
