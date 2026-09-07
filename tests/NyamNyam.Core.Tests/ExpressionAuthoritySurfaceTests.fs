@@ -5,11 +5,13 @@ open Microsoft.FSharp.Reflection
 open NyamNyam.Core
 open Xunit
 
-module PureExpressionAuthoritySurfaceTests =
+module ExpressionAuthoritySurfaceTests =
     [<Fact>]
-    let ``pure-expression authority surface rejects nested raw graph payloads`` () =
+    let ``expression authority surface rejects nested raw graph payloads`` () =
+        Assert.Equal("ExpressionRecipe", typeof<ExpressionRecipe>.Name)
+        Assert.Equal(typeof<ExpressionRecipe>, typeof<PureExpressionRecipe>)
         let requestFields =
-            FSharpType.GetRecordFields(typeof<AgentReplaceFunctionBodyWithPureExpressionRecipe>)
+            FSharpType.GetRecordFields(typeof<AgentReplaceFunctionBodyWithExpressionRecipe>)
             |> Array.map (fun field -> field.Name, field.PropertyType)
             |> Array.toList
 
@@ -17,10 +19,10 @@ module PureExpressionAuthoritySurfaceTests =
             [ "TargetFunctionId", typeof<FunctionId>
               "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "ExpectedCurrentResultNodeId", typeof<GraphNodeId>
-              "Replacement", typeof<PureExpressionRecipe> ]
+              "Replacement", typeof<ExpressionRecipe> ]
 
         if requestFields <> expectedRequestFields then
-            failwithf "Pure-expression request authority surface changed: %A" requestFields
+            failwithf "Expression request authority surface changed: %A" requestFields
 
         let forbiddenPayloadTypes =
             [ typeof<GraphNodeId>
@@ -29,7 +31,7 @@ module PureExpressionAuthoritySurfaceTests =
               typeof<SemanticNode>
               typeof<SemanticNodeKind> ]
         let bindingFlags = BindingFlags.Public ||| BindingFlags.NonPublic
-        let coreAssembly = typeof<PureExpressionRecipe>.Assembly
+        let coreAssembly = typeof<ExpressionRecipe>.Assembly
 
         let rec containsForbidden visited (candidate: System.Type) =
             if forbiddenPayloadTypes |> List.contains candidate then
@@ -58,7 +60,7 @@ module PureExpressionAuthoritySurfaceTests =
                     false
 
         let leakedPayloads =
-            FSharpType.GetUnionCases(typeof<PureExpressionRecipe>)
+            FSharpType.GetUnionCases(typeof<ExpressionRecipe>)
             |> Array.collect (fun case ->
                 case.GetFields()
                 |> Array.choose (fun field ->
@@ -69,4 +71,4 @@ module PureExpressionAuthoritySurfaceTests =
             |> Array.toList
 
         if not (List.isEmpty leakedPayloads) then
-            failwithf "Pure-expression recipe exposes nested raw graph authority: %A" leakedPayloads
+            failwithf "Expression recipe exposes nested raw graph authority: %A" leakedPayloads

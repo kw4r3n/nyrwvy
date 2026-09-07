@@ -1,0 +1,367 @@
+# Expression structural authoring
+
+**Status:** Current
+
+This specification defines the reusable cross-domain construction surface for agent-authored expressions, including calls and capability invocations within a target function's already-declared effects.
+
+The purpose is to separate two representations that serve different jobs:
+
+```text
+ephemeral typed construction intent
+  -> preflight type/scope/effect validation
+  -> system-side materialization
+  -> persistent typed semantic graph
+```
+
+`ExpressionRecipe` is not authoritative program state. It is a bounded tree-shaped request used to construct authoritative semantic nodes without giving the caller production `GraphNodeId` or `PatternBindingId` authority.
+
+## Scope
+
+`AgentExpressionStructuralWorkflow` replaces the complete body of one existing function with a body materialized from `ExpressionRecipe`.
+
+The maintained surface covers primitive scalar expressions, the current pure-callback List family, structured values, complete direct calls, capability invocation, and scoped control flow:
+
+```text
+RecipePatternSlot =
+  | Field(FieldId)
+  | Value
+  | Error
+
+RecipePatternReference =
+  ScopeDepth: non-negative integer
+  Slot: RecipePatternSlot
+
+ExpressionRecipe =
+  | Parameter(ParameterId)
+  | PatternReference(RecipePatternReference)
+  | StringLiteral(String)
+  | BoolLiteral(Bool)
+  | UnitLiteral
+  | Int64Literal(Int64)
+  | Float64Literal(Float64Bits)
+  | StringIsEmpty(expr)
+  | StringContains(value, substring)
+  | Int64WrappingAdd(left, right)
+  | Int64WrappingSubtract(left, right)
+  | Int64WrappingMultiply(left, right)
+  | Int64Equal(left, right)
+  | Int64LessThan(left, right)
+  | Int64LessThanOrEqual(left, right)
+  | Int64GreaterThan(left, right)
+  | Int64GreaterThanOrEqual(left, right)
+  | Float64Add(left, right)
+  | Float64Subtract(left, right)
+  | Float64Multiply(left, right)
+  | Float64Divide(left, right)
+  | Float64Equal(left, right)
+  | Float64LessThan(left, right)
+  | Float64IsNaN(expr)
+  | Float64IsFinite(expr)
+  | Float64IsInfinite(expr)
+  | ListEmpty(itemType)
+  | ListConstruct(itemType, items)
+  | ListLength(list)
+  | ListAppendItem(list, item)
+  | ListConcat(left, right)
+  | ListMap(source, mapperFunctionId)
+  | ListFilter(source, predicateFunctionId)
+  | ListAny(source, predicateFunctionId)
+  | ListAll(source, predicateFunctionId)
+  | ProductConstruct(typeId, fieldBindings)
+  | FieldAccess(source, fieldId)
+  | UnionConstruct(variantId, fieldBindings)
+  | OptionNone(itemType)
+  | OptionSome(value)
+  | ResultOk(errorType, value)
+  | ResultErr(okType, error)
+  | DirectCall(targetFunctionId, argumentBindings)
+  | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
+  | Conditional(condition, whenTrue, whenFalse)
+  | MatchUnion(input, arms)
+  | MatchOption(input, someBody, noneBody)
+  | MatchResult(input, okBody, errBody)
+```
+
+This remains a selected construction algebra rather than a generic wrapper around every `SemanticNodeKind`.
+
+## Request
+
+```text
+AgentReplaceFunctionBodyWithExpressionRecipe
+  TargetFunctionId: FunctionId
+  ExpectedBaseSnapshotId: SnapshotId
+  ExpectedCurrentResultNodeId: GraphNodeId
+  Replacement: ExpressionRecipe
+```
+
+The request references existing semantic declarations by typed stable ID where needed. It does not accept caller-supplied production IDs for newly materialized graph nodes or pattern bindings. It cannot change the target function's signature or `RequiredEffects`.
+
+## Bounds and ordering
+
+The complete construction tree uses the same practical bounds already established by bounded structural authoring:
+
+- maximum recipe nodes: **64**;
+- maximum recipe depth: **32**;
+- receivers, arguments, condition/input expressions, and every nested branch body count toward the same bounds;
+- every recipe occurrence materializes one semantic node;
+- repeated equal subexpressions remain distinct occurrences.
+
+Unary operands materialize before their parent. Binary operands materialize left then right, followed by the parent. `ListConstruct` materializes its item recipes in list order and then the construction node. Higher-order List recipes materialize the source expression first and then the traversal node referencing the existing callback `FunctionId`.
+
+Product and union field bindings are caller-supplied by stable `FieldId`, but their list order is not semantic. After preflight verifies the exact binding set, materialization evaluates field recipes in declaration order and stores persistent bindings in that same order.
+
+`DirectCall` arguments are caller-supplied by the callee's stable `ParameterId`, but argument-list order is likewise not semantic. After exact binding validation, argument recipes materialize in callee parameter declaration order and the call node is created last.
+
+`CapabilityInvoke` materializes its capability receiver first, arguments in operation parameter declaration order, and the invocation last. Caller binding-list order does not override this order, including when a receiver or argument is effectful.
+
+Control-flow condition/input expressions materialize in the current graph. Branch recipes materialize as child `ValueGraph`s, not as eagerly evaluated operands in the parent graph. Union match arms and their pattern-field bindings are canonicalized to declaration order.
+
+There is no caller-controlled CSE, DAG sharing, local-node reuse, let-binding, or operand reordering. Repeating an effectful expression represents separate evaluations, not a reference to one shared result.
+
+## Preflight
+
+Before allocating replacement graph-node or pattern-binding IDs, simulation checks:
+
+1. the expected base snapshot is still current;
+2. the target function exists;
+3. the expected current result node still matches the target body;
+4. recipe depth and node count are within bounds across all children and nested branches;
+5. every `Parameter` belongs to the target function;
+6. every `PatternReference` resolves to a visible lexical match-arm frame and slot;
+7. every scalar operation receives operands of its required primitive type;
+8. every explicit `TypeRef` is valid in the current snapshot and has valid builtin-generic arity;
+9. List construction/query operands have exact compatible List/item types;
+10. higher-order List callbacks satisfy the existing pure unary callback contract;
+11. `ProductConstruct` names an existing product type and binds every declared field exactly once with an exact-compatible value type;
+12. `FieldAccess` names a product field and its source produces the exact owning named type;
+13. `UnionConstruct` names an existing variant and binds every variant field exactly once with an exact-compatible value type;
+14. `OptionNone`, `ResultOk`, and `ResultErr` explicit type arguments are valid;
+15. `DirectCall` names an existing function whose required effects are all already declared by the target function;
+16. every `DirectCall` callee parameter is bound exactly once by its stable `ParameterId`, with no unknown or omitted parameter;
+17. every `DirectCall` argument recipe exactly matches the declared callee parameter type;
+18. `CapabilityInvoke` names an existing operation and its receiver produces that operation's exact owning capability type;
+19. every capability-operation parameter is bound exactly once by its stable `CapabilityParameterId`, with no unknown or omitted parameter and with exact child types;
+20. the target function already declares the capability operation's effect;
+21. every `Conditional` condition produces `Bool` and both branches produce exactly the same type;
+22. every match input has the required union/`Option<T>`/`Result<T,E>` shape;
+23. `MatchUnion` contains every declared variant exactly once, with no unknown or duplicate variants;
+24. all branches of one match produce exactly the same type;
+25. the inferred recipe result type exactly equals the target function result type;
+26. no open or resolved obligation targets a node in the body being replaced.
+
+There is no implicit numeric conversion, collection item conversion, or fallback type coercion.
+
+## Effect requirements
+
+Every call and invocation is checked against the same enclosing target function's existing `RequiredEffects`. Recursive preflight visits receivers, arguments, scalar/structured-value children, match inputs, and every branch.
+
+Equivalently, the union of all effect requirements in the recipe must be a subset of the target's declared effects:
+
+```text
+DirectCall requirements = child requirements + callee.RequiredEffects
+CapabilityInvoke requirements = receiver/argument requirements + operation.EffectId
+Conditional / Match requirements = condition/input requirements + all branch requirements
+```
+
+Here `+` means set union, not execution order. Per-occurrence checks during recursive type/scope validation enforce this condition without a separate public effect-inference result.
+
+A branch is checked even when a literal condition would not select it at runtime. This static requirement does not make the branch execute: existing control-flow semantics still execute only the selected branch. Simulation, review, and publication construct/validate program state; they do not execute the authored capability operations.
+
+A missing direct-call requirement produces `ExpressionCallMissingEffectRequirement`; a missing capability-operation requirement produces `ExpressionCapabilityMissingEffectRequirement`.
+
+The workflow never adds or removes target effects automatically. A function may retain declared effects unused by its replacement body. Declaration evolution is a separate authority boundary.
+
+## Explicit types
+
+`ListEmpty`, `ListConstruct`, and `OptionNone` carry an explicit contained `TypeRef`; `ResultOk` carries its error type and `ResultErr` carries its success type. These facts cannot always be inferred from a child expression.
+
+The supplied types are construction intent, not raw graph payloads. Before materialization they are checked using current semantic type facts:
+
+- primitive types are valid directly;
+- named types must name a current `TypeId`;
+- capability types must name a current `CapabilityId`;
+- `Option<T>` and `List<T>` require one type argument;
+- `Result<T,E>` requires two type arguments;
+- nested type arguments are validated recursively.
+
+## Higher-order List callbacks
+
+`ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+
+For a source `List<T>`:
+
+- `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
+- `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
+- `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
+- `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
+
+Effectful callbacks remain rejected, even when the target declares their effects. This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
+
+## Structured declaration bindings
+
+`ProductConstruct` and `UnionConstruct` accept field values as `(FieldId, ExpressionRecipe)` pairs. They deliberately do not expose persistent `FieldValueBinding`, because that type contains production `GraphNodeId` references.
+
+Preflight requires no duplicate fields, the exact declaration field set, and exact child value types. Caller binding order is ignored after validation. Materialization follows declaration field order, allocates all child node IDs system-side, and constructs the ordinary persistent field bindings.
+
+`FieldAccess` references an existing stable `FieldId`. Only fields owned by product types are accepted, and the source recipe must produce the exact owning `TypeRef.Named` type.
+
+## Option and Result construction
+
+`OptionSome(value)` derives `Option<T>` from the value recipe. `OptionNone(T)` carries explicit `T`.
+
+`ResultOk(E, value)` derives the success type from `value` and produces `Result<T,E>`. `ResultErr(T, error)` derives the error type from `error` and produces `Result<T,E>`.
+
+These cases add no implicit conversion and no special failure semantics; they materialize the existing semantic constructors.
+
+## Complete DirectCall
+
+`DirectCall(targetFunctionId, arguments)` references an existing callee by stable `FunctionId`. Arguments are `(ParameterId, ExpressionRecipe)` pairs and deliberately do not expose persistent `ArgumentBinding` values.
+
+The maintained construction surface accepts complete calls:
+
+- the callee must exist;
+- every callee required effect must already be declared by the target;
+- each callee parameter must be bound exactly once;
+- unknown, duplicate, or omitted parameter IDs are rejected;
+- every child recipe result type must equal the corresponding declared parameter type.
+
+Caller argument-list order is ignored after validation. Materialization follows callee parameter declaration order and creates the `DirectCall` node last.
+
+This surface does **not** create missing-argument obligations. Incomplete calls remain outside this boundary.
+
+## Complete CapabilityInvoke
+
+```text
+CapabilityInvoke(
+  capabilityValue: ExpressionRecipe,
+  operationId: CapabilityOperationId,
+  arguments: (CapabilityParameterId * ExpressionRecipe) list
+)
+```
+
+The operation must already exist. The receiver must produce `TypeRef.Capability` for the exact capability owning that operation. An unrelated capability value does not grant access merely because its operation signatures look similar.
+
+Arguments must bind exactly the declared operation parameters, once each, using their stable `CapabilityParameterId`s and exact types. Empty bindings are accepted only for a zero-parameter operation. There are no omitted/default arguments or generated obligations.
+
+The receiver is an ordinary child recipe: it may be a target-owned parameter, a visible lexical pattern slot, or another compatible expression. All receiver and argument effects must already be declared by the target, as must the operation's `EffectId`.
+
+The result is the existing operation's `ResultType`. This authoring surface does not reinterpret `FailureType`, wrap results automatically, or introduce new exception/failure semantics.
+
+Materialization allocates ordinary `CapabilityArgumentBinding`s only after their child graph-node IDs are allocated. It creates the existing `SemanticNodeKind.CapabilityInvoke`; no effect, capability, operation, parameter, or runtime implementation is created or modified.
+
+Preflight diagnostics distinguish unknown operation, receiver-type mismatch, duplicate argument, argument-set mismatch, argument-type mismatch, and missing effect requirement.
+
+## Scoped control flow
+
+### Lexical references
+
+Match arms introduce ephemeral recipe-local lexical frames. `RecipePatternReference.ScopeDepth = 0` addresses the current enclosing match-arm frame, `1` addresses the next outer frame, and so on.
+
+Frames exist structurally even when they bind no values. In particular, an `Option.None` body receives an empty frame, so an outer slot seen from inside that body moves to the next scope depth rather than collapsing inward.
+
+Slots are derived from the persistent semantic shape:
+
+- union arm: `Field(fieldId)` for every declared variant field;
+- `Option.Some`: `Value`;
+- `Option.None`: no slots;
+- `Result.Ok`: `Value`;
+- `Result.Err`: `Error`.
+
+The caller never supplies a production `PatternBindingId`, binding type, or pattern display name. Slot types come from the union declaration or matched `Option`/`Result` input type.
+
+### Conditional
+
+`Conditional(condition, whenTrue, whenFalse)` requires a `Bool` condition. Both branches are validated in the same lexical pattern environment and must produce exactly one common type.
+
+The condition materializes in the current graph. Each branch materializes into its own child `ValueGraph`, followed by the parent `Conditional` node.
+
+### MatchUnion
+
+`MatchUnion(input, arms)` requires an input whose inferred type names an existing union. The caller supplies `(VariantId, ExpressionRecipe)` arms but the set must equal the declared variant set exactly.
+
+Caller arm order is not semantic. Persistent arms follow union declaration order, and each arm's pattern-field bindings follow field declaration order. Fresh production `PatternBindingId`s are allocated system-side with `DisplayName = None` and declaration-derived types.
+
+All arm bodies must produce the same result type.
+
+### MatchOption
+
+`MatchOption(input, someBody, noneBody)` requires `Option<T>`.
+
+- Some body receives `Value : T`;
+- None body receives an empty lexical frame.
+
+Both bodies must produce the same result type. The Some pattern binding is allocated system-side.
+
+### MatchResult
+
+`MatchResult(input, okBody, errBody)` requires `Result<T,E>`.
+
+- Ok body receives `Value : T`;
+- Err body receives `Error : E`.
+
+Both bodies must produce the same result type. Both pattern bindings are allocated system-side.
+
+### Outer local values remain out of scope
+
+Branch recipes may reference target-function parameters, existing semantic declarations, and visible lexical pattern slots. They do not gain caller-controlled references to arbitrary outer graph nodes.
+
+If the same pure computation is needed inside a branch, it can be represented again as recipe structure. Repeating an effectful computation is not equivalent to sharing its result. General local symbols, let-binding, DAG sharing, and CSE remain separate design questions.
+
+## Materialization
+
+After complete preflight succeeds, recipe nodes receive fresh `GraphNodeId`s from `StableIdAllocator` and become the corresponding existing `SemanticNodeKind` values.
+
+Match arm slots additionally receive fresh production `PatternBindingId`s. Their persistent `PatternBinding.Type` is derived from validated semantic facts and `DisplayName` is initially `None`.
+
+Branch recipes become nested child `ValueGraph`s. No caller-supplied raw graph, semantic-node, or pattern-binding representation crosses the construction boundary.
+
+Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, capability `CapabilityOperationId` / `CapabilityParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
+
+The workflow adds no new persisted semantic node role and therefore does not require a snapshot-schema change.
+
+## Review and publication
+
+The workflow reuses the existing structural transaction mechanics:
+
+- full proposed-snapshot validation;
+- readiness classification;
+- exact base/proposed snapshot and semantic fingerprints;
+- base/proposed Function Focus views;
+- `FunctionBodyReplacementDiff` with stable node summaries;
+- stale-base and receipt-mismatch rejection;
+- reviewed publication through `publishValidatedSnapshot`;
+- explicit rejection without mutation.
+
+`ResultingChange.AddedNodes` recursively includes branch-local nodes through `ValueGraph.collectNodes`, while `RequestedChange` remains the original construction intent. This preserves the distinction between what the caller asked for and the full materialized result.
+
+## Naming and compatibility
+
+The canonical API is `ExpressionRecipe`, `AgentReplaceFunctionBodyWithExpressionRecipe`, `AgentExpressionStructuralChangeReview`, `AgentExpressionStructuralChangeProposal`, and `AgentExpressionStructuralWorkflow`.
+
+The earlier `PureExpressionRecipe` and `AgentPureExpression...` names remain thin F# source aliases and function forwarders for existing clients and evaluation tooling. There is one recipe algebra and one implementation, not separate pure and effectful engines. These historical names do **not** enforce purity; new code should use the canonical names. This is source compatibility, not a promise of binary compatibility for previously compiled clients.
+
+Existing `PureExpression...` diagnostic codes are retained as stable diagnostic identifiers. New capability diagnostics use the `Expression...` prefix. Changing API names does not require renaming historical protocol identifiers or rewriting frozen evaluation evidence.
+
+The earlier `Float64ExpressionRecipe` / `AgentStructuralWorkflow` surface remains available as a narrower compatibility surface backed by the same structural interaction model.
+
+The specialized `AgentListMapStructuralWorkflow` also remains available for compatibility with the M2 ListMap surface and its frozen evidence. Removing or wrapping that specialized API is a separate compatibility decision.
+
+## Deliberately outside the current surface
+
+The maintained recipe does not author:
+
+- incomplete direct calls or missing-argument obligation creation;
+- calls/invocations requiring effects not already declared by the target;
+- automatic addition or removal of target effect requirements;
+- effect, capability, operation, or signature declarations;
+- effectful higher-order List callbacks;
+- nested-expression replacement inside an existing body;
+- raw `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `PatternBindingId`, `FieldValueBinding`, `ArgumentBinding`, `CapabilityArgumentBinding`, `ValueGraph`, or `Snapshot` payloads;
+- caller-supplied production graph-node IDs;
+- caller-controlled local node references, let-binding, DAG sharing, or CSE;
+- wildcard/default match arms;
+- pattern display-name authoring;
+- declaration mutation as part of expression construction;
+- semantic merge/rebase or multi-proposal composition.
+
+These exclusions are deliberate authority or semantic boundaries rather than missing encodings of the current feature.

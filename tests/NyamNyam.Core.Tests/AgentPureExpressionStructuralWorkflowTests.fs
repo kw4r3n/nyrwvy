@@ -549,6 +549,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ResultOk"
               "ResultErr"
               "DirectCall"
+              "CapabilityInvoke"
               "Conditional"
               "MatchUnion"
               "MatchOption"

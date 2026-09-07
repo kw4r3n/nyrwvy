@@ -11,7 +11,7 @@ NyamNyam is an active research and implementation project.
 - **Milestone 0 is complete:** the graph-first architecture has passed an end-to-end lifecycle from persistence through reviewed editing and generated execution.
 - **Milestone 1 is complete for the accepted bounded-operation claim:** production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence are in place.
 - **Milestone 2 is complete for the accepted structural-editing claim:** controlled evaluation established that agents can inspect, simulate, review, publish, and recover from stale structural proposals with system-owned identities and no unrelated semantic churn. The maintained Float64 body-replacement recipe now covers parameter references, exact literals, and the existing `Add` / `Subtract` / `Multiply` / `Divide` semantic operations; the specialized ListMap slice remains available as a separately typed operation.
-- **Post-M2 maintained structural authoring is broader than the frozen M2 surface:** `PureExpressionRecipe` now covers primitive/scalar expressions, the pure List family, structured pure values, complete pure calls, and scoped pure control flow (`Conditional`, exhaustive union/`Option`/`Result` matching, and lexical pattern references) while keeping production graph-node and pattern-binding identities system-owned.
+- **Post-M2 maintained structural authoring is broader than the frozen M2 surface:** `ExpressionRecipe` covers primitive/scalar expressions, the pure-callback List family, structured values, complete direct calls, capability invocation, and scoped control flow (`Conditional`, exhaustive union/`Option`/`Result` matching, and lexical pattern references). Calls and invocations must fit the target function's already-declared effects; declaration changes and production graph-node/pattern-binding identities remain outside caller authority.
 
 Exact build/test and evaluation evidence belongs under verification records rather than this landing page. Completed controlled evaluations are reusable design evidence; they are not a requirement to repeat the same experiment for every adjacent semantic extension. The scoped-control-flow interaction boundary is tracked separately from the frozen M2 claim because it introduces lexical scope and nested branch graphs.
 
@@ -73,7 +73,7 @@ Useful entry points:
 - [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
 - [Milestone 2 record](docs/plans/milestone-2.md) — completed bounded structural-editing milestone and controlled evaluation evidence.
 - [Bounded structural editing spec](docs/specs/bounded-structural-editing.md) — exact current Float64 body-replacement contract.
-- [Pure expression structural authoring](docs/specs/pure-expression-authoring.md) — maintained cross-domain recipe, including scoped pure control flow.
+- [Expression structural authoring](docs/specs/expression-authoring.md) — maintained cross-domain recipe, scoped control flow, and calls/capability invocations within predeclared effects.
 - [Contributor/reviewer entry point](docs/developer/README.md) — implementation-oriented navigation.
 
 Historical and superseded material is kept separately under [`docs-archive/`](docs-archive/README.md) and is not authoritative for current behavior.
