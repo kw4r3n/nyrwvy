@@ -75,7 +75,7 @@ module AgentExpressionCapabilityTests =
         | Ok value -> value
         | Error issues -> failwithf "Unexpected fixture failure: %A" issues
 
-    let private request snapshot recipe: AgentReplaceFunctionBodyWithExpressionRecipe =
+    let private request (snapshot: Snapshot) recipe: AgentReplaceFunctionBodyWithExpressionRecipe =
         { TargetFunctionId = callerId
           ExpectedBaseSnapshotId = snapshot.Id
           ExpectedCurrentResultNodeId = (caller snapshot).Body.ResultNodeId
@@ -145,7 +145,7 @@ module AgentExpressionCapabilityTests =
         Assert.Equal<SemanticType list>(snapshot.Types, published.Types)
         Assert.Equal<SemanticEffect list>(snapshot.Effects, published.Effects)
         Assert.Equal<SemanticCapability list>(snapshot.Capabilities, published.Capabilities)
-        Assert.Equal(snapshot.Obligations, published.Obligations)
+        Assert.Equal<MissingArgumentObligation list>(snapshot.Obligations, published.Obligations)
 
     [<Fact>]
     let ``CapabilityInvoke uses a lexical capability value and stays inside its match arm`` () =
