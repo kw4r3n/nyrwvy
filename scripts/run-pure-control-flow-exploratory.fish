@@ -67,7 +67,7 @@ for task_id in $task_ids
         >"$stdout_log" 2>"$stderr_log"
     set -l run_code $status
 
-    set -l indicators (python3 - "$stdout_log" <<'PY'
+    set -l indicators (python3 -c '
 import json, sys
 path = sys.argv[1]
 strings = []
@@ -93,19 +93,16 @@ with open(path, encoding="utf-8") as stream:
             strings.append(line)
 
 text = "\n".join(strings)
-print("true" if '"status":"proposed"' in text else "false")
-print("true" if '"status":"committed"' in text else "false")
-print("true" if 'PatternReference' in text else "false")
-lexical = sorted({
-    code for code in (
-        "PureExpressionPatternScopeDepthInvalid",
-        "PureExpressionPatternScopeNotFound",
-        "PureExpressionPatternSlotNotFound",
-    ) if code in text
-})
+print("true" if "\\\"status\\\":\\\"proposed\\\"" in text or "\"status\":\"proposed\"" in text else "false")
+print("true" if "\\\"status\\\":\\\"committed\\\"" in text or "\"status\":\"committed\"" in text else "false")
+print("true" if "PatternReference" in text else "false")
+lexical = sorted({code for code in (
+    "PureExpressionPatternScopeDepthInvalid",
+    "PureExpressionPatternScopeNotFound",
+    "PureExpressionPatternSlotNotFound",
+) if code in text})
 print(",".join(lexical) if lexical else "none")
-PY
-)
+' "$stdout_log")
 
     set -l proposed $indicators[1]
     set -l committed $indicators[2]
