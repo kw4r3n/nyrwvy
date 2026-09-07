@@ -5,7 +5,6 @@ set -l repo_root (path resolve "$script_dir/..")
 set -l project "$repo_root/tools/NyamNyam.AgentEval.PureExpression/NyamNyam.AgentEval.PureExpression.fsproj"
 set -l model "$NYAMNYAM_PURE_CONTROL_EVAL_MODEL"
 set -l variant "$NYAMNYAM_PURE_CONTROL_EVAL_VARIANT"
-set -l task_ids PCF-E1 PCF-E2 PCF-E3 PCF-E4
 
 function analyze_log --argument-names stdout_log
     python3 -c '
@@ -73,6 +72,8 @@ print(",".join(lexical) if lexical else "none")
 end
 
 function summarize_results --argument-names result_root
+    set -l task_ids PCF-E1 PCF-E2 PCF-E3 PCF-E4
+
     if not test -d "$result_root"
         echo "ERROR: result directory '$result_root' does not exist." >&2
         return 1
@@ -168,6 +169,7 @@ set -l stamp (date +%Y%m%d-%H%M%S)
 set -l result_root "$HOME/.local/share/nyamnyam/pure-control-flow-exploratory/$stamp"
 mkdir -p "$result_root"
 or exit 1
+set -l task_ids PCF-E1 PCF-E2 PCF-E3 PCF-E4
 
 for task_id in $task_ids
     set -l prompt ""
