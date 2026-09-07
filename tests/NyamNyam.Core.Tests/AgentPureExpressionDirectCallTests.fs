@@ -9,6 +9,7 @@ module AgentPureExpressionDirectCallTests =
           CallerId: FunctionId
           CalleeId: FunctionId
           EffectfulCalleeId: FunctionId
+          CallEffectId: EffectId
           TextParameterId: ParameterId
           CountParameterId: ParameterId }
 
@@ -88,8 +89,24 @@ module AgentPureExpressionDirectCallTests =
           CallerId = caller.Id
           CalleeId = callee.Id
           EffectfulCalleeId = effectfulCallee.Id
+          CallEffectId = callEffect.Id
           TextParameterId = textParameter.Id
           CountParameterId = countParameter.Id }
+
+    let private withCallerEffects effectIds (fixture: Fixture): Fixture =
+        let snapshot =
+            { fixture.Snapshot with
+                Id = snapshotId "caller-effects"
+                Functions =
+                    fixture.Snapshot.Functions
+                    |> List.map (fun functionEntity ->
+                        if functionEntity.Id = fixture.CallerId then
+                            { functionEntity with RequiredEffects = effectIds }
+                        else
+                            functionEntity) }
+
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        { fixture with Snapshot = snapshot }
 
     let private createWorkspace snapshot =
         match AgentWorkspace.create snapshot with
@@ -131,7 +148,34 @@ module AgentPureExpressionDirectCallTests =
         Assert.Equal(Some fixture.CalleeId, (List.last addedNodes).FunctionId)
 
     [<Fact>]
-    let ``pure DirectCall preflight rejects incomplete invalid and effectful calls`` () =
+    let ``DirectCall accepts effects already declared by caller`` () =
+        let fixture = createFixture ()
+        let fixture = fixture |> withCallerEffects [ fixture.CallEffectId ]
+        let workspace = createWorkspace fixture.Snapshot
+        let recipe = PureExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, [])
+
+        let proposal =
+            match AgentPureExpressionStructuralWorkflow.simulate workspace (request fixture recipe) with
+            | Ok proposal -> proposal
+            | Error error -> failwithf "Unexpected effectful DirectCall simulation failure: %A" error
+
+        let review = AgentPureExpressionStructuralChangeProposal.review proposal
+        Assert.Equal(TransactionReadiness.SemanticallyReady, review.Readiness)
+        let callNode = review.ResultingChange.AddedNodes |> List.exactlyOne
+        Assert.Equal("DirectCall", callNode.Role)
+        Assert.Equal(Some fixture.EffectfulCalleeId, callNode.FunctionId)
+
+    [<Fact>]
+    let ``DirectCall rejects effects missing from caller declaration`` () =
+        let fixture = createFixture ()
+        let workspace = createWorkspace fixture.Snapshot
+
+        request fixture (PureExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, []))
+        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> assertRejectedCode "ExpressionCallMissingEffectRequirement"
+
+    [<Fact>]
+    let ``pure DirectCall preflight rejects incomplete and invalid calls`` () =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let missingCallee = StableId.createForTesting<FunctionTag> "function-pure-call-missing"
@@ -163,9 +207,7 @@ module AgentPureExpressionDirectCallTests =
                   [ fixture.TextParameterId, PureExpressionRecipe.Int64Literal 1L
                     fixture.CountParameterId, PureExpressionRecipe.Int64Literal 2L ]
               ),
-              "PureExpressionCallArgumentTypeMismatch"
-              PureExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, []),
-              "PureExpressionCallEffectsNotAllowed" ]
+              "PureExpressionCallArgumentTypeMismatch" ]
 
         for recipe, expectedCode in cases do
             request fixture recipe

@@ -553,9 +553,19 @@ module AgentPureExpressionStructuralWorkflow =
                 match Map.tryFind targetFunctionId functionsById with
                 | None ->
                     Error(diagnostic "PureExpressionCallTargetNotFound" $"DirectCall references unknown function '{StableId.value targetFunctionId}'.")
-                | Some callee when not (List.isEmpty callee.RequiredEffects) ->
-                    Error(diagnostic "PureExpressionCallEffectsNotAllowed" $"DirectCall callee '{StableId.value callee.Id}' must have no required effects.")
-                | Some callee -> validateCallArguments callee arguments |> Result.map (fun () -> callee.ResultType)
+                | Some callee ->
+                    match
+                        callee.RequiredEffects
+                        |> List.tryFind (fun effectId -> not (List.contains effectId target.RequiredEffects))
+                    with
+                    | Some effectId ->
+                        Error(
+                            diagnostic
+                                "ExpressionCallMissingEffectRequirement"
+                                $"DirectCall callee '{StableId.value callee.Id}' requires effect '{StableId.value effectId}' not declared by target function '{StableId.value target.Id}'."
+                        )
+                    | None ->
+                        validateCallArguments callee arguments |> Result.map (fun () -> callee.ResultType)
             | PureExpressionRecipe.Conditional(condition, whenTrue, whenFalse) ->
                 match infer frames condition with
                 | Error error -> Error error
