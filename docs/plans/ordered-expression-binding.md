@@ -1,6 +1,8 @@
 # Bounded ordered expression binding
 
-**Status:** Proposed implementation plan for the [accepted effect-ordering design](../decisions/effectful-expression-ordering.md). No Bind implementation is included in Issue #141.
+**Status:** Completed implementation plan for the [accepted effect-ordering design](../decisions/effectful-expression-ordering.md). Issue #141 recorded the design; implementation followed separately. This document retains the planned boundaries and gates; the maintained contract is in the [expression authoring specification](../specs/expression-authoring.md).
+
+Completion evidence is recorded in [ordered expression binding verification](../verification/ordered-expression-binding-20260908.md).
 
 ## Authoring and authority boundary
 

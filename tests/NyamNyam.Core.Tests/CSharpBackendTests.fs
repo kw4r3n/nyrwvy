@@ -87,6 +87,36 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
 """
 
     [<Fact>]
+    let ``generated C# executes Bind effects once in explicit order and skips unselected bodies`` () =
+        let execution, profile, harness = AgentExpressionBindTests.executionFixture ()
+        let artifact =
+            match CSharpBackend.emit execution profile with
+            | Ok value -> value
+            | Error error -> failwithf "Bind emission failed: %A" error
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyamnyam-bind-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempRoot) |> ignore
+        try
+            let project =
+                [ "<Project Sdk=\"Microsoft.NET.Sdk\">"
+                  "  <PropertyGroup>"
+                  "    <OutputType>Exe</OutputType>"
+                  "    <TargetFramework>net10.0</TargetFramework>"
+                  "    <Nullable>enable</Nullable>"
+                  "    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>"
+                  "  </PropertyGroup>"
+                  "</Project>" ] |> String.concat "\n"
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"), project)
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
+            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), harness)
+            let buildExit, buildOut, buildErr = runDotnet tempRoot [ "build"; "Generated.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
+            Assert.True((buildExit = 0), $"Generated Bind build failed:\n{buildOut}\n{buildErr}\n{artifact.Source}")
+            let runExit, runOut, runErr = runDotnet tempRoot [ Path.Combine(tempRoot, "bin", "Release", "net10.0", "Generated.dll") ]
+            Assert.True((runExit = 0), $"Generated Bind execution failed:\n{runOut}\n{runErr}")
+            Assert.Equal("acquire,message,payload,second\nacquire,second,message,payload\nskipped", runOut.Replace("\r\n", "\n").Trim())
+        finally
+            Directory.Delete(tempRoot, true)
+
+    [<Fact>]
     let ``C# emission is byte-for-byte deterministic`` () =
         let fixture, execution = lowerRepresentative ()
         let profile = CSharpBackendProfile.systemConsoleWriteLine fixture.ConsoleWriteLineOperationId

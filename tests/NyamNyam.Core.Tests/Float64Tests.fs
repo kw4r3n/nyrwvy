@@ -349,7 +349,7 @@ module Float64Tests =
         let reserializedNyason = NyasonCodec.serialize restoredNyason |> unwrap "Nyason reserialization"
         Assert.Equal(json, reserializedJson)
         Assert.Equal(nyason, reserializedNyason)
-        Assert.Contains("\"schemaVersion\":8", json)
+        Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"bits\":\"8000000000000000\"", json)
         Assert.Contains("primitive-float64", nyason)
         Assert.Contains("float64-divide", nyason)
@@ -411,7 +411,7 @@ module Float64Tests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":5", typedJson)
+        Assert.Contains("\"schemaVersion\":6", typedJson)
         Assert.Contains("\"primitiveFloat64\"", typedJson)
         Assert.Contains("\"bits\":\"8000000000000000\"", typedJson)
         Assert.Contains("\"float64Divide\"", executionJson)

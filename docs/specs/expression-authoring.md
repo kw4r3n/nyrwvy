@@ -19,7 +19,7 @@ ephemeral typed construction intent
 
 `AgentExpressionStructuralWorkflow` replaces the complete body of one existing function with a body materialized from `ExpressionRecipe`.
 
-The maintained surface covers primitive scalar expressions, the current pure-callback List family, structured values, complete direct calls, capability invocation, and scoped control flow:
+The maintained surface covers primitive scalar expressions, the current pure-callback List family, structured values, complete direct calls, capability invocation, scoped value binding, and control flow:
 
 ```text
 RecipePatternSlot =
@@ -76,6 +76,7 @@ ExpressionRecipe =
   | ResultErr(okType, error)
   | DirectCall(targetFunctionId, argumentBindings)
   | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
+  | Bind(value, body)
   | Conditional(condition, whenTrue, whenFalse)
   | MatchUnion(input, arms)
   | MatchOption(input, someBody, noneBody)
@@ -102,7 +103,7 @@ The complete construction tree uses the same practical bounds already establishe
 
 - maximum recipe nodes: **64**;
 - maximum recipe depth: **32**;
-- receivers, arguments, condition/input expressions, and every nested branch body count toward the same bounds;
+- receivers, arguments, condition/input expressions, and every nested branch or Bind body count toward the same bounds;
 - every recipe occurrence materializes one semantic node;
 - repeated equal subexpressions remain distinct occurrences.
 
@@ -116,7 +117,9 @@ Product and union field bindings are caller-supplied by stable `FieldId`, but th
 
 Control-flow condition/input expressions materialize in the current graph. Branch recipes materialize as child `ValueGraph`s, not as eagerly evaluated operands in the parent graph. Union match arms and their pattern-field bindings are canonicalized to declaration order.
 
-There is no caller-controlled CSE, DAG sharing, local-node reuse, let-binding, or operand reordering. Repeating an effectful expression represents separate evaluations, not a reference to one shared result.
+`Bind` materializes its input in the current graph and its body in a child graph with one system-owned lexical binding. This explicit scope boundary supplies execution order independently of allocation order.
+
+There is no caller-controlled CSE, arbitrary DAG sharing, local-node reuse, or operand reordering. Repeating an effectful expression represents separate evaluations; use the lexical value slot in a Bind body to reuse one result.
 
 ## Preflight
 
@@ -127,7 +130,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 3. the expected current result node still matches the target body;
 4. recipe depth and node count are within bounds across all children and nested branches;
 5. every `Parameter` belongs to the target function;
-6. every `PatternReference` resolves to a visible lexical match-arm frame and slot;
+6. every `PatternReference` resolves to a visible lexical Bind-body or match-arm frame and slot;
 7. every scalar operation receives operands of its required primitive type;
 8. every explicit `TypeRef` is valid in the current snapshot and has valid builtin-generic arity;
 9. List construction/query operands have exact compatible List/item types;
@@ -148,6 +151,8 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 24. all branches of one match produce exactly the same result type;
 25. the inferred recipe result type exactly equals the target function result type;
 26. no open or resolved obligation targets a node in the body being replaced.
+
+For `Bind`, input inference uses only the enclosing frames. Its body receives a new `Value` slot with exactly the input's inferred type; the Bind expression has the body's type. There is no inferred conversion or caller-supplied binding type.
 
 There is no implicit numeric conversion, collection item conversion, or fallback type coercion.
 
@@ -177,11 +182,11 @@ The workflow never adds or removes target effects automatically. A function may 
 
 The deterministic materialization order above therefore does not sequence independent effects. `ExecutionIr.lower` retains its existing `AmbiguousEffectOrder` rejection when two effectful nodes in one graph are not ordered by a dependency path. Authoring and semantic publication may succeed while that later execution-readiness check rejects the result.
 
-The [effectful expression ordering decision](../decisions/effectful-expression-ordering.md) selects a scoped Bind form for a future implementation. It is not part of the current recipe surface; the decision and its linked plan describe the authority boundary and validation gates.
+The [effectful expression ordering decision](../decisions/effectful-expression-ordering.md) selects the explicit scoped `Bind` form described below. This orders its input before its body without ordering independent siblings inside either graph.
 
 For example, an effectful capability-producing call and an independent effectful message-producing argument both precede their consuming invocation, but neither precedes the other. Declaring both effects does not resolve that ambiguity. In contrast, one effectful receiver or one effectful argument followed by its consuming invocation forms a dependency-ordered chain. Branch-local invocations also keep the existing control-flow boundary.
 
-The authoring surface does not insert hidden sequencing, manufacture data dependencies, or reinterpret stored node order to make an otherwise ambiguous graph executable. Explicit sequencing of independent effects remains outside this implemented surface; the linked decision records the selected future contract.
+The authoring surface does not insert hidden sequencing, manufacture data dependencies, or reinterpret stored node order to make an otherwise ambiguous graph executable. The caller must request the intended dependency or Bind scope order explicitly.
 
 ## Explicit types
 
@@ -267,19 +272,40 @@ Preflight diagnostics distinguish unknown operation, receiver-type mismatch, dup
 
 ### Lexical references
 
-Match arms introduce ephemeral recipe-local lexical frames. `RecipePatternReference.ScopeDepth = 0` addresses the current enclosing match-arm frame, `1` addresses the next outer frame, and so on.
+Bind bodies and match arms introduce ephemeral recipe-local lexical frames. `RecipePatternReference.ScopeDepth = 0` addresses the current enclosing frame, `1` addresses the next outer frame, and so on. Conditionals do not introduce a frame.
 
 Frames exist structurally even when they bind no values. In particular, an `Option.None` body receives an empty frame, so an outer slot seen from inside that body moves to the next scope depth rather than collapsing inward.
 
 Slots are derived from the persistent semantic shape:
 
 - union arm: `Field(fieldId)` for every declared variant field;
+- Bind body: `Value`;
 - `Option.Some`: `Value`;
 - `Option.None`: no slots;
 - `Result.Ok`: `Value`;
 - `Result.Err`: `Error`.
 
-The caller never supplies a production `PatternBindingId`, binding type, or pattern display name. Slot types come from the union declaration or matched `Option`/`Result` input type.
+The caller never supplies a production `PatternBindingId`, binding type, or pattern display name. Slot types come from the Bind input type, union declaration, or matched `Option`/`Result` input type.
+
+### Bind
+
+`Bind(value, body)` evaluates `value` once before entering `body`, binds its exact result type to the body's `Value` slot, and returns the body's result. It supports every currently valid value type, including `Unit` and capabilities. An unused binding still evaluates its initializer and preserves its effects. Binding an `Option` or `Result` does not unwrap it or introduce failure handling.
+
+The binding is immutable and non-recursive: it is unavailable in its own initializer and outside its body. Nested bodies may refer to it at the appropriate lexical depth. An initializer may refer to an enclosing binding. The new frame has no `Field` or `Error` slot.
+
+The authoritative node is `SemanticNodeKind.Bind(inputNodeId, ValueMatchArm)`. The system allocates a fresh `PatternBindingId`, derives `PatternBinding.Type` from the input, and uses `DisplayName = None`. Its child `ValueGraph` owns the body nodes. Persistent validation enforces scope, exact binding type, unique identity, and graph acyclicity.
+
+For example, using names only as explanatory pseudocode:
+
+```text
+Bind(acquireConsole(),
+  Bind(send(Value@0, loadMessage()),
+    Bind(send(Value@1, "second"), Value@2)))
+```
+
+`Value@depth` denotes `PatternReference { ScopeDepth = depth; Slot = Value }`. This acquires once, loads and sends the first message, sends the second, then returns the acquired console. Discard-only sequencing is `Bind(audit(), next())`; it needs no separate recipe case.
+
+Typed projection retains the input, typed binding, nested graph, and node origins. Execution lowering jumps to a body block with a parameter carrying `ExecutionOrigin.PatternBinding`, then returns the body result through a continuation parameter carrying the Bind node origin. Existing Execution IR block/argument constructs express this order without a synthetic match or new instruction. Lowering still rejects unordered effectful siblings within the body or input's containing graph. A Bind inside an unselected branch does not execute.
 
 ### Conditional
 
@@ -317,19 +343,21 @@ Both bodies must produce the same result type. Both pattern bindings are allocat
 
 Branch recipes may reference target-function parameters, existing semantic declarations, and visible lexical pattern slots. They do not gain caller-controlled references to arbitrary outer graph nodes.
 
-If the same pure computation is needed inside a branch, it can be represented again as recipe structure. Repeating an effectful computation is not equivalent to sharing its result. General local symbols, let-binding, DAG sharing, and CSE remain separate design questions.
+If the same computation is needed inside a nested body, bind it in an enclosing scope and refer to the visible lexical slot. Repeating an effectful computation is not equivalent to sharing its result. General local symbols, recursive/mutable bindings, arbitrary DAG sharing, and CSE remain separate design questions.
 
 ## Materialization
 
 After complete preflight succeeds, recipe nodes receive fresh `GraphNodeId`s from `StableIdAllocator` and become the corresponding existing `SemanticNodeKind` values.
 
-Match arm slots additionally receive fresh production `PatternBindingId`s. Their persistent `PatternBinding.Type` is derived from validated semantic facts and `DisplayName` is initially `None`.
+Bind-body and match-arm slots additionally receive fresh production `PatternBindingId`s. Their persistent `PatternBinding.Type` is derived from validated semantic facts and `DisplayName` is initially `None`.
 
 Branch recipes become nested child `ValueGraph`s. No caller-supplied raw graph, semantic-node, or pattern-binding representation crosses the construction boundary.
 
 Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, capability `CapabilityOperationId` / `CapabilityParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
 
-The workflow adds no new persisted semantic node role and therefore does not require a snapshot-schema change.
+Bind adds a persisted semantic node role. The current snapshot JSON schema is **9**, Nyason schema is **`nayamnyam.snapshot.v5`**, and Typed Semantic IR serialization schema is **6**. Snapshot and semantic fingerprint domains advance to **v6**. Execution IR remains **5**, since existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
+
+Snapshot JSON 8 and Nyason v4 are now rejected explicitly, including for graphs without Bind. There is no implicit migration or inferred ordering of older graphs. Older artifacts require the matching older reader or a separately reviewed meaning-preserving migration; no migration is added in this slice. Typed Semantic IR currently has a serializer, not a round-trip reader. Frozen evaluation protocols/corpora are not extended with Bind.
 
 ## Review and publication
 
@@ -345,6 +373,8 @@ The workflow reuses the existing structural transaction mechanics:
 - explicit rejection without mutation.
 
 `ResultingChange.AddedNodes` recursively includes branch-local nodes through `ValueGraph.collectNodes`, while `RequestedChange` remains the original construction intent. This preserves the distinction between what the caller asked for and the full materialized result.
+
+Bind summaries label the input dependency `BindInput`; the base/proposed Focus graphs retain the body scope, binding identity/type, and pattern references. Viewer projection shows the input as "evaluate before body" and the nested scope as "body after input". Allocation-order summaries alone are not the execution-order contract.
 
 ## Naming and compatibility
 
@@ -367,11 +397,10 @@ The maintained recipe does not author:
 - automatic addition or removal of target effect requirements;
 - effect, capability, operation, or signature declarations;
 - effectful higher-order List callbacks;
-- explicit sequencing of otherwise independent effects;
 - nested-expression replacement inside an existing body;
 - raw `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `PatternBindingId`, `FieldValueBinding`, `ArgumentBinding`, `CapabilityArgumentBinding`, `ValueGraph`, or `Snapshot` payloads;
 - caller-supplied production graph-node IDs;
-- caller-controlled local node references, let-binding, DAG sharing, or CSE;
+- caller-controlled local node references, recursive/mutable bindings, arbitrary DAG sharing, or CSE;
 - wildcard/default match arms;
 - pattern display-name authoring;
 - declaration mutation as part of expression construction;

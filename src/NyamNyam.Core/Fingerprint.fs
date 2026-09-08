@@ -27,7 +27,7 @@ module private FingerprintHash =
 module SnapshotFingerprint =
     // Legacy domain label intentionally retained so the spelling correction does
     // not invalidate previously reviewed fingerprint values.
-    let private domain = "nayamnyam.snapshot-fingerprint.v5"
+    let private domain = "nayamnyam.snapshot-fingerprint.v6"
 
     let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> =
         SnapshotCodec.serialize snapshot
@@ -39,7 +39,7 @@ module SnapshotFingerprint =
 module SemanticFingerprint =
     // Legacy domain label intentionally retained so the spelling correction does
     // not invalidate previously reviewed fingerprint values.
-    let private domain = "nayamnyam.semantic-fingerprint.v5"
+    let private domain = "nayamnyam.semantic-fingerprint.v6"
     let private displayPlaceholder = "_"
 
     let private stable<'Kind> text: StableId<'Kind> =
@@ -106,6 +106,8 @@ module SemanticFingerprint =
                                     { fieldBinding with
                                         Binding = normalizePatternBinding fieldBinding.Binding }) })
                 SemanticNodeKind.MatchUnion(inputNodeId, normalizedArms)
+            | SemanticNodeKind.Bind(inputNodeId, body) ->
+                SemanticNodeKind.Bind(inputNodeId, { body with ValueBinding = normalizePatternBinding body.ValueBinding })
             | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
                 SemanticNodeKind.MatchOption(
                     inputNodeId,

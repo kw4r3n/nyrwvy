@@ -23,6 +23,7 @@ type ViewerRelationKind =
     | ConstructsVariant
     | BranchCondition
     | MatchInput
+    | BindInput
 
 type ViewerRelation =
     { Kind: ViewerRelationKind
@@ -76,6 +77,7 @@ type ViewerNodeRole =
     | ResultErr
     | Conditional
     | MatchUnion
+    | Bind
     | MatchOption
     | MatchResult
 
@@ -84,6 +86,7 @@ type ViewerBranchRole =
     | WhenTrue
     | WhenFalse
     | UnionVariant of VariantId
+    | BindBody
     | OptionSome
     | OptionNone
     | ResultOk
@@ -230,6 +233,10 @@ module ViewerProjection =
             ViewerNodeRole.MatchUnion,
             [ { Kind = ViewerRelationKind.MatchInput
                 Target = ViewerTarget.Node inputNodeId } ]
+        | SemanticNodeKind.Bind(inputNodeId, _) ->
+            ViewerNodeRole.Bind,
+            [ { Kind = ViewerRelationKind.BindInput
+                Target = ViewerTarget.Node inputNodeId } ]
         | SemanticNodeKind.MatchOption(inputNodeId, _, _) ->
             ViewerNodeRole.MatchOption,
             [ { Kind = ViewerRelationKind.MatchInput
@@ -277,6 +284,8 @@ module ViewerProjection =
                             |> List.sortBy (fun item -> StableId.value item.SourceFieldId)
                             |> List.map (fun item -> patternBinding (Some item.SourceFieldId) item.Binding)
                         projectBranch (ViewerBranchRole.UnionVariant arm.VariantId) bindings arm.Body)
+                | SemanticNodeKind.Bind(_, body) ->
+                    [ projectBranch ViewerBranchRole.BindBody [ patternBinding None body.ValueBinding ] body.Body ]
                 | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                     [ projectBranch
                         ViewerBranchRole.OptionSome

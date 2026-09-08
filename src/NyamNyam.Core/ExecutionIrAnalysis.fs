@@ -69,6 +69,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ResultErr errorNodeId -> [ errorNodeId ]
         | TypedSemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | TypedSemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
+        | TypedSemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
         | TypedSemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
         | TypedSemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
 
@@ -79,6 +80,7 @@ module internal ExecutionIrAnalysis =
                 graphFreeReferences whenTrue @ graphFreeReferences whenFalse
             | TypedSemanticNodeKind.MatchUnion(_, arms) ->
                 arms |> List.collect (fun (arm: TypedSemanticUnionArm) -> graphFreeReferences arm.Body)
+            | TypedSemanticNodeKind.Bind(_, body) -> graphFreeReferences body.Body
             | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                 graphFreeReferences someArm.Body @ graphFreeReferences noneBody
             | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
@@ -160,6 +162,7 @@ module internal ExecutionIrAnalysis =
             graphHasEffects functionsById whenTrue || graphHasEffects functionsById whenFalse
         | TypedSemanticNodeKind.MatchUnion(_, arms) ->
             arms |> List.exists (fun (arm: TypedSemanticUnionArm) -> graphHasEffects functionsById arm.Body)
+        | TypedSemanticNodeKind.Bind(_, body) -> graphHasEffects functionsById body.Body
         | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
             graphHasEffects functionsById someArm.Body || graphHasEffects functionsById noneBody
         | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
@@ -268,6 +271,7 @@ module internal ExecutionIrAnalysis =
                         | Error error -> Error error
                         | Ok () -> loop rest
                 loop arms
+            | TypedSemanticNodeKind.Bind(_, body) -> validateEffectOrder functionId functionsById body.Body
             | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                 match validateEffectOrder functionId functionsById someArm.Body,
                       validateEffectOrder functionId functionsById noneBody with

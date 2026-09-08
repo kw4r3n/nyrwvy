@@ -15,7 +15,7 @@ exception private NyasonSchemaException of string
 
 [<RequireQualifiedAccess>]
 module NyasonCodec =
-    let schemaId = "nayamnyam.snapshot.v4"
+    let schemaId = "nayamnyam.snapshot.v5"
 
     let private shape message = raise (NyasonShapeException message)
 
@@ -576,6 +576,12 @@ module NyasonCodec =
                   |> List.sortBy (fun arm -> StableId.value arm.VariantId)
                   |> List.map encodeUnionArm
                   |> list ]
+        | SemanticNodeKind.Bind(inputNodeId, body) ->
+            record
+                "bind"
+                [ nodeId
+                  "input", encodeId "node" inputNodeId
+                  "bound-body", encodeValueArm body ]
         | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
             record
                 "match-option"
@@ -831,6 +837,14 @@ module NyasonCodec =
                 SemanticNodeKind.MatchUnion(
                     decodeId<GraphNodeTag> "node" (require "input" fields),
                     decodeList decodeUnionArm (require "arms" fields)
+                ) }
+        | NyasonValue.Record("bind", _) ->
+            let fields = recordFields "bind" [ "id"; "input"; "bound-body" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Bind(
+                    decodeId<GraphNodeTag> "node" (require "input" fields),
+                    decodeValueArm (require "bound-body" fields)
                 ) }
         | NyasonValue.Record("match-option", _) ->
             let fields = recordFields "match-option" [ "id"; "input"; "some"; "none" ] [] value

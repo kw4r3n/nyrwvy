@@ -144,7 +144,7 @@ type UnionMatchArm =
       FieldBindings: PatternFieldBinding list
       Body: ValueGraph }
 
-/// Option.Some and Result.Ok intentionally share one semantic shape instead of
+/// Bind, Option.Some and Result.Ok intentionally share one semantic shape instead of
 /// duplicating near-identical record schemas. Their parent node kind supplies the
 /// role; the arm itself represents only "bind one produced value, then evaluate".
 and ValueMatchArm =
@@ -203,6 +203,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: ValueGraph * whenFalse: ValueGraph
     | MatchUnion of inputNodeId: GraphNodeId * arms: UnionMatchArm list
+    | Bind of inputNodeId: GraphNodeId * body: ValueMatchArm
     | MatchOption of inputNodeId: GraphNodeId * someArm: ValueMatchArm * noneBody: ValueGraph
     | MatchResult of inputNodeId: GraphNodeId * okArm: ValueMatchArm * errArm: ErrorMatchArm
 
@@ -257,6 +258,7 @@ module ValueGraph =
                     collectNodes whenTrue @ collectNodes whenFalse
                 | SemanticNodeKind.MatchUnion(_, arms) ->
                     arms |> List.collect (fun arm -> collectNodes arm.Body)
+                | SemanticNodeKind.Bind(_, body) -> collectNodes body.Body
                 | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                     collectNodes someArm.Body @ collectNodes noneBody
                 | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
@@ -328,6 +330,8 @@ module ValueGraph =
                 | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
                     let mappedSomeArm = { someArm with Body = mapNodes transform someArm.Body }
                     SemanticNodeKind.MatchOption(inputNodeId, mappedSomeArm, mapNodes transform noneBody)
+                | SemanticNodeKind.Bind(inputNodeId, body) ->
+                    SemanticNodeKind.Bind(inputNodeId, { body with Body = mapNodes transform body.Body })
                 | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
                     let mappedOkArm = { okArm with Body = mapNodes transform okArm.Body }
                     let mappedErrArm = { errArm with Body = mapNodes transform errArm.Body }

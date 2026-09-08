@@ -119,6 +119,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ResultErr of errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: TypedSemanticGraph * whenFalse: TypedSemanticGraph
     | MatchUnion of inputNodeId: GraphNodeId * TypedSemanticUnionArm list
+    | Bind of inputNodeId: GraphNodeId * body: TypedSemanticValueArm
     | MatchOption of inputNodeId: GraphNodeId * someArm: TypedSemanticValueArm * noneBody: TypedSemanticGraph
     | MatchResult of inputNodeId: GraphNodeId * okArm: TypedSemanticValueArm * errArm: TypedSemanticErrorArm
 
@@ -351,6 +352,9 @@ module TypedSemanticIr =
                                 inputNodeId,
                                 projectedArms |> List.sortBy (fun arm -> StableId.value arm.VariantId)
                             ))
+                    | SemanticNodeKind.Bind(inputNodeId, body) ->
+                        projectValueArm body
+                        |> Result.map (fun projected -> TypedSemanticNodeKind.Bind(inputNodeId, projected))
                     | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
                         match
                             projectValueArm someArm,
