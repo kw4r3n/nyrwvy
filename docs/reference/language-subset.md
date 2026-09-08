@@ -187,7 +187,10 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 - display-name rename for types and functions;
 - adding a function parameter with an explicit plan for every affected direct call;
 - resolving a generated missing-argument obligation with an existing compatible value;
+- explicitly adding or removing an existing `EffectId` from a function's `RequiredEffects`;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
+
+Required-effect edits do not propagate automatically through callers and do not create obligations. Multiple explicit function edits may be composed in one transaction; full validation of the final proposed snapshot enforces caller/callee and capability/body effect consistency. Expression authoring still never mutates `RequiredEffects` implicitly.
 
 ### Float64 structural compatibility surface
 
@@ -214,7 +217,7 @@ The general `ExpressionRecipe` covers the same semantic capability through `List
 
 ### Current boundary
 
-The reusable `ExpressionRecipe` covers primitive scalar expressions, the implemented pure-callback List family, product/field/union construction, `Option`/`Result` construction, complete direct calls and capability invocations within predeclared effects, and scoped conditionals/matches with recipe-local lexical pattern references. It does **not** author incomplete calls, effect/capability/operation declarations, changes to target effect requirements, arbitrary references to outer graph nodes, or nested-expression replacement inside an existing body. A dedicated sequencing construct for independent effects is not part of the surface.
+The reusable `ExpressionRecipe` covers primitive scalar expressions, the implemented pure-callback List family, product/field/union construction, `Option`/`Result` construction, complete direct calls and capability invocations within predeclared effects, explicit scoped sequencing/value reuse through `Bind`, and scoped conditionals/matches with recipe-local lexical pattern references. It does **not** author incomplete calls, effect/capability/operation declarations, arbitrary references to outer graph nodes, or nested-expression replacement inside an existing body. `ExpressionRecipe` never changes the target function's effect declaration implicitly; `AgentWorkflow` separately supports explicit add/remove edits using already-existing `EffectId`s.
 
 No maintained structural authoring surface accepts arbitrary `Snapshot`, `ValueGraph`, `SemanticNode`, `SemanticNodeKind`, `PatternBinding`, `FieldValueBinding`, `ArgumentBinding`, `CapabilityArgumentBinding`, or caller-owned production node/pattern IDs.
 
