@@ -22,10 +22,16 @@ type ResolveMissingArgumentRequest =
     { TargetObligationId: ObligationId
       ResolutionValueNodeId: GraphNodeId }
 
+type FunctionRequiredEffectRequest =
+    { TargetFunctionId: FunctionId
+      EffectId: EffectId }
+
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
     | AddFunctionParameter of AddFunctionParameterRequest
     | ResolveMissingArgument of ResolveMissingArgumentRequest
+    | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
+    | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
 
 type TransactionRequest =
     { Id: TransactionId
@@ -59,12 +65,18 @@ type MissingArgumentResolved =
       ParameterId: ParameterId
       ValueNodeId: GraphNodeId }
 
+[<RequireQualifiedAccess>]
+type FunctionRequiredEffectChange =
+    | Added of ownerFunctionId: FunctionId * effectId: EffectId
+    | Removed of ownerFunctionId: FunctionId * effectId: EffectId
+
 type SemanticDiff =
     { Renames: SymbolRename list
       ParametersAdded: ParameterAdded list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
-      ObligationsResolved: MissingArgumentResolved list }
+      ObligationsResolved: MissingArgumentResolved list
+      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list }
 
 [<Struct>]
 type TransactionDiagnostic =
@@ -85,7 +97,8 @@ type private ChangeAccumulator =
     { ParametersAdded: ParameterAdded list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
-      ObligationsResolved: MissingArgumentResolved list }
+      ObligationsResolved: MissingArgumentResolved list
+      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list }
 
 [<RequireQualifiedAccess>]
 module Transaction =
@@ -96,7 +109,8 @@ module Transaction =
         { ParametersAdded = []
           ArgumentsAttached = []
           ObligationsCreated = []
-          ObligationsResolved = [] }
+          ObligationsResolved = []
+          FunctionRequiredEffectsChanged = [] }
 
     let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
@@ -416,6 +430,48 @@ module Transaction =
 
                     Ok(updatedSnapshot, updatedChanges)
 
+    let private changeFunctionRequiredEffect
+        add
+        (request: FunctionRequiredEffectRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        match snapshot.Functions |> List.tryFind (fun item -> item.Id = request.TargetFunctionId) with
+        | None -> Error("TargetNotFound", "The target function was not found.")
+        | Some targetFunction ->
+            if snapshot.Effects |> List.exists (fun effect -> effect.Id = request.EffectId) |> not then
+                Error("EffectNotFound", $"Effect '{StableId.value request.EffectId}' was not found.")
+            elif add && List.contains request.EffectId targetFunction.RequiredEffects then
+                Error("FunctionRequiredEffectAlreadyPresent", "The function already declares the required effect.")
+            elif not add && not (List.contains request.EffectId targetFunction.RequiredEffects) then
+                Error("FunctionRequiredEffectNotPresent", "The function does not declare the required effect.")
+            else
+                let requiredEffects =
+                    if add then
+                        targetFunction.RequiredEffects @ [ request.EffectId ]
+                    else
+                        targetFunction.RequiredEffects |> List.filter ((<>) request.EffectId)
+
+                let functions =
+                    snapshot.Functions
+                    |> List.map (fun functionEntity ->
+                        if functionEntity.Id = request.TargetFunctionId then
+                            { functionEntity with RequiredEffects = requiredEffects }
+                        else
+                            functionEntity)
+
+                let change =
+                    if add then
+                        FunctionRequiredEffectChange.Added(request.TargetFunctionId, request.EffectId)
+                    else
+                        FunctionRequiredEffectChange.Removed(request.TargetFunctionId, request.EffectId)
+
+                Ok(
+                    { snapshot with Functions = functions },
+                    { changes with
+                        FunctionRequiredEffectsChanged = change :: changes.FunctionRequiredEffectsChanged }
+                )
+
     let private applyOperation
         (transactionId: TransactionId)
         ((snapshot, changes): Snapshot * ChangeAccumulator)
@@ -430,6 +486,8 @@ module Transaction =
             renameFunction id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
+        | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
+        | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
 
     let private netRenames (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
         let typeNames = baseSnapshot.Types |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
@@ -467,7 +525,14 @@ module Transaction =
             ObligationsCreated =
                 changes.ObligationsCreated |> List.sortBy (fun item -> StableId.value item.ObligationId)
             ObligationsResolved =
-                changes.ObligationsResolved |> List.sortBy (fun item -> StableId.value item.ObligationId) }
+                changes.ObligationsResolved |> List.sortBy (fun item -> StableId.value item.ObligationId)
+            FunctionRequiredEffectsChanged =
+                changes.FunctionRequiredEffectsChanged
+                |> List.sortBy (function
+                    | FunctionRequiredEffectChange.Added(functionId, effectId) ->
+                        StableId.value functionId, StableId.value effectId, 0
+                    | FunctionRequiredEffectChange.Removed(functionId, effectId) ->
+                        StableId.value functionId, StableId.value effectId, 1) }
 
     let simulate (baseSnapshot: Snapshot) (request: TransactionRequest): SimulationResult =
         match SnapshotValidator.validate baseSnapshot with
@@ -506,7 +571,8 @@ module Transaction =
                           ParametersAdded = changes.ParametersAdded
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
-                          ObligationsResolved = changes.ObligationsResolved }
+                          ObligationsResolved = changes.ObligationsResolved
+                          FunctionRequiredEffectsChanged = changes.FunctionRequiredEffectsChanged }
 
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
@@ -514,6 +580,7 @@ module Transaction =
                         || not (List.isEmpty diff.ArgumentsAttached)
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)
+                        || not (List.isEmpty diff.FunctionRequiredEffectsChanged)
 
                     if not hasChanges then
                         reject "NoChange" "The transaction has no net semantic change."

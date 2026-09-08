@@ -20,11 +20,17 @@ type AgentResolveMissingArgumentIntent =
     { TargetObligationId: ObligationId
       ResolutionValueNodeId: GraphNodeId }
 
+type AgentFunctionRequiredEffectIntent =
+    { TargetFunctionId: FunctionId
+      EffectId: EffectId }
+
 [<RequireQualifiedAccess>]
 type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
     | AddFunctionParameter of AgentAddFunctionParameterIntent
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
+    | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
+    | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
 
 type AgentWorkspace = private { Workspace: WorkspaceState }
 
@@ -113,6 +119,10 @@ module AgentWorkflow =
         | AgentCallPlan.LeaveMissing callNodeId ->
             CallPlan.LeaveMissing(callNodeId, StableIdAllocator.newObligationId ())
 
+    let private requiredEffectRequest (intent: AgentFunctionRequiredEffectIntent): FunctionRequiredEffectRequest =
+        { TargetFunctionId = intent.TargetFunctionId
+          EffectId = intent.EffectId }
+
     let private materializeOperation intent =
         match intent with
         | AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Type typeId, newDisplayName) ->
@@ -130,6 +140,10 @@ module AgentWorkflow =
             SemanticOperation.ResolveMissingArgument
                 { TargetObligationId = request.TargetObligationId
                   ResolutionValueNodeId = request.ResolutionValueNodeId }
+        | AgentOperationIntent.AddFunctionRequiredEffect request ->
+            SemanticOperation.AddFunctionRequiredEffect(requiredEffectRequest request)
+        | AgentOperationIntent.RemoveFunctionRequiredEffect request ->
+            SemanticOperation.RemoveFunctionRequiredEffect(requiredEffectRequest request)
 
     let simulate
         (workspace: AgentWorkspace)

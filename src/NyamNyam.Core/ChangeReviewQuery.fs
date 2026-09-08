@@ -44,6 +44,12 @@ module ChangeReviewQuery =
             simulation.Diff.ParametersAdded
             |> List.map (fun item -> item.OwnerFunctionId)
 
+        let effectOwners =
+            simulation.Diff.FunctionRequiredEffectsChanged
+            |> List.map (function
+                | FunctionRequiredEffectChange.Added(functionId, _)
+                | FunctionRequiredEffectChange.Removed(functionId, _) -> functionId)
+
         let changedCallOwners =
             (simulation.Diff.ArgumentsAttached
              |> List.map (fun item -> item.CallNodeId))
@@ -53,7 +59,7 @@ module ChangeReviewQuery =
                |> List.map (fun item -> item.CallNodeId))
             |> List.choose (fun nodeId -> Map.tryFind nodeId ownersByNode)
 
-        renamed @ parameterOwners @ changedCallOwners
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners
         |> List.distinct
         |> List.sortBy StableId.value
 
