@@ -51,6 +51,7 @@ module SemanticFacts =
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.ParameterReference _
@@ -77,6 +78,8 @@ module SemanticFacts =
             | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                 someArm.ValueBinding
                 :: (collectPatternBindings someArm.Body @ collectPatternBindings noneBody)
+            | SemanticNodeKind.Bind(_, body) ->
+                body.ValueBinding :: collectPatternBindings body.Body
             | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
                 [ okArm.ValueBinding; errArm.ErrorBinding ]
                 @ collectPatternBindings okArm.Body
@@ -295,6 +298,7 @@ module SemanticFacts =
                         |> commonType
                     | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                         commonType [ graphResultType someArm.Body; graphResultType noneBody ]
+                    | SemanticNodeKind.Bind(_, body) -> graphResultType body.Body
                     | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
                         commonType [ graphResultType okArm.Body; graphResultType errArm.Body ]
 

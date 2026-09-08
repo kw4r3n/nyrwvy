@@ -18,7 +18,7 @@ type SnapshotCodecError =
 /// Nyason is evaluated separately from the semantic model.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
-    let private schemaVersion = 8
+    let private schemaVersion = 9
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -503,28 +503,23 @@ module SnapshotCodec =
                 writeGraph writer arm.Body
                 writer.WriteEndObject())
             writer.WriteEndArray()
+        | SemanticNodeKind.Bind(inputNodeId, body) ->
+            writer.WriteString("kind", "bind")
+            writer.WriteString("inputNodeId", StableId.value inputNodeId)
+            writer.WritePropertyName("boundBody")
+            writeValueArm writer body
         | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
             writer.WriteString("kind", "matchOption")
             writer.WriteString("inputNodeId", StableId.value inputNodeId)
             writer.WritePropertyName("someArm")
-            writer.WriteStartObject()
-            writer.WritePropertyName("valueBinding")
-            writePatternBinding writer someArm.ValueBinding
-            writer.WritePropertyName("body")
-            writeGraph writer someArm.Body
-            writer.WriteEndObject()
+            writeValueArm writer someArm
             writer.WritePropertyName("noneBody")
             writeGraph writer noneBody
         | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
             writer.WriteString("kind", "matchResult")
             writer.WriteString("inputNodeId", StableId.value inputNodeId)
             writer.WritePropertyName("okArm")
-            writer.WriteStartObject()
-            writer.WritePropertyName("valueBinding")
-            writePatternBinding writer okArm.ValueBinding
-            writer.WritePropertyName("body")
-            writeGraph writer okArm.Body
-            writer.WriteEndObject()
+            writeValueArm writer okArm
             writer.WritePropertyName("errArm")
             writer.WriteStartObject()
             writer.WritePropertyName("errorBinding")
@@ -533,6 +528,14 @@ module SnapshotCodec =
             writeGraph writer errArm.Body
             writer.WriteEndObject()
 
+        writer.WriteEndObject()
+
+    and private writeValueArm (writer: Utf8JsonWriter) (arm: ValueMatchArm) =
+        writer.WriteStartObject()
+        writer.WritePropertyName("valueBinding")
+        writePatternBinding writer arm.ValueBinding
+        writer.WritePropertyName("body")
+        writeGraph writer arm.Body
         writer.WriteEndObject()
 
     and private writeGraph (writer: Utf8JsonWriter) (graph: ValueGraph) =
@@ -949,29 +952,29 @@ module SnapshotCodec =
                       FieldBindings = readArray "fieldBindings" readPatternFieldBinding armElement
                       Body = readGraph (requireProperty "body" armElement) }
                 SemanticNodeKind.MatchUnion(readId<GraphNodeTag> "inputNodeId" element, readArray "arms" readArm element)
+            | "bind" ->
+                ensureProperties "Bind node" (set [ "id"; "kind"; "inputNodeId"; "boundBody" ]) (set [ "id"; "kind"; "inputNodeId"; "boundBody" ]) element
+                SemanticNodeKind.Bind(readId<GraphNodeTag> "inputNodeId" element, readValueArm (requireProperty "boundBody" element))
             | "matchOption" ->
                 ensureProperties "Option match node" (set [ "id"; "kind"; "inputNodeId"; "someArm"; "noneBody" ]) (set [ "id"; "kind"; "inputNodeId"; "someArm"; "noneBody" ]) element
-                let someElement = requireProperty "someArm" element
-                ensureProperties "Option.Some match arm" (set [ "valueBinding"; "body" ]) (set [ "valueBinding"; "body" ]) someElement
-                let someArm: ValueMatchArm =
-                    { ValueBinding = readPatternBinding (requireProperty "valueBinding" someElement)
-                      Body = readGraph (requireProperty "body" someElement) }
+                let someArm = readValueArm (requireProperty "someArm" element)
                 SemanticNodeKind.MatchOption(readId<GraphNodeTag> "inputNodeId" element, someArm, readGraph (requireProperty "noneBody" element))
             | "matchResult" ->
                 ensureProperties "Result match node" (set [ "id"; "kind"; "inputNodeId"; "okArm"; "errArm" ]) (set [ "id"; "kind"; "inputNodeId"; "okArm"; "errArm" ]) element
-                let okElement = requireProperty "okArm" element
                 let errElement = requireProperty "errArm" element
-                ensureProperties "Result.Ok match arm" (set [ "valueBinding"; "body" ]) (set [ "valueBinding"; "body" ]) okElement
                 ensureProperties "Result.Err match arm" (set [ "errorBinding"; "body" ]) (set [ "errorBinding"; "body" ]) errElement
-                let okArm: ValueMatchArm =
-                    { ValueBinding = readPatternBinding (requireProperty "valueBinding" okElement)
-                      Body = readGraph (requireProperty "body" okElement) }
+                let okArm = readValueArm (requireProperty "okArm" element)
                 let errArm: ErrorMatchArm =
                     { ErrorBinding = readPatternBinding (requireProperty "errorBinding" errElement)
                       Body = readGraph (requireProperty "body" errElement) }
                 SemanticNodeKind.MatchResult(readId<GraphNodeTag> "inputNodeId" element, okArm, errArm)
             | value -> invalidShape $"Unsupported graph node kind '{value}'."
         { Id = id; Kind = nodeKind }
+
+    and private readValueArm (element: JsonElement): ValueMatchArm =
+        ensureProperties "Value arm" (set [ "valueBinding"; "body" ]) (set [ "valueBinding"; "body" ]) element
+        { ValueBinding = readPatternBinding (requireProperty "valueBinding" element)
+          Body = readGraph (requireProperty "body" element) }
 
     and private readGraph (element: JsonElement): ValueGraph =
         ensureProperties "Value graph" (set [ "nodes"; "resultNodeId" ]) (set [ "nodes"; "resultNodeId" ]) element

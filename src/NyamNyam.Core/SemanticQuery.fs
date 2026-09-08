@@ -99,6 +99,7 @@ module SemanticQuery =
                     | SemanticNodeKind.ResultErr _
                     | SemanticNodeKind.Conditional _
                     | SemanticNodeKind.MatchUnion _
+                    | SemanticNodeKind.Bind _
                     | SemanticNodeKind.MatchOption _
                     | SemanticNodeKind.MatchResult _ -> None
 

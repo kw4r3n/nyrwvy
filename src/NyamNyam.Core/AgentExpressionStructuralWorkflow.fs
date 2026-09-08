@@ -61,6 +61,7 @@ type ExpressionRecipe =
     | CapabilityInvoke of capabilityValue: ExpressionRecipe * operationId: CapabilityOperationId * arguments: (CapabilityParameterId * ExpressionRecipe) list
     | Conditional of condition: ExpressionRecipe * whenTrue: ExpressionRecipe * whenFalse: ExpressionRecipe
     | MatchUnion of input: ExpressionRecipe * arms: (VariantId * ExpressionRecipe) list
+    | Bind of value: ExpressionRecipe * body: ExpressionRecipe
     | MatchOption of input: ExpressionRecipe * someBody: ExpressionRecipe * noneBody: ExpressionRecipe
     | MatchResult of input: ExpressionRecipe * okBody: ExpressionRecipe * errBody: ExpressionRecipe
 
@@ -140,6 +141,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultOk(_, child)
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringContains(left, right)
+        | ExpressionRecipe.Bind(left, right)
         | ExpressionRecipe.Int64WrappingAdd(left, right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right)
         | ExpressionRecipe.Int64WrappingMultiply(left, right)
@@ -686,6 +688,10 @@ module AgentExpressionStructuralWorkflow =
                     | None ->
                         Error(diagnostic "PureExpressionMatchInputTypeMismatch" "MatchUnion input must produce an existing named union type.")
                 | Ok _ -> Error(diagnostic "PureExpressionMatchInputTypeMismatch" "MatchUnion input must produce an existing named union type.")
+            | ExpressionRecipe.Bind(input, body) ->
+                match infer frames input with
+                | Error error -> Error error
+                | Ok inputType -> infer ([ RecipePatternSlot.Value, inputType ] :: frames) body
             | ExpressionRecipe.MatchOption(input, someBody, noneBody) ->
                 match infer frames input with
                 | Error error -> Error error
@@ -982,6 +988,17 @@ module AgentExpressionStructuralWorkflow =
 
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchUnion(inputResult, materializedArms) } ], nodeId
+        | ExpressionRecipe.Bind(input, body) ->
+            let inputNodes, inputResult = materializeRecipe input
+            let binding: PatternBinding =
+                { Id = StableIdAllocator.newPatternBindingId ()
+                  DisplayName = None
+                  Type = inferHere input }
+            let boundBody: ValueMatchArm =
+                { ValueBinding = binding
+                  Body = materializeGraph ([ RecipePatternSlot.Value, binding ] :: frames) body }
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.Bind(inputResult, boundBody) } ], nodeId
         | ExpressionRecipe.MatchOption(input, someBody, noneBody) ->
             let inputNodes, inputResult = materializeRecipe input
             let itemType =

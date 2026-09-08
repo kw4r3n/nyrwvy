@@ -17,6 +17,7 @@ module TypedSemanticIrTests =
                     collectTypedNodes whenTrue @ collectTypedNodes whenFalse
                 | TypedSemanticNodeKind.MatchUnion(_, arms) ->
                     arms |> List.collect (fun arm -> collectTypedNodes arm.Body)
+                | TypedSemanticNodeKind.Bind(_, body) -> collectTypedNodes body.Body
                 | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                     collectTypedNodes someArm.Body @ collectTypedNodes noneBody
                 | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->

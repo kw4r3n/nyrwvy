@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 5
+    let schemaVersion = 6
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -412,6 +412,11 @@ module TypedSemanticIrCodec =
             |> List.sortBy (fun arm -> StableId.value arm.VariantId)
             |> List.iter (writeUnionArm writer)
             writer.WriteEndArray()
+        | TypedSemanticNodeKind.Bind(inputNodeId, body) ->
+            writer.WriteString("kind", "bind")
+            writer.WriteString("inputNodeId", StableId.value inputNodeId)
+            writer.WritePropertyName("boundBody")
+            writeValueArm writer body
         | TypedSemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
             writer.WriteString("kind", "matchOption")
             writer.WriteString("inputNodeId", StableId.value inputNodeId)

@@ -64,6 +64,7 @@ module SnapshotValidator =
             [ conditionNodeId; whenTrue.ResultNodeId; whenFalse.ResultNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
             inputNodeId :: (arms |> List.map (fun arm -> arm.Body.ResultNodeId))
+        | SemanticNodeKind.Bind(inputNodeId, body) -> [ inputNodeId; body.Body.ResultNodeId ]
         | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
             [ inputNodeId; someArm.Body.ResultNodeId; noneBody.ResultNodeId ]
         | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
@@ -113,6 +114,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
         | SemanticNodeKind.ParameterReference _
@@ -572,7 +574,7 @@ module SnapshotValidator =
                         if not (Set.contains bindingId visiblePatterns) then
                             add
                                 "UnknownPatternReference"
-                                $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical match scope."
+                                $"Graph node '{StableId.value node.Id}' references pattern binding '{StableId.value bindingId}' outside its lexical binding scope."
                     | SemanticNodeKind.StringLiteral value ->
                         if isNull value then
                             add
@@ -930,6 +932,17 @@ module SnapshotValidator =
                             add
                                 "MatchArmTypeMismatch"
                                 $"Union match node '{StableId.value node.Id}' arms do not produce one common type."
+                    | SemanticNodeKind.Bind(inputNodeId, body) ->
+                        requireNodeType
+                            "PatternBindingTypeMismatch"
+                            $"Bind binding '{StableId.value body.ValueBinding.Id}' does not match its input type."
+                            body.ValueBinding.Type
+                            inputNodeId
+                        validateGraph
+                            visibleNodes
+                            (Set.add body.ValueBinding.Id visiblePatterns)
+                            $"Bind body of '{StableId.value node.Id}'"
+                            body.Body
                     | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
                         match nodeType inputNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
@@ -1102,6 +1115,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
+                | SemanticNodeKind.Bind _
                 | SemanticNodeKind.MatchOption _
                 | SemanticNodeKind.MatchResult _ ->
                     add

@@ -358,6 +358,7 @@ module ExecutionIr =
                             |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
                         | TypedSemanticNodeKind.Conditional _
                         | TypedSemanticNodeKind.MatchUnion _
+                        | TypedSemanticNodeKind.Bind _
                         | TypedSemanticNodeKind.MatchOption _
                         | TypedSemanticNodeKind.MatchResult _ ->
                             invalidOp "Structured semantic node reached simple Execution IR lowering."
@@ -380,6 +381,29 @@ module ExecutionIr =
                     let mergeValue = makeNodeValue node
                     let mergeBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "merge") [ mergeValue ]
                     mergeValue, mergeBlock
+
+                let lowerBind (node: TypedSemanticNode) inputNodeId (body: TypedSemanticValueArm) =
+                    match requireNodeValue environment inputNodeId with
+                    | Error error -> failure <- Some error
+                    | Ok inputValueId ->
+                        // A block parameter preserves binding provenance without a synthetic
+                        // match/extraction. The jump makes the input/body boundary explicit.
+                        let boundValue: ExecutionValue =
+                            { Id = ExecutionIrIds.patternValue body.ValueBinding.Id
+                              Type = body.ValueBinding.Type
+                              Origin = ExecutionOrigin.PatternBinding(node.OriginNodeId, body.ValueBinding.Id) }
+                        let bodyBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "body") [ boundValue ]
+                        jumpToMerge currentBlock boundValue inputValueId bodyBlock
+                        let bodyEnvironment: LoweringEnvironment =
+                            { environment with
+                                PatternValues = Map.add body.ValueBinding.Id boundValue.Id environment.PatternValues }
+                        match lowerGraph bodyBlock bodyEnvironment body.Body with
+                        | Error error -> failure <- Some error
+                        | Ok(endBlock, resultValueId) ->
+                            let resultValue, continuation = makeMerge node
+                            jumpToMerge endBlock resultValue resultValueId continuation
+                            currentBlock <- continuation
+                            bindNode node.OriginNodeId resultValue.Id
 
                 let lowerConditional
                     (node: TypedSemanticNode)
@@ -509,6 +533,7 @@ module ExecutionIr =
                             lowerConditional node conditionNodeId whenTrue whenFalse
                         | TypedSemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                             lowerUnionMatch node inputNodeId arms
+                        | TypedSemanticNodeKind.Bind(inputNodeId, body) -> lowerBind node inputNodeId body
                         | TypedSemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
                             lowerOptionMatch node inputNodeId someArm noneBody
                         | TypedSemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->

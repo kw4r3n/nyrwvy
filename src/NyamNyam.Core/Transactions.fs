@@ -176,6 +176,7 @@ module Transaction =
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
+                | SemanticNodeKind.Bind _
                 | SemanticNodeKind.MatchOption _
                 | SemanticNodeKind.MatchResult _ -> None))
 
@@ -369,6 +370,7 @@ module Transaction =
                         | SemanticNodeKind.ResultErr _
                         | SemanticNodeKind.Conditional _
                         | SemanticNodeKind.MatchUnion _
+                        | SemanticNodeKind.Bind _
                         | SemanticNodeKind.MatchOption _
                         | SemanticNodeKind.MatchResult _ -> node
 

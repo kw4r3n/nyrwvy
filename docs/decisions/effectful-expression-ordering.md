@@ -1,14 +1,14 @@
 # Explicit ordering for effectful expression composition
 
-- **Status:** Accepted design; implementation pending
+- **Status:** Accepted
 - **Date:** 2026-09-08
 - **Issue:** [#141](https://github.com/kw4r3n/nyamnyam-lang/issues/141)
 
-This decision selects the next bounded authoring contract. It does not describe an already available recipe case. The [expression authoring specification](../specs/expression-authoring.md) remains the authority for the implemented surface.
+This decision selected the bounded Bind authoring contract in Issue #141. The subsequent implementation is described by the [expression authoring specification](../specs/expression-authoring.md), which remains the authority for the implemented surface.
 
 ## Decision
 
-Introduce one scoped value-binding expression, provisionally named `Bind(value, body)`, in a separate implementation change. Evaluate `value` once, then evaluate `body` with that result available through a system-owned lexical binding. The expression returns the body's result. Ignoring the binding expresses sequencing without a second construct.
+Use one scoped value-binding expression, `Bind(value, body)`. Evaluate `value` once, then evaluate `body` with that result available through a system-owned lexical binding. The expression returns the body's result. Ignoring the binding expresses sequencing without a second construct.
 
 Keep existing dependency-ordered calls and genuine conditional/match control flow. Preserve `AmbiguousEffectOrder` for independent effectful siblings within each graph. Do not derive effect order from `ValueGraph.Nodes`, argument/field binding-list order, materialization traversal, or allocated IDs.
 
@@ -46,7 +46,7 @@ Revisit this boundary if a concrete use case requires values escaping lexical sc
 
 ## Existing implementation evidence
 
-These sources support the current boundary, not the unimplemented Bind contract:
+These sources established the pre-Bind ordering boundary. The later Bind contract has focused coverage in [`AgentExpressionBindTests.fs`](../../tests/NyamNyam.Core.Tests/AgentExpressionBindTests.fs) and generated execution coverage in [`CSharpBackendTests.fs`](../../tests/NyamNyam.Core.Tests/CSharpBackendTests.fs).
 
 - [`AgentExpressionCapabilityTests.fs`](../../tests/NyamNyam.Core.Tests/AgentExpressionCapabilityTests.fs): published independent receiver/argument calls retain `AmbiguousEffectOrder`; dependency-ordered variants lower; a lexical capability invocation remains inside its match arm.
 - [`ExecutionIrAnalysis.fs`](../../src/NyamNyam.Core/ExecutionIrAnalysis.fs), `validateEffectOrder`: compares effectful nodes by dependency reachability and validates nested graphs independently; control nodes include nested effects in their effect classification.

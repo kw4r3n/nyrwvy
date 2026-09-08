@@ -285,9 +285,9 @@ module ListTests =
             Assert.Equal(int64Type, itemType)
             Assert.Equal<GraphNodeId list>([ fixture.FirstItemNodeId; fixture.SecondItemNodeId ], items)
 
-        Assert.Contains("\"schemaVersion\":8", json)
+        Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"generic\":\"list\"", json)
-        Assert.Contains("nayamnyam.snapshot.v4", nyason)
+        Assert.Contains("nayamnyam.snapshot.v5", nyason)
         Assert.Contains("list-type {", nyason)
         Assert.Contains("list-construct {", nyason)
 
@@ -333,7 +333,7 @@ module ListTests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":5", typedJson)
+        Assert.Contains("\"schemaVersion\":6", typedJson)
         Assert.Contains("\"kind\":\"list\"", typedJson)
         Assert.Contains("\"listConstruct\"", typedJson)
         Assert.Contains("\"schemaVersion\":5", executionJson)

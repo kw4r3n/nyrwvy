@@ -36,6 +36,7 @@ type ValueDependencyRole =
     | FieldValue of FieldId
     | BranchCondition
     | MatchInput
+    | BindInput
 
 type ValueDependency =
     { Role: ValueDependencyRole
@@ -116,6 +117,8 @@ module ValueDependency =
             [ create ValueDependencyRole.Error errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
             [ create ValueDependencyRole.BranchCondition conditionNodeId ]
+        | SemanticNodeKind.Bind(inputNodeId, _) ->
+            [ create ValueDependencyRole.BindInput inputNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _)
         | SemanticNodeKind.MatchOption(inputNodeId, _, _)
         | SemanticNodeKind.MatchResult(inputNodeId, _, _) ->

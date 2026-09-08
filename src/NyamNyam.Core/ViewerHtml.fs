@@ -67,6 +67,7 @@ module ViewerHtml =
         | ViewerRelationKind.ConstructsVariant -> "constructs variant"
         | ViewerRelationKind.BranchCondition -> "branch condition"
         | ViewerRelationKind.MatchInput -> "match input"
+        | ViewerRelationKind.BindInput -> "evaluate before body"
 
     let private nodeRoleLabel (role: ViewerNodeRole): string =
         match role with
@@ -116,6 +117,7 @@ module ViewerHtml =
         | ViewerNodeRole.ResultErr -> "Result.Err"
         | ViewerNodeRole.Conditional -> "conditional"
         | ViewerNodeRole.MatchUnion -> "union match"
+        | ViewerNodeRole.Bind -> "bind once"
         | ViewerNodeRole.MatchOption -> "Option match"
         | ViewerNodeRole.MatchResult -> "Result match"
 
@@ -124,6 +126,7 @@ module ViewerHtml =
         | ViewerBranchRole.WhenTrue -> "when true"
         | ViewerBranchRole.WhenFalse -> "when false"
         | ViewerBranchRole.UnionVariant variantId -> "variant " + stableText "variant:" variantId
+        | ViewerBranchRole.BindBody -> "body after input"
         | ViewerBranchRole.OptionSome -> "Option.Some"
         | ViewerBranchRole.OptionNone -> "Option.None"
         | ViewerBranchRole.ResultOk -> "Result.Ok"
