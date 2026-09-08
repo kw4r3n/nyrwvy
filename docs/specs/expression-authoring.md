@@ -177,9 +177,11 @@ The workflow never adds or removes target effects automatically. A function may 
 
 The deterministic materialization order above therefore does not sequence independent effects. `ExecutionIr.lower` retains its existing `AmbiguousEffectOrder` rejection when two effectful nodes in one graph are not ordered by a dependency path. Authoring and semantic publication may succeed while that later execution-readiness check rejects the result.
 
+The [effectful expression ordering decision](../decisions/effectful-expression-ordering.md) selects a scoped Bind form for a future implementation. It is not part of the current recipe surface; the decision and its linked plan describe the authority boundary and validation gates.
+
 For example, an effectful capability-producing call and an independent effectful message-producing argument both precede their consuming invocation, but neither precedes the other. Declaring both effects does not resolve that ambiguity. In contrast, one effectful receiver or one effectful argument followed by its consuming invocation forms a dependency-ordered chain. Branch-local invocations also keep the existing control-flow boundary.
 
-The authoring surface does not insert hidden sequencing, manufacture data dependencies, or reinterpret stored node order to make an otherwise ambiguous graph executable. Explicit sequencing of independent effects is a separate design question; it is not part of this extension.
+The authoring surface does not insert hidden sequencing, manufacture data dependencies, or reinterpret stored node order to make an otherwise ambiguous graph executable. Explicit sequencing of independent effects remains outside this implemented surface; the linked decision records the selected future contract.
 
 ## Explicit types
 
