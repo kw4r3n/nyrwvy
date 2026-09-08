@@ -4,6 +4,10 @@
 
 Use this entry point when changing, reviewing, or validating NyamNyam itself.
 
+## Before selecting follow-up work
+
+Inspect the default branch, open issues, and open pull requests, including drafts and stacked PRs, before recommending new work or creating an issue. Check related PR bases/heads, implementation status, and recorded verification evidence: an unchanged `main` or an open design issue does not mean the work has not already been prepared. Continue or review existing work rather than creating a duplicate, and reuse sufficient verification unless the relevant implementation has changed.
+
 ## Before changing semantics
 
 1. Read the [architecture](architecture.md) for current system boundaries and invariants.
