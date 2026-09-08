@@ -11,6 +11,8 @@ This area records durable rationale for NyamNyam's current direction. Decision r
 - [Milestone 2 decisions](milestone-2.md) — accepted rationale for the first bounded structural editing slice: complete Float64 function-body replacement through a separate structural workflow, fresh system-owned local identities, conservative obligation blocking, structural before/after review, and history-preserving publication.
 - [RAST provenance](rast-provenance.md) — later accepted refinement of the earlier RAST relationship: no dedicated provenance framework for conceptual ancestry; ordinary attribution applies to concrete copied or substantially adapted material.
 - [Effectful expression ordering](effectful-expression-ordering.md) — accepted rationale for scoped Bind expressions, with existing dependency/match ordering and ambiguous-effect rejection preserved.
+- [Targeted expression replacement](targeted-expression-replacement.md) — accepted design for all-uses `GraphNodeId` targeting, retained target identity, nested lexical context, and replacement-local pruning.
+- [Staged declaration authoring](declaration-authoring.md) — accepted roadmap beginning with atomic function creation and explicit existing-effect requirement edits before type/effect/capability declaration stages.
 - [Open questions](open-questions.md) — bounded uncertainties that remain open, partial, or intentionally deferred.
 
 Where a later accepted decision explicitly refines an earlier one, use the later decision for the refined scope rather than treating both texts as competing current rules.
