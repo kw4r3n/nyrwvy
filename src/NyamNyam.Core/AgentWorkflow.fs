@@ -40,7 +40,7 @@ type AgentChangeReview =
       Readiness: TransactionReadiness
       ResultingChange: ChangeReviewView }
 
-type AgentChangeProposal = private { Request: TransactionRequest; Preview: WorkspacePreview; Review: AgentChangeReview }
+type AgentChangeProposal = private { Request: TransactionRequest; Review: AgentChangeReview }
 
 [<RequireQualifiedAccess>]
 type AgentWorkflowError =
@@ -171,7 +171,6 @@ module AgentWorkflow =
 
                 Ok
                     { Request = request
-                      Preview = preview
                       Review = review }
 
     let private mapCommitResult result =
@@ -187,7 +186,7 @@ module AgentWorkflow =
         SemanticWorkspace.commitReviewed
             workspace.Workspace
             proposal.Request
-            proposal.Preview.Receipt
+            proposal.Review.Receipt
         |> mapCommitResult
 
     let commitWithPolicy
@@ -198,7 +197,7 @@ module AgentWorkflow =
         SemanticWorkspace.commitReviewedWithPolicy
             workspace.Workspace
             proposal.Request
-            proposal.Preview.Receipt
+            proposal.Review.Receipt
             policy
         |> mapCommitResult
 

@@ -75,6 +75,10 @@ The current extended entry point is:
 ./scripts/test-extended.fish
 ```
 
+For an opt-in full-solution build/test with a shareable log, use `bash scripts/verify-local-20260825-1427.sh --clean`. This includes extended tests once and is not the routine CI fallback.
+
+Verification wrappers should select an existing suite once, not run the whole suite and then repeat its modules with fixed historical test-count gates. When tests move between projects, update their suite ownership rather than preserving stale per-module selectors. Put observed counts in verification evidence, not in a second test inventory maintained by shell scripts.
+
 Do not permanently move every milestone check into routine CI after it has served its evidence purpose.
 
 ### 3. Experimental validation

@@ -44,21 +44,21 @@ Important boundaries include:
 
 ## Build and verify
 
-The repository uses the .NET 10 SDK.
+The repository uses the .NET 10 SDK. For routine development, restore/build the fast test dependency graph and run the fast suite:
 
 ```shell
-dotnet restore NyamNyam.slnx
-dotnet build NyamNyam.slnx --configuration Release --no-restore
-dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
+dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
 ```
 
-For the stricter repository-local verification path:
+The equivalent fish entry point is `./scripts/test-fast.fish`. Use `./scripts/test-extended.fish` only when the changed boundary needs broader verification.
+
+For an opt-in clean full-solution build and test run with a shareable log:
 
 ```shell
 bash scripts/verify-local-20260825-1427.sh --clean
 ```
 
-Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development or CI.
+The full-solution script includes extended tests once; it is not the routine CI fallback. Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development or CI.
 
 ## Documentation
 
