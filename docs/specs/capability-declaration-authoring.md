@@ -1,6 +1,6 @@
 # Atomic capability and operation declaration authoring
 
-**Status:** Proposed
+**Status:** Current
 
 This specification defines the Capability/Operation stage of the accepted staged declaration-authoring sequence tracked by issue #161. It follows atomic function, Product/Union, and Effect declaration creation.
 
@@ -106,13 +106,13 @@ Existing function creation may accept a parameter whose type is `TypeRef.Capabil
 
 ## Maintained authoring-session integration
 
-The snapshot-backed JSON-lines session adds one thin adapter operation, `simulateCreateCapability`, carrying the declaration intent above. The session supplies its current snapshot ID as `ExpectedBaseSnapshotId`.
+The snapshot-backed JSON-lines session exposes one thin adapter operation, `simulateCreateCapability`, carrying the declaration intent above. The session supplies its current snapshot ID as `ExpectedBaseSnapshotId`.
 
 A successful session commit persists the exact reviewed candidate through the established single-writer publication boundary before advancing in-memory state. Reopening the persisted snapshot exposes the same capability/operation/parameter identities through ordinary declaration discovery.
 
 ## Verification contract
 
-Focused deterministic evidence should cover:
+Focused deterministic evidence covers:
 
 - successful capability creation with multiple operations/parameters;
 - fresh system-owned capability/operation/parameter IDs and post-publication discovery;
@@ -122,7 +122,7 @@ Focused deterministic evidence should cover:
 - composition with existing function/expression authoring through `CapabilityInvoke`;
 - one maintained-session create/commit/reopen discovery check.
 
-Existing persistence, effect, lowering, backend, and provider evidence remains authoritative unless this slice changes those contracts. No live provider or external-service validation is required.
+Existing persistence, effect, lowering, backend, and provider evidence remains authoritative because this slice does not change those contracts. No live provider or external-service validation is required. See [M4 capability authoring verification](../verification/m4-capability-authoring-20260915.md).
 
 ## Non-goals
 
