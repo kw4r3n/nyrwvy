@@ -1921,7 +1921,7 @@ module AgentExpressionStructuralWorkflow =
                             ParameterSlots =
                                 Some(
                                     List.map2
-                                        (fun parameter intent ->
+                                        (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
                                             { Type = intent.Type
                                               ParameterId = Some parameter.Id })
                                         parameters
