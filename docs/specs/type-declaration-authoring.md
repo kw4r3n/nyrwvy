@@ -1,6 +1,6 @@
 # Atomic product and union declaration authoring
 
-**Status:** Proposed
+**Status:** Current
 
 This specification defines the first Milestone 4 declaration-authoring slice tracked by issue #154. It implements the Product/Union stage accepted in `docs/decisions/declaration-authoring.md` after function creation and the maintained snapshot-backed authoring session.
 
@@ -101,7 +101,7 @@ Explicit rejection forgets the proposal and retains the current snapshot.
 
 ## Maintained authoring-session integration
 
-When this operation is joined to `NyamNyam.AuthoringSession`, the JSON-lines transport adds one thin adapter operation, `simulateCreateType`. It converts JSON declaration intent to `AgentCreateTypeDeclarationRequest`; semantic validation and identity allocation remain exclusively in the Core workflow.
+The maintained `NyamNyam.AuthoringSession` JSON-lines transport exposes one thin adapter operation, `simulateCreateType`. It converts JSON declaration intent to `AgentCreateTypeDeclarationRequest`; semantic validation and identity allocation remain exclusively in the Core workflow.
 
 A successful session commit persists the reviewed candidate through the M3 publication boundary before advancing the in-memory session. The declaration then appears through ordinary `declarations` / `getType` discovery and its returned IDs may be used by later `ExpressionRecipe` and function-creation requests.
 
@@ -111,7 +111,7 @@ This slice does not implement type mutation or deletion, field migration, exhaus
 
 ## Verification contract
 
-Focused deterministic evidence should cover:
+Focused deterministic evidence covers:
 
 - product creation with supported field types;
 - union creation with multiple variants;
