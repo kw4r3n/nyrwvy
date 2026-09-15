@@ -22,6 +22,7 @@
     <Compile Include="AgentRequiredEffectsTests.fs" />
     <Compile Include="AgentTypeDeclarationTests.fs" />
     <Compile Include="AgentEffectDeclarationTests.fs" />
+    <Compile Include="AgentCapabilityDeclarationTests.fs" />
     <Compile Include="AgentStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionControlFlowTests.fs" />
@@ -41,6 +42,7 @@
     <Compile Include="AuthoringSessionTests.fs" />
     <Compile Include="AuthoringTypeSessionTests.fs" />
     <Compile Include="AuthoringEffectSessionTests.fs" />
+    <Compile Include="AuthoringCapabilitySessionTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
