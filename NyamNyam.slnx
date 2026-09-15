@@ -10,6 +10,7 @@
     <Project Path="tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
     <Project Path="tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
     <Project Path="tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
+    <Project Path="tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj" />
     <Project Path="tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj" />
   </Folder>
   <Folder Name="/tests/">

@@ -1,0 +1,370 @@
+namespace NyamNyam.Core.Tests
+
+open System
+open System.Diagnostics
+open System.IO
+open System.Text.Json
+open NyamNyam.Core
+open NyamNyam.Tools.AuthoringSession
+open Xunit
+
+module AuthoringSessionTests =
+    let private int64Type = TypeRef.Primitive PrimitiveType.Int64
+
+    let private tempDirectory () =
+        let path = Path.Combine(Path.GetTempPath(), "nyamnyam-authoring-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(path) |> ignore
+        path
+
+    let private status (session: AuthoringSession) =
+        match session.Status() with
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected authoring-session status failure: %A" error
+
+    let private createSession path =
+        match AuthoringSession.createNew path with
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected authoring-session creation failure: %A" error
+
+    let private openSession path =
+        match AuthoringSession.openExisting path with
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected authoring-session open failure: %A" error
+
+    let private parameter displayName typeRef: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent =
+        { DisplayName = displayName
+          Type = typeRef }
+
+    let private creationRequest session displayName parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+        { ExpectedBaseSnapshotId = (status session).SnapshotId
+          DisplayName = displayName
+          Parameters = parameters
+          ResultType = resultType
+          RequiredEffects = []
+          Body = body }
+
+    let private simulateCreation session request =
+        match session.SimulateCreateFunction request with
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected creation simulation failure: %A" error
+
+    let private createdFunction proposal =
+        match proposal.Review with
+        | AuthoringProposalReview.CreateFunction review -> review.CreatedFunction
+        | other -> failwithf "Expected function-creation review, got %A" other
+
+    let private commit session proposal =
+        match session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+        | Ok value -> value
+        | Error error -> failwithf "Unexpected authoring commit failure: %A" error
+
+    let private functionById functionId (session: AuthoringSession) =
+        session.Declarations().Functions
+        |> List.find (fun functionEntity -> functionEntity.Id = functionId)
+
+    [<Fact>]
+    let ``durable session creates helper and caller reopens identities and preserves unrelated IDs on nested replacement`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            Assert.Empty(session.Declarations().Functions)
+
+            let helperProposal =
+                creationRequest
+                    session
+                    "increment"
+                    [ parameter "value" int64Type ]
+                    int64Type
+                    (ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 1L))
+                |> simulateCreation session
+            let helperId = (createdFunction helperProposal).Id
+            commit session helperProposal |> ignore
+            let helper = functionById helperId session
+
+            let callerProposal =
+                creationRequest
+                    session
+                    "call_increment"
+                    [ parameter "input" int64Type ]
+                    int64Type
+                    (ExpressionRecipe.Int64WrappingAdd(
+                        ExpressionRecipe.DirectCall(
+                            helper.Id,
+                            [ helper.Parameters.Head.Id, ExpressionRecipe.ParameterSlot 0 ]
+                        ),
+                        ExpressionRecipe.Int64Literal 2L
+                    ))
+                |> simulateCreation session
+            let callerId = (createdFunction callerProposal).Id
+            commit session callerProposal |> ignore
+
+            let beforeClose = status session
+            session.Close()
+
+            use reopened = openSession path
+            let reopenedStatus = status reopened
+            Assert.Equal(beforeClose.SnapshotId, reopenedStatus.SnapshotId)
+            Assert.Equal(beforeClose.SnapshotFingerprint, reopenedStatus.SnapshotFingerprint)
+            Assert.Equal(beforeClose.SemanticFingerprint, reopenedStatus.SemanticFingerprint)
+            Assert.Equal<FunctionId list>(
+                [ helperId; callerId ] |> List.sortBy StableId.value,
+                reopened.Declarations().Functions |> List.map (fun item -> item.Id) |> List.sortBy StableId.value
+            )
+
+            let caller = functionById callerId reopened
+            let rootNodeId = caller.Body.ResultNodeId
+            let nodes = ValueGraph.collectNodes caller.Body
+            let callNodeId =
+                nodes
+                |> List.find (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.DirectCall _ -> true
+                    | _ -> false)
+                |> fun node -> node.Id
+            let literalNodeId =
+                nodes
+                |> List.find (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.Int64Literal 2L -> true
+                    | _ -> false)
+                |> fun node -> node.Id
+
+            let replacement: AgentExpressionStructuralWorkflow.Targeted.Request =
+                { TargetFunctionId = callerId
+                  ExpectedBaseSnapshotId = reopenedStatus.SnapshotId
+                  TargetNodeId = literalNodeId
+                  Replacement = ExpressionRecipe.Int64Literal 3L }
+            let proposal =
+                match reopened.SimulateReplaceTarget replacement with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected targeted replacement simulation failure: %A" error
+            commit reopened proposal |> ignore
+
+            let changed = functionById callerId reopened
+            Assert.Equal(rootNodeId, changed.Body.ResultNodeId)
+            Assert.Contains(ValueGraph.collectNodes changed.Body, fun node -> node.Id = callNodeId)
+            Assert.Contains(
+                ValueGraph.collectNodes changed.Body,
+                fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.Int64Literal 3L -> true
+                    | _ -> false
+            )
+
+            match reopened.ProjectExecution() with
+            | Error error -> failwithf "Committed workspace did not lower: %A" error
+            | Ok execution -> Assert.Equal((status reopened).SnapshotId, execution.SourceSnapshotId)
+
+            match reopened.EmitCSharp CSharpBackendProfile.empty with
+            | Error error -> failwithf "Committed workspace did not emit C#: %A" error
+            | Ok artifact -> Assert.Contains("NyFunctions", artifact.Source, StringComparison.Ordinal)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``invalid rejected and stale proposals never advance durable authoritative state`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let created =
+                creationRequest session "value" [] int64Type (ExpressionRecipe.Int64Literal 1L)
+                |> simulateCreation session
+            let functionId = (createdFunction created).Id
+            commit session created |> ignore
+
+            let baseStatus = status session
+            let targetId = (functionById functionId session).Body.ResultNodeId
+            let persistedAtBase = File.ReadAllText(path)
+
+            let invalid: AgentExpressionStructuralWorkflow.Targeted.Request =
+                { TargetFunctionId = functionId
+                  ExpectedBaseSnapshotId = baseStatus.SnapshotId
+                  TargetNodeId = targetId
+                  Replacement = ExpressionRecipe.BoolLiteral false }
+            match session.SimulateReplaceTarget invalid with
+            | Error(AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected _)) -> ()
+            | result -> failwithf "Expected invalid structural simulation rejection, got %A" result
+            Assert.Equal(baseStatus.SnapshotId, (status session).SnapshotId)
+            Assert.Equal(persistedAtBase, File.ReadAllText(path))
+
+            let valid replacementValue =
+                let request: AgentExpressionStructuralWorkflow.Targeted.Request =
+                    { TargetFunctionId = functionId
+                      ExpectedBaseSnapshotId = (status session).SnapshotId
+                      TargetNodeId = targetId
+                      Replacement = ExpressionRecipe.Int64Literal replacementValue }
+                match session.SimulateReplaceTarget request with
+                | Ok proposal -> proposal
+                | Error error -> failwithf "Unexpected targeted proposal failure: %A" error
+
+            let rejected = valid 2L
+            match session.Reject rejected.ProposalId with
+            | Ok receipt -> Assert.Equal(baseStatus.SnapshotId, receipt.RetainedSnapshotId)
+            | Error error -> failwithf "Unexpected explicit rejection failure: %A" error
+            Assert.Equal(baseStatus.SnapshotId, (status session).SnapshotId)
+            Assert.Equal(persistedAtBase, File.ReadAllText(path))
+
+            let first = valid 3L
+            let second = valid 4L
+            commit session first |> ignore
+            let afterFirst = status session
+            let persistedAfterFirst = File.ReadAllText(path)
+
+            match session.Commit(second.ProposalId, CommitPolicy.RejectBlockingObligations) with
+            | Error(AuthoringSessionError.CommitRejected diagnostics) ->
+                Assert.Contains(diagnostics, fun diagnostic -> diagnostic.Code = "StaleBaseSnapshot")
+            | result -> failwithf "Expected stale proposal rejection, got %A" result
+            Assert.Equal(afterFirst.SnapshotId, (status session).SnapshotId)
+            Assert.Equal(persistedAfterFirst, File.ReadAllText(path))
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``session enforces one writer and does not publish after persistence failure or external modification`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let created =
+                creationRequest session "value" [] int64Type (ExpressionRecipe.Int64Literal 1L)
+                |> simulateCreation session
+            let functionId = (createdFunction created).Id
+            commit session created |> ignore
+
+            match AuthoringSession.openExisting path with
+            | Error(AuthoringSessionError.LockUnavailable lockedPath) -> Assert.Equal(Path.GetFullPath(path), lockedPath)
+            | result -> failwithf "Expected the second writer to be rejected, got %A" result
+
+            let renameProposal =
+                match
+                    session.SimulateOperations
+                        [ AgentOperationIntent.RenameDisplayName(
+                            AgentRenameTarget.Function functionId,
+                            "value_renamed"
+                          ) ]
+                with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected rename simulation failure: %A" error
+
+            let before = status session
+            let sourceBefore = File.ReadAllText(path)
+            let blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None)
+            let writeFailure =
+                try session.Commit(renameProposal.ProposalId, CommitPolicy.RejectBlockingObligations)
+                finally blocker.Dispose()
+            match writeFailure with
+            | Error(AuthoringSessionError.IoFailure _) -> ()
+            | result -> failwithf "Expected persistence I/O failure, got %A" result
+            Assert.Equal(before.SnapshotId, (status session).SnapshotId)
+            Assert.Equal(sourceBefore, File.ReadAllText(path))
+
+            let externallyChanged = sourceBefore + Environment.NewLine
+            File.WriteAllText(path, externallyChanged)
+            match session.Commit(renameProposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+            | Error AuthoringSessionError.ExternalModification -> ()
+            | result -> failwithf "Expected external-modification rejection, got %A" result
+            Assert.Equal(before.SnapshotId, (status session).SnapshotId)
+            Assert.Equal(externallyChanged, File.ReadAllText(path))
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    let private repositoryRoot () =
+        let rec find (directory: DirectoryInfo) =
+            if File.Exists(Path.Combine(directory.FullName, "NyamNyam.slnx")) then directory.FullName
+            elif isNull directory.Parent then failwith "Could not locate repository root."
+            else find directory.Parent
+        find (DirectoryInfo(Environment.CurrentDirectory))
+
+    let private startTool mode path =
+        let configuration = DirectoryInfo(AppContext.BaseDirectory).Parent.Name
+        let toolPath =
+            Path.Combine(
+                repositoryRoot (),
+                "tools",
+                "NyamNyam.AuthoringSession",
+                "bin",
+                configuration,
+                "net10.0",
+                "NyamNyam.AuthoringSession.dll"
+            )
+        if not (File.Exists toolPath) then failwithf "Authoring-session executable was not built: %s" toolPath
+        let startInfo = ProcessStartInfo("dotnet")
+        startInfo.UseShellExecute <- false
+        startInfo.RedirectStandardInput <- true
+        startInfo.RedirectStandardOutput <- true
+        startInfo.RedirectStandardError <- true
+        startInfo.ArgumentList.Add(toolPath)
+        startInfo.ArgumentList.Add(mode)
+        startInfo.ArgumentList.Add("--snapshot")
+        startInfo.ArgumentList.Add(path)
+        let process = Process.Start(startInfo)
+        if isNull process then failwith "Failed to start authoring-session process."
+        process
+
+    let private exchange (process: Process) payload =
+        process.StandardInput.WriteLine(payload)
+        process.StandardInput.Flush()
+        let response = process.StandardOutput.ReadLine()
+        if isNull response then failwithf "Authoring-session process ended early: %s" (process.StandardError.ReadToEnd())
+        response
+
+    let private finish (process: Process) =
+        process.StandardInput.Close()
+        let stderr = process.StandardError.ReadToEndAsync()
+        process.WaitForExit()
+        let errorText = stderr.Result
+        Assert.True(process.ExitCode = 0, $"Authoring-session process failed: {errorText}")
+        process.Dispose()
+
+    let private requireOk response =
+        let document = JsonDocument.Parse(response)
+        if not (document.RootElement.GetProperty("ok").GetBoolean()) then
+            let rendered = document.RootElement.GetRawText()
+            document.Dispose()
+            failwithf "JSONL request failed: %s" rendered
+        document
+
+    [<Fact>]
+    let ``JSONL process publication reopens with the same semantic identity and fingerprints`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            let first = startTool "create" path
+            let proposalId, functionId =
+                use document =
+                    exchange
+                        first
+                        """{"id":"create","op":"simulateCreateFunction","displayName":"seven","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":7}}"""
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                result.GetProperty("proposalId").GetString(),
+                result.GetProperty("review").GetProperty("createdFunction").GetProperty("id").GetString()
+
+            exchange first (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+            |> requireOk
+            |> fun document -> document.Dispose()
+
+            let snapshotId, snapshotFingerprint, semanticFingerprint =
+                use document = exchange first """{"id":"status","op":"status"}""" |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                result.GetProperty("snapshotId").GetString(),
+                result.GetProperty("snapshotFingerprint").GetString(),
+                result.GetProperty("semanticFingerprint").GetString()
+            finish first
+
+            let second = startTool "open" path
+            use reopenedStatus = exchange second """{"id":"status","op":"status"}""" |> requireOk
+            let result = reopenedStatus.RootElement.GetProperty("result")
+            Assert.Equal(snapshotId, result.GetProperty("snapshotId").GetString())
+            Assert.Equal(snapshotFingerprint, result.GetProperty("snapshotFingerprint").GetString())
+            Assert.Equal(semanticFingerprint, result.GetProperty("semanticFingerprint").GetString())
+
+            use declarations = exchange second """{"id":"decls","op":"declarations"}""" |> requireOk
+            let functions = declarations.RootElement.GetProperty("result").GetProperty("functions").EnumerateArray() |> Seq.toList
+            Assert.Single(functions) |> ignore
+            Assert.Equal(functionId, functions.Head.GetProperty("id").GetString())
+            finish second
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
