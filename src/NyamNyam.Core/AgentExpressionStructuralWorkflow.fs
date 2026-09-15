@@ -1346,27 +1346,27 @@ module AgentExpressionStructuralWorkflow =
 
             let seeds = Set.union externalNodeSeeds externalResultSeeds
 
-            let rec protect protected nodeId =
-                if not (Set.contains nodeId candidates) || Set.contains nodeId protected then
-                    protected
+            let rec protect retained nodeId =
+                if not (Set.contains nodeId candidates) || Set.contains nodeId retained then
+                    retained
                 else
                     match Map.tryFind nodeId nodesById with
-                    | None -> protected
+                    | None -> retained
                     | Some node ->
-                        let protected = Set.add nodeId protected
-                        let protected =
+                        let retained = Set.add nodeId retained
+                        let retained =
                             SemanticFacts.directValueDependencies node
-                            |> List.fold protect protected
+                            |> List.fold protect retained
                         childGraphs node
                         |> List.collect ValueGraph.collectNodes
                         |> List.map (fun nested -> nested.Id)
-                        |> List.fold protect protected
+                        |> List.fold protect retained
 
-            let protected = seeds |> Set.fold protect Set.empty
+            let retained = seeds |> Set.fold protect Set.empty
             let removed =
-                Set.union targetOwned (Set.difference candidates protected)
+                Set.union targetOwned (Set.difference candidates retained)
             let retainedShared =
-                Set.difference protected targetOwned
+                Set.difference retained targetOwned
 
             { RemovedNodeIds = removed
               RetainedSharedDependencyIds = retainedShared
