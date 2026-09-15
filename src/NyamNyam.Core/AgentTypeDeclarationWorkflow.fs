@@ -66,9 +66,6 @@ module AgentTypeDeclarationWorkflow =
         { Code = code
           Message = message }
 
-    let private rejected code message =
-        Error(AgentTypeDeclarationWorkflowError.SimulationRejected [ diagnostic code message ])
-
     let private validationDiagnostics (issues: ValidationIssue list) =
         issues
         |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
@@ -119,10 +116,10 @@ module AgentTypeDeclarationWorkflow =
         validate typeRef
 
     let private validateFields (snapshot: Snapshot) context (fields: AgentTypeFieldIntent list) =
-        let rec loop index remaining =
+        let rec loop index (remaining: AgentTypeFieldIntent list) =
             match remaining with
             | [] -> Ok()
-            | field :: rest when String.IsNullOrWhiteSpace field.DisplayName ->
+            | field :: _ when String.IsNullOrWhiteSpace field.DisplayName ->
                 Error(
                     diagnostic
                         "TypeDeclarationFieldDisplayNameBlank"
@@ -152,10 +149,10 @@ module AgentTypeDeclarationWorkflow =
             | AgentTypeDeclarationKindIntent.Product fields ->
                 validateFields snapshot "Product" fields
             | AgentTypeDeclarationKindIntent.Union variants ->
-                let rec loop index remaining =
+                let rec loop index (remaining: AgentTypeVariantIntent list) =
                     match remaining with
                     | [] -> Ok()
-                    | variant :: rest when String.IsNullOrWhiteSpace variant.DisplayName ->
+                    | variant :: _ when String.IsNullOrWhiteSpace variant.DisplayName ->
                         Error(
                             diagnostic
                                 "TypeDeclarationVariantDisplayNameBlank"
@@ -180,7 +177,7 @@ module AgentTypeDeclarationWorkflow =
             | AgentTypeDeclarationKindIntent.Union variants ->
                 SemanticTypeKind.Union(
                     variants
-                    |> List.map (fun variant ->
+                    |> List.map (fun (variant: AgentTypeVariantIntent) ->
                         { Id = StableIdAllocator.newVariantId ()
                           DisplayName = variant.DisplayName
                           Fields = variant.Fields |> List.map materializeField })
