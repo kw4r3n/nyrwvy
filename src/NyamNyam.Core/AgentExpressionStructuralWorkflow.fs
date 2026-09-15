@@ -1131,3 +1131,556 @@ module AgentExpressionStructuralWorkflow =
         workspace,
         { TransactionId = proposal.TransactionId
           RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
+
+    [<RequireQualifiedAccess>]
+    module Targeted =
+        type Request =
+            { TargetFunctionId: FunctionId
+              ExpectedBaseSnapshotId: SnapshotId
+              TargetNodeId: GraphNodeId
+              Replacement: ExpressionRecipe }
+
+        [<RequireQualifiedAccess>]
+        type Use =
+            | NodeDependency of consumerNodeId: GraphNodeId * role: ValueDependencyRole
+            | GraphResult of ownerNodeId: GraphNodeId option
+
+        type ReplacementDiff =
+            { OwnerFunctionId: FunctionId
+              TargetNodeId: GraphNodeId
+              PreviousTarget: StructuralNodeSummary
+              RemovedNodes: StructuralNodeSummary list
+              AddedNodes: StructuralNodeSummary list
+              AddedPatternBindings: PatternBinding list
+              RetainedSharedDependencies: StructuralNodeSummary list
+              AffectedUses: Use list }
+
+        type Review =
+            { RequestedChange: Request
+              Receipt: TransactionPreviewReceipt
+              Readiness: TransactionReadiness
+              ResultingChange: ReplacementDiff
+              BaseFocus: FunctionFocusView
+              ProposedFocus: FunctionFocusView }
+
+        type PublishedTransaction =
+            { TransactionId: TransactionId
+              BaseSnapshotId: SnapshotId
+              PublishedSnapshotId: SnapshotId
+              Diff: ReplacementDiff
+              Readiness: TransactionReadiness
+              Receipt: TransactionPreviewReceipt }
+
+        type private ProposalState =
+            { TransactionId: TransactionId
+              ProposedSnapshot: Snapshot
+              Review: Review }
+
+        type Proposal =
+            private
+            | Proposal of ProposalState
+
+        [<RequireQualifiedAccess>]
+        module Proposal =
+            let private state (Proposal state) = state
+            let review proposal = (state proposal).Review
+            let transactionId proposal = (state proposal).TransactionId
+            let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+
+        [<RequireQualifiedAccess>]
+        type CommitResult =
+            | Rejected of TransactionDiagnostic list
+            | Committed of AgentWorkspace * PublishedTransaction
+
+        type private PruningPlan =
+            { RemovedNodeIds: Set<GraphNodeId>
+              RetainedSharedDependencyIds: Set<GraphNodeId>
+              AffectedUses: Use list }
+
+        type private Preflight =
+            { Target: SemanticFunction
+              TargetNode: SemanticNode
+              Frames: PatternBindingFrame list
+              Pruning: PruningPlan }
+
+        let private childGraphs (node: SemanticNode) =
+            match node.Kind with
+            | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) -> [ whenTrue; whenFalse ]
+            | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun arm -> arm.Body)
+            | SemanticNodeKind.Bind(_, body) -> [ body.Body ]
+            | SemanticNodeKind.MatchOption(_, someArm, noneBody) -> [ someArm.Body; noneBody ]
+            | SemanticNodeKind.MatchResult(_, okArm, errArm) -> [ okArm.Body; errArm.Body ]
+            | _ -> []
+
+        let rec private tryFindTarget
+            (frames: PatternBindingFrame list)
+            targetNodeId
+            (graph: ValueGraph)
+            =
+            match graph.Nodes |> List.tryFind (fun node -> node.Id = targetNodeId) with
+            | Some node -> Some(node, frames)
+            | None ->
+                let choose first second =
+                    match first with
+                    | Some _ -> first
+                    | None -> second ()
+
+                graph.Nodes
+                |> List.tryPick (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
+                        choose
+                            (tryFindTarget frames targetNodeId whenTrue)
+                            (fun () -> tryFindTarget frames targetNodeId whenFalse)
+                    | SemanticNodeKind.MatchUnion(_, arms) ->
+                        arms
+                        |> List.tryPick (fun arm ->
+                            let frame: PatternBindingFrame =
+                                arm.FieldBindings
+                                |> List.map (fun field ->
+                                    RecipePatternSlot.Field field.SourceFieldId, field.Binding)
+                            tryFindTarget (frame :: frames) targetNodeId arm.Body)
+                    | SemanticNodeKind.Bind(_, body) ->
+                        let frame: PatternBindingFrame =
+                            [ RecipePatternSlot.Value, body.ValueBinding ]
+                        tryFindTarget (frame :: frames) targetNodeId body.Body
+                    | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
+                        let someFrame: PatternBindingFrame =
+                            [ RecipePatternSlot.Value, someArm.ValueBinding ]
+                        choose
+                            (tryFindTarget (someFrame :: frames) targetNodeId someArm.Body)
+                            (fun () -> tryFindTarget ([] :: frames) targetNodeId noneBody)
+                    | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
+                        let okFrame: PatternBindingFrame =
+                            [ RecipePatternSlot.Value, okArm.ValueBinding ]
+                        let errFrame: PatternBindingFrame =
+                            [ RecipePatternSlot.Error, errArm.ErrorBinding ]
+                        choose
+                            (tryFindTarget (okFrame :: frames) targetNodeId okArm.Body)
+                            (fun () -> tryFindTarget (errFrame :: frames) targetNodeId errArm.Body)
+                    | _ -> None)
+
+        let rec private graphResultUses owner (graph: ValueGraph) =
+            (graph.ResultNodeId, owner)
+            :: (graph.Nodes
+                |> List.collect (fun node ->
+                    childGraphs node
+                    |> List.collect (graphResultUses (Some node.Id))))
+
+        let private affectedUses targetNodeId (target: SemanticFunction) =
+            let nodeUses =
+                ValueGraph.collectNodes target.Body
+                |> List.collect (fun node ->
+                    ValueDependency.ofNode node
+                    |> List.choose (fun dependency ->
+                        if dependency.NodeId = targetNodeId then
+                            Some(Use.NodeDependency(node.Id, dependency.Role))
+                        else
+                            None))
+
+            let resultUses =
+                graphResultUses None target.Body
+                |> List.choose (fun (resultNodeId, owner) ->
+                    if resultNodeId = targetNodeId then
+                        Some(Use.GraphResult owner)
+                    else
+                        None)
+
+            nodeUses @ resultUses
+
+        let private planPruning targetNodeId (targetNode: SemanticNode) (target: SemanticFunction) =
+            let allNodes = ValueGraph.collectNodes target.Body
+            let nodesById = allNodes |> List.map (fun node -> node.Id, node) |> Map.ofList
+
+            let rec collectNode visited nodeId =
+                if nodeId = targetNodeId || Set.contains nodeId visited then
+                    visited
+                else
+                    match Map.tryFind nodeId nodesById with
+                    | None -> visited
+                    | Some node ->
+                        let visited = Set.add nodeId visited
+                        let visited =
+                            SemanticFacts.directValueDependencies node
+                            |> List.fold collectNode visited
+                        childGraphs node |> List.fold collectGraph visited
+
+            and collectGraph visited (graph: ValueGraph) =
+                graph.Nodes
+                |> List.fold (fun state node -> collectNode state node.Id) visited
+
+            let candidates =
+                let direct =
+                    SemanticFacts.directValueDependencies targetNode
+                    |> List.fold collectNode Set.empty
+                childGraphs targetNode |> List.fold collectGraph direct
+
+            let targetOwned =
+                childGraphs targetNode
+                |> List.collect ValueGraph.collectNodes
+                |> List.map (fun node -> node.Id)
+                |> Set.ofList
+
+            let externalNodeSeeds =
+                allNodes
+                |> List.filter (fun node ->
+                    node.Id <> targetNodeId && not (Set.contains node.Id candidates))
+                |> List.collect SemanticFacts.directValueDependencies
+                |> List.filter (fun nodeId -> Set.contains nodeId candidates)
+                |> Set.ofList
+
+            let externalResultSeeds =
+                graphResultUses None target.Body
+                |> List.choose (fun (resultNodeId, owner) ->
+                    if not (Set.contains resultNodeId candidates) then
+                        None
+                    else
+                        match owner with
+                        | None -> Some resultNodeId
+                        | Some ownerNodeId
+                            when ownerNodeId <> targetNodeId
+                                 && not (Set.contains ownerNodeId candidates) ->
+                            Some resultNodeId
+                        | Some _ -> None)
+                |> Set.ofList
+
+            let seeds = Set.union externalNodeSeeds externalResultSeeds
+
+            let rec protect retained nodeId =
+                if not (Set.contains nodeId candidates) || Set.contains nodeId retained then
+                    retained
+                else
+                    match Map.tryFind nodeId nodesById with
+                    | None -> retained
+                    | Some node ->
+                        let retained = Set.add nodeId retained
+                        let retained =
+                            SemanticFacts.directValueDependencies node
+                            |> List.fold protect retained
+                        childGraphs node
+                        |> List.collect ValueGraph.collectNodes
+                        |> List.map (fun nested -> nested.Id)
+                        |> List.fold protect retained
+
+            let retained = seeds |> Set.fold protect Set.empty
+            let removed =
+                Set.union targetOwned (Set.difference candidates retained)
+            let retainedShared =
+                Set.difference retained targetOwned
+
+            { RemovedNodeIds = removed
+              RetainedSharedDependencyIds = retainedShared
+              AffectedUses = affectedUses targetNodeId target }
+
+        let private validatePreflight
+            (request: Request)
+            (baseSnapshot: Snapshot)
+            : Result<Preflight, TransactionDiagnostic> =
+            if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
+                Error(
+                    diagnostic
+                        "StructuralExpectedBaseMismatch"
+                        "The structural request targets a different base snapshot."
+                )
+            else
+                match
+                    baseSnapshot.Functions
+                    |> List.tryFind (fun functionEntity -> functionEntity.Id = request.TargetFunctionId)
+                with
+                | None -> Error(diagnostic "StructuralTargetNotFound" "The target function does not exist.")
+                | Some target ->
+                    match tryFindTarget [] request.TargetNodeId target.Body with
+                    | None ->
+                        Error(
+                            diagnostic
+                                "TargetedExpressionTargetNotFound"
+                                "The target node does not exist in the target function."
+                        )
+                    | Some(targetNode, frames) ->
+                        match validateRecipeBounds recipeChildren request.Replacement with
+                        | Error error -> Error error
+                        | Ok() ->
+                            let resolveType = SemanticFacts.createNodeTypeResolver baseSnapshot target
+                            match resolveType request.TargetNodeId with
+                            | None ->
+                                Error(
+                                    diagnostic
+                                        "TargetedExpressionTargetTypeUnavailable"
+                                        "The target node type could not be derived from the validated base snapshot."
+                                )
+                            | Some targetType ->
+                                match
+                                    inferTypeWithFrames
+                                        baseSnapshot
+                                        target
+                                        (bindingTypeFrames frames)
+                                        request.Replacement
+                                with
+                                | Error error -> Error error
+                                | Ok replacementType when replacementType <> targetType ->
+                                    Error(
+                                        diagnostic
+                                            "TargetedExpressionTypeMismatch"
+                                            $"The replacement recipe produces {replacementType}, but the target node produces {targetType}."
+                                    )
+                                | Ok _ ->
+                                    let pruning = planPruning request.TargetNodeId targetNode target
+                                    match
+                                        baseSnapshot.Obligations
+                                        |> List.tryFind (fun obligation ->
+                                            obligation.CallNodeId = request.TargetNodeId
+                                            || Set.contains obligation.CallNodeId pruning.RemovedNodeIds)
+                                    with
+                                    | Some obligation ->
+                                        Error(
+                                            diagnostic
+                                                "TargetedExpressionReferencedByObligation"
+                                                $"Obligation '{StableId.value obligation.Id}' targets the expression being replaced or a node that replacement would remove."
+                                        )
+                                    | None ->
+                                        Ok
+                                            { Target = target
+                                              TargetNode = targetNode
+                                              Frames = frames
+                                              Pruning = pruning }
+
+        let private mapNodeGraphs (mapGraph: ValueGraph -> ValueGraph) (node: SemanticNode) =
+            let kind =
+                match node.Kind with
+                | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
+                    SemanticNodeKind.Conditional(
+                        conditionNodeId,
+                        mapGraph whenTrue,
+                        mapGraph whenFalse
+                    )
+                | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
+                    SemanticNodeKind.MatchUnion(
+                        inputNodeId,
+                        arms
+                        |> List.map (fun arm -> { arm with Body = mapGraph arm.Body })
+                    )
+                | SemanticNodeKind.Bind(inputNodeId, body) ->
+                    SemanticNodeKind.Bind(
+                        inputNodeId,
+                        { body with Body = mapGraph body.Body }
+                    )
+                | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
+                    SemanticNodeKind.MatchOption(
+                        inputNodeId,
+                        { someArm with Body = mapGraph someArm.Body },
+                        mapGraph noneBody
+                    )
+                | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
+                    SemanticNodeKind.MatchResult(
+                        inputNodeId,
+                        { okArm with Body = mapGraph okArm.Body },
+                        { errArm with Body = mapGraph errArm.Body }
+                    )
+                | _ -> node.Kind
+            { node with Kind = kind }
+
+        let rec private replaceTarget targetNodeId replacementNodes (graph: ValueGraph) =
+            if graph.Nodes |> List.exists (fun node -> node.Id = targetNodeId) then
+                { graph with
+                    Nodes =
+                        graph.Nodes
+                        |> List.collect (fun node ->
+                            if node.Id = targetNodeId then replacementNodes else [ node ]) }
+            else
+                { graph with
+                    Nodes =
+                        graph.Nodes
+                        |> List.map (mapNodeGraphs (replaceTarget targetNodeId replacementNodes)) }
+
+        let rec private pruneNodes removedNodeIds (graph: ValueGraph) =
+            { graph with
+                Nodes =
+                    graph.Nodes
+                    |> List.choose (fun node ->
+                        if Set.contains node.Id removedNodeIds then
+                            None
+                        else
+                            Some(mapNodeGraphs (pruneNodes removedNodeIds) node)) }
+
+        let private materializeReplacement
+            snapshot
+            target
+            frames
+            targetNodeId
+            recipe
+            =
+            let nodes, generatedRootId = materialize snapshot target frames recipe
+            nodes
+            |> List.map (fun node ->
+                if node.Id = generatedRootId then
+                    { node with Id = targetNodeId }
+                else
+                    node)
+
+        let simulate
+            (workspace: AgentWorkspace)
+            (request: Request)
+            : Result<Proposal, AgentStructuralWorkflowError> =
+            let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+
+            match SnapshotValidator.validate baseSnapshot with
+            | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
+            | [] ->
+                match validatePreflight request baseSnapshot with
+                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                | Ok preflight ->
+                    let replacementNodes =
+                        materializeReplacement
+                            baseSnapshot
+                            preflight.Target
+                            preflight.Frames
+                            request.TargetNodeId
+                            request.Replacement
+
+                    let replacementBody =
+                        preflight.Target.Body
+                        |> replaceTarget request.TargetNodeId replacementNodes
+                        |> pruneNodes preflight.Pruning.RemovedNodeIds
+
+                    let proposedSnapshotId = StableIdAllocator.newSnapshotId ()
+                    let transactionId = StableIdAllocator.newTransactionId ()
+                    let proposedSnapshot =
+                        { baseSnapshot with
+                            Id = proposedSnapshotId
+                            ParentId = Some baseSnapshot.Id
+                            Functions =
+                                baseSnapshot.Functions
+                                |> List.map (fun functionEntity ->
+                                    if functionEntity.Id = preflight.Target.Id then
+                                        { functionEntity with Body = replacementBody }
+                                    else
+                                        functionEntity) }
+
+                    match SnapshotValidator.validate proposedSnapshot with
+                    | issue :: _ -> rejected "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
+                    | [] ->
+                        match classifyReadiness proposedSnapshot with
+                        | Error diagnostics ->
+                            Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
+                        | Ok readiness ->
+                            match createReceipt transactionId baseSnapshot proposedSnapshot with
+                            | Error error -> Error error
+                            | Ok receipt ->
+                                match
+                                    SemanticQuery.focusFunction baseSnapshot preflight.Target.Id,
+                                    SemanticQuery.focusFunction proposedSnapshot preflight.Target.Id
+                                with
+                                | Error error, _
+                                | _, Error error ->
+                                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
+                                | Ok baseFocus, Ok proposedFocus ->
+                                    let proposedTarget =
+                                        proposedSnapshot.Functions
+                                        |> List.find (fun functionEntity ->
+                                            functionEntity.Id = preflight.Target.Id)
+
+                                    let baseNodes = ValueGraph.collectNodes preflight.Target.Body
+                                    let baseNodeIds =
+                                        baseNodes |> List.map (fun node -> node.Id) |> Set.ofList
+                                    let proposedNodes = ValueGraph.collectNodes proposedTarget.Body
+                                    let previousTarget =
+                                        summarizeNodes baseSnapshot preflight.Target [ preflight.TargetNode ]
+                                        |> List.exactlyOne
+                                    let removedNodes =
+                                        baseNodes
+                                        |> List.filter (fun node ->
+                                            Set.contains node.Id preflight.Pruning.RemovedNodeIds)
+                                        |> summarizeNodes baseSnapshot preflight.Target
+                                        |> List.sortBy (fun node -> StableId.value node.NodeId)
+                                    let addedNodes =
+                                        proposedNodes
+                                        |> List.filter (fun node -> not (Set.contains node.Id baseNodeIds))
+                                        |> summarizeNodes proposedSnapshot proposedTarget
+                                    let baseBindingIds =
+                                        SemanticFacts.collectPatternBindings preflight.Target.Body
+                                        |> List.map (fun binding -> binding.Id)
+                                        |> Set.ofList
+                                    let addedBindings =
+                                        SemanticFacts.collectPatternBindings proposedTarget.Body
+                                        |> List.filter (fun binding ->
+                                            not (Set.contains binding.Id baseBindingIds))
+                                        |> List.sortBy (fun binding -> StableId.value binding.Id)
+                                    let retainedShared =
+                                        baseNodes
+                                        |> List.filter (fun node ->
+                                            Set.contains
+                                                node.Id
+                                                preflight.Pruning.RetainedSharedDependencyIds)
+                                        |> summarizeNodes baseSnapshot preflight.Target
+                                        |> List.sortBy (fun node -> StableId.value node.NodeId)
+
+                                    let diff =
+                                        { OwnerFunctionId = preflight.Target.Id
+                                          TargetNodeId = request.TargetNodeId
+                                          PreviousTarget = previousTarget
+                                          RemovedNodes = removedNodes
+                                          AddedNodes = addedNodes
+                                          AddedPatternBindings = addedBindings
+                                          RetainedSharedDependencies = retainedShared
+                                          AffectedUses = preflight.Pruning.AffectedUses }
+                                    let review =
+                                        { RequestedChange = request
+                                          Receipt = receipt
+                                          Readiness = readiness
+                                          ResultingChange = diff
+                                          BaseFocus = baseFocus
+                                          ProposedFocus = proposedFocus }
+                                    Ok(
+                                        Proposal
+                                            { TransactionId = transactionId
+                                              ProposedSnapshot = proposedSnapshot
+                                              Review = review }
+                                    )
+
+        let private publishWithPolicy
+            (workspace: AgentWorkspace)
+            (Proposal proposal)
+            (policy: CommitPolicy)
+            : CommitResult =
+            let publicationDiff: FunctionBodyReplacementDiff =
+                { OwnerFunctionId = proposal.Review.ResultingChange.OwnerFunctionId
+                  OldResultNodeId = proposal.Review.BaseFocus.Function.Body.ResultNodeId
+                  NewResultNodeId = proposal.Review.ProposedFocus.Function.Body.ResultNodeId
+                  RemovedNodes = proposal.Review.ResultingChange.RemovedNodes
+                  AddedNodes = proposal.Review.ResultingChange.AddedNodes }
+
+            match
+                publishReviewedWithPolicy
+                    workspace
+                    proposal.TransactionId
+                    proposal.ProposedSnapshot
+                    publicationDiff
+                    proposal.Review.Readiness
+                    proposal.Review.Receipt
+                    policy
+            with
+            | AgentStructuralCommitResult.Rejected diagnostics -> CommitResult.Rejected diagnostics
+            | AgentStructuralCommitResult.Committed(nextWorkspace, _) ->
+                CommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = proposal.Review.Receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      Diff = proposal.Review.ResultingChange
+                      Readiness = proposal.Review.Readiness
+                      Receipt = proposal.Review.Receipt }
+                )
+
+        let commit workspace proposal =
+            publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
+
+        let commitWithPolicy workspace proposal policy =
+            publishWithPolicy workspace proposal policy
+
+        let reject
+            (workspace: AgentWorkspace)
+            (Proposal proposal)
+            : AgentWorkspace * AgentStructuralRejectionReceipt =
+            workspace,
+            { TransactionId = proposal.TransactionId
+              RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
