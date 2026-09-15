@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Session.fs" />
+    <Compile Include="WireCodec.fsi" />
     <Compile Include="WireCodec.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Program.fs" />

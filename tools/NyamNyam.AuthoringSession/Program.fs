@@ -1,6 +1,7 @@
-namespace NyamNyam.Tools.AuthoringSession
+module NyamNyam.Tools.AuthoringSession.Program
 
 open System
+open NyamNyam.Tools.AuthoringSession
 
 [<RequireQualifiedAccess>]
 type private StartupMode =
@@ -10,7 +11,8 @@ type private StartupMode =
 module private CommandLine =
     let usage = "Usage: NyamNyam.AuthoringSession <open|create> --snapshot <snapshot-path>"
 
-    let parse = function
+    let parse (arguments: string list): Result<StartupMode * string, string> =
+        match arguments with
         | [ "open"; "--snapshot"; path ] -> Ok(StartupMode.Open, path)
         | [ "create"; "--snapshot"; path ] -> Ok(StartupMode.Create, path)
         | _ -> Error usage
@@ -18,14 +20,18 @@ module private CommandLine =
 [<EntryPoint>]
 let main argv =
     match CommandLine.parse (argv |> Array.toList) with
-    | Error error -> Console.Error.WriteLine(error); 2
+    | Error error ->
+        Console.Error.WriteLine(error)
+        2
     | Ok(mode, path) ->
         let result =
             match mode with
             | StartupMode.Open -> AuthoringSession.openExisting path
             | StartupMode.Create -> AuthoringSession.createNew path
         match result with
-        | Error error -> Console.Error.WriteLine(sprintf "%A" error); 2
+        | Error error ->
+            Console.Error.WriteLine(sprintf "%A" error)
+            2
         | Ok session ->
             use session = session
             let mutable running = true
@@ -33,5 +39,7 @@ let main argv =
                 match Console.In.ReadLine() with
                 | null -> running <- false
                 | line when String.IsNullOrWhiteSpace line -> ()
-                | line -> Console.Out.WriteLine(AuthoringProtocol.executeLine session line); Console.Out.Flush()
+                | line ->
+                    Console.Out.WriteLine(AuthoringProtocol.executeLine session line)
+                    Console.Out.Flush()
             0
