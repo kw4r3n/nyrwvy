@@ -299,24 +299,24 @@ module AuthoringSessionTests =
         startInfo.ArgumentList.Add(mode)
         startInfo.ArgumentList.Add("--snapshot")
         startInfo.ArgumentList.Add(path)
-        let process = Process.Start(startInfo)
-        if isNull process then failwith "Failed to start authoring-session process."
-        process
+        let childProcess = Process.Start(startInfo)
+        if isNull childProcess then failwith "Failed to start authoring-session process."
+        childProcess
 
-    let private exchange (process: Process) payload =
-        process.StandardInput.WriteLine(payload)
-        process.StandardInput.Flush()
-        let response = process.StandardOutput.ReadLine()
-        if isNull response then failwithf "Authoring-session process ended early: %s" (process.StandardError.ReadToEnd())
+    let private exchange (childProcess: Process) payload =
+        childProcess.StandardInput.WriteLine(payload)
+        childProcess.StandardInput.Flush()
+        let response = childProcess.StandardOutput.ReadLine()
+        if isNull response then failwithf "Authoring-session process ended early: %s" (childProcess.StandardError.ReadToEnd())
         response
 
-    let private finish (process: Process) =
-        process.StandardInput.Close()
-        let stderr = process.StandardError.ReadToEndAsync()
-        process.WaitForExit()
+    let private finish (childProcess: Process) =
+        childProcess.StandardInput.Close()
+        let stderr = childProcess.StandardError.ReadToEndAsync()
+        childProcess.WaitForExit()
         let errorText = stderr.Result
-        Assert.True(process.ExitCode = 0, $"Authoring-session process failed: {errorText}")
-        process.Dispose()
+        Assert.True(childProcess.ExitCode = 0, $"Authoring-session process failed: {errorText}")
+        childProcess.Dispose()
 
     let private requireOk response =
         let document = JsonDocument.Parse(response)
