@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Session.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/NyamNyam.Semantics/NyamNyam.Semantics.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Execution/NyamNyam.Execution.fsproj" />
+    <ProjectReference Include="../../src/NyamNyam.Backend.CSharp/NyamNyam.Backend.CSharp.fsproj" />
+  </ItemGroup>
+</Project>
