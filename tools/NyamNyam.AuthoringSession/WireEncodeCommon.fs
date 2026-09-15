@@ -65,7 +65,7 @@ module internal WireEncodeCommon =
               "displayName", box value.DisplayName
               "type", typeRef value.Type ]
 
-    let private semanticType (value: SemanticType) =
+    let semanticType (value: SemanticType) =
         let kind =
             match value.Kind with
             | SemanticTypeKind.Product fields ->

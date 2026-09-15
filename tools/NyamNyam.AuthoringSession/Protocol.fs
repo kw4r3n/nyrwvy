@@ -30,6 +30,45 @@ module AuthoringProtocol =
         | Ok status -> status.SnapshotId
         | Error error -> raise (InvalidOperationException(sprintf "%A" error))
 
+    let private typeFieldIntent (item: JsonElement): AgentTypeFieldIntent =
+        ensureFields
+            "type field"
+            [ "displayName"; "type" ]
+            [ "displayName"; "type" ]
+            item
+        { DisplayName = requiredString "displayName" item
+          Type = typeRef (property "type" item) }
+
+    let private typeKindIntent (element: JsonElement): AgentTypeDeclarationKindIntent =
+        match requiredString "kind" element with
+        | "product" ->
+            ensureFields
+                "product type kind"
+                [ "kind"; "fields" ]
+                [ "kind"; "fields" ]
+                element
+            AgentTypeDeclarationKindIntent.Product(
+                array "fields" element |> List.map typeFieldIntent
+            )
+        | "union" ->
+            ensureFields
+                "union type kind"
+                [ "kind"; "variants" ]
+                [ "kind"; "variants" ]
+                element
+            let variants =
+                array "variants" element
+                |> List.map (fun item ->
+                    ensureFields
+                        "union variant"
+                        [ "displayName"; "fields" ]
+                        [ "displayName"; "fields" ]
+                        item
+                    { DisplayName = requiredString "displayName" item
+                      Fields = array "fields" item |> List.map typeFieldIntent })
+            AgentTypeDeclarationKindIntent.Union variants
+        | value -> WireInput.fail $"Unsupported type declaration kind '{value}'."
+
     let executeLine (session: AuthoringSession) line =
         let mutable requestId: string = null
         try
@@ -103,6 +142,19 @@ module AuthoringProtocol =
                       RequiredEffects = requiredEffects
                       Body = recipe (property "body" root) }
                 match session.SimulateCreateFunction request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateCreateType" ->
+                ensureFields
+                    "simulateCreateType request"
+                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    root
+                let request: AgentCreateTypeDeclarationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root
+                      Kind = typeKindIntent (property "typeKind" root) }
+                match session.SimulateCreateType request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateReplaceBody" ->

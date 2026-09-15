@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. It does not introduce another semantic graph authority or expression engine.
+This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. Later declaration-authoring slices may join this same session boundary without creating another workspace authority.
 
 ## Purpose
 
@@ -38,7 +38,7 @@ Queries do not mutate state. Simulation and review do not execute capabilities.
 
 A mutation follows this lifecycle:
 
-1. Build an intent using the existing agent mutation or `ExpressionRecipe` authoring API.
+1. Build an intent using one of the existing agent authoring APIs.
 2. Simulate against the current `AgentWorkspace` and return the existing review facts plus an ephemeral proposal handle.
 3. The caller either rejects the proposal or asks to commit that exact handle.
 4. Core commit/review validation produces an immutable candidate `AgentWorkspace` or rejects it as invalid/stale.
@@ -69,11 +69,12 @@ The session is an adapter over existing authoring contracts:
 - whole-body `ExpressionRecipe` replacement;
 - targeted `ExpressionRecipe` replacement from issue #148;
 - atomic function creation with ordered `ParameterSlot` references from issue #149;
+- atomic product/union declaration creation defined by [type declaration authoring](type-declaration-authoring.md);
 - exact reviewed commit/reject and readiness/diagnostics from those workflows.
 
-Production graph-node, parameter, function, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities that already exist.
+Production graph-node, parameter, function, type, variant, field, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities where the corresponding authoring contract accepts existing IDs.
 
-Type/effect/capability declaration creation is deliberately absent from M3 and remains issue #154.
+Milestone 3 initially excluded declaration creation. Product/union creation now joins the maintained session through the separate type-declaration authoring contract; effect and capability declaration creation remain later work.
 
 ## Execution boundary
 
@@ -107,7 +108,7 @@ Unknown properties that would change request meaning are rejected rather than ig
 
 ### Operations
 
-The initial maintained operation set is:
+The maintained operation set is:
 
 | `op` | Purpose |
 | --- | --- |
@@ -116,6 +117,7 @@ The initial maintained operation set is:
 | `focusFunction` | Focused function/query projection by `functionId`. |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
+| `simulateCreateType` | Simulate atomic product/union declaration creation. |
 | `simulateReplaceBody` | Simulate whole-body `ExpressionRecipe` replacement. |
 | `simulateReplaceTarget` | Simulate targeted `ExpressionRecipe` replacement. |
 | `commit` | Commit one ephemeral `proposalId` and persist it before success. |
@@ -143,7 +145,7 @@ References use stable IDs (`parameterId`, `fieldId`, `variantId`, `functionId`, 
 
 Calls and structured constructors use arrays of explicit target-ID/value pairs. Pattern references use `scopeDepth` plus `slot` (`field`, `value`, or `error`); a field slot additionally carries `fieldId`.
 
-The transport parser is only a DTO-to-`ExpressionRecipe` adapter. Type inference, recipe bounds, materialization, ID allocation, effect checks, control-flow checks, and graph construction remain exclusively in `AgentExpressionStructuralWorkflow`.
+The transport parser is only a DTO-to-existing-authoring-intent adapter. Type inference, recipe bounds, materialization, ID allocation, effect checks, control-flow checks, graph construction, and declaration validation remain exclusively in the Core workflows.
 
 ## Persistence format
 
@@ -151,4 +153,4 @@ M3 does not select a new long-term storage format. The maintained session stores
 
 ## Non-goals
 
-M3 does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, declaration authoring from issue #154, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
+The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, effect/capability/provider declaration authoring, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
