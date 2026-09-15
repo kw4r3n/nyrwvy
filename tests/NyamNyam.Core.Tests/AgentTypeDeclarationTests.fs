@@ -267,14 +267,13 @@ module AgentTypeDeclarationTests =
         )
 
         let forbidden =
-            set
-                [ typeof<TypeId>
-                  typeof<VariantId>
-                  typeof<FieldId>
-                  typeof<SemanticType>
-                  typeof<SemanticVariant>
-                  typeof<SemanticField>
-                  typeof<Snapshot> ]
+            [ typeof<TypeId>
+              typeof<VariantId>
+              typeof<FieldId>
+              typeof<SemanticType>
+              typeof<SemanticVariant>
+              typeof<SemanticField>
+              typeof<Snapshot> ]
         let intentTypes =
             [ typeof<AgentTypeFieldIntent>
               typeof<AgentTypeVariantIntent> ]
@@ -288,4 +287,8 @@ module AgentTypeDeclarationTests =
             |> Array.map (fun field -> field.PropertyType)
             |> Array.toList
 
-        Assert.DoesNotContain(intentTypes @ kindPayloadTypes, fun fieldType -> Set.contains fieldType forbidden)
+        let exposesForbiddenAuthority =
+            intentTypes @ kindPayloadTypes
+            |> List.exists (fun fieldType ->
+                forbidden |> List.exists (fun forbiddenType -> fieldType = forbiddenType))
+        Assert.False(exposesForbiddenAuthority, "Type declaration intent exposes production identity authority.")

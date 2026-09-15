@@ -12,7 +12,7 @@ module AuthoringTypeSessionTests =
         Directory.CreateDirectory(path) |> ignore
         path
 
-    let private requireOk response =
+    let private requireOk (response: string): JsonDocument =
         let document = JsonDocument.Parse(response)
         if not (document.RootElement.GetProperty("ok").GetBoolean()) then
             let rendered = document.RootElement.GetRawText()
@@ -30,18 +30,19 @@ module AuthoringTypeSessionTests =
                 | Ok value -> value
                 | Error error -> failwithf "Session creation failed: %A" error
 
-            let proposalId, typeId, fieldId =
+            let ids: string * string * string =
                 use document =
                     AuthoringProtocol.executeLine
                         session
                         """{"id":"type","op":"simulateCreateType","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
                     |> requireOk
-                let result = document.RootElement.GetProperty("result")
-                let createdType = result.GetProperty("review").GetProperty("createdType")
-                let field = createdType.GetProperty("typeKind").GetProperty("fields")[0]
+                let result: JsonElement = document.RootElement.GetProperty("result")
+                let createdType: JsonElement = result.GetProperty("review").GetProperty("createdType")
+                let field: JsonElement = createdType.GetProperty("typeKind").GetProperty("fields")[0]
                 result.GetProperty("proposalId").GetString(),
                 createdType.GetProperty("id").GetString(),
                 field.GetProperty("id").GetString()
+            let proposalId, typeId, fieldId = ids
 
             use commitResponse =
                 AuthoringProtocol.executeLine
@@ -58,10 +59,10 @@ module AuthoringTypeSessionTests =
             use declarations =
                 AuthoringProtocol.executeLine reopened """{"id":"decls","op":"declarations"}"""
                 |> requireOk
-            let types = declarations.RootElement.GetProperty("result").GetProperty("types")
+            let types: JsonElement = declarations.RootElement.GetProperty("result").GetProperty("types")
             Assert.Equal(1, types.GetArrayLength())
             Assert.Equal<string>(typeId, types[0].GetProperty("id").GetString())
-            let fields = types[0].GetProperty("typeKind").GetProperty("fields")
+            let fields: JsonElement = types[0].GetProperty("typeKind").GetProperty("fields")
             Assert.Equal(1, fields.GetArrayLength())
             Assert.Equal<string>(fieldId, fields[0].GetProperty("id").GetString())
         finally
