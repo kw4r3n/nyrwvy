@@ -6,8 +6,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Session.fs" />
-    <Compile Include="WireCodec.fsi" />
-    <Compile Include="WireCodec.fs" />
+    <Compile Include="WireJson.fs" />
+    <Compile Include="WireInput.fs" />
+    <Compile Include="WireRecipe.fs" />
+    <Compile Include="WireOperation.fs" />
+    <Compile Include="WireEncodeCommon.fs" />
+    <Compile Include="WireEncode.fs" />
+    <Compile Include="WireProtocolAdapters.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

@@ -335,7 +335,7 @@ module AuthoringSession =
                     | Error error ->
                         lockHandle.Dispose()
                         Error error
-                    | Ok workspace -> Ok(AuthoringSession(path, workspace, source, lockHandle))
+                    | Ok workspace -> Ok(new AuthoringSession(path, workspace, source, lockHandle))
 
     let createNew (path: string): Result<AuthoringSession, AuthoringSessionError> =
         let path = SessionStorage.fullPath path
@@ -365,4 +365,4 @@ module AuthoringSession =
                             | Error error ->
                                 lockHandle.Dispose()
                                 Error error
-                            | Ok() -> Ok(AuthoringSession(path, workspace, source, lockHandle))
+                            | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle))
