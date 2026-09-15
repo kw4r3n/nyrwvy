@@ -110,6 +110,15 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdType", semanticType item.CreatedType ]
+            | AuthoringProposalReview.CreateEffect item ->
+                objectValue
+                    [ "kind", box "createEffect"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "createdEffect",
+                        objectValue
+                            [ "id", box (StableId.value item.CreatedEffect.Id)
+                              "displayName", box item.CreatedEffect.DisplayName ] ]
         objectValue [ "proposalId", box value.ProposalId; "review", review ]
 
     let declarations = WireEncodeCommon.declarations
@@ -160,6 +169,10 @@ module internal WireEncode =
                 "SimulationRejected", "The type declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.TypeDeclarationSimulationFailure other ->
                 "TypeDeclarationSimulationFailure", sprintf "%A" other, None
+            | AuthoringSessionError.EffectDeclarationSimulationFailure(AgentEffectDeclarationWorkflowError.SimulationRejected values) ->
+                "SimulationRejected", "The effect declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+            | AuthoringSessionError.EffectDeclarationSimulationFailure other ->
+                "EffectDeclarationSimulationFailure", sprintf "%A" other, None
             | AuthoringSessionError.CommitRejected values ->
                 "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
