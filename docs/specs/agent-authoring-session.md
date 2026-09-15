@@ -70,11 +70,12 @@ The session is an adapter over existing authoring contracts:
 - targeted `ExpressionRecipe` replacement from issue #148;
 - atomic function creation with ordered `ParameterSlot` references from issue #149;
 - atomic product/union declaration creation defined by [type declaration authoring](type-declaration-authoring.md);
+- atomic effect declaration creation defined by [effect declaration authoring](effect-declaration-authoring.md);
 - exact reviewed commit/reject and readiness/diagnostics from those workflows.
 
-Production graph-node, parameter, function, type, variant, field, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities where the corresponding authoring contract accepts existing IDs.
+Production graph-node, parameter, function, type, variant, field, effect, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities where the corresponding authoring contract accepts existing IDs.
 
-Milestone 3 initially excluded declaration creation. Product/union creation now joins the maintained session through the separate type-declaration authoring contract; effect and capability declaration creation remain later work.
+Milestone 3 initially excluded declaration creation. Product/union and effect creation now join the maintained session through separate declaration-authoring contracts. Capability/capability-operation creation remains issue #161.
 
 ## Execution boundary
 
@@ -118,6 +119,7 @@ The maintained operation set is:
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. |
+| `simulateCreateEffect` | Simulate atomic effect declaration creation. |
 | `simulateReplaceBody` | Simulate whole-body `ExpressionRecipe` replacement. |
 | `simulateReplaceTarget` | Simulate targeted `ExpressionRecipe` replacement. |
 | `commit` | Commit one ephemeral `proposalId` and persist it before success. |
@@ -153,4 +155,4 @@ M3 does not select a new long-term storage format. The maintained session stores
 
 ## Non-goals
 
-The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, effect/capability/provider declaration authoring, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
+The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, capability/capability-operation/provider declaration authoring, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.

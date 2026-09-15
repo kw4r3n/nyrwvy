@@ -157,6 +157,18 @@ module AuthoringProtocol =
                 match session.SimulateCreateType request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateCreateEffect" ->
+                ensureFields
+                    "simulateCreateEffect request"
+                    [ "id"; "op"; "displayName" ]
+                    [ "id"; "op"; "displayName" ]
+                    root
+                let request: AgentCreateEffectDeclarationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root }
+                match session.SimulateCreateEffect request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateReplaceBody" ->
                 ensureFields
                     "simulateReplaceBody request"

@@ -25,6 +25,7 @@
     <Compile Include="../NyamNyam.Core/ChangeReviewQuery.fs" Link="ChangeReviewQuery.fs" />
     <Compile Include="../NyamNyam.Core/AgentWorkflow.fs" Link="AgentWorkflow.fs" />
     <Compile Include="../NyamNyam.Core/AgentTypeDeclarationWorkflow.fs" Link="AgentTypeDeclarationWorkflow.fs" />
+    <Compile Include="../NyamNyam.Core/AgentEffectDeclarationWorkflow.fs" Link="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="../NyamNyam.Core/AgentStructuralWorkflow.fs" Link="AgentStructuralWorkflow.fs" />
     <Compile Include="../NyamNyam.Core/AgentExpressionStructuralWorkflow.fs" Link="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="../NyamNyam.Core/AgentPureExpressionStructuralWorkflow.fs" Link="AgentPureExpressionStructuralWorkflow.fs" />
