@@ -20,6 +20,7 @@
     <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="AgentWorkflowTests.fs" />
     <Compile Include="AgentRequiredEffectsTests.fs" />
+    <Compile Include="AgentTypeDeclarationTests.fs" />
     <Compile Include="AgentStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionControlFlowTests.fs" />
