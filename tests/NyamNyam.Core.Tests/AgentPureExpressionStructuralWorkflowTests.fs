@@ -507,6 +507,7 @@ module AgentPureExpressionStructuralWorkflowTests =
         let caseNames = cases |> Array.map (fun case -> case.Name) |> Array.toList
         let expectedCases =
             [ "Parameter"
+              "ParameterSlot"
               "PatternReference"
               "StringLiteral"
               "BoolLiteral"
