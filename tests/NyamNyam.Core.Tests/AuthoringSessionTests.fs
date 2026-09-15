@@ -35,7 +35,13 @@ module AuthoringSessionTests =
         { DisplayName = displayName
           Type = typeRef }
 
-    let private creationRequest session displayName parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+    let private creationRequest
+        (session: AuthoringSession)
+        displayName
+        parameters
+        resultType
+        body
+        : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = (status session).SnapshotId
           DisplayName = displayName
           Parameters = parameters
@@ -43,17 +49,23 @@ module AuthoringSessionTests =
           RequiredEffects = []
           Body = body }
 
-    let private simulateCreation session request =
+    let private simulateCreation
+        (session: AuthoringSession)
+        (request: AgentExpressionStructuralWorkflow.FunctionCreation.Request)
+        : AuthoringProposal =
         match session.SimulateCreateFunction request with
         | Ok value -> value
         | Error error -> failwithf "Unexpected creation simulation failure: %A" error
 
-    let private createdFunction proposal =
+    let private createdFunction (proposal: AuthoringProposal): SemanticFunction =
         match proposal.Review with
         | AuthoringProposalReview.CreateFunction review -> review.CreatedFunction
         | other -> failwithf "Expected function-creation review, got %A" other
 
-    let private commit session proposal =
+    let private commit
+        (session: AuthoringSession)
+        (proposal: AuthoringProposal)
+        : AuthoringCommitReceipt =
         match session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
         | Ok value -> value
         | Error error -> failwithf "Unexpected authoring commit failure: %A" error
@@ -277,7 +289,7 @@ module AuthoringSessionTests =
             else find directory.Parent
         find (DirectoryInfo(Environment.CurrentDirectory))
 
-    let private startTool mode path =
+    let private startTool (mode: string) (path: string): Process =
         let configuration = DirectoryInfo(AppContext.BaseDirectory).Parent.Name
         let toolPath =
             Path.Combine(
@@ -303,7 +315,7 @@ module AuthoringSessionTests =
         if isNull childProcess then failwith "Failed to start authoring-session process."
         childProcess
 
-    let private exchange (childProcess: Process) payload =
+    let private exchange (childProcess: Process) (payload: string): string =
         childProcess.StandardInput.WriteLine(payload)
         childProcess.StandardInput.Flush()
         let response = childProcess.StandardOutput.ReadLine()
@@ -318,7 +330,7 @@ module AuthoringSessionTests =
         Assert.True(childProcess.ExitCode = 0, $"Authoring-session process failed: {errorText}")
         childProcess.Dispose()
 
-    let private requireOk response =
+    let private requireOk (response: string): JsonDocument =
         let document = JsonDocument.Parse(response)
         if not (document.RootElement.GetProperty("ok").GetBoolean()) then
             let rendered = document.RootElement.GetRawText()
@@ -357,14 +369,14 @@ module AuthoringSessionTests =
             let second = startTool "open" path
             use reopenedStatus = exchange second """{"id":"status","op":"status"}""" |> requireOk
             let result = reopenedStatus.RootElement.GetProperty("result")
-            Assert.Equal(snapshotId, result.GetProperty("snapshotId").GetString())
-            Assert.Equal(snapshotFingerprint, result.GetProperty("snapshotFingerprint").GetString())
-            Assert.Equal(semanticFingerprint, result.GetProperty("semanticFingerprint").GetString())
+            Assert.Equal<string>(snapshotId, result.GetProperty("snapshotId").GetString())
+            Assert.Equal<string>(snapshotFingerprint, result.GetProperty("snapshotFingerprint").GetString())
+            Assert.Equal<string>(semanticFingerprint, result.GetProperty("semanticFingerprint").GetString())
 
             use declarations = exchange second """{"id":"decls","op":"declarations"}""" |> requireOk
             let functions = declarations.RootElement.GetProperty("result").GetProperty("functions").EnumerateArray() |> Seq.toList
             Assert.Single(functions) |> ignore
-            Assert.Equal(functionId, functions.Head.GetProperty("id").GetString())
+            Assert.Equal<string>(functionId, functions.Head.GetProperty("id").GetString())
             finish second
         finally
             if Directory.Exists root then Directory.Delete(root, true)
