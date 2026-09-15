@@ -104,6 +104,12 @@ module internal WireEncode =
                       "createdFunction", functionEntity item.CreatedFunction
                       "materializedBody", item.MaterializedBody |> List.map nodeSummary |> arrayValue
                       "proposedFocus", focus item.ProposedFocus ]
+            | AuthoringProposalReview.CreateType item ->
+                objectValue
+                    [ "kind", box "createType"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "createdType", semanticType item.CreatedType ]
         objectValue [ "proposalId", box value.ProposalId; "review", review ]
 
     let declarations = WireEncodeCommon.declarations
@@ -150,6 +156,10 @@ module internal WireEncode =
             | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values) ->
                 "SimulationRejected", "The structural request was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", sprintf "%A" other, None
+            | AuthoringSessionError.TypeDeclarationSimulationFailure(AgentTypeDeclarationWorkflowError.SimulationRejected values) ->
+                "SimulationRejected", "The type declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+            | AuthoringSessionError.TypeDeclarationSimulationFailure other ->
+                "TypeDeclarationSimulationFailure", sprintf "%A" other, None
             | AuthoringSessionError.CommitRejected values ->
                 "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None

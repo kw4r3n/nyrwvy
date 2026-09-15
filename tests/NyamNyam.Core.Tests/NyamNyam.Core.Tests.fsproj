@@ -38,6 +38,7 @@
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="AuthoringSessionTests.fs" />
+    <Compile Include="AuthoringTypeSessionTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />

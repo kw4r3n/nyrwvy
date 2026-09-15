@@ -20,6 +20,7 @@ type AuthoringSessionError =
     | SessionInvalidated
     | WorkflowSimulationFailure of AgentWorkflowError
     | StructuralSimulationFailure of AgentStructuralWorkflowError
+    | TypeDeclarationSimulationFailure of AgentTypeDeclarationWorkflowError
     | CommitRejected of TransactionDiagnostic list
     | SemanticProjectionFailure of TypedSemanticIrError
     | ExecutionLoweringFailure of ExecutionIrError
@@ -42,6 +43,7 @@ type AuthoringProposalReview =
     | ReplaceBody of AgentExpressionStructuralChangeReview
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Review
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Review
+    | CreateType of AgentTypeDeclarationReview
 
 type AuthoringProposal =
     { ProposalId: string
@@ -62,6 +64,7 @@ type private PendingProposal =
     | ReplaceBody of AgentExpressionStructuralChangeProposal
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Proposal
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Proposal
+    | CreateType of AgentTypeDeclarationProposal
 
 module private SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
@@ -245,6 +248,15 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 Ok(register (AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.transactionId proposal) (PendingProposal.CreateFunction proposal) (AuthoringProposalReview.CreateFunction(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review proposal)))
 
+    member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentTypeDeclarationWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.TypeDeclarationSimulationFailure error)
+            | Ok proposal ->
+                Ok(register (AgentTypeDeclarationProposal.transactionId proposal) (PendingProposal.CreateType proposal) (AuthoringProposalReview.CreateType(AgentTypeDeclarationProposal.review proposal)))
+
     member _.Commit(proposalId: string, policy: CommitPolicy): Result<AuthoringCommitReceipt, AuthoringSessionError> =
         match ensureUsable () with
         | Error error -> Error error
@@ -271,6 +283,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, PendingProposal.CreateType proposal ->
+                match AgentTypeDeclarationWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentTypeDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentTypeDeclarationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
 
     member _.Reject(proposalId: string): Result<AuthoringRejectionReceipt, AuthoringSessionError> =
         match ensureUsable () with
@@ -292,6 +309,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
             | true, PendingProposal.CreateFunction proposal ->
                 let _, receipt = AgentExpressionStructuralWorkflow.FunctionCreation.reject workspace proposal
+                proposals.Remove proposalId |> ignore
+                Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
+            | true, PendingProposal.CreateType proposal ->
+                let _, receipt = AgentTypeDeclarationWorkflow.reject workspace proposal
                 proposals.Remove proposalId |> ignore
                 Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
 
