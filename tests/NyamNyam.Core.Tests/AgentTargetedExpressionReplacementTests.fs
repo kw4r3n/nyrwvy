@@ -15,12 +15,12 @@ module AgentTargetedExpressionReplacementTests =
     let private bindingId name = StableId.createForTesting<PatternBindingTag> ("binding-targeted-" + name)
     let private snapshotId name = StableId.createForTesting<SnapshotTag> ("snapshot-targeted-" + name)
 
-    let private workspace snapshot =
+    let private workspace (snapshot: Snapshot) =
         match AgentWorkspace.create snapshot with
         | Ok value -> value
         | Error issues -> failwithf "Invalid fixture: %A" issues
 
-    let private request snapshot functionId targetNodeId recipe: AgentExpressionStructuralWorkflow.Targeted.Request =
+    let private request (snapshot: Snapshot) functionId targetNodeId recipe: AgentExpressionStructuralWorkflow.Targeted.Request =
         { TargetFunctionId = functionId
           ExpectedBaseSnapshotId = snapshot.Id
           TargetNodeId = targetNodeId
@@ -167,7 +167,7 @@ module AgentTargetedExpressionReplacementTests =
             { Id = bindingId "outer"
               DisplayName = None
               Type = stringType }
-        let body =
+        let body: ValueGraph =
             { Nodes =
                 [ { Id = oldReferenceId
                     Kind = SemanticNodeKind.PatternReference binding.Id }
@@ -282,7 +282,7 @@ module AgentTargetedExpressionReplacementTests =
                     ValueNodeId = valueId } ]
             else
                 []
-        let bodyNodes =
+        let bodyNodes: SemanticNode list =
             (if resolved then
                 [ { Id = valueId
                     Kind = SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 4.0) } ]
