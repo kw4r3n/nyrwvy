@@ -16,6 +16,7 @@ type RecipePatternReference =
 [<RequireQualifiedAccess>]
 type ExpressionRecipe =
     | Parameter of ParameterId
+    | ParameterSlot of int
     | PatternReference of RecipePatternReference
     | StringLiteral of string
     | BoolLiteral of bool
@@ -102,6 +103,25 @@ module AgentExpressionStructuralWorkflow =
     type private PatternTypeFrame = (RecipePatternSlot * TypeRef) list
     type private PatternBindingFrame = (RecipePatternSlot * PatternBinding) list
 
+    type private ParameterSlotContext =
+        { Type: TypeRef
+          ParameterId: ParameterId option }
+
+    type private ExpressionOwnerContext =
+        { ParametersById: Map<ParameterId, SemanticParameter>
+          ParameterSlots: ParameterSlotContext list option
+          RequiredEffects: EffectId list
+          Description: string }
+
+    let private ownerForExistingFunction (target: SemanticFunction) =
+        { ParametersById =
+            target.Parameters
+            |> List.map (fun parameter -> parameter.Id, parameter)
+            |> Map.ofList
+          ParameterSlots = None
+          RequiredEffects = target.RequiredEffects
+          Description = $"target function '{StableId.value target.Id}'" }
+
     let private stringType = TypeRef.Primitive PrimitiveType.String
     let private boolType = TypeRef.Primitive PrimitiveType.Bool
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
@@ -119,6 +139,7 @@ module AgentExpressionStructuralWorkflow =
     let private recipeChildren recipe =
         match recipe with
         | ExpressionRecipe.Parameter _
+        | ExpressionRecipe.ParameterSlot _
         | ExpressionRecipe.PatternReference _
         | ExpressionRecipe.StringLiteral _
         | ExpressionRecipe.BoolLiteral _
@@ -237,13 +258,12 @@ module AgentExpressionStructuralWorkflow =
                             $"Pattern-reference slot {reference.Slot} does not exist in scope depth {reference.ScopeDepth}."
                     )
 
-    let private inferTypeWithFrames
+    let private inferTypeWithContext
         (snapshot: Snapshot)
-        (target: SemanticFunction)
+        (owner: ExpressionOwnerContext)
         (initialFrames: PatternTypeFrame list)
         recipe
         =
-        let parametersById = target.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
         let functionsById = snapshot.Functions |> List.map (fun functionEntity -> functionEntity.Id, functionEntity) |> Map.ofList
         let typesById = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id, typeEntity) |> Map.ofList
         let capabilityOperationsById =
@@ -441,14 +461,37 @@ module AgentExpressionStructuralWorkflow =
 
             match recipe with
             | ExpressionRecipe.Parameter parameterId ->
-                match Map.tryFind parameterId parametersById with
+                match Map.tryFind parameterId owner.ParametersById with
                 | Some parameter -> Ok parameter.Type
                 | None ->
                     Error(
                         diagnostic
                             "PureExpressionParameterOutOfScope"
-                            $"Parameter '{StableId.value parameterId}' is not owned by the target function."
+                            $"Parameter '{StableId.value parameterId}' is not owned by {owner.Description}."
                     )
+            | ExpressionRecipe.ParameterSlot index ->
+                match owner.ParameterSlots with
+                | None ->
+                    Error(
+                        diagnostic
+                            "PureExpressionParameterSlotUnavailable"
+                            "ParameterSlot is available only while creating a new function."
+                    )
+                | Some _ when index < 0 ->
+                    Error(
+                        diagnostic
+                            "PureExpressionParameterSlotOutOfRange"
+                            $"Parameter slot {index} is outside the requested parameter list."
+                    )
+                | Some slots ->
+                    match List.tryItem index slots with
+                    | Some slot -> Ok slot.Type
+                    | None ->
+                        Error(
+                            diagnostic
+                                "PureExpressionParameterSlotOutOfRange"
+                                $"Parameter slot {index} is outside the requested parameter list."
+                        )
             | ExpressionRecipe.PatternReference reference -> resolvePatternType frames reference
             | ExpressionRecipe.StringLiteral value when isNull value ->
                 Error(diagnostic "PureExpressionNullStringLiteral" "StringLiteral requires a non-null value.")
@@ -605,13 +648,13 @@ module AgentExpressionStructuralWorkflow =
                 | Some callee ->
                     match
                         callee.RequiredEffects
-                        |> List.tryFind (fun effectId -> not (List.contains effectId target.RequiredEffects))
+                        |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
                     with
                     | Some effectId ->
                         Error(
                             diagnostic
                                 "ExpressionCallMissingEffectRequirement"
-                                $"DirectCall callee '{StableId.value callee.Id}' requires effect '{StableId.value effectId}' not declared by target function '{StableId.value target.Id}'."
+                                $"DirectCall callee '{StableId.value callee.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}."
                         )
                     | None ->
                         validateCallArguments callee arguments |> Result.map (fun () -> callee.ResultType)
@@ -632,11 +675,11 @@ module AgentExpressionStructuralWorkflow =
                                 "ExpressionCapabilityValueTypeMismatch"
                                 $"CapabilityInvoke operation '{StableId.value operationId}' requires {TypeRef.Capability ownerCapabilityId}, but the receiver produces {actual}."
                         )
-                    | Ok _ when not (List.contains operation.EffectId target.RequiredEffects) ->
+                    | Ok _ when not (List.contains operation.EffectId owner.RequiredEffects) ->
                         Error(
                             diagnostic
                                 "ExpressionCapabilityMissingEffectRequirement"
-                                $"CapabilityInvoke operation '{StableId.value operationId}' requires effect '{StableId.value operation.EffectId}' not declared by target function '{StableId.value target.Id}'."
+                                $"CapabilityInvoke operation '{StableId.value operationId}' requires effect '{StableId.value operation.EffectId}' not declared by {owner.Description}."
                         )
                     | Ok _ ->
                         validateCapabilityArguments operation arguments |> Result.map (fun () -> operation.ResultType)
@@ -722,6 +765,9 @@ module AgentExpressionStructuralWorkflow =
 
         infer initialFrames recipe
 
+    let private inferTypeWithFrames snapshot target initialFrames recipe =
+        inferTypeWithContext snapshot (ownerForExistingFunction target) initialFrames recipe
+
     let private inferType snapshot target recipe = inferTypeWithFrames snapshot target [] recipe
 
     let private validatePreflight
@@ -764,16 +810,16 @@ module AgentExpressionStructuralWorkflow =
         | None -> failwith "Pattern recipe passed preflight with an unavailable scope."
 
     /// Materialization is deterministic in shape/order with no caller-controlled IDs or CSE.
-    let rec private materialize
+    let rec private materializeWithContext
         (snapshot: Snapshot)
-        (target: SemanticFunction)
+        (owner: ExpressionOwnerContext)
         (frames: PatternBindingFrame list)
         recipe
         =
-        let materializeRecipe child = materialize snapshot target frames child
+        let materializeRecipe child = materializeWithContext snapshot owner frames child
 
         let materializeGraph childFrames body =
-            let nodes, resultNodeId = materialize snapshot target childFrames body
+            let nodes, resultNodeId = materializeWithContext snapshot owner childFrames body
             { Nodes = nodes
               ResultNodeId = resultNodeId }
 
@@ -840,12 +886,19 @@ module AgentExpressionStructuralWorkflow =
             loop operation.Parameters
 
         let inferHere child =
-            match inferTypeWithFrames snapshot target (bindingTypeFrames frames) child with
+            match inferTypeWithContext snapshot owner (bindingTypeFrames frames) child with
             | Ok typeRef -> typeRef
             | Error _ -> failwith "Expression recipe passed preflight but failed materialization type recovery."
 
         match recipe with
         | ExpressionRecipe.Parameter parameterId ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.ParameterReference parameterId } ], nodeId
+        | ExpressionRecipe.ParameterSlot index ->
+            let parameterId =
+                match owner.ParameterSlots |> Option.bind (List.tryItem index) with
+                | Some { ParameterId = Some parameterId } -> parameterId
+                | _ -> failwith "Parameter slot passed preflight without a materialized parameter ID."
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ParameterReference parameterId } ], nodeId
         | ExpressionRecipe.PatternReference reference ->
@@ -1037,6 +1090,9 @@ module AgentExpressionStructuralWorkflow =
                   Body = materializeGraph ([ RecipePatternSlot.Error, errBinding ] :: frames) errBody }
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchResult(inputResult, okArm, errArm) } ], nodeId
+
+    let private materialize snapshot target frames recipe =
+        materializeWithContext snapshot (ownerForExistingFunction target) frames recipe
 
     let simulate
         (workspace: AgentWorkspace)
@@ -1667,6 +1723,297 @@ module AgentExpressionStructuralWorkflow =
                       BaseSnapshotId = proposal.Review.Receipt.BaseSnapshotId
                       PublishedSnapshotId = proposal.ProposedSnapshot.Id
                       Diff = proposal.Review.ResultingChange
+                      Readiness = proposal.Review.Readiness
+                      Receipt = proposal.Review.Receipt }
+                )
+
+        let commit workspace proposal =
+            publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
+
+        let commitWithPolicy workspace proposal policy =
+            publishWithPolicy workspace proposal policy
+
+        let reject
+            (workspace: AgentWorkspace)
+            (Proposal proposal)
+            : AgentWorkspace * AgentStructuralRejectionReceipt =
+            workspace,
+            { TransactionId = proposal.TransactionId
+              RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
+
+    [<RequireQualifiedAccess>]
+    module FunctionCreation =
+        type ParameterIntent =
+            { DisplayName: string
+              Type: TypeRef }
+
+        type Request =
+            { ExpectedBaseSnapshotId: SnapshotId
+              DisplayName: string
+              Parameters: ParameterIntent list
+              ResultType: TypeRef
+              RequiredEffects: EffectId list
+              Body: ExpressionRecipe }
+
+        type Review =
+            { RequestedChange: Request
+              Receipt: TransactionPreviewReceipt
+              Readiness: TransactionReadiness
+              CreatedFunction: SemanticFunction
+              MaterializedBody: StructuralNodeSummary list
+              ProposedFocus: FunctionFocusView }
+
+        type PublishedTransaction =
+            { TransactionId: TransactionId
+              BaseSnapshotId: SnapshotId
+              PublishedSnapshotId: SnapshotId
+              CreatedFunctionId: FunctionId
+              Readiness: TransactionReadiness
+              Receipt: TransactionPreviewReceipt }
+
+        type private Preflight =
+            { CanonicalRequiredEffects: EffectId list
+              Owner: ExpressionOwnerContext }
+
+        type private ProposalState =
+            { TransactionId: TransactionId
+              ProposedSnapshot: Snapshot
+              Review: Review }
+
+        type Proposal =
+            private
+            | Proposal of ProposalState
+
+        [<RequireQualifiedAccess>]
+        module Proposal =
+            let private state (Proposal state) = state
+            let review proposal = (state proposal).Review
+            let transactionId proposal = (state proposal).TransactionId
+            let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+
+        [<RequireQualifiedAccess>]
+        type CommitResult =
+            | Rejected of TransactionDiagnostic list
+            | Committed of AgentWorkspace * PublishedTransaction
+
+        let private validatePreflight (request: Request) (baseSnapshot: Snapshot) =
+            if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
+                Error(
+                    diagnostic
+                        "StructuralExpectedBaseMismatch"
+                        "The function-creation request targets a different base snapshot."
+                )
+            elif System.String.IsNullOrWhiteSpace request.DisplayName then
+                Error(
+                    diagnostic
+                        "FunctionCreationDisplayNameBlank"
+                        "Function display name must not be blank."
+                )
+            else
+                match
+                    request.Parameters
+                    |> List.mapi (fun index parameter -> index, parameter)
+                    |> List.tryFind (fun (_, parameter) ->
+                        System.String.IsNullOrWhiteSpace parameter.DisplayName)
+                with
+                | Some(index, _) ->
+                    Error(
+                        diagnostic
+                            "FunctionCreationParameterDisplayNameBlank"
+                            $"Parameter at index {index} must have a nonblank display name."
+                    )
+                | None ->
+                    let typeRefs =
+                        request.ResultType
+                        :: (request.Parameters |> List.map (fun parameter -> parameter.Type))
+
+                    let rec validateTypes = function
+                        | [] -> Ok()
+                        | typeRef :: rest ->
+                            match validateTypeRef baseSnapshot typeRef with
+                            | Error error -> Error error
+                            | Ok() -> validateTypes rest
+
+                    match validateTypes typeRefs with
+                    | Error error -> Error error
+                    | Ok() ->
+                        match
+                            request.RequiredEffects
+                            |> List.countBy id
+                            |> List.tryFind (fun (_, count) -> count > 1)
+                        with
+                        | Some(effectId, _) ->
+                            Error(
+                                diagnostic
+                                    "FunctionCreationDuplicateRequiredEffect"
+                                    $"Required effect '{StableId.value effectId}' appears more than once."
+                            )
+                        | None ->
+                            let existingEffects =
+                                baseSnapshot.Effects
+                                |> List.map (fun effect -> effect.Id)
+                                |> Set.ofList
+
+                            match
+                                request.RequiredEffects
+                                |> List.tryFind (fun effectId ->
+                                    not (Set.contains effectId existingEffects))
+                            with
+                            | Some effectId ->
+                                Error(
+                                    diagnostic
+                                        "FunctionCreationRequiredEffectNotFound"
+                                        $"Required effect '{StableId.value effectId}' does not exist."
+                                )
+                            | None ->
+                                let canonicalEffects =
+                                    request.RequiredEffects
+                                    |> List.sortBy StableId.value
+                                let owner =
+                                    { ParametersById = Map.empty
+                                      ParameterSlots =
+                                        Some(
+                                            request.Parameters
+                                            |> List.map (fun parameter ->
+                                                { Type = parameter.Type
+                                                  ParameterId = None })
+                                        )
+                                      RequiredEffects = canonicalEffects
+                                      Description = "the function being created" }
+
+                                match validateRecipeBounds recipeChildren request.Body with
+                                | Error error -> Error error
+                                | Ok() ->
+                                    match inferTypeWithContext baseSnapshot owner [] request.Body with
+                                    | Error error -> Error error
+                                    | Ok bodyType when bodyType <> request.ResultType ->
+                                        Error(
+                                            diagnostic
+                                                "FunctionCreationResultTypeMismatch"
+                                                $"The function body produces {bodyType}, but the requested result type is {request.ResultType}."
+                                        )
+                                    | Ok _ ->
+                                        Ok
+                                            { CanonicalRequiredEffects = canonicalEffects
+                                              Owner = owner }
+
+        let simulate
+            (workspace: AgentWorkspace)
+            (request: Request)
+            : Result<Proposal, AgentStructuralWorkflowError> =
+            let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+
+            match SnapshotValidator.validate baseSnapshot with
+            | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
+            | [] ->
+                match validatePreflight request baseSnapshot with
+                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                | Ok preflight ->
+                    let functionId = StableIdAllocator.newFunctionId ()
+                    let parameters =
+                        request.Parameters
+                        |> List.map (fun parameter ->
+                            { Id = StableIdAllocator.newParameterId ()
+                              DisplayName = parameter.DisplayName
+                              Type = parameter.Type })
+                    let materializationOwner =
+                        { preflight.Owner with
+                            ParameterSlots =
+                                Some(
+                                    List.map2
+                                        (fun parameter intent ->
+                                            { Type = intent.Type
+                                              ParameterId = Some parameter.Id })
+                                        parameters
+                                        request.Parameters
+                                ) }
+                    let bodyNodes, bodyResultId =
+                        materializeWithContext
+                            baseSnapshot
+                            materializationOwner
+                            []
+                            request.Body
+                    let createdFunction: SemanticFunction =
+                        { Id = functionId
+                          DisplayName = request.DisplayName
+                          Parameters = parameters
+                          ResultType = request.ResultType
+                          RequiredEffects = preflight.CanonicalRequiredEffects
+                          Body =
+                            { Nodes = bodyNodes
+                              ResultNodeId = bodyResultId } }
+                    let transactionId = StableIdAllocator.newTransactionId ()
+                    let proposedSnapshot =
+                        { baseSnapshot with
+                            Id = StableIdAllocator.newSnapshotId ()
+                            ParentId = Some baseSnapshot.Id
+                            Functions = baseSnapshot.Functions @ [ createdFunction ] }
+
+                    match SnapshotValidator.validate proposedSnapshot with
+                    | issue :: _ -> rejected "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
+                    | [] ->
+                        match classifyReadiness proposedSnapshot with
+                        | Error diagnostics ->
+                            Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
+                        | Ok readiness ->
+                            match createReceipt transactionId baseSnapshot proposedSnapshot with
+                            | Error error -> Error error
+                            | Ok receipt ->
+                                match SemanticQuery.focusFunction proposedSnapshot functionId with
+                                | Error error ->
+                                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
+                                | Ok proposedFocus ->
+                                    let bodySummary =
+                                        ValueGraph.collectNodes createdFunction.Body
+                                        |> summarizeNodes proposedSnapshot createdFunction
+                                    let review =
+                                        { RequestedChange = request
+                                          Receipt = receipt
+                                          Readiness = readiness
+                                          CreatedFunction = createdFunction
+                                          MaterializedBody = bodySummary
+                                          ProposedFocus = proposedFocus }
+                                    Ok(
+                                        Proposal
+                                            { TransactionId = transactionId
+                                              ProposedSnapshot = proposedSnapshot
+                                              Review = review }
+                                    )
+
+        let private publishWithPolicy
+            (workspace: AgentWorkspace)
+            (Proposal proposal)
+            (policy: CommitPolicy)
+            : CommitResult =
+            // The established structural publisher uses its body diff only as a
+            // publication payload. Creation keeps its own review facts and discards
+            // this transport adapter after stale/fingerprint/readiness validation.
+            let transportDiff: FunctionBodyReplacementDiff =
+                { OwnerFunctionId = proposal.Review.CreatedFunction.Id
+                  OldResultNodeId = proposal.Review.CreatedFunction.Body.ResultNodeId
+                  NewResultNodeId = proposal.Review.CreatedFunction.Body.ResultNodeId
+                  RemovedNodes = []
+                  AddedNodes = proposal.Review.MaterializedBody }
+
+            match
+                publishReviewedWithPolicy
+                    workspace
+                    proposal.TransactionId
+                    proposal.ProposedSnapshot
+                    transportDiff
+                    proposal.Review.Readiness
+                    proposal.Review.Receipt
+                    policy
+            with
+            | AgentStructuralCommitResult.Rejected diagnostics ->
+                CommitResult.Rejected diagnostics
+            | AgentStructuralCommitResult.Committed(nextWorkspace, _) ->
+                CommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = proposal.Review.Receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      CreatedFunctionId = proposal.Review.CreatedFunction.Id
                       Readiness = proposal.Review.Readiness
                       Receipt = proposal.Review.Receipt }
                 )
