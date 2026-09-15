@@ -1,6 +1,6 @@
 # Snapshot-backed agent authoring session
 
-**Status:** Proposed
+**Status:** Current
 
 This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. It does not introduce another semantic graph authority or expression engine.
 
