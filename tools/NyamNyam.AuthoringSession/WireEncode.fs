@@ -68,6 +68,33 @@ module internal WireEncode =
               "retainedSharedDependencies", value.RetainedSharedDependencies |> List.map nodeSummary |> arrayValue
               "affectedUses", value.AffectedUses |> List.map (sprintf "%A" >> box) |> arrayValue ]
 
+    let private capabilityEntity (value: SemanticCapability) =
+        let operations =
+            value.Operations
+            |> List.map (fun operation ->
+                let parameters =
+                    operation.Parameters
+                    |> List.map (fun parameter ->
+                        objectValue
+                            [ "id", box (StableId.value parameter.Id)
+                              "displayName", box parameter.DisplayName
+                              "type", typeRef parameter.Type ])
+                let failureType =
+                    match operation.FailureType with
+                    | Some item -> typeRef item
+                    | None -> null
+                objectValue
+                    [ "id", box (StableId.value operation.Id)
+                      "displayName", box operation.DisplayName
+                      "parameters", arrayValue parameters
+                      "resultType", typeRef operation.ResultType
+                      "failureType", failureType
+                      "effectId", box (StableId.value operation.EffectId) ])
+        objectValue
+            [ "id", box (StableId.value value.Id)
+              "displayName", box value.DisplayName
+              "operations", arrayValue operations ]
+
     let proposal (value: AuthoringProposal) =
         let review =
             match value.Review with
@@ -119,6 +146,12 @@ module internal WireEncode =
                         objectValue
                             [ "id", box (StableId.value item.CreatedEffect.Id)
                               "displayName", box item.CreatedEffect.DisplayName ] ]
+            | AuthoringProposalReview.CreateCapability item ->
+                objectValue
+                    [ "kind", box "createCapability"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "createdCapability", capabilityEntity item.CreatedCapability ]
         objectValue [ "proposalId", box value.ProposalId; "review", review ]
 
     let declarations = WireEncodeCommon.declarations
@@ -173,6 +206,10 @@ module internal WireEncode =
                 "SimulationRejected", "The effect declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.EffectDeclarationSimulationFailure other ->
                 "EffectDeclarationSimulationFailure", sprintf "%A" other, None
+            | AuthoringSessionError.CapabilityDeclarationSimulationFailure(AgentCapabilityDeclarationWorkflowError.SimulationRejected values) ->
+                "SimulationRejected", "The capability declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+            | AuthoringSessionError.CapabilityDeclarationSimulationFailure other ->
+                "CapabilityDeclarationSimulationFailure", sprintf "%A" other, None
             | AuthoringSessionError.CommitRejected values ->
                 "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None

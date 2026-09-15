@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. Later declaration-authoring slices may join this same session boundary without creating another workspace authority.
+This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. Later declaration-authoring slices join this same session boundary without creating another workspace authority.
 
 ## Purpose
 
@@ -71,11 +71,12 @@ The session is an adapter over existing authoring contracts:
 - atomic function creation with ordered `ParameterSlot` references from issue #149;
 - atomic product/union declaration creation defined by [type declaration authoring](type-declaration-authoring.md);
 - atomic effect declaration creation defined by [effect declaration authoring](effect-declaration-authoring.md);
+- atomic capability/operation declaration creation defined by [capability declaration authoring](capability-declaration-authoring.md);
 - exact reviewed commit/reject and readiness/diagnostics from those workflows.
 
-Production graph-node, parameter, function, type, variant, field, effect, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities where the corresponding authoring contract accepts existing IDs.
+Production graph-node, parameter, function, type, variant, field, effect, capability, capability-operation, capability-parameter, pattern-binding, transaction, and snapshot IDs created by these operations remain system-owned. The transport may only reference identities where the corresponding authoring contract accepts existing IDs.
 
-Milestone 3 initially excluded declaration creation. Product/union and effect creation now join the maintained session through separate declaration-authoring contracts. Capability/capability-operation creation remains issue #161.
+Milestone 3 initially excluded declaration creation. The staged function, Product/Union, Effect, and Capability/Operation authoring contracts now all compose through the same maintained session without changing its persistence or single-writer authority.
 
 ## Execution boundary
 
@@ -120,6 +121,7 @@ The maintained operation set is:
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. |
 | `simulateCreateEffect` | Simulate atomic effect declaration creation. |
+| `simulateCreateCapability` | Simulate atomic capability/operation declaration creation. |
 | `simulateReplaceBody` | Simulate whole-body `ExpressionRecipe` replacement. |
 | `simulateReplaceTarget` | Simulate targeted `ExpressionRecipe` replacement. |
 | `commit` | Commit one ephemeral `proposalId` and persist it before success. |
@@ -155,4 +157,4 @@ M3 does not select a new long-term storage format. The maintained session stores
 
 ## Non-goals
 
-The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, capability/capability-operation/provider declaration authoring, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
+The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, runtime provider registration/implementation, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.

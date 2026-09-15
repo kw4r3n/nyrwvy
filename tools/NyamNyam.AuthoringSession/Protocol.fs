@@ -69,6 +69,32 @@ module AuthoringProtocol =
             AgentTypeDeclarationKindIntent.Union variants
         | value -> WireInput.fail $"Unsupported type declaration kind '{value}'."
 
+    let private capabilityParameterIntent (item: JsonElement): AgentCapabilityParameterIntent =
+        ensureFields
+            "capability parameter"
+            [ "displayName"; "type" ]
+            [ "displayName"; "type" ]
+            item
+        { DisplayName = requiredString "displayName" item
+          Type = typeRef (property "type" item) }
+
+    let private capabilityOperationIntent (item: JsonElement): AgentCapabilityOperationIntent =
+        ensureFields
+            "capability operation"
+            [ "displayName"; "parameters"; "resultType"; "failureType"; "effectId" ]
+            [ "displayName"; "parameters"; "resultType"; "effectId" ]
+            item
+        let failureType =
+            match tryProperty "failureType" item with
+            | None -> None
+            | Some value when value.ValueKind = JsonValueKind.Null -> None
+            | Some value -> Some(typeRef value)
+        { DisplayName = requiredString "displayName" item
+          Parameters = array "parameters" item |> List.map capabilityParameterIntent
+          ResultType = typeRef (property "resultType" item)
+          FailureType = failureType
+          EffectId = id<EffectTag> "effectId" item }
+
     let executeLine (session: AuthoringSession) line =
         let mutable requestId: string = null
         try
@@ -167,6 +193,19 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = currentSnapshotId session
                       DisplayName = requiredString "displayName" root }
                 match session.SimulateCreateEffect request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateCreateCapability" ->
+                ensureFields
+                    "simulateCreateCapability request"
+                    [ "id"; "op"; "displayName"; "operations" ]
+                    [ "id"; "op"; "displayName"; "operations" ]
+                    root
+                let request: AgentCreateCapabilityDeclarationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root
+                      Operations = array "operations" root |> List.map capabilityOperationIntent }
+                match session.SimulateCreateCapability request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateReplaceBody" ->
