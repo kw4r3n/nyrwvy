@@ -17,6 +17,7 @@
     <Compile Include="AgentEvalVerificationProtocolTests.fs" />
     <Compile Include="MilestoneZeroEndToEndTests.fs" />
     <Compile Include="MilestoneOneEndToEndTests.fs" />
+    <Compile Include="MilestoneFourProviderEndToEndTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -35,5 +36,6 @@
     <ProjectReference Include="../../tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj" />
   </ItemGroup>
 </Project>
