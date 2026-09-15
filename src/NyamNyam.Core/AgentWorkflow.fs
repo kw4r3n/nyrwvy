@@ -80,6 +80,34 @@ module AgentWorkspace =
     let private snapshot (workspace: AgentWorkspace): Snapshot =
         SemanticWorkspace.currentSnapshot workspace.Workspace
 
+    /// Serialize the current authoritative workspace state through the strict
+    /// snapshot codec without exposing raw snapshot publication authority.
+    let serializeCurrentSnapshot
+        (workspace: AgentWorkspace)
+        : Result<string, SnapshotCodecError> =
+        snapshot workspace |> SnapshotCodec.serialize
+
+    /// Read-only declaration discovery for the maintained authoring surface.
+    let listFunctions (workspace: AgentWorkspace): SemanticFunction list =
+        snapshot workspace
+        |> fun current -> current.Functions
+        |> List.sortBy (fun item -> StableId.value item.Id)
+
+    let listTypes (workspace: AgentWorkspace): SemanticType list =
+        snapshot workspace
+        |> fun current -> current.Types
+        |> List.sortBy (fun item -> StableId.value item.Id)
+
+    let listEffects (workspace: AgentWorkspace): SemanticEffect list =
+        snapshot workspace
+        |> fun current -> current.Effects
+        |> List.sortBy (fun item -> StableId.value item.Id)
+
+    let listCapabilities (workspace: AgentWorkspace): SemanticCapability list =
+        snapshot workspace
+        |> fun current -> current.Capabilities
+        |> List.sortBy (fun item -> StableId.value item.Id)
+
     /// Trusted bridge for the downstream Execution assembly. This remains
     /// internal so the ordinary agent-facing API never exposes the raw snapshot.
     let internal snapshotForExecution (workspace: AgentWorkspace): Snapshot =

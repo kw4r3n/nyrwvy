@@ -36,6 +36,7 @@
     <Compile Include="AgentEvalProtocolTests.fs" />
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
+    <Compile Include="AuthoringSessionTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
@@ -69,5 +70,6 @@
     <ProjectReference Include="../../tools/NyamNyam.AgentEval/NyamNyam.AgentEval.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.Structural/NyamNyam.AgentEval.Structural.fsproj" />
     <ProjectReference Include="../../tools/NyamNyam.AgentEval.ListMapStructural/NyamNyam.AgentEval.ListMapStructural.fsproj" />
+    <ProjectReference Include="../../tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj" />
   </ItemGroup>
 </Project>

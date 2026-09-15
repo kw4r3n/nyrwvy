@@ -1,0 +1,217 @@
+namespace NyamNyam.Tools.AuthoringSession
+
+open System
+open System.Text.Json
+open NyamNyam.Core
+
+[<RequireQualifiedAccess>]
+module AuthoringProtocol =
+    open WireInput
+    open WireJson
+
+    let private success id result =
+        objectValue
+            [ "id", box id
+              "ok", box true
+              "result", result ]
+        |> serialize
+
+    let private failure id error =
+        objectValue
+            [ "id", if isNull id then null else box id
+              "ok", box false
+              "error", error ]
+        |> serialize
+
+    let private sessionFailure id error = failure id (WireEncode.error error)
+
+    let private currentSnapshotId (session: AuthoringSession) =
+        match session.Status() with
+        | Ok status -> status.SnapshotId
+        | Error error -> raise (InvalidOperationException(sprintf "%A" error))
+
+    let executeLine (session: AuthoringSession) line =
+        let mutable requestId: string = null
+        try
+            use document = parseDocument line
+            let root = document.RootElement
+            requestId <- requiredString "id" root
+            let operationName = requiredString "op" root
+
+            match operationName with
+            | "status" ->
+                ensureFields "status request" [ "id"; "op" ] [ "id"; "op" ] root
+                match session.Status() with
+                | Ok value -> success requestId (WireEncode.status value)
+                | Error error -> sessionFailure requestId error
+            | "declarations" ->
+                ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
+                success requestId (WireEncode.declarations (session.Declarations()))
+            | "focusFunction" ->
+                ensureFields
+                    "focusFunction request"
+                    [ "id"; "op"; "functionId" ]
+                    [ "id"; "op"; "functionId" ]
+                    root
+                match session.FocusFunction(id<FunctionTag> "functionId" root) with
+                | Ok focus -> success requestId (WireEncode.focus focus)
+                | Error error ->
+                    failure
+                        requestId
+                        (objectValue
+                            [ "code", box "SemanticQueryFailure"
+                              "message", box (sprintf "%A" error) ])
+            | "simulateOperations" ->
+                ensureFields
+                    "simulateOperations request"
+                    [ "id"; "op"; "operations" ]
+                    [ "id"; "op"; "operations" ]
+                    root
+                let operations = array "operations" root |> List.map operation
+                match session.SimulateOperations operations with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateCreateFunction" ->
+                ensureFields
+                    "simulateCreateFunction request"
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    root
+                let parameters =
+                    array "parameters" root
+                    |> List.map (fun item ->
+                        ensureFields
+                            "function parameter"
+                            [ "displayName"; "type" ]
+                            [ "displayName"; "type" ]
+                            item
+                        let parameter: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent =
+                            { DisplayName = requiredString "displayName" item
+                              Type = typeRef (property "type" item) }
+                        parameter)
+                let requiredEffects =
+                    array "requiredEffects" root
+                    |> List.map (fun item ->
+                        if item.ValueKind <> JsonValueKind.String then
+                            WireInput.fail "requiredEffects entries must be stable-ID strings."
+                        stableId<EffectTag> "requiredEffects" (item.GetString()))
+                let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root
+                      Parameters = parameters
+                      ResultType = typeRef (property "resultType" root)
+                      RequiredEffects = requiredEffects
+                      Body = recipe (property "body" root) }
+                match session.SimulateCreateFunction request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateReplaceBody" ->
+                ensureFields
+                    "simulateReplaceBody request"
+                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
+                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
+                    root
+                let request: AgentReplaceFunctionBodyWithExpressionRecipe =
+                    { TargetFunctionId = id<FunctionTag> "functionId" root
+                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      ExpectedCurrentResultNodeId = id<GraphNodeTag> "expectedCurrentResultNodeId" root
+                      Replacement = recipe (property "replacement" root) }
+                match session.SimulateReplaceBody request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateReplaceTarget" ->
+                ensureFields
+                    "simulateReplaceTarget request"
+                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
+                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
+                    root
+                let request: AgentExpressionStructuralWorkflow.Targeted.Request =
+                    { TargetFunctionId = id<FunctionTag> "functionId" root
+                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetNodeId = id<GraphNodeTag> "targetNodeId" root
+                      Replacement = recipe (property "replacement" root) }
+                match session.SimulateReplaceTarget request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "commit" ->
+                ensureFields
+                    "commit request"
+                    [ "id"; "op"; "proposalId"; "allowIncomplete" ]
+                    [ "id"; "op"; "proposalId" ]
+                    root
+                let policy =
+                    if optionalBool "allowIncomplete" false root then
+                        CommitPolicy.AllowBlockingObligations
+                    else
+                        CommitPolicy.RejectBlockingObligations
+                match session.Commit(requiredString "proposalId" root, policy) with
+                | Ok receipt -> success requestId (WireEncode.commitReceipt receipt)
+                | Error error -> sessionFailure requestId error
+            | "reject" ->
+                ensureFields
+                    "reject request"
+                    [ "id"; "op"; "proposalId" ]
+                    [ "id"; "op"; "proposalId" ]
+                    root
+                match session.Reject(requiredString "proposalId" root) with
+                | Ok receipt -> success requestId (WireEncode.rejectionReceipt receipt)
+                | Error error -> sessionFailure requestId error
+            | "executionReadiness" ->
+                ensureFields
+                    "executionReadiness request"
+                    [ "id"; "op" ]
+                    [ "id"; "op" ]
+                    root
+                match session.ProjectExecution() with
+                | Ok execution ->
+                    success
+                        requestId
+                        (objectValue
+                            [ "kind", box "ready"
+                              "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
+                              "functionCount", box execution.Functions.Length ])
+                | Error error -> sessionFailure requestId error
+            | "emitCSharp" ->
+                ensureFields
+                    "emitCSharp request"
+                    [ "id"; "op"; "profile" ]
+                    [ "id"; "op"; "profile" ]
+                    root
+                let profileValue = property "profile" root
+                let profile =
+                    match requiredString "kind" profileValue with
+                    | "empty" ->
+                        ensureFields "empty C# profile" [ "kind" ] [ "kind" ] profileValue
+                        CSharpBackendProfile.empty
+                    | "systemConsoleWriteLine" ->
+                        ensureFields
+                            "System.Console.WriteLine C# profile"
+                            [ "kind"; "operationId" ]
+                            [ "kind"; "operationId" ]
+                            profileValue
+                        CSharpBackendProfile.systemConsoleWriteLine(
+                            id<CapabilityOperationTag> "operationId" profileValue
+                        )
+                    | value -> WireInput.fail $"Unsupported C# profile '{value}'."
+                match session.EmitCSharp profile with
+                | Ok artifact -> success requestId (objectValue [ "source", box artifact.Source ])
+                | Error error -> sessionFailure requestId error
+            | value ->
+                failure
+                    requestId
+                    (objectValue
+                        [ "code", box "UnsupportedOperation"
+                          "message", box $"Unsupported operation '{value}'." ])
+        with
+        | WireInput.ProtocolInputException message ->
+            failure
+                requestId
+                (objectValue
+                    [ "code", box "ProtocolError"
+                      "message", box message ])
+        | :? InvalidOperationException as error ->
+            failure
+                requestId
+                (objectValue
+                    [ "code", box "SessionError"
+                      "message", box error.Message ])
