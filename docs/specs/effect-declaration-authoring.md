@@ -1,6 +1,6 @@
 # Atomic effect declaration authoring
 
-**Status:** Proposed
+**Status:** Current
 
 This specification defines the Effect stage of the accepted staged declaration-authoring sequence tracked by issue #160. It follows atomic function and Product/Union declaration creation and precedes capability/capability-operation creation.
 
@@ -81,7 +81,7 @@ A function may therefore explicitly declare the new effect through existing auth
 
 ## Maintained authoring-session integration
 
-The snapshot-backed JSON-lines session adds one thin adapter operation:
+The snapshot-backed JSON-lines session exposes one thin adapter operation:
 
 ```text
 simulateCreateEffect
@@ -94,7 +94,7 @@ A successful session commit persists the exact reviewed candidate through the es
 
 ## Verification contract
 
-Focused deterministic evidence should cover:
+Focused deterministic evidence covers:
 
 - successful effect creation with a fresh system-owned `EffectId`;
 - post-publication discovery of that exact declaration;
@@ -104,7 +104,7 @@ Focused deterministic evidence should cover:
 - composition with existing function authoring using the published `EffectId`;
 - one maintained-session create/commit/reopen discovery check.
 
-Existing persistence, readiness, execution, and effect-validation evidence remain authoritative unless this slice changes those contracts.
+Existing persistence, readiness, execution, and effect-validation evidence remain authoritative because this slice does not change those contracts. See [M4 effect authoring verification](../verification/m4-effect-authoring-20260915.md).
 
 ## Non-goals
 
