@@ -25,7 +25,7 @@ module AgentFunctionCreationTests =
         { DisplayName = displayName
           Type = typeRef }
 
-    let private request snapshot displayName parameters resultType requiredEffects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+    let private request (snapshot: Snapshot) displayName parameters resultType requiredEffects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = displayName
           Parameters = parameters
