@@ -1910,7 +1910,7 @@ module AgentExpressionStructuralWorkflow =
                 | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
                 | Ok preflight ->
                     let functionId = StableIdAllocator.newFunctionId ()
-                    let parameters =
+                    let parameters: SemanticParameter list =
                         request.Parameters
                         |> List.map (fun parameter ->
                             { Id = StableIdAllocator.newParameterId ()
