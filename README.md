@@ -11,7 +11,7 @@ NyamNyam is an active research and implementation project.
 - **Milestone 0 is complete:** the graph-first architecture has passed an end-to-end lifecycle from persistence through reviewed editing and generated execution.
 - **Milestone 1 is complete for the accepted bounded-operation claim:** production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence are in place.
 - **Milestone 2 is complete for the accepted structural-editing claim:** controlled evaluation established that agents can inspect, simulate, review, publish, and recover from stale structural proposals with system-owned identities and no unrelated semantic churn. The maintained Float64 body-replacement recipe now covers parameter references, exact literals, and the existing `Add` / `Subtract` / `Multiply` / `Divide` semantic operations; the specialized ListMap slice remains available as a separately typed operation.
-- **Post-M2 maintained structural authoring is broader than the frozen M2 surface:** `ExpressionRecipe` covers primitive/scalar expressions, the pure-callback List family, structured values, complete direct calls, capability invocation, explicit once-evaluated `Bind` scopes, and control flow (`Conditional`, exhaustive union/`Option`/`Result` matching, and lexical pattern references). Calls and invocations must fit the target function's declared effects; ordinary function effect requirements can be edited explicitly against existing effects. New type/effect/capability declarations and production graph-node/pattern-binding identities remain outside caller authority.
+- **Post-M2 M3-M5 authoring is now maintained:** agents can create functions, perform targeted expression replacement, persist/reopen work through the snapshot-backed AuthoringSession, create Product/Union, Effect, and Capability/Operation declarations, reach an explicitly bound provider-backed execution path, and perform the first bounded atomic parameter-type migration with required caller rewrites while preserving stable declaration identities. Production IDs remain system-owned; callers discover and reuse published identities rather than supplying them. See the [post-M2 roadmap](docs/plans/post-m2-roadmap.md) for the completed claim boundaries and the conditional next-stage policy.
 
 Exact build/test and evaluation evidence belongs under verification records rather than this landing page. Completed controlled evaluations are reusable design evidence; they are not a requirement to repeat the same experiment for every adjacent semantic extension. The scoped-control-flow interaction boundary is tracked separately from the frozen M2 claim because it introduces lexical scope and nested branch graphs.
 
@@ -44,21 +44,27 @@ Important boundaries include:
 
 ## Build and verify
 
-The repository uses the .NET 10 SDK.
+The repository uses the .NET 10 SDK. Routine development and routine CI use the fast test graph:
 
 ```shell
-dotnet restore NyamNyam.slnx
-dotnet build NyamNyam.slnx --configuration Release --no-restore
-dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
+./scripts/test-fast.fish
 ```
 
-For the stricter repository-local verification path:
+Equivalent direct invocation:
+
+```shell
+dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
+```
+
+Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification.
+
+For an opt-in clean full-solution build and test run with a shareable log:
 
 ```shell
 bash scripts/verify-local-20260825-1427.sh --clean
 ```
 
-Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development or CI.
+The full-solution script includes the extended project once; it is not the routine CI fallback. Routine, milestone, and experimental verification have different roles; see the maintained [verification philosophy](docs/developer/verification.md) before promoting expensive checks into normal development or CI.
 
 ## Documentation
 
@@ -69,6 +75,7 @@ Useful entry points:
 - [Vision](docs/concepts/vision.md) — mission, priorities, principles, non-goals, and success conditions.
 - [Architecture](docs/developer/architecture.md) — current high-level boundaries and invariants.
 - [Current language subset](docs/reference/language-subset.md) — implemented semantic and agent-editing surfaces at a glance.
+- [Post-M2 roadmap](docs/plans/post-m2-roadmap.md) — completed M3-M5 outcomes and evidence-triggered conditions for later work.
 - [Decisions](docs/decisions/README.md) — accepted rationale and bounded open questions.
 - [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
 - [Milestone 2 record](docs/plans/milestone-2.md) — completed bounded structural-editing milestone and controlled evaluation evidence.
