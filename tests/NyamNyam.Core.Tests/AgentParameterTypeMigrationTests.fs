@@ -83,7 +83,7 @@ module AgentParameterTypeMigrationTests =
         let processInputNode = nodeId "process-input"
         let processCall = nodeId "process-call"
 
-        let process: SemanticFunction =
+        let processFunction: SemanticFunction =
             { Id = functionId "process"
               DisplayName = "process"
               Parameters = [ processInput ]
@@ -118,7 +118,7 @@ module AgentParameterTypeMigrationTests =
         let snapshot =
             { Snapshot.empty (snapshotId "initial") with
                 Types = [ requestType ]
-                Functions = [ classify; process; unrelated ] }
+                Functions = [ classify; processFunction; unrelated ] }
 
         Assert.Empty(SnapshotValidator.validate snapshot)
 
@@ -127,7 +127,7 @@ module AgentParameterTypeMigrationTests =
           EmailField = emailField
           Classify = classify
           ClassifyInput = classifyInput
-          Process = process
+          Process = processFunction
           ProcessInput = processInput
           Unrelated = unrelated }
 
@@ -211,14 +211,14 @@ module AgentParameterTypeMigrationTests =
             Assert.Equal(fixture.ClassifyInput.Id, classify.Parameters.Head.Id)
             Assert.Equal(TypeRef.Named fixture.RequestType.Id, classify.Parameters.Head.Type)
 
-            let process =
+            let processFunction =
                 published.Functions
                 |> List.find (fun fn -> fn.Id = fixture.Process.Id)
-            Assert.Equal(fixture.ProcessInput.Id, process.Parameters.Head.Id)
-            Assert.Equal(stringType, process.Parameters.Head.Type)
+            Assert.Equal(fixture.ProcessInput.Id, processFunction.Parameters.Head.Id)
+            Assert.Equal(stringType, processFunction.Parameters.Head.Type)
 
             let call =
-                ValueGraph.collectNodes process.Body
+                ValueGraph.collectNodes processFunction.Body
                 |> List.find (fun node ->
                     match node.Kind with
                     | SemanticNodeKind.DirectCall(functionId, _) ->
@@ -228,7 +228,7 @@ module AgentParameterTypeMigrationTests =
             | SemanticNodeKind.DirectCall(_, [ argument ]) ->
                 Assert.Equal(fixture.ClassifyInput.Id, argument.TargetParameterId)
                 let argumentNode =
-                    ValueGraph.collectNodes process.Body
+                    ValueGraph.collectNodes processFunction.Body
                     |> List.find (fun node -> node.Id = argument.ValueNodeId)
                 match argumentNode.Kind with
                 | SemanticNodeKind.ProductConstruct(typeId, _) ->
