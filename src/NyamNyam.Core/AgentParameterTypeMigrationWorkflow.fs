@@ -791,7 +791,7 @@ module AgentParameterTypeMigrationWorkflow =
     let commitWithPolicy workspace proposal policy =
         publishWithPolicy workspace proposal policy
 
-    let reject
+    let rejectProposal
         (workspace: AgentWorkspace)
         (AgentParameterTypeMigrationProposal proposal)
         : AgentWorkspace * AgentStructuralRejectionReceipt =
