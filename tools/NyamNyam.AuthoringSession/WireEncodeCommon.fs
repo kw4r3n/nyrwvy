@@ -41,6 +41,14 @@ module internal WireEncodeCommon =
               "displayName", box value.DisplayName
               "type", typeRef value.Type ]
 
+    let private functionDeclaration (value: SemanticFunction) =
+        objectValue
+            [ "id", box (StableId.value value.Id)
+              "displayName", box value.DisplayName
+              "parameters", value.Parameters |> List.map parameter |> arrayValue
+              "resultType", typeRef value.ResultType
+              "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue ]
+
     let functionEntity (value: SemanticFunction) =
         let nodes =
             ValueGraph.collectNodes value.Body
@@ -118,7 +126,7 @@ module internal WireEncodeCommon =
                       "displayName", box capability.DisplayName
                       "operations", arrayValue operations ])
         objectValue
-            [ "functions", value.Functions |> List.map functionEntity |> arrayValue
+            [ "functions", value.Functions |> List.map functionDeclaration |> arrayValue
               "types", value.Types |> List.map semanticType |> arrayValue
               "effects", arrayValue effects
               "capabilities", arrayValue capabilities ]
