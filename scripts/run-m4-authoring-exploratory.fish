@@ -7,7 +7,7 @@ set -l model "$NYAMNYAM_M4_AUTHORING_EVAL_MODEL"
 set -l variant "$NYAMNYAM_M4_AUTHORING_EVAL_VARIANT"
 
 if test -z "$model"
-    set model openai/gpt-5.6-terra
+    set model opencode/muse-spark-1.3-contributor-free
 end
 if test -z "$variant"
     set variant high
