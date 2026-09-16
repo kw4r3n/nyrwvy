@@ -95,6 +95,15 @@ module AuthoringProtocol =
           FailureType = failureType
           EffectId = id<EffectTag> "effectId" item }
 
+    let private parameterTypeCallerRewrite (item: JsonElement): AgentParameterTypeCallerRewrite =
+        ensureFields
+            "parameter type caller rewrite"
+            [ "callerFunctionId"; "replacement" ]
+            [ "callerFunctionId"; "replacement" ]
+            item
+        { CallerFunctionId = id<FunctionTag> "callerFunctionId" item
+          Replacement = recipe (property "replacement" item) }
+
     let executeLine (session: AuthoringSession) line =
         let mutable requestId: string = null
         try
@@ -168,6 +177,22 @@ module AuthoringProtocol =
                       RequiredEffects = requiredEffects
                       Body = recipe (property "body" root) }
                 match session.SimulateCreateFunction request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateParameterTypeMigration" ->
+                ensureFields
+                    "simulateParameterTypeMigration request"
+                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
+                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
+                    root
+                let request: AgentParameterTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetFunctionId = id<FunctionTag> "targetFunctionId" root
+                      TargetParameterId = id<ParameterTag> "targetParameterId" root
+                      NewParameterType = typeRef (property "newParameterType" root)
+                      TargetReplacement = recipe (property "targetReplacement" root)
+                      CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
+                match session.SimulateParameterTypeMigration request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateType" ->
