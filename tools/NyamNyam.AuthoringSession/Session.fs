@@ -45,6 +45,7 @@ type AuthoringProposalReview =
     | ReplaceBody of AgentExpressionStructuralChangeReview
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Review
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Review
+    | ParameterTypeMigration of AgentParameterTypeMigrationReview
     | CreateType of AgentTypeDeclarationReview
     | CreateEffect of AgentEffectDeclarationReview
     | CreateCapability of AgentCapabilityDeclarationReview
@@ -68,6 +69,7 @@ type private PendingProposal =
     | ReplaceBody of AgentExpressionStructuralChangeProposal
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Proposal
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Proposal
+    | ParameterTypeMigration of AgentParameterTypeMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
@@ -254,6 +256,15 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 Ok(register (AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.transactionId proposal) (PendingProposal.CreateFunction proposal) (AuthoringProposalReview.CreateFunction(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review proposal)))
 
+    member _.SimulateParameterTypeMigration(request: AgentParameterTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentParameterTypeMigrationWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                Ok(register (AgentParameterTypeMigrationProposal.transactionId proposal) (PendingProposal.ParameterTypeMigration proposal) (AuthoringProposalReview.ParameterTypeMigration(AgentParameterTypeMigrationProposal.review proposal)))
+
     member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         match ensureUsable () with
         | Error error -> Error error
@@ -307,6 +318,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, PendingProposal.ParameterTypeMigration proposal ->
+                match AgentParameterTypeMigrationWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentParameterTypeMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentParameterTypeMigrationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
             | true, PendingProposal.CreateType proposal ->
                 match AgentTypeDeclarationWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentTypeDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
@@ -343,6 +359,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
             | true, PendingProposal.CreateFunction proposal ->
                 let _, receipt = AgentExpressionStructuralWorkflow.FunctionCreation.reject workspace proposal
+                proposals.Remove proposalId |> ignore
+                Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
+            | true, PendingProposal.ParameterTypeMigration proposal ->
+                let _, receipt = AgentParameterTypeMigrationWorkflow.rejectProposal workspace proposal
                 proposals.Remove proposalId |> ignore
                 Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
             | true, PendingProposal.CreateType proposal ->

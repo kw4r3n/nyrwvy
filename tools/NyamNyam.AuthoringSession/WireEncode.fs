@@ -68,6 +68,24 @@ module internal WireEncode =
               "retainedSharedDependencies", value.RetainedSharedDependencies |> List.map nodeSummary |> arrayValue
               "affectedUses", value.AffectedUses |> List.map (sprintf "%A" >> box) |> arrayValue ]
 
+    let private parameterTypeMigrationDiff (value: AgentParameterTypeMigrationDiff) =
+        objectValue
+            [ "parameterChange",
+                objectValue
+                    [ "functionId", box (StableId.value value.ParameterChange.FunctionId)
+                      "parameterId", box (StableId.value value.ParameterChange.ParameterId)
+                      "oldType", typeRef value.ParameterChange.OldType
+                      "newType", typeRef value.ParameterChange.NewType ]
+              "affectedCallSites",
+                value.AffectedCallSites
+                |> List.map (fun site ->
+                    objectValue
+                        [ "callerFunctionId", box (StableId.value site.CallerFunctionId)
+                          "callNodeId", box (StableId.value site.CallNodeId)
+                          "calleeFunctionId", box (StableId.value site.CalleeFunctionId) ])
+                |> arrayValue
+              "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
+
     let private capabilityEntity (value: SemanticCapability) =
         let operations =
             value.Operations
@@ -131,6 +149,12 @@ module internal WireEncode =
                       "createdFunction", functionEntity item.CreatedFunction
                       "materializedBody", item.MaterializedBody |> List.map nodeSummary |> arrayValue
                       "proposedFocus", focus item.ProposedFocus ]
+            | AuthoringProposalReview.ParameterTypeMigration item ->
+                objectValue
+                    [ "kind", box "parameterTypeMigration"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "diff", parameterTypeMigrationDiff item.ResultingChange ]
             | AuthoringProposalReview.CreateType item ->
                 objectValue
                     [ "kind", box "createType"
