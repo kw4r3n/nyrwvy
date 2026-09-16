@@ -44,7 +44,7 @@ type Session = {
 const sessions = new Map<string, Session>()
 const finalized = new Set<string>()
 
-const protocolGuide = `NyamNyam M4 authoring evaluation session started with a new maintained snapshot.
+const protocolGuide = `NyamNyam bounded authoring evaluation session started with a new maintained snapshot.
 Use nyamnyam_m4_authoring_eval_request to send exactly one maintained AuthoringSession JSON object per call. Every request needs an id and op. Inspect every response; simulations return an exact proposalId that must be reviewed and committed explicitly.
 
 Core requests:
@@ -58,10 +58,16 @@ Core requests:
   {"id":"e2","op":"emitCSharp","profile":{"kind":"systemConsoleWriteLine","operationId":"<published operationId>"}}
 
 Creation requests:
-  simulateCreateType: id, op, displayName, typeKind. A union typeKind is {"kind":"union","variants":[{"displayName":"...","fields":[{"displayName":"...","type":<TypeRef>}]}]}.
+  simulateCreateType: id, op, displayName, typeKind. A product typeKind is {"kind":"product","fields":[{"displayName":"...","type":<TypeRef>}]}; a union typeKind is {"kind":"union","variants":[{"displayName":"...","fields":[{"displayName":"...","type":<TypeRef>}]}]}.
   simulateCreateEffect: id, op, displayName.
   simulateCreateCapability: id, op, displayName, operations. Each operation is {"displayName":"...","parameters":[{"displayName":"...","type":<TypeRef>}],"resultType":<TypeRef>,"failureType":null,"effectId":"<published EffectId>"}.
   simulateCreateFunction: id, op, displayName, parameters, resultType, requiredEffects, body. Function parameters are {"displayName":"...","type":<TypeRef>} and requiredEffects is an array of published EffectId strings.
+
+Bounded M5 parameter-type migration:
+  simulateParameterTypeMigration requires id, op, targetFunctionId, targetParameterId, newParameterType, targetReplacement, and callerRewrites.
+  callerRewrites must contain exactly one complete replacement body for every affected direct caller: [{"callerFunctionId":"<published FunctionId>","replacement":<recipe>}].
+  The maintained workflow discovers the actual caller set, preserves the target FunctionId and ParameterId, validates the target and caller bodies together, and proposes one final atomic snapshot. Missing, duplicate, unrelated, incompatible, recursive, or unsupported callback uses are rejected with diagnostics.
+  Migration replacement recipes refer to parameters of existing functions by stable ID using {"kind":"parameter","parameterId":"<published ParameterId>"}; do not use parameterSlot in migration replacement bodies.
 
 TypeRef forms needed here:
   {"kind":"primitive","primitive":"string"}
@@ -69,18 +75,21 @@ TypeRef forms needed here:
   {"kind":"named","typeId":"<published TypeId>"}
   {"kind":"capability","capabilityId":"<published CapabilityId>"}
 
-ExpressionRecipe forms needed by this workload:
+ExpressionRecipe forms needed by these workloads:
   {"kind":"parameterSlot","index":0}
+  {"kind":"parameter","parameterId":"<published ParameterId>"}
   {"kind":"stringLiteral","value":"text"}
   {"kind":"stringContains","value":<recipe>,"substring":<recipe>}
   {"kind":"conditional","condition":<recipe>,"whenTrue":<recipe>,"whenFalse":<recipe>}
+  {"kind":"productConstruct","typeId":"<published TypeId>","fields":[{"fieldId":"<published FieldId>","value":<recipe>}]}
+  {"kind":"fieldAccess","source":<recipe>,"fieldId":"<published FieldId>"}
   {"kind":"unionConstruct","variantId":"<published VariantId>","fields":[{"fieldId":"<published FieldId>","value":<recipe>}]}
   {"kind":"directCall","functionId":"<published FunctionId>","arguments":[{"parameterId":"<published callee ParameterId>","value":<recipe>}]}
   {"kind":"matchUnion","input":<recipe>,"arms":[{"variantId":"<published VariantId>","body":<recipe>}]}
   {"kind":"patternReference","scopeDepth":0,"slot":"field","fieldId":"<field bound by the current union arm>"}
   {"kind":"capabilityInvoke","capabilityValue":<recipe>,"operationId":"<published operationId>","arguments":[{"capabilityParameterId":"<published capability parameterId>","value":<recipe>}]}
 
-After each successful creation commit, query declarations and reuse the published IDs. Do not invent production IDs. Review proposal results before commit. The restart tool closes the maintained process and reopens the same persisted snapshot; proposal handles do not survive it, so rediscover state afterward. Empty-profile C# emission is expected to fail specifically for a missing capability binding once the capability-backed program exists. Explicit System.Console.WriteLine emission should then succeed. Emitted backend source is an output artifact, not semantic authoring authority.`
+After each successful creation commit, query declarations and reuse the published IDs. Do not invent production IDs. Review every proposal before commit. For migration, verify the review's parameterChange, complete affectedCallSites, and bodyRewrites before committing. The restart tool closes the maintained process and reopens the same persisted snapshot; proposal handles do not survive it, so rediscover state afterward. Empty-profile C# emission is expected to fail specifically for a missing capability binding once the capability-backed program exists. Explicit System.Console.WriteLine emission should then succeed. Emitted backend source is an output artifact, not semantic authoring authority.`
 
 function requireAgent(agent: string) {
   if (agent !== evaluationAgent) {
