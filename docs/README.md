@@ -10,6 +10,7 @@ This directory contains the maintained documentation for the current NyamNyam de
 - **How is the system organized?** Read [Architecture](developer/architecture.md).
 - **How much verification does a change need?** Read [Verification philosophy](developer/verification.md).
 - **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).
+- **What happened after Milestone 2, and what should trigger the next milestone?** Read the [post-M2 roadmap](plans/post-m2-roadmap.md).
 - **Why was a direction chosen?** Use the [decision register](decisions/README.md).
 - **What remains unresolved?** Read [Open questions](decisions/open-questions.md).
 - **What must an implementation preserve?** Use the maintained [specifications](specs/), including [expression structural authoring](specs/expression-authoring.md), [atomic product/union declaration authoring](specs/type-declaration-authoring.md), [atomic effect declaration authoring](specs/effect-declaration-authoring.md), [atomic capability/operation declaration authoring](specs/capability-declaration-authoring.md), the [snapshot-backed agent authoring session](specs/agent-authoring-session.md), and the narrower [Float64 bounded structural editing contract](specs/bounded-structural-editing.md).
