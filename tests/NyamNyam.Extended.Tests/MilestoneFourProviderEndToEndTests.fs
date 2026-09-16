@@ -244,7 +244,7 @@ NyFunctions.{functionName}("not-an-email", console);
                     { DisplayName = "console"
                       Type = TypeRef.Capability capability.Id }
 
-                let process =
+                let processFunction =
                     createFunction
                         session
                         "process"
@@ -261,7 +261,7 @@ NyFunctions.{functionName}("not-an-email", console);
                         ))
 
                 session.Close()
-                outcome.Id, capability.Id, operation.Id, process.Id
+                outcome.Id, capability.Id, operation.Id, processFunction.Id
 
             use reopened = AuthoringSession.openExisting path |> unwrap "authoring session reopen"
             let declarations = reopened.Declarations()
