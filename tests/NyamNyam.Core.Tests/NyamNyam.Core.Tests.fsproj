@@ -34,6 +34,7 @@
     <Compile Include="AgentExpressionBindTests.fs" />
     <Compile Include="AgentTargetedExpressionReplacementTests.fs" />
     <Compile Include="AgentFunctionCreationTests.fs" />
+    <Compile Include="AgentParameterTypeMigrationTests.fs" />
     <Compile Include="AgentListMapStructuralWorkflowTests.fs" />
     <Compile Include="AgentStructuralContractTests.fs" />
     <Compile Include="AgentEvalProtocolTests.fs" />
