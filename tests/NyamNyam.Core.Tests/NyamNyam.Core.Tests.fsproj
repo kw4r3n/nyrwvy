@@ -40,6 +40,7 @@
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="AuthoringSessionTests.fs" />
+    <Compile Include="AuthoringDiscoveryTests.fs" />
     <Compile Include="AuthoringTypeSessionTests.fs" />
     <Compile Include="AuthoringEffectSessionTests.fs" />
     <Compile Include="AuthoringCapabilitySessionTests.fs" />
