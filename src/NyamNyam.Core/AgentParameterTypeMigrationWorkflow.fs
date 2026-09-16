@@ -276,7 +276,8 @@ module AgentParameterTypeMigrationWorkflow =
                 | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(nextWorkspace, _) ->
                     let originalToTemporary =
                         List.map2
-                            (fun original temporary -> original.Id, temporary.Id)
+                            (fun (original: SemanticParameter) (temporary: SemanticParameter) ->
+                                original.Id, temporary.Id)
                             prepared.Target.Parameters
                             created.Parameters
                         |> Map.ofList
@@ -617,7 +618,7 @@ module AgentParameterTypeMigrationWorkflow =
                     | Ok temporaryCallers ->
                         let targetOwnerParameterMap =
                             List.map2
-                                (fun temporary original ->
+                                (fun (temporary: SemanticParameter) (original: SemanticParameter) ->
                                     temporary.Id, original.Id)
                                 temporaryTarget.Function.Parameters
                                 prepared.Target.Parameters
@@ -626,7 +627,7 @@ module AgentParameterTypeMigrationWorkflow =
                             { prepared.Target with
                                 Parameters =
                                     prepared.Target.Parameters
-                                    |> List.map (fun parameter ->
+                                    |> List.map (fun (parameter: SemanticParameter) ->
                                         if parameter.Id =
                                            prepared.Parameter.Id then
                                             { parameter with
@@ -643,10 +644,10 @@ module AgentParameterTypeMigrationWorkflow =
 
                         let migratedCallers =
                             temporaryCallers
-                            |> List.map (fun (original, temporary) ->
+                            |> List.map (fun ((original: SemanticFunction), (temporary: SemanticFunction)) ->
                                 let ownerParameterMap =
                                     List.map2
-                                        (fun temp originalParameter ->
+                                        (fun (temp: SemanticParameter) (originalParameter: SemanticParameter) ->
                                             temp.Id,
                                             originalParameter.Id)
                                         temporary.Parameters
