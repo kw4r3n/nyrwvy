@@ -41,7 +41,7 @@ module AuthoringParameterMigrationSessionTests =
         session.Declarations().Functions
         |> List.find (fun item -> item.DisplayName = displayName)
 
-    let private requireOk response =
+    let private requireOk (response: string): JsonDocument =
         let document = JsonDocument.Parse(response)
         if not (document.RootElement.GetProperty("ok").GetBoolean()) then
             let rendered = document.RootElement.GetRawText()
