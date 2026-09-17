@@ -73,6 +73,7 @@ requests = {}
 counts = {}
 restart_index = None
 unexpected_errors = 0
+rejected_requests = 0
 execution_ready = False
 missing_binding = False
 console_emit = False
@@ -97,7 +98,6 @@ response_bytes = 0
 declarations_response_bytes = 0
 declarations_response_max_bytes = 0
 focus_response_bytes = 0
-rejected_requests = 0
 
 tracked_functions = {
     "classify",
@@ -154,9 +154,6 @@ for index, event in enumerate(events):
         declarations_response_max_bytes = max(declarations_response_max_bytes, response_size)
     elif op == "focusFunction":
         focus_response_bytes += response_size
-
-    if not ok:
-        rejected_requests += 1
 
     if ok and op == "simulateCreateType" and isinstance(result, dict):
         review = result.get("review", {})
@@ -222,13 +219,16 @@ for index, event in enumerate(events):
         profile = request.get("profile", {})
         profile_kind = profile.get("kind") if isinstance(profile, dict) else None
         rendered = json.dumps(error, sort_keys=True) if error is not None else ""
-        if profile_kind == "empty" and not ok and "MissingCapabilityBinding" in rendered:
+        expected_missing_binding = profile_kind == "empty" and not ok and "MissingCapabilityBinding" in rendered
+        if expected_missing_binding:
             missing_binding = True
         if profile_kind == "systemConsoleWriteLine" and ok:
             console_emit = True
-        if not ok and not (profile_kind == "empty" and "MissingCapabilityBinding" in rendered):
+        if not ok and not expected_missing_binding:
+            rejected_requests += 1
             unexpected_errors += 1
     elif not ok:
+        rejected_requests += 1
         unexpected_errors += 1
 
 identity_preserved = (
@@ -256,6 +256,7 @@ row = {
     "simulate_effect": str(counts.get("simulateCreateEffect", 0)),
     "simulate_capability": str(counts.get("simulateCreateCapability", 0)),
     "simulate_function": str(counts.get("simulateCreateFunction", 0)),
+    "commits": str(counts.get("commit", 0)),
     "declarations_calls": str(counts.get("declarations", 0)),
     "focus_calls": str(counts.get("focusFunction", 0)),
     "request_bytes": str(request_bytes),
