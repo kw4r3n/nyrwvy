@@ -128,7 +128,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
     [<Fact>]
     let ``C# artifact exposes emitted public symbol manifest`` () =
         let fixture, _, artifact = emitRepresentative ()
-        let find id items =
+        let find (id: 'Id) (items: CSharpSymbol<'Id> list) =
             items
             |> List.find (fun item -> item.Id = id)
             |> fun item -> item.Name
