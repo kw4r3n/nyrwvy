@@ -29,10 +29,10 @@ if (values.help) {
         description: definition.description,
         inputSchema: z.object(definition.args).strict(),
         ...(name === "inspect" ? { annotations: { readOnlyHint: true } } : {}),
-      }, (args, extra) => {
+      }, (args, requestContext) => {
         // Serialize lifecycle calls too: MCP clients may issue tools concurrently.
         const operation = tail.then(async () => {
-          const signal = AbortSignal.any([lifetime.signal, extra.signal])
+          const signal = AbortSignal.any([lifetime.signal, requestContext.mcpReq.signal])
           signal.throwIfAborted()
           const text = await definition.execute(args, { ...context, abort: signal })
           let value
