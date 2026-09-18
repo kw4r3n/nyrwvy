@@ -54,6 +54,20 @@ module internal WireEncode =
               "removedNodes", value.RemovedNodes |> List.map nodeSummary |> arrayValue
               "addedNodes", value.AddedNodes |> List.map nodeSummary |> arrayValue ]
 
+    let private compactBodyDiff (value: FunctionBodyReplacementDiff) =
+        objectValue
+            [ "ownerFunctionId", box (StableId.value value.OwnerFunctionId)
+              "oldResultNodeId", box (StableId.value value.OldResultNodeId)
+              "newResultNodeId", box (StableId.value value.NewResultNodeId)
+              "removedNodeIds",
+                value.RemovedNodes
+                |> List.map (fun item -> box (StableId.value item.NodeId))
+                |> arrayValue
+              "addedNodeIds",
+                value.AddedNodes
+                |> List.map (fun item -> box (StableId.value item.NodeId))
+                |> arrayValue ]
+
     let private targetDiff (value: AgentExpressionStructuralWorkflow.Targeted.ReplacementDiff) =
         objectValue
             [ "ownerFunctionId", box (StableId.value value.OwnerFunctionId)
@@ -130,9 +144,8 @@ module internal WireEncode =
                     [ "kind", box "replaceBody"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "diff", bodyDiff item.ResultingChange
-                      "baseFocus", focus item.BaseFocus
-                      "proposedFocus", focus item.ProposedFocus ]
+                      "diff", compactBodyDiff item.ResultingChange
+                      "proposedFunction", functionEntity item.ProposedFocus.Function ]
             | AuthoringProposalReview.ReplaceTarget item ->
                 objectValue
                     [ "kind", box "replaceTarget"
