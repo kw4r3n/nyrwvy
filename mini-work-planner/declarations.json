@@ -1,0 +1,243 @@
+{
+  "functions": [
+    {
+      "id": "01a0b47e-2f60-7990-8ccb-d2bb808c5bb6",
+      "displayName": "can_retry",
+      "parameters": [
+        {
+          "id": "01a0b47e-2f60-78af-a902-a140315111bb",
+          "displayName": "attempts",
+          "type": {
+            "kind": "primitive",
+            "primitive": "int64"
+          }
+        },
+        {
+          "id": "01a0b47e-2f60-7c65-8643-6d76ff29e406",
+          "displayName": "maxAttempts",
+          "type": {
+            "kind": "primitive",
+            "primitive": "int64"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "primitive",
+        "primitive": "bool"
+      },
+      "requiredEffects": []
+    },
+    {
+      "id": "01a0b47e-adcf-7f06-803c-4161bf607760",
+      "displayName": "next_action",
+      "parameters": [
+        {
+          "id": "01a0b47e-adcf-73bf-8f59-ce99592bbf06",
+          "displayName": "item",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b47d-e0d2-782d-be1e-005437c80441"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "named",
+        "typeId": "01a0b47e-0520-73e0-825f-b2865b2d6f67"
+      },
+      "requiredEffects": []
+    },
+    {
+      "id": "01a0b47e-e891-7328-b978-efe6ab27f911",
+      "displayName": "action_label",
+      "parameters": [
+        {
+          "id": "01a0b47e-e891-7e17-9e70-3ff5f260abe7",
+          "displayName": "action",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b47e-0520-73e0-825f-b2865b2d6f67"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "primitive",
+        "primitive": "string"
+      },
+      "requiredEffects": []
+    }
+  ],
+  "types": [
+    {
+      "id": "01a0b47d-678a-753f-83b9-c8ef6fb7be04",
+      "displayName": "PrerequisiteState",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b47d-6789-7345-a14c-12320786bb2e",
+            "displayName": "Ready",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-678a-7238-a332-8b78fdb3b353",
+            "displayName": "Waiting",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-678a-7e1f-9e1d-3cd22b46b50c",
+            "displayName": "Failed",
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b47d-8ca6-7384-a7f5-58eb9d8fef8c",
+      "displayName": "ExecutionState",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b47d-8ca6-7618-baff-af79f6ae6ab7",
+            "displayName": "NotStarted",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-8ca6-7853-bffb-705280ff6589",
+            "displayName": "Running",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-8ca6-7c7c-b9f0-0223d514a912",
+            "displayName": "Succeeded",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-8ca6-7def-a939-26cd254d9fe1",
+            "displayName": "Failed",
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b47d-b387-7f63-b621-44bba320b392",
+      "displayName": "ValidationState",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b47d-b387-7226-9eaf-78d15c5709c5",
+            "displayName": "Pending",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-b387-72a9-90b4-6d8d465a44f7",
+            "displayName": "Passed",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-b387-73a5-9234-f297149fee2d",
+            "displayName": "NotRequired",
+            "fields": []
+          },
+          {
+            "id": "01a0b47d-b387-7e39-85f7-a923ee72fc85",
+            "displayName": "Failed",
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b47d-e0d2-782d-be1e-005437c80441",
+      "displayName": "WorkItem",
+      "typeKind": {
+        "kind": "product",
+        "fields": [
+          {
+            "id": "01a0b47d-e0d2-71a8-8f9c-da0c0875ed8d",
+            "displayName": "validation",
+            "type": {
+              "kind": "named",
+              "typeId": "01a0b47d-b387-7f63-b621-44bba320b392"
+            }
+          },
+          {
+            "id": "01a0b47d-e0d2-742e-b0f3-681f60f22bf2",
+            "displayName": "maxAttempts",
+            "type": {
+              "kind": "primitive",
+              "primitive": "int64"
+            }
+          },
+          {
+            "id": "01a0b47d-e0d2-75fd-80c4-840328d931b6",
+            "displayName": "prerequisites",
+            "type": {
+              "kind": "named",
+              "typeId": "01a0b47d-678a-753f-83b9-c8ef6fb7be04"
+            }
+          },
+          {
+            "id": "01a0b47d-e0d2-7b45-bbd0-42c0e0344e94",
+            "displayName": "attempts",
+            "type": {
+              "kind": "primitive",
+              "primitive": "int64"
+            }
+          },
+          {
+            "id": "01a0b47d-e0d2-7ea4-8b05-ad6ffc6e4931",
+            "displayName": "execution",
+            "type": {
+              "kind": "named",
+              "typeId": "01a0b47d-8ca6-7384-a7f5-58eb9d8fef8c"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b47e-0520-73e0-825f-b2865b2d6f67",
+      "displayName": "NextAction",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b47e-0520-703a-ac4e-a41b5e01d262",
+            "displayName": "Start",
+            "fields": []
+          },
+          {
+            "id": "01a0b47e-0520-704d-b3f8-c690b8fd4b65",
+            "displayName": "Wait",
+            "fields": []
+          },
+          {
+            "id": "01a0b47e-0520-760a-b4f7-55dbf80663a1",
+            "displayName": "Validate",
+            "fields": []
+          },
+          {
+            "id": "01a0b47e-0520-771b-bdb6-65140cdee40d",
+            "displayName": "NeedsHuman",
+            "fields": []
+          },
+          {
+            "id": "01a0b47e-0520-775d-99c0-20b950087fd5",
+            "displayName": "Complete",
+            "fields": []
+          },
+          {
+            "id": "01a0b47e-0520-783d-8234-5ef095c4be37",
+            "displayName": "Retry",
+            "fields": []
+          }
+        ]
+      }
+    }
+  ],
+  "effects": [],
+  "capabilities": []
+}
