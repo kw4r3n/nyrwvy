@@ -1,6 +1,6 @@
 using System;
 using System.Globalization;
-using NyamNyam.Generated;
+using Nyrwvy.Generated;
 
 internal static class Program
 {

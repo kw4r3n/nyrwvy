@@ -25,7 +25,7 @@ test("shared JSONL validation rejects line smuggling and non-object JSON", () =>
 })
 
 test("shared artifact-root validation rejects worktree containment", () => {
-  const worktree = join(tmpdir(), `nyamnyam-shared-eval-worktree-${randomUUID()}`)
+  const worktree = join(tmpdir(), `nyrwvy-shared-eval-worktree-${randomUUID()}`)
   const messages = {
     rootMustBeAbsolute: "root absolute",
     worktreeMustBeAbsolute: "worktree absolute",

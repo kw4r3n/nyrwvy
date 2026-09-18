@@ -6,7 +6,7 @@
 - **Current baseline:** `main` after completion of the first bounded M5 evolution slice
 - **Purpose:** Record what M3-M5 established and define the evidence-triggered boundary for later work.
 
-This document began as the post-M2 proposal for moving NyamNyam from bounded structural editing toward ordinary AI authoring. M3, M4, and the first M5 slice are now implemented and verified. The roadmap therefore no longer treats those stages as future work.
+This document began as the post-M2 proposal for moving Nyrwvy from bounded structural editing toward ordinary AI authoring. M3, M4, and the first M5 slice are now implemented and verified. The roadmap therefore no longer treats those stages as future work.
 
 Existing specifications and accepted decisions remain authoritative for exact contracts. This document records milestone outcomes, selection criteria, and conditions for opening later work. It does not create release dates, require broad benchmark programs, or pre-authorize external resources.
 

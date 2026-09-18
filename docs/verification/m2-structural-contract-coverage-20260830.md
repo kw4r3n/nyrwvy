@@ -8,7 +8,7 @@ It is deterministic implementation/regression evidence, not a controlled model-e
 
 ## Exact verification
 
-- Repository: `kw4r3n/nyamnyam-lang`
+- Repository: `kw4r3n/nyrwvy-lang`
 - Issue: #48
 - PR: #55
 - Exact verified head: `6cb432bef4f0764c6bb18d648a5dd547e3051b2d`

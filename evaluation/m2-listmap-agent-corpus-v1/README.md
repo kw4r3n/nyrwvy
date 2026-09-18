@@ -9,7 +9,7 @@ This corpus is **separate from** the completed Float64 `m2-agent-corpus-v1`. The
 ```text
 corpus:   m2-listmap-agent-corpus-v1
 protocol: m2-listmap-structural-v1
-runner:   tools/NyamNyam.AgentEval.ListMapStructural
+runner:   tools/Nyrwvy.AgentEval.ListMapStructural
 ```
 
 The freeze SHA is recorded only after clean local verification. Once a freeze branch is created, task prompts, fixture bindings, expected diagnostics, behavior oracles, and sampling discipline are immutable for v1.

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Nyrwvy.Core/CSharpBackendModel.fs" Link="CSharpBackendModel.fs" />
+    <Compile Include="../Nyrwvy.Core/CSharpBackendValidation.fs" Link="CSharpBackendValidation.fs" />
+    <Compile Include="../Nyrwvy.Core/CSharpBackendEmitter.fs" Link="CSharpBackendEmitter.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <ProjectReference Include="../Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
+  </ItemGroup>
+</Project>

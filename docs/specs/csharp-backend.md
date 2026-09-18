@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-The C# backend is a downstream execution backend. It must preserve NyamNyam semantic and Execution IR contracts without becoming an alternative source of program meaning.
+The C# backend is a downstream execution backend. It must preserve Nyrwvy semantic and Execution IR contracts without becoming an alternative source of program meaning.
 
 ## Input boundary
 
@@ -67,7 +67,7 @@ Generated C# is a build artifact.
 
 - it is not an editable upstream source;
 - it does not define semantic identity;
-- it does not define NyamNyam numeric or collection semantics;
+- it does not define Nyrwvy numeric or collection semantics;
 - it does not become a persistence format;
 - backend limitations do not justify silently changing the semantic graph.
 

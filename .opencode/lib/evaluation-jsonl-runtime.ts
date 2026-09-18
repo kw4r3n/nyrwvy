@@ -336,7 +336,7 @@ export function createPersistentEvaluationRuntime(config: EvaluationRuntimeConfi
       const inputPath = join(artifactDirectory, "fixture.json")
 
       const fixtureExporterProject =
-        config.fixtureExporterProject ?? "tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj"
+        config.fixtureExporterProject ?? "tools/Nyrwvy.EvaluationFixtureExport/Nyrwvy.EvaluationFixtureExport.fsproj"
       await runCommand(
         "dotnet",
         ["run", "--project", fixtureExporterProject, "--no-restore", "--", "--fixture", fixture, "--output", inputPath],

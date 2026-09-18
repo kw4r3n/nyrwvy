@@ -28,7 +28,7 @@ A partial or blocked class must not be reported as covered merely because the un
 
 ## Common run contract
 
-Unless a task overrides a rule, every NyamNyam Mode A run uses these conditions:
+Unless a task overrides a rule, every Nyrwvy Mode A run uses these conditions:
 
 1. Start from the recorded repository revision and a newly created fixture snapshot.
 2. Give the agent only the supported agent-facing query/edit tools for the run condition. Do not expose raw `Snapshot` replacement or raw JSON/Nyason mutation.

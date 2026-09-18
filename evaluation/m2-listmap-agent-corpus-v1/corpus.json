@@ -2,8 +2,8 @@
   "corpusId": "m2-listmap-agent-corpus-v1",
   "status": "frozen-on-freeze-branch",
   "protocolVersion": "m2-listmap-structural-v1",
-  "agentExecutable": "tools/NyamNyam.AgentEval.ListMapStructural",
-  "fixtureExporter": "tools/NyamNyam.EvaluationFixtureExport",
+  "agentExecutable": "tools/Nyrwvy.AgentEval.ListMapStructural",
+  "fixtureExporter": "tools/Nyrwvy.EvaluationFixtureExport",
   "samplingPlan": {
     "model": "openai/gpt-5.6-terra",
     "reasoning": "high",

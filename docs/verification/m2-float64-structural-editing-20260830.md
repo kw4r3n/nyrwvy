@@ -8,7 +8,7 @@ It supports the current [bounded structural editing specification](../specs/boun
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyamnyam-lang`
+- Repository: `kw4r3n/nyrwvy-lang`
 - Implementation issue: #44
 - Implementation PR: #46
 - Exact verified implementation head: `1e1025074a87ed669366169ecc39318abf6167e7`
@@ -51,7 +51,7 @@ VERIFICATION PASSED
 The verification log path on the validating machine was:
 
 ```text
-/tmp/nyamnyam-verification/local-verify-20260830-055004.log
+/tmp/nyrwvy-verification/local-verify-20260830-055004.log
 ```
 
 The path itself is host-local and is recorded only as execution context; the durable facts are summarized here.

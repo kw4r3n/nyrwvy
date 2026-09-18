@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Run one bounded medium-scale authoring and evolution workload through the maintained `NyamNyam.AuthoringSession` to determine whether a concrete M6 pressure is now observable.
+Run one bounded medium-scale authoring and evolution workload through the maintained `Nyrwvy.AuthoringSession` to determine whether a concrete M6 pressure is now observable.
 
 This is not a new milestone gate or reliability benchmark. A successful run with no decision-relevant friction is a valid result and should not cause speculative M6 infrastructure work.
 

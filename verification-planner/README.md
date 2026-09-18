@@ -15,7 +15,7 @@ dotnet run --project verification-planner/runner -- EvaluationHarness --environm
 
 出力は順に `fast tests のみ`、`fast + extended`、`fast + live`、`fast + extended + live`。
 
-領域名: `Documentation`, `Semantics`, `AuthoringProtocol`, `Backend`, `Persistence`, `EvaluationHarness`, `CI`。大文字・小文字を区別せず、カンマで複数指定できます。`--agent`, `--environment`, `--regression` はそれぞれ Bool 入力です。CLI は入出力アダプターにすぎず、判定は生成された NyamNyam 関数が行います。
+領域名: `Documentation`, `Semantics`, `AuthoringProtocol`, `Backend`, `Persistence`, `EvaluationHarness`, `CI`。大文字・小文字を区別せず、カンマで複数指定できます。`--agent`, `--environment`, `--regression` はそれぞれ Bool 入力です。CLI は入出力アダプターにすぎず、判定は生成された Nyrwvy 関数が行います。
 
 ```sh
 dotnet run --project verification-planner/runner -- --test --maintained

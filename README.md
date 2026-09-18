@@ -1,12 +1,12 @@
-# NyamNyam
+# Nyrwvy
 
-**NyamNyam is an AI-native semantic programming system in which programs are persistent typed semantic graphs and changes are validated meaning-level operations.**
+**Nyrwvy is an AI-native semantic programming system in which programs are persistent typed semantic graphs and changes are validated meaning-level operations.**
 
 Source text is not the authoritative program form. Stable semantic identity, relationships, validation, change review, and unresolved work are represented explicitly so AI agents can make typed semantic changes without reconstructing program meaning from text, while humans can review what was requested and what will actually change.
 
 ## Current status
 
-NyamNyam is an active research and implementation project.
+Nyrwvy is an active research and implementation project.
 
 - **Milestone 0 is complete:** the graph-first architecture has passed an end-to-end lifecycle from persistence through reviewed editing and generated execution.
 - **Milestone 1 is complete for the accepted bounded-operation claim:** production stable IDs, fingerprints, reviewed publication, physical assembly boundaries, `Int64`, immutable ordered `List<T>`, pure higher-order List operations, explicit IEEE 754 binary64 `Float64`, and controlled agent-evaluation evidence are in place.
@@ -53,7 +53,7 @@ The repository uses the .NET 10 SDK. Routine development and routine CI use the 
 Equivalent direct invocation:
 
 ```shell
-dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
+dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
 ```
 
 Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification.
@@ -87,4 +87,4 @@ Historical and superseded material is kept separately under [`docs-archive/`](do
 
 ## Relationship to RAST
 
-NyamNyam is informed by earlier RAST work, but RAST is not a runtime, semantic, or design-authority dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).
+Nyrwvy is informed by earlier RAST work, but RAST is not a runtime, semantic, or design-authority dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).

@@ -2,9 +2,9 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj"
-set -l model "$NYAMNYAM_M5_MIGRATION_EVAL_MODEL"
-set -l variant "$NYAMNYAM_M5_MIGRATION_EVAL_VARIANT"
+set -l project "$repo_root/tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj"
+set -l model "$NYRWVY_M5_MIGRATION_EVAL_MODEL"
+set -l variant "$NYRWVY_M5_MIGRATION_EVAL_VARIANT"
 
 if test -z "$model"
     set model opencode/muse-spark-1.3-contributor-free
@@ -23,7 +23,7 @@ end
 
 if not opencode models | string match -q -- "*$model*"
     echo "ERROR: model '$model' is not available to OpenCode." >&2
-    echo "Set NYAMNYAM_M5_MIGRATION_EVAL_MODEL to another available model if needed." >&2
+    echo "Set NYRWVY_M5_MIGRATION_EVAL_MODEL to another available model if needed." >&2
     exit 1
 end
 
@@ -32,11 +32,11 @@ dotnet build "$project" --configuration Release
 or exit $status
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l result_root "$HOME/.local/share/nyamnyam/m5-parameter-migration-exploratory/$stamp"
+set -l result_root "$HOME/.local/share/nyrwvy/m5-parameter-migration-exploratory/$stamp"
 mkdir -p "$result_root"
 or exit 1
 # The existing bounded authoring bridge owns this result-root variable.
-set -gx NYAMNYAM_M4_AUTHORING_RESULT_ROOT "$result_root"
+set -gx NYRWVY_M4_AUTHORING_RESULT_ROOT "$result_root"
 
 set -l repository_revision (git rev-parse HEAD)
 set -l opencode_version (opencode --version | string collect)
@@ -44,14 +44,14 @@ printf 'repository_revision=%s\nmodel=%s\nvariant=%s\nopencode_version=%s\nstart
     "$repository_revision" "$model" "$variant" "$opencode_version" (date --iso-8601=seconds) \
     >"$result_root/metadata.txt"
 
-set -l prompt "Work entirely through the maintained NyamNyam authoring session. First author the same bounded validation/reporting program used by the M4 workload: create ValidationOutcome as a union with Accepted(message: String) and Rejected(reason: String); create ConsoleOutput; create Console.write_line(text: String) -> Unit associated with ConsoleOutput; create pure classify(input: String) -> ValidationOutcome that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise; create process(input: String, console: Console) -> Unit requiring ConsoleOutput, calling classify, matching both variants, and sending the bound message/reason to write_line. Review and commit each proposal and rediscover published IDs rather than inventing them. Then evolve this existing program in place: create and commit a product type ValidationRequest with email: String. Use simulateParameterTypeMigration to change the existing classify input parameter from String to ValidationRequest while preserving the existing classify FunctionId and that existing input ParameterId. Its replacement body must read ValidationRequest.email and retain the same contains-@ conditional and Accepted/Rejected behavior. Supply the complete process caller rewrite in the same migration proposal: preserve process itself and its current signature, construct ValidationRequest from process's existing String input, pass that product to the migrated classify, and retain the existing union match plus Console.write_line behavior. Review the migration parameterChange, complete affectedCallSites, and bodyRewrites before committing it. After commit, rediscover declarations and explicitly verify that classify's FunctionId and input ParameterId are unchanged and the input type is now ValidationRequest, and that process's FunctionId is unchanged. Only after the migration is committed, restart the maintained session exactly once, rediscover the same persisted identities and migrated type, confirm execution readiness, confirm empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding for the authored operation. Do not use emitted C# as semantic authoring authority. Finalize after these checks, and report any rejected request/retry or concrete protocol friction."
+set -l prompt "Work entirely through the maintained Nyrwvy authoring session. First author the same bounded validation/reporting program used by the M4 workload: create ValidationOutcome as a union with Accepted(message: String) and Rejected(reason: String); create ConsoleOutput; create Console.write_line(text: String) -> Unit associated with ConsoleOutput; create pure classify(input: String) -> ValidationOutcome that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise; create process(input: String, console: Console) -> Unit requiring ConsoleOutput, calling classify, matching both variants, and sending the bound message/reason to write_line. Review and commit each proposal and rediscover published IDs rather than inventing them. Then evolve this existing program in place: create and commit a product type ValidationRequest with email: String. Use simulateParameterTypeMigration to change the existing classify input parameter from String to ValidationRequest while preserving the existing classify FunctionId and that existing input ParameterId. Its replacement body must read ValidationRequest.email and retain the same contains-@ conditional and Accepted/Rejected behavior. Supply the complete process caller rewrite in the same migration proposal: preserve process itself and its current signature, construct ValidationRequest from process's existing String input, pass that product to the migrated classify, and retain the existing union match plus Console.write_line behavior. Review the migration parameterChange, complete affectedCallSites, and bodyRewrites before committing it. After commit, rediscover declarations and explicitly verify that classify's FunctionId and input ParameterId are unchanged and the input type is now ValidationRequest, and that process's FunctionId is unchanged. Only after the migration is committed, restart the maintained session exactly once, rediscover the same persisted identities and migrated type, confirm execution readiness, confirm empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding for the authored operation. Do not use emitted C# as semantic authoring authority. Finalize after these checks, and report any rejected request/retry or concrete protocol friction."
 
 set -l stdout_log "$result_root/agent.jsonl"
 set -l stderr_log "$result_root/agent.stderr.log"
 
 echo "[m5-migration-eval] running one bounded M4 -> M5 exploratory attempt"
 opencode --print-logs --log-level INFO run \
-    --agent nyamnyam-m4-authoring-eval \
+    --agent nyrwvy-m4-authoring-eval \
     --model "$model" \
     --variant "$variant" \
     --format json \

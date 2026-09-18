@@ -95,7 +95,7 @@ The ordinary agent-facing surface does not expose raw snapshot replacement, raw 
 ## Accepted dependency boundary
 
 ```text
-NyamNyam.Semantics
+Nyrwvy.Semantics
       ^        ^
       |        |
 Execution    Viewer

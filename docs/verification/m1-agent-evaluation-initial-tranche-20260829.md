@@ -7,11 +7,11 @@ This record reports every attempted run for the first `m1-agent-corpus-v1` tranc
 ## Evaluation setup
 
 - Corpus: `m1-agent-corpus-v1`.
-- Mode: A - NyamNyam semantic workflow.
+- Mode: A - Nyrwvy semantic workflow.
 - Repository revision: `b0fe4639a91017ac19a1bd33ee70a6c3e691f713` (`feat/issue-34-agent-eval-runner`). This was the checked-out clean revision, not the later main revision named in Issue #36.
 - Run date: 2026-08-29 (local timezone +09:00); per-run wall-clock duration was not captured by runner v1.
-- Fixtures: fresh `m0` or `m1` exports from `NyamNyam.EvaluationFixtureExport` for each session.
-- Runner/tool surface: `NyamNyam.AgentEval` at the repository revision above, JSON Lines stdin/stdout protocol (`state`, bounded queries, `simulate`, reviewed `commit`/`commitAllowIncomplete`, and `reject`).
+- Fixtures: fresh `m0` or `m1` exports from `Nyrwvy.EvaluationFixtureExport` for each session.
+- Runner/tool surface: `Nyrwvy.AgentEval` at the repository revision above, JSON Lines stdin/stdout protocol (`state`, bounded queries, `simulate`, reviewed `commit`/`commitAllowIncomplete`, and `reject`).
 - Protocol preflight operator: `openai/gpt-5.6-terra` in the evaluator session, runtime-default reasoning configuration. This operator had read the frozen corpus/oracles as required of the evaluator, so the preflight is not autonomous agent evidence.
 - Autonomous trial agent model: unavailable. OpenCode's delegated-task runtime did not emit a model identifier or reasoning budget for individual agents, so same-model control cannot be verified.
 - Provider/runtime: OpenCode API tool-calling session and fresh OpenCode delegated-task contexts.
@@ -26,7 +26,7 @@ The runner condition is named **condition v1**. The preflight and fresh-agent tr
 
 The v1 runner exposes the final workspace identity, fingerprints, Change Review diff, readiness, and bounded semantic queries. It does **not** expose a harness-owned verification/export command for lowering, backend build, or behavioral execution from the exact dynamically committed snapshot. The general implementation suite proves that path, including `AgentExecutionTests`, but cannot prove it for these UUIDv7-allocated run snapshots.
 
-Consequently, the semantic portions of the frozen oracles below are mechanically verified. Oracle rows that require exact committed-state lowering/execution are `ambiguous`, not assumed to pass from agent prose or from the general test suite. This is tracked separately in [Issue #37](https://github.com/kw4r3n/nyamnyam-lang/issues/37). A subsequent runner condition must be versioned rather than retroactively changing condition v1.
+Consequently, the semantic portions of the frozen oracles below are mechanically verified. Oracle rows that require exact committed-state lowering/execution are `ambiguous`, not assumed to pass from agent prose or from the general test suite. This is tracked separately in [Issue #37](https://github.com/kw4r3n/nyrwvy-lang/issues/37). A subsequent runner condition must be versioned rather than retroactively changing condition v1.
 
 ## Run summary
 
@@ -292,7 +292,7 @@ Token input/output counts, focused context byte/entity counts, exact model/reaso
 - Add harness-owned exact committed-state validation/export evidence, tracked in #37. Without it, final lowering/build/execution oracle rows cannot be mechanically closed for a recorded session.
 - Make runner metric output include focused entity/byte counts and durable per-run event artifacts. The current counters cover calls but not context cost.
 - Consider automatically invalidating or explicitly retiring a proposal after stale commit rejection. E5's final state retained stale `proposal-1`, which is harmless but leaves avoidable protocol state for clients to manage.
-- Provide a supported persistent client or session protocol adapter for multi-step agent integrations, tracked in [Issue #38](https://github.com/kw4r3n/nyamnyam-lang/issues/38). Three fresh agents abandoned a reviewed proposal when their shell driver restarted the line-oriented process; this is a tool-integration failure, not semantic reasoning evidence.
+- Provide a supported persistent client or session protocol adapter for multi-step agent integrations, tracked in [Issue #38](https://github.com/kw4r3n/nyrwvy-lang/issues/38). Three fresh agents abandoned a reviewed proposal when their shell driver restarted the line-oriented process; this is a tool-integration failure, not semantic reasoning evidence.
 
 ### Investigate
 
@@ -325,7 +325,7 @@ At the time of this readiness note, no condition-v2 model run had been recorded.
 
 ## Controlled condition v2 attempts and v2.1 pre-integration tranche
 
-The following runs use the persistent OpenCode adapter and fresh fixtures. The v2.1 runs occurred at historical branch revision `41d60b4` before the infrastructure reached `main`; that revision is preserved locally by `eval-condition-v2.1-pre-rebase-20260830`. They are controlled pre-integration evidence, not the post-main-integration fixed-revision tranche. All artifacts are durable, terminal, and private under `/home/kw4/.local/share/nyamnyam/evaluation-runs/`; each cited session directory contains `events.jsonl`, metrics, metadata, final state, and, after a ready commit, exact committed-workspace Typed Semantic IR, Execution IR, generated C#, compiler/execution outputs, and `verification.json`.
+The following runs use the persistent OpenCode adapter and fresh fixtures. The v2.1 runs occurred at historical branch revision `41d60b4` before the infrastructure reached `main`; that revision is preserved locally by `eval-condition-v2.1-pre-rebase-20260830`. They are controlled pre-integration evidence, not the post-main-integration fixed-revision tranche. All artifacts are durable, terminal, and private under `/home/kw4/.local/share/nyrwvy/evaluation-runs/`; each cited session directory contains `events.jsonl`, metrics, metadata, final state, and, after a ready commit, exact committed-workspace Typed Semantic IR, Execution IR, generated C#, compiler/execution outputs, and `verification.json`.
 
 All runs requested and recorded model `openai/gpt-5.6-terra`, provider/runtime `opencode`, prompt revision `m1-agent-corpus-v1`, and the stated tool revision. OpenCode did not report a reasoning configuration, so it is recorded as `unavailable` rather than inferred.
 
@@ -403,7 +403,7 @@ This establishes a 12/15 task-correct post-main result across the currently expr
 
 ### Per-run durable evidence
 
-Each identifier below is relative to the private artifact root `/home/kw4/.local/share/nyamnyam/evaluation-runs/`. All runs started from the documented fixture snapshot, have a terminal `run-state.json`, a finalized `metrics.json`, `events.jsonl`, `run-metadata.json`, and a `verification-*/verification.json` with status `passed`. `c/q/s/ca` means tool calls, bounded queries, simulations, and accepted commits; E5's `r1` is its required stale commit rejection.
+Each identifier below is relative to the private artifact root `/home/kw4/.local/share/nyrwvy/evaluation-runs/`. All runs started from the documented fixture snapshot, have a terminal `run-state.json`, a finalized `metrics.json`, `events.jsonl`, `run-metadata.json`, and a `verification-*/verification.json` with status `passed`. `c/q/s/ca` means tool calls, bounded queries, simulations, and accepted commits; E5's `r1` is its required stale commit rejection.
 
 | Run | Artifact session | Outcome | c/q/s/ca | Oracle and verification |
 | --- | --- | --- | ---: | --- |

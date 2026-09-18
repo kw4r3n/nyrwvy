@@ -4,7 +4,7 @@
 
 This document defines the original controlled execution condition for the already frozen `m2-agent-corpus-v1`. It does not modify the corpus, its task oracles, or the agent-visible `m2-structural-v1` protocol.
 
-Condition v1 passed repository-local .NET/Bun verification, but that verification did not prove that plugin-registered custom tools appeared in a real OpenCode `run` model tool list. In the first corrected Stage A collection, all ten OpenCode sessions loaded this agent's instructions but none exposed a callable `nyamnyam_structural_eval_*` tool; no harness run directory was created. Those attempts are retained as invalid-condition evidence and are not semantic task results.
+Condition v1 passed repository-local .NET/Bun verification, but that verification did not prove that plugin-registered custom tools appeared in a real OpenCode `run` model tool list. In the first corrected Stage A collection, all ten OpenCode sessions loaded this agent's instructions but none exposed a callable `nyrwvy_structural_eval_*` tool; no harness run directory was created. Those attempts are retained as invalid-condition evidence and are not semantic task results.
 
 ## Frozen inputs
 
@@ -22,39 +22,39 @@ The controlled harness may add private evidence and startup configuration. It ma
 Before exporting a run fixture, the OpenCode bridge executes a Git comparison against the exact frozen corpus SHA. The following current-checkout inputs must be byte-for-byte unchanged relative to that revision:
 
 - `evaluation/m2-agent-corpus-v1/`;
-- `tests/NyamNyam.Core.Tests/M2StructuralEvaluationCorpus.fs`;
-- `tools/NyamNyam.EvaluationFixtureExport/Program.fs`;
-- `tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj`.
+- `tests/Nyrwvy.Core.Tests/M2StructuralEvaluationCorpus.fs`;
+- `tools/Nyrwvy.EvaluationFixtureExport/Program.fs`;
+- `tools/Nyrwvy.EvaluationFixtureExport/Nyrwvy.EvaluationFixtureExport.fsproj`.
 
 A drifted corpus, fixture source, or exporter therefore prevents the controlled session from starting rather than silently evaluating a different input while claiming v1.
 
 ## OpenCode boundary
 
-The project-local `nyamnyam-structural-eval` agent denies the inherited tool surface and explicitly permits only:
+The project-local `nyrwvy-structural-eval` agent denies the inherited tool surface and explicitly permits only:
 
-- `nyamnyam_structural_eval_start`;
-- `nyamnyam_structural_eval_request`;
-- `nyamnyam_structural_eval_finalize`.
+- `nyrwvy_structural_eval_start`;
+- `nyrwvy_structural_eval_request`;
+- `nyrwvy_structural_eval_finalize`.
 
 The evaluated agent cannot inspect repository files, tests, corpus/oracle files, raw fixture snapshots, prior results, or artifact paths.
 
 The harness selects the task and fixture through environment configuration. The agent's first runner request must be `describeV1`; it discovers the exact command and recipe schema from the frozen runner response rather than receiving a pre-expanded structural command schema in its system instructions.
 
-One OpenCode agent session is intended to map to one persistent `NyamNyam.AgentEval.Structural` process. Opaque proposal handles therefore remain valid across query, simulation, review, commit/reject, stale recovery, and finalization once the bridge tool is actually available.
+One OpenCode agent session is intended to map to one persistent `Nyrwvy.AgentEval.Structural` process. Opaque proposal handles therefore remain valid across query, simulation, review, commit/reject, stale recovery, and finalization once the bridge tool is actually available.
 
 ## Harness-owned startup configuration
 
 For a recorded run the operator sets, at minimum:
 
 ```text
-NYAMNYAM_STRUCTURAL_EVAL_TASK_ID=M2-E<task>
-NYAMNYAM_STRUCTURAL_EVAL_FIXTURE=<frozen fixture>
-NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION=<exact version>
-NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION=<exact revision>
-NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION=<exact condition revision>
+NYRWVY_STRUCTURAL_EVAL_TASK_ID=M2-E<task>
+NYRWVY_STRUCTURAL_EVAL_FIXTURE=<frozen fixture>
+NYRWVY_STRUCTURAL_EVAL_OPENCODE_VERSION=<exact version>
+NYRWVY_STRUCTURAL_EVAL_PROMPT_REVISION=<exact revision>
+NYRWVY_STRUCTURAL_EVAL_TOOL_REVISION=<exact condition revision>
 ```
 
-`NYAMNYAM_STRUCTURAL_EVAL_ARTIFACT_ROOT` may override the default private artifact root, but it must be an absolute path outside the evaluation worktree.
+`NYRWVY_STRUCTURAL_EVAL_ARTIFACT_ROOT` may override the default private artifact root, but it must be an absolute path outside the evaluation worktree.
 
 The bridge records the checked-out repository revision itself. Condition v1 attempted to capture model/provider/runtime/reasoning metadata from the OpenCode `chat.message` plugin hook.
 

@@ -4,7 +4,7 @@
 
 ## Mission
 
-NyamNyam exists to make program understanding and program change safer and more effective for AI agents while remaining inspectable and governable by humans.
+Nyrwvy exists to make program understanding and program change safer and more effective for AI agents while remaining inspectable and governable by humans.
 
 It is not primarily a textual programming language with AI assistance added around it. Its authoritative form is a persistent typed semantic graph. Agents interact with that graph through semantic queries and validated semantic operations; humans review structure, consequences, unresolved decisions, and execution behavior through semantic projections.
 
@@ -22,7 +22,7 @@ That reconstruction creates recurring failure modes:
 - review measures textual churn instead of semantic consequence;
 - context is spent rediscovering facts the compiler or graph already knows.
 
-NyamNyam makes semantic identity, relationships, constraints, changes, and unresolved work explicit parts of the program model.
+Nyrwvy makes semantic identity, relationships, constraints, changes, and unresolved work explicit parts of the program model.
 
 ## Priority order
 
@@ -36,7 +36,7 @@ Evaluate design choices in this order:
 6. **Human understanding and supervision** — a person can understand structure, proposed changes, impact, and unresolved obligations.
 7. **Direct human authoring convenience** — useful when available, but not a leading constraint on the core representation.
 
-This priority order is about the semantic model, not a rule that narrower agent authority is always better. Current bounded operations and protocols are implementation strategies whose value must be judged against NyamNyam's own goals and evidence.
+This priority order is about the semantic model, not a rule that narrower agent authority is always better. Current bounded operations and protocols are implementation strategies whose value must be judged against Nyrwvy's own goals and evidence.
 
 ## Foundational principles
 
@@ -74,13 +74,13 @@ Core semantics are defined independently of C#, Rust, Kotlin, or another backend
 
 Missing, ambiguous, unsupported, or unresolved meaning must not be silently repaired merely to keep processing moving. Behavior that violates an explicit semantic contract or authority boundary must still reject. Use structured diagnostics or explicit obligations when appropriate.
 
-This is not a blanket instruction to reject capable operations or minimize agent authority. When semantics are explicit, validated, and reviewable, enabling useful work is preferable to additional restriction that does not protect a concrete NyamNyam invariant.
+This is not a blanket instruction to reject capable operations or minimize agent authority. When semantics are explicit, validated, and reviewable, enabling useful work is preferable to additional restriction that does not protect a concrete Nyrwvy invariant.
 
 ## Design authority and provisional mechanisms
 
-NyamNyam distinguishes three kinds of design material so that implementation history and evaluation machinery do not become accidental core principles.
+Nyrwvy distinguishes three kinds of design material so that implementation history and evaluation machinery do not become accidental core principles.
 
-### Core NyamNyam principles
+### Core Nyrwvy principles
 
 These define the project unless deliberately reconsidered:
 
@@ -106,11 +106,11 @@ A strategy should be retained while it provides clarity or evidence. It should n
 
 ### Evaluation and research infrastructure
 
-Controlled corpora, frozen conditions, protocol revisions, orchestrators, model-run metrics, and historical replay support exist to produce trustworthy evidence. They are downstream consumers of NyamNyam's design.
+Controlled corpora, frozen conditions, protocol revisions, orchestrators, model-run metrics, and historical replay support exist to produce trustworthy evidence. They are downstream consumers of Nyrwvy's design.
 
 Evaluation can reveal a weakness and motivate a design change, but incidental behavior of an evaluation harness or frozen historical protocol does not become semantic authority. Compatibility needed only to preserve historical evidence belongs in the evaluation layer.
 
-Practices from RAST or other projects may inspire NyamNyam, but they require a NyamNyam-specific justification. Prior use elsewhere is evidence to consider, not authority.
+Practices from RAST or other projects may inspire Nyrwvy, but they require a Nyrwvy-specific justification. Prior use elsewhere is evidence to consider, not authority.
 
 ## Evidence already earned
 
@@ -128,7 +128,7 @@ M1 and M2 provide evidence that, under the tested conditions, agents can success
 
 That evidence can be reused while its assumptions remain materially unchanged. Adding another semantic role that follows the same established interaction model does not by itself require another large controlled model tranche.
 
-A new experimental evaluation is justified when NyamNyam introduces a materially new hypothesis: for example substantially broader structural authoring authority, a different interaction model, new conflict/merge semantics, or another change that could invalidate the evidence above.
+A new experimental evaluation is justified when Nyrwvy introduces a materially new hypothesis: for example substantially broader structural authoring authority, a different interaction model, new conflict/merge semantics, or another change that could invalidate the evidence above.
 
 See the [verification philosophy](../developer/verification.md) for how routine, milestone, and experimental validation differ.
 
@@ -146,11 +146,11 @@ Humans express goals and constraints, inspect focused semantic views, review req
 
 ### The system
 
-The NyamNyam toolchain maintains stable identity, validates the graph, applies operations atomically, tracks obligations, produces deterministic projections, and lowers executable snapshots through backend-neutral boundaries.
+The Nyrwvy toolchain maintains stable identity, validates the graph, applies operations atomically, tracks obligations, produces deterministic projections, and lowers executable snapshots through backend-neutral boundaries.
 
 ## Non-goals
 
-NyamNyam is not initially intended to be:
+Nyrwvy is not initially intended to be:
 
 - a conventional text-first language optimized for manual typing;
 - a macro or annotation layer embedded in a host language;
@@ -161,7 +161,7 @@ NyamNyam is not initially intended to be:
 
 ## Success conditions
 
-NyamNyam is succeeding when:
+Nyrwvy is succeeding when:
 
 1. agents can make common cross-cutting changes without locating every textual occurrence;
 2. rename or movement does not require identity reconstruction;
@@ -176,6 +176,6 @@ NyamNyam is succeeding when:
 
 ## Relationship to previous work
 
-NyamNyam is informed by earlier RAST experiments in explicit semantics, conservative validation, effects, `Result`/`Option`, and backend-neutral lowering, but RAST is not a runtime, semantic, or design-authority dependency.
+Nyrwvy is informed by earlier RAST experiments in explicit semantics, conservative validation, effects, `Result`/`Option`, and backend-neutral lowering, but RAST is not a runtime, semantic, or design-authority dependency.
 
 Conceptual ancestry does not require special provenance metadata. When concrete material is directly copied or substantially adapted, use ordinary source attribution. See the [RAST provenance decision](../decisions/rast-provenance.md).

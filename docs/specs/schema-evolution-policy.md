@@ -4,7 +4,7 @@
 
 Accepted policy for Milestone 1 and later schema evolution.
 
-NyamNyam has multiple serialized/public contracts, but none may silently reinterpret old data. Schema evolution is explicit, versioned, and separated from semantic editing.
+Nyrwvy has multiple serialized/public contracts, but none may silently reinterpret old data. Schema evolution is explicit, versioned, and separated from semantic editing.
 
 ## Contracts that require independent versioning
 
@@ -28,8 +28,8 @@ Examples of the existing style:
 
 ```text
 nayamnyam.snapshot.v0
-nyamnyam.typed-semantic-ir.v1
-nyamnyam.execution-ir.v1
+nyrwvy.typed-semantic-ir.v1
+nyrwvy.execution-ir.v1
 ```
 
 Exact naming can evolve, but version identity must be carried by the serialized artifact rather than inferred from filename, Git revision, or parser behavior.

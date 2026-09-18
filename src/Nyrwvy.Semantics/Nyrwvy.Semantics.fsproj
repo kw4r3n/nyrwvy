@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Nyrwvy.Execution" />
+    <InternalsVisibleTo Include="Nyrwvy.Core.Tests" />
+    <InternalsVisibleTo Include="Nyrwvy.Extended.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Nyrwvy.Core/StableId.fs" Link="StableId.fs" />
+    <Compile Include="../Nyrwvy.Core/StableIdAllocator.fs" Link="StableIdAllocator.fs" />
+    <Compile Include="../Nyrwvy.Core/Foundation.fs" Link="Foundation.fs" />
+    <Compile Include="../Nyrwvy.Core/SemanticFacts.fs" Link="SemanticFacts.fs" />
+    <Compile Include="../Nyrwvy.Core/SemanticQuery.fs" Link="SemanticQuery.fs" />
+    <Compile Include="../Nyrwvy.Core/Validation.fs" Link="Validation.fs" />
+    <Compile Include="../Nyrwvy.Core/SnapshotCodec.fs" Link="SnapshotCodec.fs" />
+    <Compile Include="../Nyrwvy.Core/Fingerprint.fs" Link="Fingerprint.fs" />
+    <Compile Include="../Nyrwvy.Core/NyasonSyntax.fs" Link="NyasonSyntax.fs" />
+    <Compile Include="../Nyrwvy.Core/NyasonCodec.fs" Link="NyasonCodec.fs" />
+    <Compile Include="../Nyrwvy.Core/Readiness.fs" Link="Readiness.fs" />
+    <Compile Include="../Nyrwvy.Core/Transactions.fs" Link="Transactions.fs" />
+    <Compile Include="../Nyrwvy.Core/Workspace.fs" Link="Workspace.fs" />
+    <Compile Include="../Nyrwvy.Core/ChangeReviewQuery.fs" Link="ChangeReviewQuery.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentWorkflow.fs" Link="AgentWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentTypeDeclarationWorkflow.fs" Link="AgentTypeDeclarationWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentEffectDeclarationWorkflow.fs" Link="AgentEffectDeclarationWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentCapabilityDeclarationWorkflow.fs" Link="AgentCapabilityDeclarationWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentStructuralWorkflow.fs" Link="AgentStructuralWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentExpressionStructuralWorkflow.fs" Link="AgentExpressionStructuralWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentParameterTypeMigrationWorkflow.fs" Link="AgentParameterTypeMigrationWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentPureExpressionStructuralWorkflow.fs" Link="AgentPureExpressionStructuralWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentListMapStructuralWorkflow.fs" Link="AgentListMapStructuralWorkflow.fs" />
+  </ItemGroup>
+</Project>

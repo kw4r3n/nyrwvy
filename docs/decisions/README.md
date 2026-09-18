@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This area records durable rationale for NyamNyam's current direction. Decision records explain **why** a constraint exists; current behavior and normative contracts belong in reference/specification documents.
+This area records durable rationale for Nyrwvy's current direction. Decision records explain **why** a constraint exists; current behavior and normative contracts belong in reference/specification documents.
 
 ## Registers
 

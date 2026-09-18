@@ -8,10 +8,10 @@ This directory defines the first controlled Milestone 2 structural-editing corpu
 
 - Corpus identifier: `m2-agent-corpus-v1`
 - Agent-visible protocol: `m2-structural-v1`
-- Agent executable: `tools/NyamNyam.AgentEval.Structural`
+- Agent executable: `tools/Nyrwvy.AgentEval.Structural`
 - Machine-readable tasks/oracles: [`corpus.json`](corpus.json)
-- Deterministic fixture source: `tests/NyamNyam.Core.Tests/M2StructuralEvaluationCorpus.fs`
-- Fixture exporter: `tools/NyamNyam.EvaluationFixtureExport`
+- Deterministic fixture source: `tests/Nyrwvy.Core.Tests/M2StructuralEvaluationCorpus.fs`
+- Fixture exporter: `tools/Nyrwvy.EvaluationFixtureExport`
 
 The corpus becomes active only when issue #50 records the exact locally verified SHA of the dedicated freeze branch. Once that SHA is recorded, prompts, task classes, fixture bindings, harness perturbations, and oracles in v1 are immutable. Any semantic change requires a new corpus version.
 
@@ -124,7 +124,7 @@ A run is not successful merely because the model says it completed the task.
 After the #50 implementation is merged, deterministic snapshots are exported with:
 
 ```shell
-dotnet run --project tools/NyamNyam.EvaluationFixtureExport -- \
+dotnet run --project tools/Nyrwvy.EvaluationFixtureExport -- \
   --fixture m2-ready \
   --output /tmp/m2-ready.json
 ```

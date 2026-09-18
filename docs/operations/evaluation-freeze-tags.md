@@ -1,6 +1,6 @@
 # Evaluation freeze tags
 
-NyamNyam uses immutable Git tags as the canonical names for frozen evaluation revisions. Historical verification records may still describe the original remote branches because those records document how the freezes were created at the time.
+Nyrwvy uses immutable Git tags as the canonical names for frozen evaluation revisions. Historical verification records may still describe the original remote branches because those records document how the freezes were created at the time.
 
 Canonical freeze tags:
 

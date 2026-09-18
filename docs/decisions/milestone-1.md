@@ -204,7 +204,7 @@ This narrows Q-006 without inventing unused state.
 
 Do not select Nyason, JSON, binary storage, or a database as the permanent canonical persistence format during M1.1 solely because the current codecs exist.
 
-JSON remains the strict reference/debug codec. Nyason remains an experimental NyamNyam-specific encoding until agent editing experiments provide evidence.
+JSON remains the strict reference/debug codec. Nyason remains an experimental Nyrwvy-specific encoding until agent editing experiments provide evidence.
 
 ### Consequences
 

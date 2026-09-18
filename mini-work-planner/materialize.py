@@ -13,7 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 REPO = ROOT.parent
 SNAPSHOT = ROOT / "planner.snapshot.json"
 RUNNER = ROOT / "runner"
-PROJECT = REPO / "tools" / "NyamNyam.AuthoringSession" / "NyamNyam.AuthoringSession.fsproj"
+PROJECT = REPO / "tools" / "Nyrwvy.AuthoringSession" / "Nyrwvy.AuthoringSession.fsproj"
 
 
 def exchange(proc: subprocess.Popen[str], payload: dict) -> dict:

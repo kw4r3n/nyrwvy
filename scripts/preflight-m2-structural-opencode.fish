@@ -5,7 +5,7 @@ set -l variant high
 set -l head (git rev-parse HEAD 2>/dev/null)
 
 if test -z "$head"
-    echo "ERROR: run from the nyamnyam-lang repository."
+    echo "ERROR: run from the nyrwvy-lang repository."
     exit 1
 end
 
@@ -28,7 +28,7 @@ if test -z "$oc_version"
 end
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l root "$HOME/.local/share/nyamnyam/m2-runtime-preflight/$stamp"
+set -l root "$HOME/.local/share/nyrwvy/m2-runtime-preflight/$stamp"
 set -l artifact_root "$root/artifacts"
 set -l stdout_log "$root/opencode.jsonl"
 set -l stderr_log "$root/opencode.stderr.log"
@@ -49,15 +49,15 @@ function fail_preflight --argument-names message code root archive stdout_log st
     return $code
 end
 
-set -gx NYAMNYAM_STRUCTURAL_EVAL_TASK_ID M2-E1
-set -gx NYAMNYAM_STRUCTURAL_EVAL_FIXTURE m2-ready
-set -gx NYAMNYAM_STRUCTURAL_EVAL_ARTIFACT_ROOT "$artifact_root"
-set -gx NYAMNYAM_STRUCTURAL_EVAL_MODEL "$model"
-set -gx NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME opencode
-set -gx NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG "$variant"
-set -gx NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION "$oc_version"
-set -gx NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION m2-structural-runtime-preflight-v1
-set -gx NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION "$head"
+set -gx NYRWVY_STRUCTURAL_EVAL_TASK_ID M2-E1
+set -gx NYRWVY_STRUCTURAL_EVAL_FIXTURE m2-ready
+set -gx NYRWVY_STRUCTURAL_EVAL_ARTIFACT_ROOT "$artifact_root"
+set -gx NYRWVY_STRUCTURAL_EVAL_MODEL "$model"
+set -gx NYRWVY_STRUCTURAL_EVAL_PROVIDER_RUNTIME opencode
+set -gx NYRWVY_STRUCTURAL_EVAL_REASONING_CONFIG "$variant"
+set -gx NYRWVY_STRUCTURAL_EVAL_OPENCODE_VERSION "$oc_version"
+set -gx NYRWVY_STRUCTURAL_EVAL_PROMPT_REVISION m2-structural-runtime-preflight-v1
+set -gx NYRWVY_STRUCTURAL_EVAL_TOOL_REVISION "$head"
 
 set -l prompt "Harness preflight only; this is not a corpus attempt. Use the structural evaluation tools only. Start the configured session exactly once, send {\"command\":\"describeV1\"} exactly once through the request tool, then finalize exactly once. Do not simulate or commit any semantic change."
 
@@ -70,7 +70,7 @@ echo "output:   $root"
 echo
 
 opencode --print-logs --log-level DEBUG run \
-    --agent nyamnyam-structural-eval \
+    --agent nyrwvy-structural-eval \
     --model "$model" \
     --variant "$variant" \
     --format json \
@@ -105,7 +105,7 @@ end
 
 # Prove that OpenCode executed each direct custom tool exactly once. Plain model
 # text that merely spells a tool name does not produce these tool_use records.
-for tool_name in nyamnyam_structural_eval_start nyamnyam_structural_eval_request nyamnyam_structural_eval_finalize
+for tool_name in nyrwvy_structural_eval_start nyrwvy_structural_eval_request nyrwvy_structural_eval_finalize
     set -l tool_count (grep -F -c '"tool":"'$tool_name'"' "$stdout_log")
     if test "$tool_count" -ne 1
         fail_preflight "expected exactly one real $tool_name tool event, found $tool_count." 1 "$root" "$archive" "$stdout_log" "$stderr_log"

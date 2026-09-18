@@ -6,7 +6,7 @@ This record captures deterministic repository verification for issue #153 and PR
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyamnyam-lang`
+- Repository: `kw4r3n/nyrwvy-lang`
 - Implementation issue: #153
 - Implementation PR: #158
 - Exact verified implementation head: `214e01c2405f9ac0151d70da14606bba4267104d`

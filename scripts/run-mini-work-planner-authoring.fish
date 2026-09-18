@@ -2,9 +2,9 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj"
-set -l model "$NYAMNYAM_MINI_WORK_PLANNER_MODEL"
-set -l variant "$NYAMNYAM_MINI_WORK_PLANNER_VARIANT"
+set -l project "$repo_root/tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj"
+set -l model "$NYRWVY_MINI_WORK_PLANNER_MODEL"
+set -l variant "$NYRWVY_MINI_WORK_PLANNER_VARIANT"
 
 if test -z "$model"
     set model openai/gpt-5.6-terra
@@ -23,7 +23,7 @@ end
 
 if not opencode models | string match -q -- "*$model*"
     echo "ERROR: model '$model' is not available to OpenCode." >&2
-    echo "Set NYAMNYAM_MINI_WORK_PLANNER_MODEL to another available model if needed." >&2
+    echo "Set NYRWVY_MINI_WORK_PLANNER_MODEL to another available model if needed." >&2
     exit 1
 end
 
@@ -32,12 +32,12 @@ dotnet build "$project" --configuration Release
 or exit $status
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l result_root "$HOME/.local/share/nyamnyam/mini-work-planner-authoring/$stamp"
+set -l result_root "$HOME/.local/share/nyrwvy/mini-work-planner-authoring/$stamp"
 mkdir -p "$result_root"
 or exit 1
 
 # Reuse the existing isolated bounded-authoring bridge.
-set -gx NYAMNYAM_M4_AUTHORING_RESULT_ROOT "$result_root"
+set -gx NYRWVY_M4_AUTHORING_RESULT_ROOT "$result_root"
 
 set -l repository_revision (git rev-parse HEAD)
 set -l opencode_version (opencode --version | string collect)
@@ -46,7 +46,7 @@ printf 'repository_revision=%s\nmodel=%s\nvariant=%s\nopencode_version=%s\nstart
     "$repository_revision" "$model" "$variant" "$opencode_version" (date --iso-8601=seconds) \
     >"$result_root/metadata.txt"
 
-set -l prompt "Work entirely through the maintained NyamNyam AuthoringSession. Do not inspect repository source, tests, snapshot JSON, generated C# source, or any authority outside the maintained protocol. Start from the fresh snapshot and build one pure Mini Work Planner.
+set -l prompt "Work entirely through the maintained Nyrwvy AuthoringSession. Do not inspect repository source, tests, snapshot JSON, generated C# source, or any authority outside the maintained protocol. Start from the fresh snapshot and build one pure Mini Work Planner.
 
 Create these types:
 1. PrerequisiteState union: Ready, Waiting, Failed.
@@ -90,7 +90,7 @@ set -l stderr_log "$result_root/agent.stderr.log"
 
 echo "[mini-work-planner] running one bounded authoring + maintenance attempt"
 opencode --print-logs --log-level INFO run \
-    --agent nyamnyam-m4-authoring-eval \
+    --agent nyrwvy-m4-authoring-eval \
     --model "$model" \
     --variant "$variant" \
     --format json \

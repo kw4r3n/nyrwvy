@@ -4,7 +4,7 @@
 
 These principles refine the accepted direction in D-001 through D-005. They are default tie-breakers for semantic-core design, but they do not make milestone-specific restrictions or evaluation scaffolding permanent architecture.
 
-NyamNyam does not optimize its authoritative representation for pleasant manual source authoring. A separate projection or future language can serve that goal. The semantic core is optimized first for reliable AI comprehension and editing, with human reviewability recovered through queries, structured projections, and the viewer.
+Nyrwvy does not optimize its authoritative representation for pleasant manual source authoring. A separate projection or future language can serve that goal. The semantic core is optimized first for reliable AI comprehension and editing, with human reviewability recovered through queries, structured projections, and the viewer.
 
 ## Priority rule
 
@@ -16,9 +16,9 @@ Explicitness is not the same thing as restriction. If two agent-facing operation
 
 ## Evidence-informed, not precedent-bound
 
-Design patterns from RAST, evaluation harnesses, other repositories, or earlier NyamNyam milestones are inputs to a decision rather than decision authority.
+Design patterns from RAST, evaluation harnesses, other repositories, or earlier Nyrwvy milestones are inputs to a decision rather than decision authority.
 
-Before preserving a pattern, ask what NyamNyam-specific problem it solves now. A pattern that was useful to establish an experimental boundary may later become unnecessary once the interaction model has evidence behind it.
+Before preserving a pattern, ask what Nyrwvy-specific problem it solves now. A pattern that was useful to establish an experimental boundary may later become unnecessary once the interaction model has evidence behind it.
 
 Historical compatibility required for a frozen evaluation condition should remain in the evaluation or adapter layer unless the behavior is independently part of the maintained semantic contract.
 

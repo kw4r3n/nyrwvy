@@ -1,6 +1,6 @@
 # Mini Work Planner
 
-NyamNyam の maintained AuthoringSession で作成・保守した、単一 work item の次アクション判定ツールです。
+Nyrwvy の maintained AuthoringSession で作成・保守した、単一 work item の次アクション判定ツールです。
 
 semantic source は `planner.snapshot.json` です。CLI 側は snapshot を直接解釈せず、公開 `declarations` と `emitCSharp.symbols` から生成された C# を呼ぶだけの adapter です。
 
