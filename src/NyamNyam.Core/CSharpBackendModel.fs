@@ -14,8 +14,26 @@ type CSharpCapabilityBinding =
 type CSharpBackendProfile =
     { CapabilityBindings: CSharpCapabilityBinding list }
 
+type CSharpSymbol<'Id> =
+    { Id: 'Id
+      Name: string }
+
+type CSharpSymbolManifest =
+    { Namespace: string
+      FunctionContainer: string
+      Types: CSharpSymbol<TypeId> list
+      Fields: CSharpSymbol<FieldId> list
+      Variants: CSharpSymbol<VariantId> list
+      Functions: CSharpSymbol<FunctionId> list
+      Parameters: CSharpSymbol<ParameterId> list
+      Capabilities: CSharpSymbol<CapabilityId> list
+      CapabilityOperations: CSharpSymbol<CapabilityOperationId> list
+      CapabilityParameters: CSharpSymbol<CapabilityParameterId> list
+      CapabilityAdapters: CSharpSymbol<CapabilityId> list }
+
 type CSharpArtifact =
-    { Source: string }
+    { Source: string
+      Symbols: CSharpSymbolManifest }
 
 [<RequireQualifiedAccess>]
 type CSharpBackendError =
@@ -43,6 +61,9 @@ module CSharpBackendProfile =
 
 [<RequireQualifiedAccess>]
 module CSharpBackendNames =
+    let generatedNamespace = "NyamNyam.Generated"
+    let functionContainerName = "NyFunctions"
+
     let private utf8Hex (value: string) =
         let bytes: byte array = Encoding.UTF8.GetBytes(value)
         Convert.ToHexString(bytes)

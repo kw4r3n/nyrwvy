@@ -178,6 +178,54 @@ module internal WireEncode =
                       "createdCapability", capabilityEntity item.CreatedCapability ]
         objectValue [ "proposalId", box value.ProposalId; "review", review ]
 
+    let private csharpSymbol id name =
+        objectValue [ "id", box id; "name", box name ]
+
+    let csharpArtifact (value: CSharpArtifact) =
+        let symbols = value.Symbols
+        objectValue
+            [ "source", box value.Source
+              "symbols",
+                objectValue
+                    [ "namespace", box symbols.Namespace
+                      "functionContainer", box symbols.FunctionContainer
+                      "types",
+                        symbols.Types
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "fields",
+                        symbols.Fields
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "variants",
+                        symbols.Variants
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "functions",
+                        symbols.Functions
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "parameters",
+                        symbols.Parameters
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "capabilities",
+                        symbols.Capabilities
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "capabilityOperations",
+                        symbols.CapabilityOperations
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "capabilityParameters",
+                        symbols.CapabilityParameters
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue
+                      "capabilityAdapters",
+                        symbols.CapabilityAdapters
+                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
+                        |> arrayValue ] ]
+
     let declarations = WireEncodeCommon.declarations
     let focus = WireEncodeCommon.focus
 

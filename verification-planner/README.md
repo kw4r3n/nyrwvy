@@ -61,7 +61,7 @@ fast は常に必要。knownRegression は情報として保持し、検証レ�
 - targeted diff の previousTarget には Bool 値そのものが出ないため、baseFocus / proposedFocus の値も確認しました。nested match の branch と対象 ID の対応も文字列表現から確認しました。
 - JSONL のキーが仕様書だけでは十分に分からず、transport parser のみ参照しました。Core 実装・raw snapshot をプログラムの semantic authority にしていません。
 - Bool OR 専用 recipe の代わりに conditional を使用。複数領域は List + ListAny で自然に表現でき、要求を損なう blocker はありません。
-- JSONL の直接実行操作ではなく、公開 emitCSharp → .NET コンパイルという実行境界を使用。CLI アダプターは生成 symbol の ID エンコーディングに依存し、その symbol が実際の出力に存在することを verify.py で検査しています。
+- JSONL の直接実行操作ではなく、公開 emitCSharp → .NET コンパイルという実行境界を使用。初回実装では CLI アダプターが生成 symbol の ID エンコーディングを再実装する必要がありましたが、#177 で emitCSharp の公開 symbol manifest を追加し、verify.py は現在その manifest を使用します。返された symbol が実際の出力に存在することも検査しています。
 - repository 自体の実装は変更していないため、repository 全体の fast / extended テストは実行していません。
 
 ## 再発見・再生成
@@ -72,4 +72,4 @@ python verification-planner/verify.py maintained
 python verification-planner/session_client.py close
 ```
 
-session_client.py は JSONL を中継するだけの作業用 relay（最大30分で終了）。snapshot を解釈しません。`author.py` は初期 authoring intent の記録・補助であり、自動 commit ワークフローではありません。新しい proposal は必ず review を確認してから commit してください。
+session_client.py は JSONL を中継するだけの作業用 relay（最大30分で終了）。snapshot を解釈しません。`author.py` は初期 authoring intent の記録・補助であり、自動 commit ワークフローではありません。新しい proposal は必ず review を確認し、`python verification-planner/author.py commit <proposalId>` のように確認済み proposalId を明示して commit してください。
