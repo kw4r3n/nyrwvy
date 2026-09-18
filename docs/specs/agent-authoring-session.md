@@ -137,6 +137,14 @@ The Core function-creation proposal retains its full review model. The maintaine
 
 This keeps nested ordinary authoring within practical tool-response bounds without changing semantic validation, proposal identity, or commit authority. After publication, `focusFunction` remains the detailed impact/query surface.
 
+### Replace-body review projection
+
+The Core whole-body replacement proposal retains its full review model. The maintained JSON-lines projection is deliberately compact because `simulateReplaceBody` already requires `expectedCurrentResultNodeId`, which callers obtain from the current function focus.
+
+A successful replacement review returns the proposal receipt/readiness, a compact structural diff (owner function, old/new result node IDs, and added/removed node IDs), and the complete `proposedFunction`. It does not repeat complete `baseFocus` and `proposedFocus` projections.
+
+This preserves exact pre-commit review of the proposed semantic function while avoiding duplicate nested bodies. `ReplaceTarget` keeps its existing review projection until a concrete workload demonstrates similar pressure.
+
 ### Stable IDs and type references
 
 Stable IDs are JSON strings. Existing IDs may be referenced where the semantic API already accepts them. New declaration/node identities are never supplied by the caller.

@@ -344,7 +344,7 @@ module AuthoringSessionTests =
         let path = Path.Combine(root, "workspace.json")
         try
             let first = startTool "create" path
-            let proposalId, functionId =
+            let proposalId, functionId, resultNodeId =
                 use document =
                     exchange
                         first
@@ -358,10 +358,46 @@ module AuthoringSessionTests =
                     |> Set.ofSeq
                 Assert.False(Set.contains "materializedBody" reviewProperties)
                 Assert.False(Set.contains "proposedFocus" reviewProperties)
+                let createdFunction = review.GetProperty("createdFunction")
                 result.GetProperty("proposalId").GetString(),
-                review.GetProperty("createdFunction").GetProperty("id").GetString()
+                createdFunction.GetProperty("id").GetString(),
+                createdFunction.GetProperty("body").GetProperty("resultNodeId").GetString()
 
             exchange first (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+            |> requireOk
+            |> fun document -> document.Dispose()
+
+            let replacementProposalId =
+                use document =
+                    exchange
+                        first
+                        (sprintf
+                            """{"id":"replace","op":"simulateReplaceBody","functionId":"%s","expectedCurrentResultNodeId":"%s","replacement":{"kind":"int64Literal","value":8}}"""
+                            functionId
+                            resultNodeId)
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                let review = result.GetProperty("review")
+                let reviewProperties =
+                    review.EnumerateObject()
+                    |> Seq.map (fun property -> property.Name)
+                    |> Set.ofSeq
+                Assert.False(Set.contains "baseFocus" reviewProperties)
+                Assert.False(Set.contains "proposedFocus" reviewProperties)
+                Assert.True(Set.contains "proposedFunction" reviewProperties)
+                let diff = review.GetProperty("diff")
+                let diffProperties =
+                    diff.EnumerateObject()
+                    |> Seq.map (fun property -> property.Name)
+                    |> Set.ofSeq
+                Assert.True(Set.contains "removedNodeIds" diffProperties)
+                Assert.True(Set.contains "addedNodeIds" diffProperties)
+                Assert.False(Set.contains "removedNodes" diffProperties)
+                Assert.False(Set.contains "addedNodes" diffProperties)
+                Assert.Equal<string>(functionId, review.GetProperty("proposedFunction").GetProperty("id").GetString())
+                result.GetProperty("proposalId").GetString()
+
+            exchange first (sprintf """{"id":"replace-commit","op":"commit","proposalId":"%s"}""" replacementProposalId)
             |> requireOk
             |> fun document -> document.Dispose()
 

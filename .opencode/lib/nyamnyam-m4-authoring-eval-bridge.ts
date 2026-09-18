@@ -63,6 +63,9 @@ Creation requests:
   simulateCreateCapability: id, op, displayName, operations. Each operation is {"displayName":"...","parameters":[{"displayName":"...","type":<TypeRef>}],"resultType":<TypeRef>,"failureType":null,"effectId":"<published EffectId>"}.
   simulateCreateFunction: id, op, displayName, parameters, resultType, requiredEffects, body. Function parameters are {"displayName":"...","type":<TypeRef>} and requiredEffects is an array of published EffectId strings. Its wire review is intentionally compact: receipt/readiness plus the complete createdFunction are authoritative for pre-commit review; duplicate materializedBody/proposedFocus projections are omitted.
 
+Whole-body replacement:
+  simulateReplaceBody requires id, op, functionId, expectedCurrentResultNodeId, and replacement. The caller must obtain the current result node from focusFunction first. Its wire review is intentionally compact: receipt/readiness, a diff with old/new result IDs plus added/removed node IDs, and the complete proposedFunction. Duplicate full baseFocus/proposedFocus projections are omitted.
+
 Bounded M5 parameter-type migration:
   simulateParameterTypeMigration requires id, op, targetFunctionId, targetParameterId, newParameterType, targetReplacement, and callerRewrites.
   callerRewrites must contain exactly one complete replacement body for every affected direct caller: [{"callerFunctionId":"<published FunctionId>","replacement":<recipe>}].
