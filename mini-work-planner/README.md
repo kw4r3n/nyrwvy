@@ -9,7 +9,7 @@ semantic source は `planner.snapshot.json` です。CLI 側は snapshot を直�
 入力:
 
 - `PrerequisiteState = Ready | Waiting | Failed`
-- `ExecutionState = NotStarted | Running | Failed | Succeeded`
+- `ExecutionState = NotStarted | Running | Failed | TimedOut | Succeeded`
 - `ValidationState = NotRequired | Pending | Passed | Failed`
 - `attempts: Int64`
 - `maxAttempts: Int64`
@@ -23,7 +23,7 @@ semantic source は `planner.snapshot.json` です。CLI 側は snapshot を直�
 - `complete`
 - `needs-human`
 
-保守後の policy では、execution が成功済みでも validation が Failed の場合、retry budget が残っていれば `retry`、残っていなければ `needs-human` です。
+保守後の policy では、execution が成功済みでも validation が Failed の場合、retry budget が残っていれば `retry`、残っていなければ `needs-human` です。さらに `TimedOut` は `Failed` と同じ retry policy を使い、budget があれば `retry`、なければ `needs-human` です。
 
 ## 実行
 
@@ -49,6 +49,12 @@ dotnet run --project mini-work-planner/runner -- Ready Succeeded Failed 0 1
 # retry
 
 dotnet run --project mini-work-planner/runner -- Ready Succeeded Failed 1 1
+# needs-human
+
+dotnet run --project mini-work-planner/runner -- Ready TimedOut Pending 0 1
+# retry
+
+dotnet run --project mini-work-planner/runner -- Ready TimedOut Pending 1 1
 # needs-human
 ```
 
