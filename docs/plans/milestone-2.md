@@ -2,7 +2,7 @@
 
 **Status:** Complete for the accepted bounded Float64 + specialized ListMap scope
 
-Milestone 2 extends NyamNyam's agent-editing authority from the bounded M1 operations into deliberately limited structural expression authoring while preserving graph authority, stable identity, validation, review, and exact publication.
+Milestone 2 extends Nyrwvy's agent-editing authority from the bounded M1 operations into deliberately limited structural expression authoring while preserving graph authority, stable identity, validation, review, and exact publication.
 
 Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 explicitly left arbitrary List/numeric structural editing outside that claim; M2 adds narrow structural surfaces rather than unrestricted graph mutation. Completion here means the accepted Float64 and shallow specialized ListMap claims are implemented, versioned, locally verified, and supported by frozen controlled-agent evidence. It does **not** mean arbitrary graph editing, generic recursive List recipes, lambdas/closures, or effectful callbacks are accepted.
 
@@ -80,7 +80,7 @@ That exact revision passed clean local verification, focused structural tests, d
 The versioned persistent Float64 runner remains:
 
 ```text
-tools/NyamNyam.AgentEval.Structural
+tools/Nyrwvy.AgentEval.Structural
 protocol: m2-structural-v1
 ```
 
@@ -180,7 +180,7 @@ The bounded operation is implemented and clean-verified under #76/#80. The exact
 The dedicated agent-visible protocol is:
 
 ```text
-tools/NyamNyam.AgentEval.ListMapStructural
+tools/Nyrwvy.AgentEval.ListMapStructural
 protocol: m2-listmap-structural-v1
 ```
 

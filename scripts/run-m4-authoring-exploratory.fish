@@ -2,9 +2,9 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj"
-set -l model "$NYAMNYAM_M4_AUTHORING_EVAL_MODEL"
-set -l variant "$NYAMNYAM_M4_AUTHORING_EVAL_VARIANT"
+set -l project "$repo_root/tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj"
+set -l model "$NYRWVY_M4_AUTHORING_EVAL_MODEL"
+set -l variant "$NYRWVY_M4_AUTHORING_EVAL_VARIANT"
 
 if test -z "$model"
     set model opencode/muse-spark-1.3-contributor-free
@@ -23,7 +23,7 @@ end
 
 if not opencode models | string match -q -- "*$model*"
     echo "ERROR: model '$model' is not available to OpenCode." >&2
-    echo "Set NYAMNYAM_M4_AUTHORING_EVAL_MODEL to another available model if needed." >&2
+    echo "Set NYRWVY_M4_AUTHORING_EVAL_MODEL to another available model if needed." >&2
     exit 1
 end
 
@@ -32,10 +32,10 @@ dotnet build "$project" --configuration Release
 or exit $status
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l result_root "$HOME/.local/share/nyamnyam/m4-authoring-exploratory/$stamp"
+set -l result_root "$HOME/.local/share/nyrwvy/m4-authoring-exploratory/$stamp"
 mkdir -p "$result_root"
 or exit 1
-set -gx NYAMNYAM_M4_AUTHORING_RESULT_ROOT "$result_root"
+set -gx NYRWVY_M4_AUTHORING_RESULT_ROOT "$result_root"
 
 set -l repository_revision (git rev-parse HEAD)
 set -l opencode_version (opencode --version | string collect)
@@ -43,14 +43,14 @@ printf 'repository_revision=%s\nmodel=%s\nvariant=%s\nopencode_version=%s\nstart
     "$repository_revision" "$model" "$variant" "$opencode_version" (date --iso-8601=seconds) \
     >"$result_root/metadata.txt"
 
-set -l prompt "Author a small validation/reporting program entirely through the maintained NyamNyam authoring session. Start from the fresh snapshot. Create a union named ValidationOutcome with Accepted(message: String) and Rejected(reason: String). Create an effect named ConsoleOutput. Create a Console capability with one write_line(text: String) -> Unit operation associated with ConsoleOutput. Create a pure classify(input: String) -> ValidationOutcome function that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise. Create process(input: String, console: Console) -> Unit requiring ConsoleOutput; it must call classify, match both union variants, and send the bound message/reason to write_line. Use only published IDs returned/discovered through the maintained protocol and review each proposal before commit. After the complete program is committed, restart the maintained session once, rediscover the persisted state, confirm execution readiness, confirm that empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding for the authored operation. Do not use emitted C# as semantic authoring authority. Finalize after the requested checks."
+set -l prompt "Author a small validation/reporting program entirely through the maintained Nyrwvy authoring session. Start from the fresh snapshot. Create a union named ValidationOutcome with Accepted(message: String) and Rejected(reason: String). Create an effect named ConsoleOutput. Create a Console capability with one write_line(text: String) -> Unit operation associated with ConsoleOutput. Create a pure classify(input: String) -> ValidationOutcome function that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise. Create process(input: String, console: Console) -> Unit requiring ConsoleOutput; it must call classify, match both union variants, and send the bound message/reason to write_line. Use only published IDs returned/discovered through the maintained protocol and review each proposal before commit. After the complete program is committed, restart the maintained session once, rediscover the persisted state, confirm execution readiness, confirm that empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding for the authored operation. Do not use emitted C# as semantic authoring authority. Finalize after the requested checks."
 
 set -l stdout_log "$result_root/agent.jsonl"
 set -l stderr_log "$result_root/agent.stderr.log"
 
 echo "[m4-authoring-eval] running one bounded exploratory attempt"
 opencode --print-logs --log-level INFO run \
-    --agent nyamnyam-m4-authoring-eval \
+    --agent nyrwvy-m4-authoring-eval \
     --model "$model" \
     --variant "$variant" \
     --format json \

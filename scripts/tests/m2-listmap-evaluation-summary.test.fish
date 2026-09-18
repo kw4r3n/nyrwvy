@@ -3,7 +3,7 @@
 set -l script_dir (path dirname (status --current-filename))
 source "$script_dir/../lib/m2-listmap-evaluation-summary.fish"
 
-set -l root (mktemp -d /tmp/nyamnyam-listmap-summary-test-XXXXXX)
+set -l root (mktemp -d /tmp/nyrwvy-listmap-summary-test-XXXXXX)
 or exit 1
 
 function cleanup --on-event fish_exit

@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 SOCKET = ROOT / 'session.sock'
 
 def serve(mode):
-    proc = subprocess.Popen(['dotnet', 'run', '--no-build', '--project', 'tools/NyamNyam.AuthoringSession', '--', mode, '--snapshot', str(ROOT / 'planner.snapshot.json')], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(['dotnet', 'run', '--no-build', '--project', 'tools/Nyrwvy.AuthoringSession', '--', mode, '--snapshot', str(ROOT / 'planner.snapshot.json')], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     server = socket.socket(socket.AF_UNIX)
     server.bind(str(SOCKET))
     server.listen(1)

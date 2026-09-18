@@ -8,7 +8,7 @@ It is evaluation-input evidence, not a model-reliability result.
 
 ## Frozen condition
 
-- Repository: `kw4r3n/nyamnyam-lang`
+- Repository: `kw4r3n/nyrwvy-lang`
 - Corpus issue: #50
 - Fixture/oracle verification subtask: #58
 - Corpus merge PR: #62
@@ -55,7 +55,7 @@ VERIFICATION PASSED
 The host-local verification log path was:
 
 ```text
-/tmp/nyamnyam-verification/local-verify-20260830-070137.log
+/tmp/nyrwvy-verification/local-verify-20260830-070137.log
 ```
 
 The path is execution context only; the durable facts are summarized in this record.

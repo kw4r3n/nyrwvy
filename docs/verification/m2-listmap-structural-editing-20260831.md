@@ -39,7 +39,7 @@ Observed on the exact candidate head:
 Local log reported by the operator:
 
 ```text
-/tmp/nyamnyam-verification/local-verify-20260831-030135.log
+/tmp/nyrwvy-verification/local-verify-20260831-030135.log
 ```
 
 ## First pre-candidate verification failure

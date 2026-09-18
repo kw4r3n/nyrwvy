@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This document defines NyamNyam's maintained high-level boundaries and invariants. Concrete storage media, broader graph layouts, cross-repository merge semantics, and other explicitly open areas may evolve without changing these boundaries.
+This document defines Nyrwvy's maintained high-level boundaries and invariants. Concrete storage media, broader graph layouts, cross-repository merge semantics, and other explicitly open areas may evolve without changing these boundaries.
 
 ## Core invariants
 
@@ -44,7 +44,7 @@ Simulation and reviewed commit use the same ordered operation request. A reviewe
 The maintained production dependency direction is approximately:
 
 ```text
-NyamNyam.Semantics
+Nyrwvy.Semantics
       ^        ^
       |        |
 Execution    Viewer
@@ -65,29 +65,29 @@ semantic / execution / backend contracts
      recorded evidence
 ```
 
-### `NyamNyam.Semantics`
+### `Nyrwvy.Semantics`
 
 Owns stable IDs and allocation, semantic graph state, validation/readiness, semantic facts and queries, operations and transactions, obligations, fingerprints, reviewed proposals, and the ordinary agent workflow facade.
 
-### `NyamNyam.Execution`
+### `Nyrwvy.Execution`
 
 Owns Typed Semantic IR, backend-neutral Execution IR, and trusted projection from committed agent workspaces into executable representations.
 
-### `NyamNyam.Backend.CSharp`
+### `Nyrwvy.Backend.CSharp`
 
 Consumes Execution IR plus an explicit backend profile and emits deterministic C#. It does not query or mutate authoritative semantic snapshots directly.
 
-### `NyamNyam.Viewer`
+### `Nyrwvy.Viewer`
 
 Consumes semantic query/review projections and renders human-facing Focus and Change Review artifacts. Viewer state is not semantic state.
 
-### `NyamNyam.Tools.*`
+### `Nyrwvy.Tools.*`
 
 Compose public APIs and own filesystem, process, CLI, export, adapter, and other operational integration.
 
 ## Evaluation boundary
 
-Evaluation is evidence about NyamNyam, not upstream authority over NyamNyam.
+Evaluation is evidence about Nyrwvy, not upstream authority over Nyrwvy.
 
 A controlled evaluation may reveal that an interaction model is confusing, unreliable, or too permissive and thereby justify a production design change. The dependency does not reverse: frozen corpus wording, proposal-handle bookkeeping, OpenCode transport details, orchestration metrics, or historical protocol quirks do not constrain the semantic core merely because they were recorded in an experiment.
 
@@ -105,7 +105,7 @@ Ordinary agent creation APIs allocate new production identities on the system si
 
 ## Validation, obligations, and readiness
 
-NyamNyam distinguishes at least four classes of failure/state:
+Nyrwvy distinguishes at least four classes of failure/state:
 
 - invalid proposed semantic state -> transaction rejection / validation diagnostic;
 - valid but genuinely unresolved semantic state -> typed obligation when a safe incomplete form exists;
@@ -140,7 +140,7 @@ C#/.NET is the first backend. Its representation choices are downstream implemen
 Storage representation is deliberately separate from semantic authority.
 
 - strict JSON remains the reference/debug baseline;
-- Nyason is the actively explored NyamNyam-native portable encoding candidate;
+- Nyason is the actively explored Nyrwvy-native portable encoding candidate;
 - a database may serve as a working/index store and could become authoritative only if operational evidence justifies that choice without changing semantic meaning;
 - schema versions are explicit and migrations must not silently invent semantics.
 

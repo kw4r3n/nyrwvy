@@ -26,7 +26,7 @@ Should durable authoritative state ultimately use a portable Nyason snapshot, a 
 
 ### Current position
 
-Strict JSON is the reference/debug baseline. Nyason is the actively explored NyamNyam-native portable encoding candidate. A database is likely useful as a working/index store and may become authoritative if measured evidence supports it. Storage representation must not redefine graph semantics.
+Strict JSON is the reference/debug baseline. Nyason is the actively explored Nyrwvy-native portable encoding candidate. A database is likely useful as a working/index store and may become authoritative if measured evidence supports it. Storage representation must not redefine graph semantics.
 
 ### Resolution target
 
@@ -140,7 +140,7 @@ Add a state only when an implemented workflow needs the distinction.
 
 ### Question
 
-How should NyamNyam present larger cross-function or cross-subsystem graph slices without becoming a generic giant graph renderer?
+How should Nyrwvy present larger cross-function or cross-subsystem graph slices without becoming a generic giant graph renderer?
 
 ### Decision criteria
 
@@ -189,7 +189,7 @@ Extend capability contracts feature-by-feature when a new external behavior requ
 
 ### Question
 
-Should NyamNyam remain managed-value oriented, introduce ownership/borrowing semantics, or model abstract resource-use constraints that different backends lower differently?
+Should Nyrwvy remain managed-value oriented, introduce ownership/borrowing semantics, or model abstract resource-use constraints that different backends lower differently?
 
 ### Decision criteria
 

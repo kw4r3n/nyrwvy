@@ -4,7 +4,7 @@
 
 Accepted semantic classification policy for Milestone 1.
 
-NyamNyam distinguishes four different concepts that conventional languages often collapse into exceptions or error strings:
+Nyrwvy distinguishes four different concepts that conventional languages often collapse into exceptions or error strings:
 
 1. invalid proposed program change;
 2. valid but unresolved program state;
@@ -159,7 +159,7 @@ Initial categories may be:
 - `Warning` — stage may proceed but review should surface the condition;
 - `Info` — explanatory/non-blocking state.
 
-Do not introduce warnings until a concrete non-blocking condition exists. NyamNyam must not create a warning system merely to copy conventional compilers.
+Do not introduce warnings until a concrete non-blocking condition exists. Nyrwvy must not create a warning system merely to copy conventional compilers.
 
 ## Deterministic diagnostic ordering
 

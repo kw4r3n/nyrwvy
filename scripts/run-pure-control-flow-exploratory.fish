@@ -2,9 +2,9 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AgentEval.PureExpression/NyamNyam.AgentEval.PureExpression.fsproj"
-set -l model "$NYAMNYAM_PURE_CONTROL_EVAL_MODEL"
-set -l variant "$NYAMNYAM_PURE_CONTROL_EVAL_VARIANT"
+set -l project "$repo_root/tools/Nyrwvy.AgentEval.PureExpression/Nyrwvy.AgentEval.PureExpression.fsproj"
+set -l model "$NYRWVY_PURE_CONTROL_EVAL_MODEL"
+set -l variant "$NYRWVY_PURE_CONTROL_EVAL_VARIANT"
 
 function analyze_log --argument-names stdout_log
     python3 -c '
@@ -157,7 +157,7 @@ end
 
 if not opencode models | string match -q -- "*$model*"
     echo "ERROR: model '$model' is not available to OpenCode." >&2
-    echo "Set NYAMNYAM_PURE_CONTROL_EVAL_MODEL to another available model if needed." >&2
+    echo "Set NYRWVY_PURE_CONTROL_EVAL_MODEL to another available model if needed." >&2
     exit 1
 end
 
@@ -166,7 +166,7 @@ dotnet build "$project" --configuration Release
 or exit $status
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l result_root "$HOME/.local/share/nyamnyam/pure-control-flow-exploratory/$stamp"
+set -l result_root "$HOME/.local/share/nyrwvy/pure-control-flow-exploratory/$stamp"
 mkdir -p "$result_root"
 or exit 1
 set -l task_ids PCF-E1 PCF-E2 PCF-E3 PCF-E4
@@ -189,7 +189,7 @@ for task_id in $task_ids
 
     echo "[pure-control-eval] $task_id"
     opencode --print-logs --log-level INFO run \
-        --agent nyamnyam-pure-control-eval \
+        --agent nyrwvy-pure-control-eval \
         --model "$model" \
         --variant "$variant" \
         --format json \

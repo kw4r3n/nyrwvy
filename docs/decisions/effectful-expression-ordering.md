@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
-- **Issue:** [#141](https://github.com/kw4r3n/nyamnyam-lang/issues/141)
+- **Issue:** [#141](https://github.com/kw4r3n/nyrwvy-lang/issues/141)
 
 This decision selected the bounded Bind authoring contract in Issue #141. The subsequent implementation is described by the [expression authoring specification](../specs/expression-authoring.md), which remains the authority for the implemented surface.
 
@@ -46,11 +46,11 @@ Revisit this boundary if a concrete use case requires values escaping lexical sc
 
 ## Existing implementation evidence
 
-These sources established the pre-Bind ordering boundary. The later Bind contract has focused coverage in [`AgentExpressionBindTests.fs`](../../tests/NyamNyam.Core.Tests/AgentExpressionBindTests.fs) and generated execution coverage in [`CSharpBackendTests.fs`](../../tests/NyamNyam.Core.Tests/CSharpBackendTests.fs).
+These sources established the pre-Bind ordering boundary. The later Bind contract has focused coverage in [`AgentExpressionBindTests.fs`](../../tests/Nyrwvy.Core.Tests/AgentExpressionBindTests.fs) and generated execution coverage in [`CSharpBackendTests.fs`](../../tests/Nyrwvy.Core.Tests/CSharpBackendTests.fs).
 
-- [`AgentExpressionCapabilityTests.fs`](../../tests/NyamNyam.Core.Tests/AgentExpressionCapabilityTests.fs): published independent receiver/argument calls retain `AmbiguousEffectOrder`; dependency-ordered variants lower; a lexical capability invocation remains inside its match arm.
-- [`ExecutionIrAnalysis.fs`](../../src/NyamNyam.Core/ExecutionIrAnalysis.fs), `validateEffectOrder`: compares effectful nodes by dependency reachability and validates nested graphs independently; control nodes include nested effects in their effect classification.
-- [`ExecutionIrLoweringCore.fs`](../../src/NyamNyam.Core/ExecutionIrLoweringCore.fs), `lowerOptionMatch`: requires the scrutinee value before branching, extends the selected arm's pattern environment, and merges arm results.
-- [`AgentExpressionStructuralWorkflow.fs`](../../src/NyamNyam.Core/AgentExpressionStructuralWorkflow.fs), `MatchOption` materialization: allocates the binding system-side and materializes separate scoped bodies. None arms retain an empty lexical frame.
+- [`AgentExpressionCapabilityTests.fs`](../../tests/Nyrwvy.Core.Tests/AgentExpressionCapabilityTests.fs): published independent receiver/argument calls retain `AmbiguousEffectOrder`; dependency-ordered variants lower; a lexical capability invocation remains inside its match arm.
+- [`ExecutionIrAnalysis.fs`](../../src/Nyrwvy.Core/ExecutionIrAnalysis.fs), `validateEffectOrder`: compares effectful nodes by dependency reachability and validates nested graphs independently; control nodes include nested effects in their effect classification.
+- [`ExecutionIrLoweringCore.fs`](../../src/Nyrwvy.Core/ExecutionIrLoweringCore.fs), `lowerOptionMatch`: requires the scrutinee value before branching, extends the selected arm's pattern environment, and merges arm results.
+- [`AgentExpressionStructuralWorkflow.fs`](../../src/Nyrwvy.Core/AgentExpressionStructuralWorkflow.fs), `MatchOption` materialization: allocates the binding system-side and materializes separate scoped bodies. None arms retain an empty lexical frame.
 
 The synthetic-match examples above follow from these composition rules; they are not a claim of new end-to-end runtime measurements.

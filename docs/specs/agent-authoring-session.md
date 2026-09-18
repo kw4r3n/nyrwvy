@@ -6,7 +6,7 @@ This specification defines the Milestone 3 maintained authoring boundary tracked
 
 ## Purpose
 
-An ordinary agent must be able to open one explicitly selected NyamNyam snapshot, discover stable declarations, propose and review semantic changes, publish accepted changes durably, close the process, and later resume from the same committed semantic identities.
+An ordinary agent must be able to open one explicitly selected Nyrwvy snapshot, discover stable declarations, propose and review semantic changes, publish accepted changes durably, close the process, and later resume from the same committed semantic identities.
 
 The maintained path is a single-workspace, single-writer session. Frozen M1/M2 evaluation protocols remain historical verification surfaces and are not imported as the production authoring protocol.
 

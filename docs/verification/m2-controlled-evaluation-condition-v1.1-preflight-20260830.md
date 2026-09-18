@@ -42,7 +42,7 @@ Result:
 Additional focused structural tests:
 
 ```text
-dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
+dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj \
   --configuration Release --no-build --no-restore \
   --filter 'FullyQualifiedName~StructuralEvalHarnessTests|FullyQualifiedName~StructuralAgentEvalProtocolTests|FullyQualifiedName~M2StructuralEvaluationCorpusTests'
 ```
@@ -52,7 +52,7 @@ Result: **16 passed, 0 failed, 0 skipped**.
 Direct custom-tool Bun tests:
 
 ```text
-bun test ./.opencode/tests/nyamnyam-structural-eval.test.ts
+bun test ./.opencode/tests/nyrwvy-structural-eval.test.ts
 ```
 
 Result: **8 passed, 0 failed**, 32 assertions.
@@ -77,9 +77,9 @@ The uploaded archive contained exactly one harness run directory plus OpenCode J
 
 OpenCode emitted real completed `tool_use` events for each bridge action exactly once:
 
-1. `nyamnyam_structural_eval_start`
-2. `nyamnyam_structural_eval_request`
-3. `nyamnyam_structural_eval_finalize`
+1. `nyrwvy_structural_eval_start`
+2. `nyrwvy_structural_eval_request`
+3. `nyrwvy_structural_eval_finalize`
 
 The request tool input was exactly:
 
@@ -133,7 +133,7 @@ Condition v1.1 removes the failed plugin registration dependency by using direct
 
 ## Separate M1 runtime note
 
-DEBUG stderr reported an unrelated load failure for the historical M1 plugin `.opencode/plugins/nyamnyam-eval.ts` under OpenCode 1.18.18. It did not prevent the M2 direct tools from loading or executing. This is tracked separately in Issue #70 and is not an M2 v1.1 blocker.
+DEBUG stderr reported an unrelated load failure for the historical M1 plugin `.opencode/plugins/nyrwvy-eval.ts` under OpenCode 1.18.18. It did not prevent the M2 direct tools from loading or executing. This is tracked separately in Issue #70 and is not an M2 v1.1 blocker.
 
 ## Freeze consequence
 

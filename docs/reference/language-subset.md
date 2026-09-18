@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-This reference summarizes the semantic surface currently implemented and exercised through NyamNyam's validation, persistence, lowering, viewer, and C# execution pipeline.
+This reference summarizes the semantic surface currently implemented and exercised through Nyrwvy's validation, persistence, lowering, viewer, and C# execution pipeline.
 
 It is a current capability reference, not a promise that every listed construct is permanently frozen.
 

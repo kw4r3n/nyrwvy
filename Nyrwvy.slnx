@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <Project Path="src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
+    <Project Path="src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
+    <Project Path="src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Nyrwvy.ViewerExport/Nyrwvy.ViewerExport.fsproj" />
+    <Project Path="tools/Nyrwvy.AgentEval/Nyrwvy.AgentEval.fsproj" />
+    <Project Path="tools/Nyrwvy.AgentEval.Structural/Nyrwvy.AgentEval.Structural.fsproj" />
+    <Project Path="tools/Nyrwvy.AgentEval.ListMapStructural/Nyrwvy.AgentEval.ListMapStructural.fsproj" />
+    <Project Path="tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj" />
+    <Project Path="tools/Nyrwvy.EvaluationFixtureExport/Nyrwvy.EvaluationFixtureExport.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj" />
+    <Project Path="tests/Nyrwvy.Extended.Tests/Nyrwvy.Extended.Tests.fsproj" />
+  </Folder>
+</Solution>

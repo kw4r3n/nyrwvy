@@ -7,7 +7,7 @@ The specialized M2.3 ListMap evaluation corpus is frozen before any ListMap mode
 ```text
 corpus:   m2-listmap-agent-corpus-v1
 protocol: m2-listmap-structural-v1
-runner:   tools/NyamNyam.AgentEval.ListMapStructural
+runner:   tools/Nyrwvy.AgentEval.ListMapStructural
 freeze branch: eval/m2-listmap-agent-corpus-v1-20260831
 freeze SHA:    a2ffb5615d37d44bbd910c4f47c36136c31cdce4
 merged by:     PR #88
@@ -39,7 +39,7 @@ bash scripts/verify-local-20260825-1427.sh --clean
 Focused verification was:
 
 ```fish
-dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
+dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj \
   --configuration Release --no-build --no-restore \
   --filter 'FullyQualifiedName~M2ListMapStructuralEvaluationCorpusTests|FullyQualifiedName~ListMapStructuralAgentEvalProtocolTests|FullyQualifiedName~AgentListMapStructuralWorkflowTests'
 ```

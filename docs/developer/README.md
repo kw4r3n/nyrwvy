@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-Use this entry point when changing, reviewing, or validating NyamNyam itself.
+Use this entry point when changing, reviewing, or validating Nyrwvy itself.
 
 ## Before selecting follow-up work
 
@@ -26,7 +26,7 @@ Before a repository mutation, check the actual tool action, explicit non-empty t
 The current production dependency direction is organized around:
 
 ```text
-NyamNyam.Semantics
+Nyrwvy.Semantics
       ^        ^
       |        |
 Execution    Viewer

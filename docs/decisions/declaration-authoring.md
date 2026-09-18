@@ -2,7 +2,7 @@
 
 - **Status:** Accepted design; implementation pending
 - **Date:** 2026-09-08
-- **Issue:** [#146](https://github.com/kw4r3n/nyamnyam-lang/issues/146)
+- **Issue:** [#146](https://github.com/kw4r3n/nyrwvy-lang/issues/146)
 
 This decision defines the next declaration-authoring direction after broad `ExpressionRecipe` construction became available. It does not turn declarations into a generic raw graph-editing surface.
 
@@ -214,7 +214,7 @@ No broad model corpus or routine extended/live CI is authorized merely because a
 
 ## Consequences
 
-- NyamNyam can move from editing only pre-existing function declarations toward constructing new executable functions without caller-owned identities.
+- Nyrwvy can move from editing only pre-existing function declarations toward constructing new executable functions without caller-owned identities.
 - The first creation slice stays complete/atomic rather than broadening incompleteness prematurely.
 - `ExpressionRecipe` gains one context-dependent ephemeral parameter slot instead of a second creation-specific expression language or a stateful ID-preallocation protocol.
 - Signature evolution remains incremental: safe existing parameter addition stays available, while type/result changes wait for an atomic rewrite contract.
@@ -224,4 +224,4 @@ No broad model corpus or routine extended/live CI is authorized merely because a
 
 Revisit this boundary when real workflows require body-less function declarations, self-recursive creation, mutually dependent new declarations, atomic parameter/result type migration, partial type declarations, or capability declaration plus provider registration as one lifecycle.
 
-Refs [#44](https://github.com/kw4r3n/nyamnyam-lang/issues/44), [#114](https://github.com/kw4r3n/nyamnyam-lang/issues/114), [#119](https://github.com/kw4r3n/nyamnyam-lang/issues/119), [#136](https://github.com/kw4r3n/nyamnyam-lang/issues/136), [#137](https://github.com/kw4r3n/nyamnyam-lang/issues/137), [#145](https://github.com/kw4r3n/nyamnyam-lang/issues/145).
+Refs [#44](https://github.com/kw4r3n/nyrwvy-lang/issues/44), [#114](https://github.com/kw4r3n/nyrwvy-lang/issues/114), [#119](https://github.com/kw4r3n/nyrwvy-lang/issues/119), [#136](https://github.com/kw4r3n/nyrwvy-lang/issues/136), [#137](https://github.com/kw4r3n/nyrwvy-lang/issues/137), [#145](https://github.com/kw4r3n/nyrwvy-lang/issues/145).

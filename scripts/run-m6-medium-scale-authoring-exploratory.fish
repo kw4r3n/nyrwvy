@@ -2,9 +2,9 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AuthoringSession/NyamNyam.AuthoringSession.fsproj"
-set -l model "$NYAMNYAM_M6_AUTHORING_EVAL_MODEL"
-set -l variant "$NYAMNYAM_M6_AUTHORING_EVAL_VARIANT"
+set -l project "$repo_root/tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj"
+set -l model "$NYRWVY_M6_AUTHORING_EVAL_MODEL"
+set -l variant "$NYRWVY_M6_AUTHORING_EVAL_VARIANT"
 
 if test -z "$model"
     set model opencode/muse-spark-1.3-contributor-free
@@ -23,7 +23,7 @@ end
 
 if not opencode models | string match -q -- "*$model*"
     echo "ERROR: model '$model' is not available to OpenCode." >&2
-    echo "Set NYAMNYAM_M6_AUTHORING_EVAL_MODEL to another available model if needed." >&2
+    echo "Set NYRWVY_M6_AUTHORING_EVAL_MODEL to another available model if needed." >&2
     exit 1
 end
 
@@ -32,11 +32,11 @@ dotnet build "$project" --configuration Release
 or exit $status
 
 set -l stamp (date +%Y%m%d-%H%M%S)
-set -l result_root "$HOME/.local/share/nyamnyam/m6-medium-scale-authoring-exploratory/$stamp"
+set -l result_root "$HOME/.local/share/nyrwvy/m6-medium-scale-authoring-exploratory/$stamp"
 mkdir -p "$result_root"
 or exit 1
 # Reuse the existing bounded authoring bridge and its isolated result-root contract.
-set -gx NYAMNYAM_M4_AUTHORING_RESULT_ROOT "$result_root"
+set -gx NYRWVY_M4_AUTHORING_RESULT_ROOT "$result_root"
 
 set -l repository_revision (git rev-parse HEAD)
 set -l opencode_version (opencode --version | string collect)
@@ -45,14 +45,14 @@ printf 'repository_revision=%s\nmodel=%s\nvariant=%s\nopencode_version=%s\nstart
     "$repository_revision" "$model" "$variant" "$opencode_version" (date --iso-8601=seconds) \
     >"$result_root/metadata.txt"
 
-set -l prompt "Work entirely through the maintained NyamNyam authoring session. This is one bounded medium-scale authoring/evolution probe; do not inspect repository source or use any authority outside the maintained protocol. Start from the fresh snapshot. Create ValidationOutcome as a union with Accepted(message: String) and Rejected(reason: String). Create ConsoleOutput. Create Console.write_line(text: String) -> Unit associated with ConsoleOutput. Create a pure classify(input: String) -> ValidationOutcome that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise. Then create five pure String -> ValidationOutcome entry-point functions named validate_signup, validate_profile, validate_recovery, validate_invite, and validate_contact. Each must preserve its own String parameter and directly call the published classify function. Create process(input: String, console: Console) -> Unit requiring ConsoleOutput; it must directly call classify, match both ValidationOutcome variants, and send the bound message/reason to write_line. Review and commit every proposal and rediscover published IDs rather than inventing them. After the initial program is committed, create and commit a product type ValidationRequest with email: String. Use simulateParameterTypeMigration to change the existing classify input parameter from String to ValidationRequest while preserving the existing classify FunctionId and input ParameterId. Its replacement body must read ValidationRequest.email and retain the same contains-@ Accepted/Rejected behavior. Supply the complete caller rewrite set in that one migration proposal: all five validate_* functions and process must keep their existing FunctionIds and signatures, construct ValidationRequest from their existing String input, pass it to the migrated classify, and otherwise retain their behavior. Review the migration parameterChange, complete affectedCallSites, and bodyRewrites before committing it. After commit, rediscover declarations and verify classify's FunctionId/input ParameterId continuity and ValidationRequest input type, plus the existing IDs of all six callers. Restart the maintained session exactly once, rediscover the persisted state and identities, confirm execution readiness, confirm empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding. Finalize after these checks. In your final response report every rejected request/retry and any concrete friction in discovery, review, migration, or payload size that you noticed."
+set -l prompt "Work entirely through the maintained Nyrwvy authoring session. This is one bounded medium-scale authoring/evolution probe; do not inspect repository source or use any authority outside the maintained protocol. Start from the fresh snapshot. Create ValidationOutcome as a union with Accepted(message: String) and Rejected(reason: String). Create ConsoleOutput. Create Console.write_line(text: String) -> Unit associated with ConsoleOutput. Create a pure classify(input: String) -> ValidationOutcome that returns Accepted(\"accepted\") when input contains @ and Rejected(\"rejected\") otherwise. Then create five pure String -> ValidationOutcome entry-point functions named validate_signup, validate_profile, validate_recovery, validate_invite, and validate_contact. Each must preserve its own String parameter and directly call the published classify function. Create process(input: String, console: Console) -> Unit requiring ConsoleOutput; it must directly call classify, match both ValidationOutcome variants, and send the bound message/reason to write_line. Review and commit every proposal and rediscover published IDs rather than inventing them. After the initial program is committed, create and commit a product type ValidationRequest with email: String. Use simulateParameterTypeMigration to change the existing classify input parameter from String to ValidationRequest while preserving the existing classify FunctionId and input ParameterId. Its replacement body must read ValidationRequest.email and retain the same contains-@ Accepted/Rejected behavior. Supply the complete caller rewrite set in that one migration proposal: all five validate_* functions and process must keep their existing FunctionIds and signatures, construct ValidationRequest from their existing String input, pass it to the migrated classify, and otherwise retain their behavior. Review the migration parameterChange, complete affectedCallSites, and bodyRewrites before committing it. After commit, rediscover declarations and verify classify's FunctionId/input ParameterId continuity and ValidationRequest input type, plus the existing IDs of all six callers. Restart the maintained session exactly once, rediscover the persisted state and identities, confirm execution readiness, confirm empty-profile C# emission fails specifically with MissingCapabilityBinding, then emit successfully with the explicit System.Console.WriteLine binding. Finalize after these checks. In your final response report every rejected request/retry and any concrete friction in discovery, review, migration, or payload size that you noticed."
 
 set -l stdout_log "$result_root/agent.jsonl"
 set -l stderr_log "$result_root/agent.stderr.log"
 
 echo "[m6-authoring-eval] running one bounded medium-scale exploratory attempt"
 opencode --print-logs --log-level INFO run \
-    --agent nyamnyam-m4-authoring-eval \
+    --agent nyrwvy-m4-authoring-eval \
     --model "$model" \
     --variant "$variant" \
     --format json \

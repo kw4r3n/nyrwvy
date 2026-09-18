@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted. This closes the need for a NyamNyam-specific RAST provenance framework.
+Accepted. This closes the need for a Nyrwvy-specific RAST provenance framework.
 
 ## Decision
 
-NyamNyam will **not** introduce dedicated semantic metadata, schema fields, or a repository-wide provenance system merely to track conceptual ancestry from the earlier RAST project.
+Nyrwvy will **not** introduce dedicated semantic metadata, schema fields, or a repository-wide provenance system merely to track conceptual ancestry from the earlier RAST project.
 
 The two projects have diverged substantially in architecture and goals. RAST remains useful historical context, but it is no longer treated as a migration source whose conceptual lineage must be recorded systematically.
 
@@ -43,13 +43,13 @@ These are part of the project's design history, not semantic or implementation d
 
 ## Architectural consequence
 
-RAST remains external to NyamNyam.
+RAST remains external to Nyrwvy.
 
 - no runtime dependency;
 - no semantic identity relationship;
-- no requirement that NyamNyam preserve RAST compatibility;
+- no requirement that Nyrwvy preserve RAST compatibility;
 - no provenance fields in Snapshot, Typed Semantic IR, Execution IR, Nyason, or agent-facing operations;
-- no requirement to maintain source-revision maps as NyamNyam evolves.
+- no requirement to maintain source-revision maps as Nyrwvy evolves.
 
 A future importer, if ever built, is an explicit compatibility/tooling feature and may carry import-specific provenance for operational reasons. That does not revive a general RAST provenance requirement.
 

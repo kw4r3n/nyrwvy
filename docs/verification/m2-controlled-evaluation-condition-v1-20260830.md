@@ -13,7 +13,7 @@ This record verifies the controlled OpenCode execution condition for the already
 - Frozen corpus branch: `eval/m2-agent-corpus-v1-20260830`
 - Frozen corpus SHA: `efce0cac15565941c11c8af8d1a52e7ecafaa5c6`
 - Agent-visible protocol: `m2-structural-v1`
-- OpenCode evaluation agent: `nyamnyam-structural-eval`
+- OpenCode evaluation agent: `nyrwvy-structural-eval`
 
 The verified condition SHA is retained directly in repository history by a normal merge and is also fixed on the dedicated condition branch. Recorded M2 model runs must use that exact condition revision rather than an arbitrary later `main` revision.
 
@@ -42,7 +42,7 @@ Result:
 Additional focused structural condition tests:
 
 ```text
-dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj \
+dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj \
   --configuration Release --no-build --no-restore \
   --filter 'FullyQualifiedName~StructuralEvalHarnessTests|FullyQualifiedName~StructuralAgentEvalProtocolTests|FullyQualifiedName~M2StructuralEvaluationCorpusTests'
 ```
@@ -52,7 +52,7 @@ Result: **16 passed, 0 failed, 0 skipped**.
 OpenCode bridge tests:
 
 ```text
-bun test ./.opencode/plugins/nyamnyam-structural-eval.test.ts
+bun test ./.opencode/plugins/nyrwvy-structural-eval.test.ts
 ```
 
 Result: **7 passed, 0 failed**, 26 assertions.
@@ -73,10 +73,10 @@ The F# syntax and Bun invocation were corrected, the branch was re-squashed, and
 
 The final condition establishes, before recorded model observation:
 
-- a dedicated `nyamnyam-structural-eval` agent isolated from repository/file/shell access;
+- a dedicated `nyrwvy-structural-eval` agent isolated from repository/file/shell access;
 - only persistent start/request/finalize bridge tools exposed to that agent;
 - first runner request required to be `describeV1`;
-- one persistent `NyamNyam.AgentEval.Structural` process per evaluated agent session;
+- one persistent `Nyrwvy.AgentEval.Structural` process per evaluated agent session;
 - no change to the agent-visible `m2-structural-v1` command/schema/authority surface;
 - startup rejection when the current corpus directory, M2 fixture source, or fixture exporter differs from frozen corpus SHA `efce0cac...`;
 - private run metadata and complete request/response transcript outside the worktree;

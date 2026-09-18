@@ -50,7 +50,7 @@ end
 
 set -l repo_root (git rev-parse --show-toplevel 2>/dev/null)
 if test -z "$repo_root"
-    echo "ERROR: run from the nyamnyam-lang repository." >&2
+    echo "ERROR: run from the nyrwvy-lang repository." >&2
     exit 1
 end
 cd "$repo_root"
@@ -90,11 +90,11 @@ end
 
 set -l frozen_paths \
     evaluation/m2-listmap-agent-corpus-v1 \
-    tests/NyamNyam.Core.Tests/M2ListMapStructuralEvaluationCorpus.fs \
-    tools/NyamNyam.EvaluationFixtureExport/Program.fs \
-    tools/NyamNyam.EvaluationFixtureExport/NyamNyam.EvaluationFixtureExport.fsproj \
-    src/NyamNyam.Core/AgentListMapStructuralWorkflow.fs \
-    tools/NyamNyam.AgentEval.ListMapStructural/Protocol.fs
+    tests/Nyrwvy.Core.Tests/M2ListMapStructuralEvaluationCorpus.fs \
+    tools/Nyrwvy.EvaluationFixtureExport/Program.fs \
+    tools/Nyrwvy.EvaluationFixtureExport/Nyrwvy.EvaluationFixtureExport.fsproj \
+    src/Nyrwvy.Core/AgentListMapStructuralWorkflow.fs \
+    tools/Nyrwvy.AgentEval.ListMapStructural/Protocol.fs
 
 git diff --quiet "$corpus_sha" "$condition_sha" -- $frozen_paths
 or begin
@@ -118,7 +118,7 @@ set -l stage_root ""
 if test $dry_run -eq 1
     set stage_root "/tmp/m2-listmap-orchestrator-dry-run-$stage_name-$stamp"
 else
-    set stage_root "$HOME/.local/share/nyamnyam/m2-listmap-controlled/stage-$stage_name-$stamp"
+    set stage_root "$HOME/.local/share/nyrwvy/m2-listmap-controlled/stage-$stage_name-$stamp"
 end
 mkdir -p "$stage_root"
 or exit 1
@@ -234,19 +234,19 @@ if not opencode models | string match -q -- "*$model*"
     exit 1
 end
 
-set -l worktree_parent (mktemp -d "/tmp/nyamnyam-m2-listmap-$stage_name-XXXXXX")
+set -l worktree_parent (mktemp -d "/tmp/nyrwvy-m2-listmap-$stage_name-XXXXXX")
 or exit 1
 set -l condition_worktree "$worktree_parent/condition"
 
-set -g __nyamnyam_orchestrator_repo "$repo_root"
-set -g __nyamnyam_condition_worktree "$condition_worktree"
-set -g __nyamnyam_worktree_parent "$worktree_parent"
-function __nyamnyam_cleanup --on-event fish_exit
-    if test -n "$__nyamnyam_condition_worktree"; and test -d "$__nyamnyam_condition_worktree"
-        git -C "$__nyamnyam_orchestrator_repo" worktree remove --force "$__nyamnyam_condition_worktree" >/dev/null 2>&1
+set -g __nyrwvy_orchestrator_repo "$repo_root"
+set -g __nyrwvy_condition_worktree "$condition_worktree"
+set -g __nyrwvy_worktree_parent "$worktree_parent"
+function __nyrwvy_cleanup --on-event fish_exit
+    if test -n "$__nyrwvy_condition_worktree"; and test -d "$__nyrwvy_condition_worktree"
+        git -C "$__nyrwvy_orchestrator_repo" worktree remove --force "$__nyrwvy_condition_worktree" >/dev/null 2>&1
     end
-    if test -n "$__nyamnyam_worktree_parent"; and test -d "$__nyamnyam_worktree_parent"
-        rm -rf "$__nyamnyam_worktree_parent"
+    if test -n "$__nyrwvy_worktree_parent"; and test -d "$__nyrwvy_worktree_parent"
+        rm -rf "$__nyrwvy_worktree_parent"
     end
 end
 
@@ -258,7 +258,7 @@ end
 
 pushd "$condition_worktree" >/dev/null
 or exit 1
-dotnet restore NyamNyam.slnx
+dotnet restore Nyrwvy.slnx
 set -l restore_code $status
 popd >/dev/null
 if test $restore_code -ne 0
@@ -282,20 +282,20 @@ for task_id in $task_ids
         set -l stdout_log "$attempt_dir/opencode.jsonl"
         set -l stderr_log "$attempt_dir/opencode.stderr.log"
 
-        set -gx NYAMNYAM_LISTMAP_EVAL_TASK_ID "$task_id"
-        set -gx NYAMNYAM_LISTMAP_EVAL_FIXTURE "$fixture"
-        set -gx NYAMNYAM_LISTMAP_EVAL_ARTIFACT_ROOT "$artifact_root"
-        set -gx NYAMNYAM_LISTMAP_EVAL_MODEL "$model"
-        set -gx NYAMNYAM_LISTMAP_EVAL_PROVIDER_RUNTIME opencode
-        set -gx NYAMNYAM_LISTMAP_EVAL_REASONING_CONFIG "$variant"
-        set -gx NYAMNYAM_LISTMAP_EVAL_OPENCODE_VERSION "$oc_version"
-        set -gx NYAMNYAM_LISTMAP_EVAL_PROMPT_REVISION "$prompt_revision"
-        set -gx NYAMNYAM_LISTMAP_EVAL_TOOL_REVISION "$condition_sha"
+        set -gx NYRWVY_LISTMAP_EVAL_TASK_ID "$task_id"
+        set -gx NYRWVY_LISTMAP_EVAL_FIXTURE "$fixture"
+        set -gx NYRWVY_LISTMAP_EVAL_ARTIFACT_ROOT "$artifact_root"
+        set -gx NYRWVY_LISTMAP_EVAL_MODEL "$model"
+        set -gx NYRWVY_LISTMAP_EVAL_PROVIDER_RUNTIME opencode
+        set -gx NYRWVY_LISTMAP_EVAL_REASONING_CONFIG "$variant"
+        set -gx NYRWVY_LISTMAP_EVAL_OPENCODE_VERSION "$oc_version"
+        set -gx NYRWVY_LISTMAP_EVAL_PROMPT_REVISION "$prompt_revision"
+        set -gx NYRWVY_LISTMAP_EVAL_TOOL_REVISION "$condition_sha"
 
         echo "=== $task_id / $attempt ==="
         pushd "$condition_worktree" >/dev/null
         opencode --print-logs --log-level DEBUG run \
-            --agent nyamnyam-listmap-eval \
+            --agent nyrwvy-listmap-eval \
             --model "$model" \
             --variant "$variant" \
             --format json \
@@ -379,9 +379,9 @@ printf '%s\n' \
 
 # Remove the detached condition worktree only after all evidence is packaged.
 git -C "$repo_root" worktree remove --force "$condition_worktree" >/dev/null 2>&1
-set -g __nyamnyam_condition_worktree ""
+set -g __nyrwvy_condition_worktree ""
 rm -rf "$worktree_parent"
-set -g __nyamnyam_worktree_parent ""
+set -g __nyrwvy_worktree_parent ""
 
 
 echo

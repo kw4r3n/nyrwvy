@@ -11,7 +11,7 @@ One record may summarize a tightly controlled batch only when every run has the 
 - **Run ID:**
 - **Corpus:** `m1-agent-corpus-v1`
 - **Task:** `E1 | E2 | E3 | E4 | E5`
-- **Mode:** `A — NyamNyam semantic workflow | B — source baseline | C — raw graph diagnostic`
+- **Mode:** `A — Nyrwvy semantic workflow | B — source baseline | C — raw graph diagnostic`
 - **Date/time:**
 - **Repository revision:**
 - **Starting snapshot ID/fingerprint:**

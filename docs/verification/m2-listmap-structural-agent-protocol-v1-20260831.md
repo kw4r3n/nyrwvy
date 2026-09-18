@@ -21,7 +21,7 @@ The completed Float64 protocol `m2-structural-v1`, corpus, condition, and 30-att
 The versioned runner is:
 
 ```text
-tools/NyamNyam.AgentEval.ListMapStructural
+tools/Nyrwvy.AgentEval.ListMapStructural
 protocol: m2-listmap-structural-v1
 ```
 

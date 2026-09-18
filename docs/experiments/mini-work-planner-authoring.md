@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Author a second small practical NyamNyam program with a different semantic shape from Verification Planner.
+Author a second small practical Nyrwvy program with a different semantic shape from Verification Planner.
 
 The workload is deliberately adjacent to FurCrawr's task-decision problem, but it models only the next action for one work item. It does not introduce WorkGraph orchestration, concurrency, timers, model routing, durable orchestration state, or a generic state-machine abstraction.
 

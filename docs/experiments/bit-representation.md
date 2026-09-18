@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 
-NyamNyam does not currently expose first-class exact bit manipulation. This experiment records the preferred direction if a concrete use case eventually requires it.
+Nyrwvy does not currently expose first-class exact bit manipulation. This experiment records the preferred direction if a concrete use case eventually requires it.
 
 ## Direction
 

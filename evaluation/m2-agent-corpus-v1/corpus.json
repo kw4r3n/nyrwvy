@@ -2,8 +2,8 @@
   "corpusId": "m2-agent-corpus-v1",
   "status": "frozen-on-freeze-branch",
   "protocolVersion": "m2-structural-v1",
-  "agentExecutable": "tools/NyamNyam.AgentEval.Structural",
-  "fixtureExporter": "tools/NyamNyam.EvaluationFixtureExport",
+  "agentExecutable": "tools/Nyrwvy.AgentEval.Structural",
+  "fixtureExporter": "tools/Nyrwvy.EvaluationFixtureExport",
   "fixtures": {
     "m2-ready": {
       "snapshotId": "snapshot-m2-eval-ready",

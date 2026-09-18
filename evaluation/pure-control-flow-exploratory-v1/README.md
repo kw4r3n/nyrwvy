@@ -8,7 +8,7 @@ It is intentionally not a replacement for the frozen M2 corpus and does not repe
 
 ## Evaluation surface
 
-Use protocol `pure-expression-control-flow-v1` through `tools/NyamNyam.AgentEval.PureExpression`.
+Use protocol `pure-expression-control-flow-v1` through `tools/Nyrwvy.AgentEval.PureExpression`.
 
 Each task starts from a fresh built-in deterministic fixture. The agent should begin with `describeV1`, use the returned fixture/schema facts to construct a request, simulate a proposal, inspect the resulting change, and commit only the intended result.
 
@@ -74,7 +74,7 @@ Run once at this architectural boundary:
 ./scripts/validate-scoped-pure-control-flow.fish
 ```
 
-That command builds/smokes the eval-only runner and then runs the maintained extended suite. The eval runner is intentionally not added to `NyamNyam.slnx`, so routine CI does not pay its build cost.
+That command builds/smokes the eval-only runner and then runs the maintained extended suite. The eval runner is intentionally not added to `Nyrwvy.slnx`, so routine CI does not pay its build cost.
 
 ## Exploratory model run
 
@@ -84,14 +84,14 @@ After deterministic validation has passed, run the first four tasks once each wi
 ./scripts/run-pure-control-flow-exploratory.fish
 ```
 
-The script uses `openai/gpt-5.6-terra` with the `high` variant by default. Override those only when needed with `NYAMNYAM_PURE_CONTROL_EVAL_MODEL` and `NYAMNYAM_PURE_CONTROL_EVAL_VARIANT`.
+The script uses `openai/gpt-5.6-terra` with the `high` variant by default. Override those only when needed with `NYRWVY_PURE_CONTROL_EVAL_MODEL` and `NYRWVY_PURE_CONTROL_EVAL_VARIANT`.
 
-Results and raw OpenCode JSON logs are written under `~/.local/share/nyamnyam/pure-control-flow-exploratory/`. The script prints a compact per-task summary with process exit status, whether a proposal/commit appeared in the tool trace, whether a `PatternReference` appeared, and any lexical-scope diagnostic code.
+Results and raw OpenCode JSON logs are written under `~/.local/share/nyrwvy/pure-control-flow-exploratory/`. The script prints a compact per-task summary with process exit status, whether a proposal/commit appeared in the tool trace, whether a `PatternReference` appeared, and any lexical-scope diagnostic code.
 
 If only summary extraction needs to be repeated, reuse the existing model logs rather than rerunning the tasks:
 
 ```shell
-./scripts/run-pure-control-flow-exploratory.fish --summarize ~/.local/share/nyamnyam/pure-control-flow-exploratory/<run-directory>
+./scripts/run-pure-control-flow-exploratory.fish --summarize ~/.local/share/nyrwvy/pure-control-flow-exploratory/<run-directory>
 ```
 
 Do not run PCF-E5 by default. Add that recovery observation only if PCF-E4 exposes uncertainty that is worth probing.

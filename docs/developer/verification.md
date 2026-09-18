@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-NyamNyam is both an implementation project and an experimental investigation into AI-native semantic programming. Verification therefore has two jobs that should not be confused:
+Nyrwvy is both an implementation project and an experimental investigation into AI-native semantic programming. Verification therefore has two jobs that should not be confused:
 
 1. detect regressions in code and maintained contracts; and
 2. generate evidence about whether an architectural or interaction hypothesis actually works.
@@ -83,7 +83,7 @@ Do not permanently move every milestone check into routine CI after it has serve
 
 ### 3. Experimental validation
 
-Use when NyamNyam introduces or challenges a design hypothesis whose practical value cannot be established by deterministic tests alone.
+Use when Nyrwvy introduces or challenges a design hypothesis whose practical value cannot be established by deterministic tests alone.
 
 Purpose: answer a research question, not merely prove that code executes as implemented.
 
@@ -111,7 +111,7 @@ change
   +-- Does it materially change an important semantic/architectural boundary?
   |      -> milestone/extended verification
   |
-  +-- Does it introduce a new practical hypothesis about how agents can use NyamNyam?
+  +-- Does it introduce a new practical hypothesis about how agents can use Nyrwvy?
          -> experimental validation when deterministic evidence is insufficient
 ```
 

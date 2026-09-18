@@ -26,7 +26,7 @@ Operator evidence for all ten attempts showed:
 - harness run-directory count remained `0 -> 0` for every task;
 - therefore no `fixture.json`, `run-metadata.json`, `events.jsonl`, `metrics.json`, `run-state.json`, or committed-state verification directory was created.
 
-The model-facing logs consistently showed the evaluated agent had received the `nyamnyam-structural-eval` instructions and knew the expected `nyamnyam_structural_eval_*` names, but OpenCode did not expose those names as actual callable tools. The model attempted several textual pseudo-tool syntaxes and then reported that the required structural-evaluation tools were unavailable.
+The model-facing logs consistently showed the evaluated agent had received the `nyrwvy-structural-eval` instructions and knew the expected `nyrwvy_structural_eval_*` names, but OpenCode did not expose those names as actual callable tools. The model attempted several textual pseudo-tool syntaxes and then reported that the required structural-evaluation tools were unavailable.
 
 There were no real structural protocol requests and no semantic workspace edits.
 
@@ -44,7 +44,7 @@ This follows the pre-result #51 plan: a harness/artifact/transport failure inval
 
 ## Root boundary
 
-Repository-local tests proved the TypeScript bridge helpers and plugin implementation could be imported and the F# harness behaved correctly. They did **not** prove that a real OpenCode `run --agent nyamnyam-structural-eval` session would include plugin-registered custom tools in the model's runtime tool list.
+Repository-local tests proved the TypeScript bridge helpers and plugin implementation could be imported and the F# harness behaved correctly. They did **not** prove that a real OpenCode `run --agent nyrwvy-structural-eval` session would include plugin-registered custom tools in the model's runtime tool list.
 
 Current OpenCode documentation provides project-local `.opencode/tools/` as the direct custom-tool discovery path. Condition v1.1 therefore moves the three agent-callable bridge actions to that standard path while keeping persistent session state in a shared helper module.
 
@@ -52,7 +52,7 @@ Current OpenCode documentation provides project-local `.opencode/tools/` as the 
 
 Issue #68 requires:
 
-- direct custom tools with the unchanged names `nyamnyam_structural_eval_start`, `nyamnyam_structural_eval_request`, and `nyamnyam_structural_eval_finalize`;
+- direct custom tools with the unchanged names `nyrwvy_structural_eval_start`, `nyrwvy_structural_eval_request`, and `nyrwvy_structural_eval_finalize`;
 - frozen corpus and `m2-structural-v1` unchanged;
 - operator-fixed model/runtime/reasoning metadata passed without depending on a plugin `chat.message` hook;
 - a real OpenCode runtime preflight proving start -> `describeV1` -> finalize and durable terminal artifacts before any replacement Stage A collection;

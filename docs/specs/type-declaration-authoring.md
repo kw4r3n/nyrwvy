@@ -101,7 +101,7 @@ Explicit rejection forgets the proposal and retains the current snapshot.
 
 ## Maintained authoring-session integration
 
-The maintained `NyamNyam.AuthoringSession` JSON-lines transport exposes one thin adapter operation, `simulateCreateType`. It converts JSON declaration intent to `AgentCreateTypeDeclarationRequest`; semantic validation and identity allocation remain exclusively in the Core workflow.
+The maintained `Nyrwvy.AuthoringSession` JSON-lines transport exposes one thin adapter operation, `simulateCreateType`. It converts JSON declaration intent to `AgentCreateTypeDeclarationRequest`; semantic validation and identity allocation remain exclusively in the Core workflow.
 
 A successful session commit persists the reviewed candidate through the M3 publication boundary before advancing the in-memory session. The declaration then appears through ordinary `declarations` / `getType` discovery and its returned IDs may be used by later `ExpressionRecipe` and function-creation requests.
 

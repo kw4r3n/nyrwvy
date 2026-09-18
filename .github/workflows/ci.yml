@@ -27,13 +27,13 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore fast test graph
-        run: dotnet restore tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj
+        run: dotnet restore tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj
 
       - name: Build fast test graph
-        run: dotnet build tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --no-restore
+        run: dotnet build tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-restore
 
       - name: Test fast suite
-        run: dotnet test tests/NyamNyam.Core.Tests/NyamNyam.Core.Tests.fsproj --configuration Release --no-build --no-restore --settings tests/fast.runsettings
+        run: dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-build --no-restore --settings tests/fast.runsettings
 
       - name: Report encoding comparison
-        run: cat /tmp/nyamnyam-encoding-comparison.txt
+        run: cat /tmp/nyrwvy-encoding-comparison.txt

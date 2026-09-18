@@ -26,7 +26,7 @@ This opt-in milestone check requires a .NET 10 SDK and runs:
   4. the JSON/Nyason comparison report produced by the test suite
 
 Use scripts/test-fast.fish for routine development.
-A timestamped log is written under ${TMPDIR:-/tmp}/nyamnyam-verification/.
+A timestamped log is written under ${TMPDIR:-/tmp}/nyrwvy-verification/.
 EOF
 }
 
@@ -72,7 +72,7 @@ else
 fi
 
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
-LOG_DIR="${TMPDIR:-/tmp}/nyamnyam-verification"
+LOG_DIR="${TMPDIR:-/tmp}/nyrwvy-verification"
 LOG_FILE="$LOG_DIR/local-verify-$TIMESTAMP.log"
 mkdir -p "$LOG_DIR"
 
@@ -88,7 +88,7 @@ on_error() {
 }
 trap on_error ERR
 
-echo "=== NyamNyam local verification ==="
+echo "=== Nyrwvy local verification ==="
 echo "time: $(date --iso-8601=seconds)"
 echo "repo: $ROOT_DIR"
 echo "branch: $BRANCH"
@@ -107,18 +107,18 @@ if [[ "$CLEAN" -eq 1 ]]; then
 fi
 
 echo "--- Restore ---"
-dotnet restore NyamNyam.slnx
+dotnet restore Nyrwvy.slnx
 echo
 
 echo "--- Release build ---"
-dotnet build NyamNyam.slnx --configuration Release --no-restore
+dotnet build Nyrwvy.slnx --configuration Release --no-restore
 echo
 
 echo "--- Full test suite (once, including extended) ---"
-dotnet test NyamNyam.slnx --configuration Release --no-build --no-restore
+dotnet test Nyrwvy.slnx --configuration Release --no-build --no-restore
 echo
 
-ENCODING_REPORT="${TMPDIR:-/tmp}/nyamnyam-encoding-comparison.txt"
+ENCODING_REPORT="${TMPDIR:-/tmp}/nyrwvy-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
   echo "ERROR: expected encoding comparison report was not produced: $ENCODING_REPORT" >&2
   exit 1

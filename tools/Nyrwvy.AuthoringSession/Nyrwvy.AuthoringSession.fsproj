@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Session.fs" />
+    <Compile Include="WireJson.fs" />
+    <Compile Include="WireInput.fs" />
+    <Compile Include="WireRecipe.fs" />
+    <Compile Include="WireOperation.fs" />
+    <Compile Include="WireEncodeCommon.fs" />
+    <Compile Include="WireEncode.fs" />
+    <Compile Include="WireProtocolAdapters.fs" />
+    <Compile Include="Protocol.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <ProjectReference Include="../../src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
+    <ProjectReference Include="../../src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
+  </ItemGroup>
+</Project>

@@ -1,12 +1,12 @@
-# NyamNyam documentation
+# Nyrwvy documentation
 
 **Status:** Current
 
-This directory contains the maintained documentation for the current NyamNyam design and implementation. Choose a document by the question you are trying to answer rather than by chronology.
+This directory contains the maintained documentation for the current Nyrwvy design and implementation. Choose a document by the question you are trying to answer rather than by chronology.
 
 ## Start here
 
-- **Why does NyamNyam exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md).
+- **Why does Nyrwvy exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md).
 - **How is the system organized?** Read [Architecture](developer/architecture.md).
 - **How much verification does a change need?** Read [Verification philosophy](developer/verification.md).
 - **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).

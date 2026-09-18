@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-Stable IDs are NyamNyam's semantic identity mechanism. Names, paths, source locations, serialization order, and viewer coordinates are presentation or representation details and do not substitute for identity.
+Stable IDs are Nyrwvy's semantic identity mechanism. Names, paths, source locations, serialization order, and viewer coordinates are presentation or representation details and do not substitute for identity.
 
 ## Current production contract
 
@@ -48,7 +48,7 @@ The textual domain prefix is transport/inspection structure. It is not duplicate
 
 ## Allocation boundary
 
-Ordinary agent-facing creation operations allocate new identities inside trusted NyamNyam tooling. Agents supply semantic intent and references to existing stable IDs; they do not fabricate production IDs for newly created semantic objects.
+Ordinary agent-facing creation operations allocate new identities inside trusted Nyrwvy tooling. Agents supply semantic intent and references to existing stable IDs; they do not fabricate production IDs for newly created semantic objects.
 
 Controlled tests and migration/import tooling may use explicit fixture identities where the workflow requires reproducibility or preservation of an existing identity.
 

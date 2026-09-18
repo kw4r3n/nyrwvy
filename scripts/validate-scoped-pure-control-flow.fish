@@ -2,10 +2,10 @@
 
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
-set -l project "$repo_root/tools/NyamNyam.AgentEval.PureExpression/NyamNyam.AgentEval.PureExpression.fsproj"
+set -l project "$repo_root/tools/Nyrwvy.AgentEval.PureExpression/Nyrwvy.AgentEval.PureExpression.fsproj"
 set -l protocol pure-expression-control-flow-v1
 
-set -l temporary (mktemp -d "/tmp/nyamnyam-pure-control-XXXXXX")
+set -l temporary (mktemp -d "/tmp/nyrwvy-pure-control-XXXXXX")
 or exit 1
 set -l input "$temporary/input.jsonl"
 set -l output "$temporary/output.jsonl"

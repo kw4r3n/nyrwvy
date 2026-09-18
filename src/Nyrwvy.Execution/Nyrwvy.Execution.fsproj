@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Nyrwvy.Core/TypedSemanticIr.fs" Link="TypedSemanticIr.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentExecution.fs" Link="AgentExecution.fs" />
+    <Compile Include="../Nyrwvy.Core/TypedSemanticIrCodec.fs" Link="TypedSemanticIrCodec.fs" />
+    <Compile Include="../Nyrwvy.Core/ExecutionIrModel.fs" Link="ExecutionIrModel.fs" />
+    <Compile Include="../Nyrwvy.Core/ExecutionIrAnalysis.fs" Link="ExecutionIrAnalysis.fs" />
+    <Compile Include="../Nyrwvy.Core/ExecutionIrDeclarations.fs" Link="ExecutionIrDeclarations.fs" />
+    <Compile Include="../Nyrwvy.Core/ExecutionIrLoweringCore.fs" Link="ExecutionIrLoweringCore.fs" />
+    <Compile Include="../Nyrwvy.Core/ExecutionIrCodec.fs" Link="ExecutionIrCodec.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+  </ItemGroup>
+</Project>

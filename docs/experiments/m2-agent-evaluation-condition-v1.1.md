@@ -23,7 +23,7 @@ M2-E2/E3 retain the already-recorded v1 interpretation: they measure guard rejec
 
 ## Why v1.1 exists
 
-Condition v1 passed .NET and Bun tests but failed its first real OpenCode Stage A collection. Ten fresh OpenCode sessions loaded the evaluation-agent instructions yet exposed no callable `nyamnyam_structural_eval_*` tool. No harness run directory was created in any attempt.
+Condition v1 passed .NET and Bun tests but failed its first real OpenCode Stage A collection. Ten fresh OpenCode sessions loaded the evaluation-agent instructions yet exposed no callable `nyrwvy_structural_eval_*` tool. No harness run directory was created in any attempt.
 
 That failure is recorded in `m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md`. It is a transport-condition failure, not model semantic evidence, and contributes zero valid corpus attempts.
 
@@ -32,26 +32,26 @@ That failure is recorded in `m2-controlled-evaluation-condition-v1-runtime-failu
 Condition v1.1 uses OpenCode's project-local custom-tool discovery path directly:
 
 ```text
-.opencode/tools/nyamnyam_structural_eval_start.ts
-.opencode/tools/nyamnyam_structural_eval_request.ts
-.opencode/tools/nyamnyam_structural_eval_finalize.ts
+.opencode/tools/nyrwvy_structural_eval_start.ts
+.opencode/tools/nyrwvy_structural_eval_request.ts
+.opencode/tools/nyrwvy_structural_eval_finalize.ts
 ```
 
 All three import one process-local shared implementation:
 
 ```text
-.opencode/lib/nyamnyam-structural-eval-bridge.ts
+.opencode/lib/nyrwvy-structural-eval-bridge.ts
 ```
 
 The tool names and agent-visible behavior remain exactly:
 
-- `nyamnyam_structural_eval_start`
-- `nyamnyam_structural_eval_request`
-- `nyamnyam_structural_eval_finalize`
+- `nyrwvy_structural_eval_start`
+- `nyrwvy_structural_eval_request`
+- `nyrwvy_structural_eval_finalize`
 
 The evaluated agent still has no repository/file/shell access and no direct artifact path or fixture-selection control. Agent tool exposure is explicitly whitelisted to these three bridge tools.
 
-The old M2 plugin-registered tool surface is removed in v1.1. The historical M1 `nyamnyam-eval` condition is not reinterpreted by this change.
+The old M2 plugin-registered tool surface is removed in v1.1. The historical M1 `nyrwvy-eval` condition is not reinterpreted by this change.
 
 ## Persistent session semantics
 
@@ -73,12 +73,12 @@ Condition v1 depended on a plugin `chat.message` hook to observe model/provider/
 The operator fixes and exports the same values used to launch OpenCode:
 
 ```text
-NYAMNYAM_STRUCTURAL_EVAL_MODEL=openai/gpt-5.6-terra
-NYAMNYAM_STRUCTURAL_EVAL_PROVIDER_RUNTIME=opencode
-NYAMNYAM_STRUCTURAL_EVAL_REASONING_CONFIG=high
-NYAMNYAM_STRUCTURAL_EVAL_OPENCODE_VERSION=1.18.18
-NYAMNYAM_STRUCTURAL_EVAL_PROMPT_REVISION=m2-corpus-v1-seed-v1
-NYAMNYAM_STRUCTURAL_EVAL_TOOL_REVISION=178f38274890a28ae61a1c70c9d598bc01492256
+NYRWVY_STRUCTURAL_EVAL_MODEL=openai/gpt-5.6-terra
+NYRWVY_STRUCTURAL_EVAL_PROVIDER_RUNTIME=opencode
+NYRWVY_STRUCTURAL_EVAL_REASONING_CONFIG=high
+NYRWVY_STRUCTURAL_EVAL_OPENCODE_VERSION=1.18.18
+NYRWVY_STRUCTURAL_EVAL_PROMPT_REVISION=m2-corpus-v1-seed-v1
+NYRWVY_STRUCTURAL_EVAL_TOOL_REVISION=178f38274890a28ae61a1c70c9d598bc01492256
 ```
 
 The structural runner persists those harness-owned values in `run-metadata.json`. They must match the actual operator command used for a recorded tranche.

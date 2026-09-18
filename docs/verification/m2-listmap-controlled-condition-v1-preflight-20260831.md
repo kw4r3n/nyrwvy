@@ -36,7 +36,7 @@ Exact candidate `23bf09d87c03b9c15dd4640b662a05b24aa5e330` passed:
 The initial Bun invocation omitted `./` before the hidden-directory path, so Bun treated the argument as a filter and ran no test file. This was an operator-command issue, not a code failure. The corrected command was:
 
 ```fish
-bun test ./.opencode/tests/nyamnyam-listmap-eval.test.ts
+bun test ./.opencode/tests/nyrwvy-listmap-eval.test.ts
 ```
 
 and all eight tests passed on the unchanged exact condition SHA.
@@ -48,9 +48,9 @@ The condition uses the already-proven direct project-local OpenCode custom-tool 
 The evaluated agent is restricted to exactly three OpenCode transport tools:
 
 ```text
-nyamnyam_listmap_eval_start
-nyamnyam_listmap_eval_request
-nyamnyam_listmap_eval_finalize
+nyrwvy_listmap_eval_start
+nyrwvy_listmap_eval_request
+nyrwvy_listmap_eval_finalize
 ```
 
 Those tools transport requests to the already-frozen seven-command `m2-listmap-structural-v1` protocol. They do not add semantic mutation authority.
@@ -115,9 +115,9 @@ The model was instructed only to:
 
 Observed runtime evidence:
 
-- one real `nyamnyam_listmap_eval_start` tool event;
-- one real `nyamnyam_listmap_eval_request` tool event;
-- one real `nyamnyam_listmap_eval_finalize` tool event;
+- one real `nyrwvy_listmap_eval_start` tool event;
+- one real `nyrwvy_listmap_eval_request` tool event;
+- one real `nyrwvy_listmap_eval_finalize` tool event;
 - one exact `describeV1` runner request;
 - simulations: **0**;
 - commit attempts: **0**;

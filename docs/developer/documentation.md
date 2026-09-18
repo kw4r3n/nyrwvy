@@ -2,7 +2,7 @@
 
 **Status:** Current
 
-NyamNyam documentation is organized by semantic purpose. A document should answer one primary kind of question, make its authority clear, and avoid competing silently with another representation of the same decision or contract.
+Nyrwvy documentation is organized by semantic purpose. A document should answer one primary kind of question, make its authority clear, and avoid competing silently with another representation of the same decision or contract.
 
 The shared model is intentionally compatible with the corresponding FuwaFuwa documentation structure.
 
