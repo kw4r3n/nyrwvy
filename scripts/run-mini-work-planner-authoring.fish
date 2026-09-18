@@ -310,6 +310,18 @@ maintenance_owner_preserved = (
     and post_restart_functions.get("next_action") == initial_functions.get("next_action")
 )
 
+workspace_exists = os.path.isfile(workspace_path)
+completion = (
+    exit_code == "0"
+    and workspace_exists
+    and maintenance_committed
+    and maintenance_owner_preserved
+    and restart_index is not None
+    and identity_preserved
+    and post_restart_ready
+    and manifest_ok
+)
+
 try:
     duration_seconds = max(0, int(finished_epoch) - int(started_epoch))
 except ValueError:
@@ -317,7 +329,8 @@ except ValueError:
 
 row = {
     "exit": exit_code,
-    "workspace": "true" if os.path.isfile(workspace_path) else "false",
+    "workspace": "true" if workspace_exists else "false",
+    "completion": "true" if completion else "false",
     "duration_seconds": str(duration_seconds),
     "simulate_type": str(counts.get("simulateCreateType", 0)),
     "simulate_function": str(counts.get("simulateCreateFunction", 0)),
@@ -347,6 +360,8 @@ with open(summary_path, "w", encoding="utf-8") as stream:
 print("=== Mini Work Planner authoring summary ===")
 print("\t".join(row.keys()))
 print("\t".join(row.values()))
+if not completion:
+    raise SystemExit(2)
 ' "$events" "$summary" "$result_root/workspace.json" "$run_code" "$started_epoch" "$finished_epoch"
 set -l summarize_code $status
 

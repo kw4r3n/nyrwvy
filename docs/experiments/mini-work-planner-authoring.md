@@ -60,7 +60,7 @@ The bounded authoring run must:
 - successfully emit C# with the empty profile;
 - observe that the `emitCSharp` result contains the public symbol manifest added in #177/#178.
 
-The runner records operation counts, payload sizes, rejected requests, identity continuity, maintenance commit state, readiness, and manifest coverage from the existing protocol transcript.
+The runner records operation counts, payload sizes, rejected requests, identity continuity, maintenance commit state, readiness, and manifest coverage from the existing protocol transcript. It reports `completion=true` only when the committed/restarted state satisfies the full boundary, and exits non-zero when that evidence is incomplete even if the model process itself exits successfully.
 
 This first step does not duplicate the semantic rules in a host-side runtime oracle. If authoring is clean, package the resulting persisted program and add a small execution-facing adapter/check as a separate step.
 

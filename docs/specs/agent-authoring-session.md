@@ -131,6 +131,12 @@ The maintained operation set is:
 
 `proposalId` is the proposal transaction ID rendered as a stable-ID string. It is only a handle inside the live process and is not resumable across restart.
 
+### Create-function review projection
+
+The Core function-creation proposal retains its full review model. The maintained JSON-lines projection is deliberately compact: a successful `simulateCreateFunction` review returns the proposal receipt/readiness and the complete proposed `createdFunction` (identity, signature, effects, and body). It does not repeat the same function body again through `materializedBody` or `proposedFocus`.
+
+This keeps nested ordinary authoring within practical tool-response bounds without changing semantic validation, proposal identity, or commit authority. After publication, `focusFunction` remains the detailed impact/query surface.
+
 ### Stable IDs and type references
 
 Stable IDs are JSON strings. Existing IDs may be referenced where the semantic API already accepts them. New declaration/node identities are never supplied by the caller.
