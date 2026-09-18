@@ -126,6 +126,41 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
             failwith "C# backend emitted different artifacts for identical Execution IR and profile."
 
     [<Fact>]
+    let ``C# artifact exposes emitted public symbol manifest`` () =
+        let fixture, _, artifact = emitRepresentative ()
+        let find (id: 'Id) (items: CSharpSymbol<'Id> list) =
+            items
+            |> List.find (fun item -> item.Id = id)
+            |> fun item -> item.Name
+
+        Assert.Equal(CSharpBackendNames.generatedNamespace, artifact.Symbols.Namespace)
+        Assert.Equal(CSharpBackendNames.functionContainerName, artifact.Symbols.FunctionContainer)
+        Assert.Equal(
+            CSharpBackendNames.typeName fixture.PolicyTypeId,
+            find fixture.PolicyTypeId artifact.Symbols.Types
+        )
+        Assert.Equal(
+            CSharpBackendNames.functionName fixture.MainFunctionId,
+            find fixture.MainFunctionId artifact.Symbols.Functions
+        )
+        Assert.Equal(
+            CSharpBackendNames.parameterName fixture.ValidateInputParameterId,
+            find fixture.ValidateInputParameterId artifact.Symbols.Parameters
+        )
+        Assert.Equal(
+            CSharpBackendNames.capabilityName fixture.ConsoleCapabilityId,
+            find fixture.ConsoleCapabilityId artifact.Symbols.Capabilities
+        )
+        Assert.Equal(
+            CSharpBackendNames.capabilityOperationName fixture.ConsoleWriteLineOperationId,
+            find fixture.ConsoleWriteLineOperationId artifact.Symbols.CapabilityOperations
+        )
+        Assert.Equal(
+            CSharpBackendNames.capabilityAdapterName fixture.ConsoleCapabilityId,
+            find fixture.ConsoleCapabilityId artifact.Symbols.CapabilityAdapters
+        )
+
+    [<Fact>]
     let ``C# backend requires an explicit Console capability binding`` () =
         let fixture, execution = lowerRepresentative ()
         match CSharpBackend.emit execution CSharpBackendProfile.empty with

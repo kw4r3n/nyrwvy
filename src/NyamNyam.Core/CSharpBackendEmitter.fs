@@ -217,19 +217,23 @@ module CSharpBackend =
             writer.Line("}")
             writer.Line("")
 
+    let private hasCapabilityAdapter
+        (context: CSharpBackendValidation.Context)
+        (capability: ExecutionCapability) =
+        let allBound =
+            capability.Operations
+            |> List.forall (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
+        let anyBound =
+            capability.Operations
+            |> List.exists (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
+        allBound && anyBound
+
     let private emitAdapters
         (writer: SourceWriter)
         (context: CSharpBackendValidation.Context)
         (program: ExecutionProgram) =
         for capability in program.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) do
-            let allBound =
-                capability.Operations
-                |> List.forall (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
-            let anyBound =
-                capability.Operations
-                |> List.exists (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
-
-            if allBound && anyBound then
+            if hasCapabilityAdapter context capability then
                 let capabilityName = CSharpBackendNames.capabilityName capability.Id
                 let adapterName = CSharpBackendNames.capabilityAdapterName capability.Id
                 writer.Line("public sealed class " + adapterName + " : " + capabilityName)
@@ -260,7 +264,7 @@ module CSharpBackend =
         CSharpBackendNames.executionValueName valueId
 
     let private callbackName (functionId: FunctionId) =
-        "NyFunctions." + CSharpBackendNames.functionName functionId
+        CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId
 
     let private renderNamedCallArguments (arguments: ExecutionCallArgument list) =
         arguments
@@ -520,13 +524,77 @@ module CSharpBackend =
         writer.Line("")
 
     let private emitFunctions (writer: SourceWriter) (program: ExecutionProgram) =
-        writer.Line("public static class NyFunctions")
+        writer.Line("public static class " + CSharpBackendNames.functionContainerName)
         writer.Line("{")
         writer.Push()
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
             emitFunction writer functionEntity
         writer.Pop()
         writer.Line("}")
+
+    let private symbol (id: 'Id) name : CSharpSymbol<'Id> =
+        { Id = id; Name = name }
+
+    let private symbolManifest
+        (context: CSharpBackendValidation.Context)
+        (program: ExecutionProgram) =
+        let types = program.Types |> List.sortBy (fun item -> StableId.value item.Id)
+        let fields =
+            types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | ExecutionTypeKind.Product items -> items
+                | ExecutionTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
+            |> List.distinctBy (fun item -> StableId.value item.Id)
+            |> List.sortBy (fun item -> StableId.value item.Id)
+        let variants =
+            types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | ExecutionTypeKind.Product _ -> []
+                | ExecutionTypeKind.Union items -> items)
+            |> List.sortBy (fun item -> StableId.value item.Id)
+        let functions = program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId)
+        let parameters =
+            functions
+            |> List.collect (fun functionEntity -> functionEntity.Parameters)
+            |> List.sortBy (fun item -> StableId.value item.SemanticParameterId)
+        let capabilities = program.Capabilities |> List.sortBy (fun item -> StableId.value item.Id)
+        let operations =
+            capabilities
+            |> List.collect (fun capability -> capability.Operations)
+            |> List.sortBy (fun item -> StableId.value item.Id)
+        let capabilityParameters =
+            operations
+            |> List.collect (fun operation -> operation.Parameters)
+            |> List.sortBy (fun item -> StableId.value item.Id)
+
+        { Namespace = CSharpBackendNames.generatedNamespace
+          FunctionContainer = CSharpBackendNames.functionContainerName
+          Types = types |> List.map (fun item -> symbol item.Id (CSharpBackendNames.typeName item.Id))
+          Fields = fields |> List.map (fun item -> symbol item.Id (CSharpBackendNames.fieldName item.Id))
+          Variants = variants |> List.map (fun item -> symbol item.Id (CSharpBackendNames.variantName item.Id))
+          Functions =
+            functions
+            |> List.map (fun item ->
+                symbol item.SemanticFunctionId (CSharpBackendNames.functionName item.SemanticFunctionId))
+          Parameters =
+            parameters
+            |> List.map (fun item ->
+                symbol item.SemanticParameterId (CSharpBackendNames.parameterName item.SemanticParameterId))
+          Capabilities =
+            capabilities
+            |> List.map (fun item -> symbol item.Id (CSharpBackendNames.capabilityName item.Id))
+          CapabilityOperations =
+            operations
+            |> List.map (fun item -> symbol item.Id (CSharpBackendNames.capabilityOperationName item.Id))
+          CapabilityParameters =
+            capabilityParameters
+            |> List.map (fun item -> symbol item.Id (CSharpBackendNames.capabilityParameterName item.Id))
+          CapabilityAdapters =
+            capabilities
+            |> List.filter (hasCapabilityAdapter context)
+            |> List.map (fun item -> symbol item.Id (CSharpBackendNames.capabilityAdapterName item.Id)) }
 
     let emit
         (program: ExecutionProgram)
@@ -540,11 +608,13 @@ module CSharpBackend =
             writer.Line("#nullable enable")
             writer.Line("using System;")
             writer.Line("")
-            writer.Line("namespace NyamNyam.Generated;")
+            writer.Line("namespace " + CSharpBackendNames.generatedNamespace + ";")
             writer.Line("")
             emitRuntime writer
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program
             emitFunctions writer program
-            Ok { Source = writer.ToString() }
+            Ok
+                { Source = writer.ToString()
+                  Symbols = symbolManifest context program }

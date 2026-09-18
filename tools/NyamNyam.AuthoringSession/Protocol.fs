@@ -322,7 +322,7 @@ module AuthoringProtocol =
                         )
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
                 match session.EmitCSharp profile with
-                | Ok artifact -> success requestId (objectValue [ "source", box artifact.Source ])
+                | Ok artifact -> success requestId (WireEncode.csharpArtifact artifact)
                 | Error error -> sessionFailure requestId error
             | value ->
                 failure

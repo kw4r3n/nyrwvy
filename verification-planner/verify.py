@@ -2,40 +2,47 @@
 import json
 import subprocess
 import sys
-from author import ROOT, call
+from author import call
+from session_client import ROOT
 
 stage = sys.argv[1]
 d = call('declarations')
 (ROOT / (stage + '-declarations.json')).write_text(json.dumps(d, indent=2))
-source = call('emitCSharp', profile={'kind':'empty'})['source']
+artifact = call('emitCSharp', profile={'kind':'empty'})
+source = artifact['source']
+symbols = artifact['symbols']
 work = ROOT / 'runner'
 work.mkdir(exist_ok=True)
 (work / 'Generated.cs').write_text(source)
 ts = {t['displayName']:t for t in d['types']}
 fs = {f['displayName']:f for f in d['functions']}
-def symbol(prefix, identity):
-    result = prefix + identity.encode().hex().upper()
+symbol_maps = {
+    kind: {item['id']: item['name'] for item in symbols[kind]}
+    for kind in ['types', 'fields', 'variants', 'functions']
+}
+def symbol(kind, identity):
+    result = symbol_maps[kind][identity]
     assert result in source, result
     return result
-area = symbol('NyT_',ts['ChangeArea']['id'])
-request_type = symbol('NyT_',ts['ChangeRequest']['id'])
-plan = symbol('NyF_',fs['plan_verification']['id'])
-label = symbol('NyF_',fs['verification_label']['id'])
+area = symbol('types', ts['ChangeArea']['id'])
+request_type = symbol('types', ts['ChangeRequest']['id'])
+plan = symbol('functions', fs['plan_verification']['id'])
+label = symbol('functions', fs['verification_label']['id'])
 variants = ts['ChangeArea']['typeKind']['variants']
-constructors = ', '.join('new '+symbol('NyV_',v['id'])+'()' for v in variants)
+constructors = ', '.join('new '+symbol('variants', v['id'])+'()' for v in variants)
 names = ', '.join(json.dumps(v['displayName']) for v in variants)
 fields = {'areas':'NyList<'+area+'>.Create(selected)', 'agentInteraction':'agent', 'environmentDependent':'environment', 'knownRegression':'regression'}
-args = ', '.join(symbol('f_',f['id'])+': '+fields[f['displayName']] for f in ts['ChangeRequest']['typeKind']['fields'])
+args = ', '.join(symbol('fields', f['id'])+': '+fields[f['displayName']] for f in ts['ChangeRequest']['typeKind']['fields'])
 harness = '''using System;
 using System.Linq;
-using NyamNyam.Generated;
+using __NAMESPACE__;
 internal static class Program {
-    static readonly AREA[] Areas = [CONSTRUCTORS];
-    static readonly string[] Names = [NAMES];
+    static readonly __AREA__[] Areas = [__CONSTRUCTORS__];
+    static readonly string[] Names = [__NAMES__];
     static string Run(int mask, bool agent, bool environment, bool regression) {
         var selected = Areas.Where((_, i) => (mask & (1 << i)) != 0).ToArray();
-        var input = new REQUEST(ARGS);
-        return NyFunctions.LABEL(NyFunctions.PLAN(input));
+        var input = new __REQUEST__(__ARGS__);
+        return __FUNCTION_CONTAINER__.__LABEL__(__FUNCTION_CONTAINER__.__PLAN__(input));
     }
     static void Main(string[] args) {
         if (args.Length > 0 && args[0] != "--test") {
@@ -64,8 +71,19 @@ internal static class Program {
     }
 }
 '''
-for key,value in [('CONSTRUCTORS',constructors),('NAMES',names),('REQUEST',request_type),('ARGS',args),('LABEL',label),('PLAN',plan),('AREA',area)]:
-    harness=harness.replace(key,value)
+replacements = [
+    ('__CONSTRUCTORS__', constructors),
+    ('__NAMES__', names),
+    ('__REQUEST__', request_type),
+    ('__ARGS__', args),
+    ('__LABEL__', label),
+    ('__PLAN__', plan),
+    ('__AREA__', area),
+    ('__NAMESPACE__', symbols['namespace']),
+    ('__FUNCTION_CONTAINER__', symbols['functionContainer']),
+]
+for key, value in replacements:
+    harness = harness.replace(key, value)
 (work/'Program.cs').write_text(harness)
 (work/'Runner.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup></Project>\n')
 command=['dotnet','run','--project',str(work/'Runner.csproj'),'--','--test']

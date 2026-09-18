@@ -1,17 +1,15 @@
 """Authoring intents only; all declaration identities come from session discovery."""
 import json
 import sys
-from session_client import ROOT, request
+from session_client import request
 
 
 def call(op, **kw):
     return request({'id': op, 'op': op, **kw})
 
 
-def commit_last():
-    entries = [json.loads(line) for line in (ROOT / 'transcript.jsonl').read_text().splitlines()]
-    proposal = next(e['response']['result'] for e in reversed(entries) if e['request']['op'].startswith('simulate') and e['response']['ok'])
-    print(json.dumps(call('commit', proposalId=proposal['proposalId']), indent=2))
+def commit(proposal_id):
+    print(json.dumps(call('commit', proposalId=proposal_id), indent=2))
 
 
 def discover():
@@ -52,10 +50,19 @@ def propose(step):
         return function('plan_verification', named(t), named(ts['VerificationLevel']), cond(ext,cond(live,union(vs['FastExtendedLive']),union(vs['FastExtended'])),cond(live,union(vs['FastLive']),union(vs['FastOnly']))))
     if step == 'label':
         vs = variants(ts['VerificationLevel'])
-        labels = dict(zip(vs,['fast tests のみ','fast + extended','fast + live','fast + extended + live']))
+        labels = {
+            'FastOnly': 'fast tests のみ',
+            'FastExtended': 'fast + extended',
+            'FastLive': 'fast + live',
+            'FastExtendedLive': 'fast + extended + live',
+        }
         return function('verification_label',named(ts['VerificationLevel']),prim('string'),match(slot(0),vs,{n:{'kind':'stringLiteral','value':labels[n]} for n in vs}))
     raise ValueError(step)
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'commit': commit_last()
-    else: print(json.dumps(propose(sys.argv[1]),ensure_ascii=False,indent=2))
+    if sys.argv[1] == 'commit':
+        if len(sys.argv) != 3:
+            raise SystemExit('usage: author.py commit <proposalId>')
+        commit(sys.argv[2])
+    else:
+        print(json.dumps(propose(sys.argv[1]), ensure_ascii=False, indent=2))
