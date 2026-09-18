@@ -7,7 +7,7 @@ set -l model "$NYAMNYAM_MINI_WORK_PLANNER_MODEL"
 set -l variant "$NYAMNYAM_MINI_WORK_PLANNER_VARIANT"
 
 if test -z "$model"
-    set model opencode/muse-spark-1.3-contributor-free
+    set model openai/gpt-5.6-terra
 end
 if test -z "$variant"
     set variant high
