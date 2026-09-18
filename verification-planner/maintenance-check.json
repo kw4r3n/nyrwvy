@@ -1,0 +1,15 @@
+{
+  "allDeclarationIdentitiesAndSignaturesPreserved": true,
+  "committedFocusMatchesReviewedFocus": true,
+  "operations": {
+    "declarations": 13,
+    "simulateCreateType": 3,
+    "commit": 8,
+    "simulateCreateFunction": 4,
+    "executionReadiness": 4,
+    "emitCSharp": 3,
+    "focusFunction": 2,
+    "simulateReplaceTarget": 1
+  },
+  "rejectedRequests": 0
+}

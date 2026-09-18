@@ -1,0 +1,204 @@
+{
+  "functions": [
+    {
+      "id": "01a0b371-2e7c-71b9-8115-2e15708a97ed",
+      "displayName": "area_requires_extended",
+      "parameters": [
+        {
+          "id": "01a0b371-2e7c-7246-9960-43e2f4946e7f",
+          "displayName": "input",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "primitive",
+        "primitive": "bool"
+      },
+      "requiredEffects": []
+    },
+    {
+      "id": "01a0b371-4487-7aa3-b9d3-2fc69ed62dab",
+      "displayName": "requires_live",
+      "parameters": [
+        {
+          "id": "01a0b371-4487-748b-9bb3-18c78bc3b791",
+          "displayName": "input",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b371-055a-7787-8eb2-c71857419553"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "primitive",
+        "primitive": "bool"
+      },
+      "requiredEffects": []
+    },
+    {
+      "id": "01a0b371-5990-74e8-b107-5bb5184497cc",
+      "displayName": "plan_verification",
+      "parameters": [
+        {
+          "id": "01a0b371-5990-76b9-bb1b-4a76cbec1c05",
+          "displayName": "input",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b371-055a-7787-8eb2-c71857419553"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "named",
+        "typeId": "01a0b371-162c-7db5-832d-a37f90c76298"
+      },
+      "requiredEffects": []
+    },
+    {
+      "id": "01a0b371-6c0f-7d62-a6fc-e8835c5866a6",
+      "displayName": "verification_label",
+      "parameters": [
+        {
+          "id": "01a0b371-6c0f-77fd-9e8b-03c04a02d439",
+          "displayName": "input",
+          "type": {
+            "kind": "named",
+            "typeId": "01a0b371-162c-7db5-832d-a37f90c76298"
+          }
+        }
+      ],
+      "resultType": {
+        "kind": "primitive",
+        "primitive": "string"
+      },
+      "requiredEffects": []
+    }
+  ],
+  "types": [
+    {
+      "id": "01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f",
+      "displayName": "ChangeArea",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b370-4eb0-7404-8f14-b285c80229f1",
+            "displayName": "Documentation",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-7e90-b459-d137eb1b1e6b",
+            "displayName": "Semantics",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-7887-bc29-79cd3ae8fe98",
+            "displayName": "AuthoringProtocol",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-721d-b270-a3ec476131c5",
+            "displayName": "Backend",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-79fd-8646-18942e70ffef",
+            "displayName": "Persistence",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-7369-8e4d-a951116c4454",
+            "displayName": "EvaluationHarness",
+            "fields": []
+          },
+          {
+            "id": "01a0b370-4eb0-7f9c-a874-3b08ba1f543e",
+            "displayName": "CI",
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b371-055a-7787-8eb2-c71857419553",
+      "displayName": "ChangeRequest",
+      "typeKind": {
+        "kind": "product",
+        "fields": [
+          {
+            "id": "01a0b371-055a-7e0c-bb5a-238ab49e7d7e",
+            "displayName": "areas",
+            "type": {
+              "kind": "builtinGeneric",
+              "generic": "list",
+              "arguments": [
+                {
+                  "kind": "named",
+                  "typeId": "01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f"
+                }
+              ]
+            }
+          },
+          {
+            "id": "01a0b371-055a-7539-8422-fc71fd54844f",
+            "displayName": "agentInteraction",
+            "type": {
+              "kind": "primitive",
+              "primitive": "bool"
+            }
+          },
+          {
+            "id": "01a0b371-055a-7233-bd10-f4c455efe13f",
+            "displayName": "environmentDependent",
+            "type": {
+              "kind": "primitive",
+              "primitive": "bool"
+            }
+          },
+          {
+            "id": "01a0b371-055a-7176-a470-260df152b761",
+            "displayName": "knownRegression",
+            "type": {
+              "kind": "primitive",
+              "primitive": "bool"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "01a0b371-162c-7db5-832d-a37f90c76298",
+      "displayName": "VerificationLevel",
+      "typeKind": {
+        "kind": "union",
+        "variants": [
+          {
+            "id": "01a0b371-162c-7391-841b-96a130d64dc7",
+            "displayName": "FastOnly",
+            "fields": []
+          },
+          {
+            "id": "01a0b371-162c-7a5b-9b00-790ae39640be",
+            "displayName": "FastExtended",
+            "fields": []
+          },
+          {
+            "id": "01a0b371-162c-736c-9c89-69e8829c1f71",
+            "displayName": "FastLive",
+            "fields": []
+          },
+          {
+            "id": "01a0b371-162c-785e-a839-2bef9aecb10f",
+            "displayName": "FastExtendedLive",
+            "fields": []
+          }
+        ]
+      }
+    }
+  ],
+  "effects": [],
+  "capabilities": []
+}
