@@ -351,8 +351,15 @@ module AuthoringSessionTests =
                         """{"id":"create","op":"simulateCreateFunction","displayName":"seven","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":7}}"""
                     |> requireOk
                 let result = document.RootElement.GetProperty("result")
+                let review = result.GetProperty("review")
+                let reviewProperties =
+                    review.EnumerateObject()
+                    |> Seq.map (fun property -> property.Name)
+                    |> Set.ofSeq
+                Assert.False(Set.contains "materializedBody" reviewProperties)
+                Assert.False(Set.contains "proposedFocus" reviewProperties)
                 result.GetProperty("proposalId").GetString(),
-                result.GetProperty("review").GetProperty("createdFunction").GetProperty("id").GetString()
+                review.GetProperty("createdFunction").GetProperty("id").GetString()
 
             exchange first (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
             |> requireOk

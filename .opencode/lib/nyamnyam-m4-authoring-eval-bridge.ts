@@ -61,7 +61,7 @@ Creation requests:
   simulateCreateType: id, op, displayName, typeKind. A product typeKind is {"kind":"product","fields":[{"displayName":"...","type":<TypeRef>}]}; a union typeKind is {"kind":"union","variants":[{"displayName":"...","fields":[{"displayName":"...","type":<TypeRef>}]}]}.
   simulateCreateEffect: id, op, displayName.
   simulateCreateCapability: id, op, displayName, operations. Each operation is {"displayName":"...","parameters":[{"displayName":"...","type":<TypeRef>}],"resultType":<TypeRef>,"failureType":null,"effectId":"<published EffectId>"}.
-  simulateCreateFunction: id, op, displayName, parameters, resultType, requiredEffects, body. Function parameters are {"displayName":"...","type":<TypeRef>} and requiredEffects is an array of published EffectId strings.
+  simulateCreateFunction: id, op, displayName, parameters, resultType, requiredEffects, body. Function parameters are {"displayName":"...","type":<TypeRef>} and requiredEffects is an array of published EffectId strings. Its wire review is intentionally compact: receipt/readiness plus the complete createdFunction are authoritative for pre-commit review; duplicate materializedBody/proposedFocus projections are omitted.
 
 Bounded M5 parameter-type migration:
   simulateParameterTypeMigration requires id, op, targetFunctionId, targetParameterId, newParameterType, targetReplacement, and callerRewrites.
