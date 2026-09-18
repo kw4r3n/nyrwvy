@@ -170,10 +170,10 @@ module internal WireEncodeCommon =
               "callNodeId", box (StableId.value value.CallNodeId)
               "calleeFunctionId", box (StableId.value value.CalleeFunctionId) ]
 
-    let focus (value: FunctionFocusView) =
+    let focusWith encodeFunction (value: FunctionFocusView) =
         objectValue
             [ "snapshotId", box (StableId.value value.SnapshotId)
-              "function", functionEntity value.Function
+              "function", encodeFunction value.Function
               "nodeTypes",
                 value.NodeTypes
                 |> List.map (fun item ->
@@ -191,3 +191,5 @@ module internal WireEncodeCommon =
                           "callNodeId", box (StableId.value item.CallNodeId)
                           "parameterId", box (StableId.value item.ParameterId) ])
                 |> arrayValue ]
+
+    let focus value = focusWith functionEntity value

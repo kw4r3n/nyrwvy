@@ -127,7 +127,7 @@ module internal WireEncode =
               "displayName", box value.DisplayName
               "operations", arrayValue operations ]
 
-    let proposal (value: AuthoringProposal) =
+    let proposalWith functionEntity focus (value: AuthoringProposal) =
         let review =
             match value.Review with
             | AuthoringProposalReview.Operations item ->
@@ -201,6 +201,8 @@ module internal WireEncode =
                       "readiness", readiness item.Readiness
                       "createdCapability", capabilityEntity item.CreatedCapability ]
         objectValue [ "proposalId", box value.ProposalId; "review", review ]
+
+    let proposal value = proposalWith WireEncodeCommon.functionEntity WireEncodeCommon.focus value
 
     let private csharpSymbol id name =
         objectValue [ "id", box id; "name", box name ]

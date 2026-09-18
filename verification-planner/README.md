@@ -33,7 +33,13 @@ dotnet run --project verification-planner/runner -- --test --maintained
 
 fast は常に必要。knownRegression は情報として保持し、検証レベルを増やしません。Documentation / AuthoringProtocol / CI だけでは extended を増やしません。ただし live の明示フラグは領域に関係なく適用します。「documentation のみ」は live フラグも false の通常の文書変更を意味します。空リストは領域由来の extended なし、重複や順序は ListAny の判定に影響しません。
 
-## 作業・検証記録
+## AIによる作成・保守
+
+現在の入口は [標準グラフ編集ツール](../docs/specs/agent-graph-tools.md) です。`nyrwvy_open` でこのディレクトリの `planner.snapshot.json` を開き、`nyrwvy_inspect` で型と対象関数を確認し、`nyrwvy_replace` で対象ノードだけを変更します。返された変更前後の構造と receipt を確認してから `nyrwvy_commit` / `nyrwvy_reject` を呼びます。
+
+新規作成には空の別snapshotと `nyrwvy_create_type` / `nyrwvy_create_function` を使います。アプリ専用の `author.py` は不要になったため削除しました。通常ツールの決定的な契約テストが同じ3型・4関数の作成、1分岐の保守、保存・再開を扱い、初期実験のrequest/responseは `transcript.jsonl` に残しています。これらはauthoring手順の検証であり、新しいLLM評価ではありません。
+
+## 作業・検証記録（初期実験）
 
 1. 3型と4関数を simulate → review 確認 → commit。初期実装完成。
 2. 公開 emitCSharp の出力をコンパイルし、7領域の全128部分集合 × 3フラグの全8組合せ = **1,024ケース合格**。
@@ -52,7 +58,7 @@ fast は常に必要。knownRegression は情報として保持し、検証レ�
 - `initial-execution.log`, `maintained-execution.log`: 実行テスト結果。
 - `Initial.generated.cs`: 初期実装の未編集 backend projection。
 
-## 摩擦・失敗・制約
+## 摩擦・失敗・制約（初期実験）
 
 - semantic request の reject は **0件**、proposal の再試行も **0件**。createType 3回、createFunction 4回、replaceTarget 1回、commit 合計8回。
 - 再起動時に fields / variants の列挙順が ID 順に変わったため、単純な discovery JSON 完全一致チェックが1回失敗。ID で順序を正規化し再確認したところ、変更は列挙順のみ。関数・parameter 配列を並べ替える回避策は使っていません。
@@ -64,7 +70,7 @@ fast は常に必要。knownRegression は情報として保持し、検証レ�
 - JSONL の直接実行操作ではなく、公開 emitCSharp → .NET コンパイルという実行境界を使用。初回実装では CLI アダプターが生成 symbol の ID エンコーディングを再実装する必要がありましたが、#177 で emitCSharp の公開 symbol manifest を追加し、verify.py は現在その manifest を使用します。返された symbol が実際の出力に存在することも検査しています。
 - repository 自体の実装は変更していないため、repository 全体の fast / extended テストは実行していません。
 
-## 再発見・再生成
+## 実行adapterの再生成
 
 ```sh
 python verification-planner/session_client.py start open
@@ -72,4 +78,4 @@ python verification-planner/verify.py maintained
 python verification-planner/session_client.py close
 ```
 
-session_client.py は JSONL を中継するだけの作業用 relay（最大30分で終了）。snapshot を解釈しません。`author.py` は初期 authoring intent の記録・補助であり、自動 commit ワークフローではありません。新しい proposal は必ず review を確認し、`python verification-planner/author.py commit <proposalId>` のように確認済み proposalId を明示して commit してください。
+session_client.py は JSONL を中継するだけの作業用 relay（最大30分で終了）。snapshot を解釈しません。この経路は既存実行adapterの再生成用であり、AIによる作成・保守には上記の標準ツールを使用してください。

@@ -111,6 +111,11 @@ module AuthoringProtocol =
             let root = document.RootElement
             requestId <- requiredString "id" root
             let operationName = requiredString "op" root
+            let encodeProposal =
+                if optionalBool "structuredReview" false root then
+                    WireEncode.proposalWith WireGraph.functionEntity WireGraph.focus
+                else
+                    WireEncode.proposal
 
             match operationName with
             | "status" ->
@@ -135,20 +140,36 @@ module AuthoringProtocol =
                         (objectValue
                             [ "code", box "SemanticQueryFailure"
                               "message", box (sprintf "%A" error) ])
+            | "readFunction" ->
+                ensureFields
+                    "readFunction request"
+                    [ "id"; "op"; "function"; "functionId" ]
+                    [ "id"; "op" ]
+                    root
+                let functionId =
+                    match tryProperty "function" root, tryProperty "functionId" root with
+                    | Some _, None ->
+                        (WireSymbolic.resolveFunction (session.Declarations()) (requiredString "function" root)).Id
+                    | None, Some _ -> id<FunctionTag> "functionId" root
+                    | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
+                match session.FocusFunction functionId with
+                | Ok focus -> success requestId (WireGraph.focus focus)
+                | Error error ->
+                    failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box (sprintf "%A" error) ])
             | "simulateOperations" ->
                 ensureFields
                     "simulateOperations request"
-                    [ "id"; "op"; "operations" ]
+                    [ "id"; "op"; "operations"; "structuredReview" ]
                     [ "id"; "op"; "operations" ]
                     root
                 let operations = array "operations" root |> List.map operation
                 match session.SimulateOperations operations with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -177,12 +198,12 @@ module AuthoringProtocol =
                       RequiredEffects = requiredEffects
                       Body = recipe (property "body" root) }
                 match session.SimulateCreateFunction request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
@@ -199,12 +220,12 @@ module AuthoringProtocol =
                             parameters
                             (property "body" root) }
                 match session.SimulateCreateFunction request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"
-                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
+                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview" ]
                     [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
                     root
                 let request: AgentParameterTypeMigrationRequest =
@@ -215,12 +236,12 @@ module AuthoringProtocol =
                       TargetReplacement = recipe (property "targetReplacement" root)
                       CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
                 match session.SimulateParameterTypeMigration request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
-                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let request: AgentCreateTypeDeclarationRequest =
@@ -228,12 +249,12 @@ module AuthoringProtocol =
                       DisplayName = requiredString "displayName" root
                       Kind = typeKindIntent (property "typeKind" root) }
                 match session.SimulateCreateType request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateTypeByName" ->
                 ensureFields
                     "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
@@ -242,12 +263,12 @@ module AuthoringProtocol =
                       DisplayName = requiredString "displayName" root
                       Kind = WireSymbolic.typeKindIntent declarations (property "typeKind" root) }
                 match session.SimulateCreateType request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateAddFieldlessUnionVariantLike" ->
                 ensureFields
                     "simulateAddFieldlessUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
                 let request: AgentAddFieldlessUnionVariantLikeRequest =
@@ -256,24 +277,24 @@ module AuthoringProtocol =
                       SourceVariantId = id<VariantTag> "sourceVariantId" root
                       NewVariantDisplayName = requiredString "displayName" root }
                 match session.SimulateAddFieldlessUnionVariantLike request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"
-                    [ "id"; "op"; "displayName" ]
+                    [ "id"; "op"; "displayName"; "structuredReview" ]
                     [ "id"; "op"; "displayName" ]
                     root
                 let request: AgentCreateEffectDeclarationRequest =
                     { ExpectedBaseSnapshotId = currentSnapshotId session
                       DisplayName = requiredString "displayName" root }
                 match session.SimulateCreateEffect request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateCapability" ->
                 ensureFields
                     "simulateCreateCapability request"
-                    [ "id"; "op"; "displayName"; "operations" ]
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let request: AgentCreateCapabilityDeclarationRequest =
@@ -281,12 +302,12 @@ module AuthoringProtocol =
                       DisplayName = requiredString "displayName" root
                       Operations = array "operations" root |> List.map capabilityOperationIntent }
                 match session.SimulateCreateCapability request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateReplaceBody" ->
                 ensureFields
                     "simulateReplaceBody request"
-                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
+                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement"; "structuredReview" ]
                     [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
                     root
                 let request: AgentReplaceFunctionBodyWithExpressionRecipe =
@@ -295,12 +316,12 @@ module AuthoringProtocol =
                       ExpectedCurrentResultNodeId = id<GraphNodeTag> "expectedCurrentResultNodeId" root
                       Replacement = recipe (property "replacement" root) }
                 match session.SimulateReplaceBody request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateReplaceBodyByName" ->
                 ensureFields
                     "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement" ]
+                    [ "id"; "op"; "function"; "replacement"; "structuredReview" ]
                     [ "id"; "op"; "function"; "replacement" ]
                     root
                 let declarations = session.Declarations()
@@ -316,12 +337,12 @@ module AuthoringProtocol =
                             functionEntity
                             (property "replacement" root) }
                 match session.SimulateReplaceBody request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateReplaceTarget" ->
                 ensureFields
                     "simulateReplaceTarget request"
-                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
+                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement"; "structuredReview" ]
                     [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
                     root
                 let request: AgentExpressionStructuralWorkflow.Targeted.Request =
@@ -330,7 +351,23 @@ module AuthoringProtocol =
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
                       Replacement = recipe (property "replacement" root) }
                 match session.SimulateReplaceTarget request with
-                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateReplaceTargetByName" ->
+                ensureFields
+                    "simulateReplaceTargetByName request"
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview" ]
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
+                    root
+                let declarations = session.Declarations()
+                let functionEntity = WireSymbolic.resolveFunction declarations (requiredString "function" root)
+                let request: AgentExpressionStructuralWorkflow.Targeted.Request =
+                    { TargetFunctionId = functionEntity.Id
+                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetNodeId = id<GraphNodeTag> "targetNodeId" root
+                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (property "replacement" root) }
+                match session.SimulateReplaceTarget request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "commit" ->
                 ensureFields
