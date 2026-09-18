@@ -146,9 +146,7 @@ module internal WireEncode =
                     [ "kind", box "createFunction"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "createdFunction", functionEntity item.CreatedFunction
-                      "materializedBody", item.MaterializedBody |> List.map nodeSummary |> arrayValue
-                      "proposedFocus", focus item.ProposedFocus ]
+                      "createdFunction", functionEntity item.CreatedFunction ]
             | AuthoringProposalReview.ParameterTypeMigration item ->
                 objectValue
                     [ "kind", box "parameterTypeMigration"
