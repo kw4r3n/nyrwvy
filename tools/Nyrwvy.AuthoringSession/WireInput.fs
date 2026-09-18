@@ -63,9 +63,15 @@ module internal WireInput =
 
     let requiredInt64 (name: string) (element: JsonElement): int64 =
         let value = property name element
-        match value.TryGetInt64() with
+        let parsed =
+            match value.ValueKind with
+            | JsonValueKind.Number -> value.TryGetInt64()
+            | JsonValueKind.String ->
+                Int64.TryParse(value.GetString(), Globalization.NumberStyles.AllowLeadingSign, Globalization.CultureInfo.InvariantCulture)
+            | _ -> false, 0L
+        match parsed with
         | true, result -> result
-        | false, _ -> fail $"Property '{name}' must be a 64-bit integer."
+        | false, _ -> fail $"Property '{name}' must be a 64-bit integer or exact decimal integer string."
 
     let array (name: string) (element: JsonElement): JsonElement list =
         let value = property name element

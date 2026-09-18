@@ -12,4 +12,8 @@ module internal WireJson =
         box value
 
     let arrayValue (items: obj list): obj = items |> List.toArray |> box
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
+
+    // Structured node/arm envelopes add JSON levels to already validated scopes.
+    // This is a response-encoding allowance, not a change to Core recipe bounds.
+    let private responseOptions = JsonSerializerOptions(MaxDepth = 256)
+    let serialize (value: obj): string = JsonSerializer.Serialize(value, responseOptions)

@@ -35,5 +35,13 @@ jobs:
       - name: Test fast suite
         run: dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-build --no-restore --settings tests/fast.runsettings
 
+      - name: Set up Node for authoring tool contracts
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test authoring tools
+        run: node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
+
       - name: Report encoding comparison
         run: cat /tmp/nyrwvy-encoding-comparison.txt

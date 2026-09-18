@@ -42,9 +42,21 @@ Important boundaries include:
 - generated backend source never becomes upstream authority;
 - backend-specific representation choices do not define core language semantics.
 
+## AI graph authoring
+
+The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. No per-program Python/F#/C# authoring helper is required. Prepare the executable once:
+
+```shell
+dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+```
+
+Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
+
+The write-side goal is an adequate AI graph-editing toolset, not a natural-language compiler or a human-written source language. Human-facing projections can be graphical. [Structured-action research](docs/concepts/structured-agent-actions.md) distinguishes the relevant CODESTRUCT evidence from CGM and smaller AST-edit experiments.
+
 ## Build and verify
 
-The repository uses the .NET 10 SDK. Routine development and routine CI use the fast test graph:
+The repository uses the .NET 10 SDK and Node 22 for the small ordinary-authoring tool tests. Routine development and routine CI use the fast test graph plus these tool contracts:
 
 ```shell
 ./scripts/test-fast.fish
@@ -54,6 +66,7 @@ Equivalent direct invocation:
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
+node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
 ```
 
 Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification.
