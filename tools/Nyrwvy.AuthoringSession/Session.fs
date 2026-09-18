@@ -47,6 +47,7 @@ type AuthoringProposalReview =
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Review
     | ParameterTypeMigration of AgentParameterTypeMigrationReview
     | CreateType of AgentTypeDeclarationReview
+    | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionReview
     | CreateEffect of AgentEffectDeclarationReview
     | CreateCapability of AgentCapabilityDeclarationReview
 
@@ -71,6 +72,7 @@ type private PendingProposal =
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Proposal
     | ParameterTypeMigration of AgentParameterTypeMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
+    | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
 
@@ -274,6 +276,22 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 Ok(register (AgentTypeDeclarationProposal.transactionId proposal) (PendingProposal.CreateType proposal) (AuthoringProposalReview.CreateType(AgentTypeDeclarationProposal.review proposal)))
 
+    member _.SimulateAddFieldlessUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentFieldlessUnionVariantEvolutionWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                Ok(
+                    register
+                        (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
+                        (PendingProposal.FieldlessUnionVariantEvolution proposal)
+                        (AuthoringProposalReview.FieldlessUnionVariantEvolution(
+                            AgentFieldlessUnionVariantEvolutionProposal.review proposal
+                        ))
+                )
+
     member _.SimulateCreateEffect(request: AgentCreateEffectDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         match ensureUsable () with
         | Error error -> Error error
@@ -328,6 +346,17 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentTypeDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentTypeDeclarationCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, PendingProposal.FieldlessUnionVariantEvolution proposal ->
+                match AgentFieldlessUnionVariantEvolutionWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentFieldlessUnionVariantEvolutionCommitResult.Rejected diagnostics ->
+                    Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentFieldlessUnionVariantEvolutionCommitResult.Committed(candidate, publication) ->
+                    commitCandidate
+                        proposalId
+                        publication.TransactionId
+                        publication.PublishedSnapshotId
+                        publication.Readiness
+                        candidate
             | true, PendingProposal.CreateEffect proposal ->
                 match AgentEffectDeclarationWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentEffectDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
@@ -369,6 +398,13 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 let _, receipt = AgentTypeDeclarationWorkflow.reject workspace proposal
                 proposals.Remove proposalId |> ignore
                 Ok { TransactionId = receipt.TransactionId; RetainedSnapshotId = receipt.RetainedSnapshotId }
+            | true, PendingProposal.FieldlessUnionVariantEvolution proposal ->
+                let _, receipt =
+                    AgentFieldlessUnionVariantEvolutionWorkflow.reject workspace proposal
+                proposals.Remove proposalId |> ignore
+                Ok
+                    { TransactionId = receipt.TransactionId
+                      RetainedSnapshotId = receipt.RetainedSnapshotId }
             | true, PendingProposal.CreateEffect proposal ->
                 let _, receipt = AgentEffectDeclarationWorkflow.reject workspace proposal
                 proposals.Remove proposalId |> ignore

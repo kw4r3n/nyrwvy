@@ -172,6 +172,19 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdType", semanticType item.CreatedType ]
+            | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
+                objectValue
+                    [ "kind", box "fieldlessUnionVariantEvolution"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "updatedType", semanticType item.UpdatedType
+                      "addedVariantId", box (StableId.value item.AddedVariant.Id)
+                      "addedVariantDisplayName", box item.AddedVariant.DisplayName
+                      "repairedFunctionIds",
+                        item.RepairedFunctionIds
+                        |> List.map (StableId.value >> box)
+                        |> arrayValue
+                      "repairedMatchCount", box item.RepairedMatchCount ]
             | AuthoringProposalReview.CreateEffect item ->
                 objectValue
                     [ "kind", box "createEffect"

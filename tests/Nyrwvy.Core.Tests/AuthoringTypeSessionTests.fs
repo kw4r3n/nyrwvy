@@ -67,3 +67,116 @@ module AuthoringTypeSessionTests =
             Assert.Equal<string>(fieldId, fields[0].GetProperty("id").GetString())
         finally
             if Directory.Exists root then Directory.Delete(root, true)
+
+
+    [<Fact>]
+    let ``ordinary authoring session evolves a fieldless Union and repairs exhaustive matches atomically`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session =
+                match AuthoringSession.createNew path with
+                | Ok value -> value
+                | Error error -> failwithf "Session creation failed: %A" error
+
+            let typeProposalId, typeId, failedVariantId, succeededVariantId =
+                use document =
+                    AuthoringProtocol.executeLine
+                        session
+                        """{"id":"type","op":"simulateCreateType","displayName":"ExecutionState","typeKind":{"kind":"union","variants":[{"displayName":"Failed","fields":[]},{"displayName":"Succeeded","fields":[]}]}}"""
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                let createdType = result.GetProperty("review").GetProperty("createdType")
+                let variants = createdType.GetProperty("typeKind").GetProperty("variants")
+                result.GetProperty("proposalId").GetString(),
+                createdType.GetProperty("id").GetString(),
+                variants[0].GetProperty("id").GetString(),
+                variants[1].GetProperty("id").GetString()
+
+            AuthoringProtocol.executeLine
+                session
+                (sprintf """{"id":"type-commit","op":"commit","proposalId":"%s"}""" typeProposalId)
+            |> requireOk
+            |> fun document -> document.Dispose()
+
+            let functionRequest =
+                sprintf
+                    """{"id":"function","op":"simulateCreateFunction","displayName":"next_action","parameters":[{"displayName":"execution","type":{"kind":"named","typeId":"%s"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"matchUnion","input":{"kind":"parameterSlot","index":0},"arms":[{"variantId":"%s","body":{"kind":"boolLiteral","value":false}},{"variantId":"%s","body":{"kind":"boolLiteral","value":true}}]}}"""
+                    typeId
+                    failedVariantId
+                    succeededVariantId
+
+            let functionProposalId, functionId =
+                use document =
+                    AuthoringProtocol.executeLine session functionRequest
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                let createdFunction = result.GetProperty("review").GetProperty("createdFunction")
+                result.GetProperty("proposalId").GetString(),
+                createdFunction.GetProperty("id").GetString()
+
+            AuthoringProtocol.executeLine
+                session
+                (sprintf """{"id":"function-commit","op":"commit","proposalId":"%s"}""" functionProposalId)
+            |> requireOk
+            |> fun document -> document.Dispose()
+
+            let evolutionProposalId, addedVariantId =
+                use document =
+                    AuthoringProtocol.executeLine
+                        session
+                        (sprintf
+                            """{"id":"evolve","op":"simulateAddFieldlessUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut"}"""
+                            typeId
+                            failedVariantId)
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                let review = result.GetProperty("review")
+                Assert.Equal("fieldlessUnionVariantEvolution", review.GetProperty("kind").GetString())
+                Assert.Equal(1, review.GetProperty("repairedMatchCount").GetInt32())
+                let repairedFunctionIds = review.GetProperty("repairedFunctionIds")
+                Assert.Equal(1, repairedFunctionIds.GetArrayLength())
+                Assert.Equal<string>(functionId, repairedFunctionIds[0].GetString())
+                result.GetProperty("proposalId").GetString(),
+                review.GetProperty("addedVariantId").GetString()
+
+            AuthoringProtocol.executeLine
+                session
+                (sprintf """{"id":"evolve-commit","op":"commit","proposalId":"%s"}""" evolutionProposalId)
+            |> requireOk
+            |> fun document -> document.Dispose()
+
+            session.Close()
+
+            use reopened =
+                match AuthoringSession.openExisting path with
+                | Ok value -> value
+                | Error error -> failwithf "Session reopen failed: %A" error
+
+            use declarations =
+                AuthoringProtocol.executeLine reopened """{"id":"decls","op":"declarations"}"""
+                |> requireOk
+            let result = declarations.RootElement.GetProperty("result")
+            let types = result.GetProperty("types").EnumerateArray() |> Seq.toList
+            let functions = result.GetProperty("functions").EnumerateArray() |> Seq.toList
+            let executionState =
+                types
+                |> List.find (fun item -> item.GetProperty("id").GetString() = typeId)
+            let variants = executionState.GetProperty("typeKind").GetProperty("variants")
+            Assert.Equal(3, variants.GetArrayLength())
+            let timedOut =
+                variants.EnumerateArray()
+                |> Seq.find (fun item -> item.GetProperty("displayName").GetString() = "TimedOut")
+            Assert.Equal<string>(addedVariantId, timedOut.GetProperty("id").GetString())
+            Assert.Empty(timedOut.GetProperty("fields").EnumerateArray())
+            Assert.Contains(
+                functions,
+                fun item -> item.GetProperty("id").GetString() = functionId
+            )
+
+            use readiness =
+                AuthoringProtocol.executeLine reopened """{"id":"ready","op":"executionReadiness"}"""
+                |> requireOk
+            Assert.Equal("ready", readiness.RootElement.GetProperty("result").GetProperty("kind").GetString())
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)

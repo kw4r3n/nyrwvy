@@ -28,6 +28,7 @@
     <Compile Include="../Nyrwvy.Core/AgentEffectDeclarationWorkflow.fs" Link="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="../Nyrwvy.Core/AgentCapabilityDeclarationWorkflow.fs" Link="AgentCapabilityDeclarationWorkflow.fs" />
     <Compile Include="../Nyrwvy.Core/AgentStructuralWorkflow.fs" Link="AgentStructuralWorkflow.fs" />
+    <Compile Include="../Nyrwvy.Core/AgentFieldlessUnionVariantEvolutionWorkflow.fs" Link="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
     <Compile Include="../Nyrwvy.Core/AgentExpressionStructuralWorkflow.fs" Link="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="../Nyrwvy.Core/AgentParameterTypeMigrationWorkflow.fs" Link="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="../Nyrwvy.Core/AgentPureExpressionStructuralWorkflow.fs" Link="AgentPureExpressionStructuralWorkflow.fs" />

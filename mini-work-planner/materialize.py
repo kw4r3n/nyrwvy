@@ -151,6 +151,7 @@ def main() -> int:
         "__EX_NOT_STARTED__": variant_symbol("ExecutionState", "NotStarted"),
         "__EX_RUNNING__": variant_symbol("ExecutionState", "Running"),
         "__EX_FAILED__": variant_symbol("ExecutionState", "Failed"),
+        "__EX_TIMED_OUT__": variant_symbol("ExecutionState", "TimedOut"),
         "__EX_SUCCEEDED__": variant_symbol("ExecutionState", "Succeeded"),
         "__VA_NOT_REQUIRED__": variant_symbol("ValidationState", "NotRequired"),
         "__VA_PENDING__": variant_symbol("ValidationState", "Pending"),
@@ -186,6 +187,7 @@ internal static class Program
             "notstarted" => new __EX_NOT_STARTED__(),
             "running" => new __EX_RUNNING__(),
             "failed" => new __EX_FAILED__(),
+            "timedout" => new __EX_TIMED_OUT__(),
             "succeeded" => new __EX_SUCCEEDED__(),
             _ => throw new ArgumentException("Unknown execution state: " + value)
         };
@@ -241,12 +243,14 @@ internal static class Program
             Check(new __PR_READY__(), new __EX_RUNNING__(), new __VA_NOT_REQUIRED__(), 0, 1, "wait");
             Check(new __PR_READY__(), new __EX_FAILED__(), new __VA_PENDING__(), 0, 1, "retry");
             Check(new __PR_READY__(), new __EX_FAILED__(), new __VA_PENDING__(), 1, 1, "needs-human");
+            Check(new __PR_READY__(), new __EX_TIMED_OUT__(), new __VA_PENDING__(), 0, 1, "retry");
+            Check(new __PR_READY__(), new __EX_TIMED_OUT__(), new __VA_PENDING__(), 1, 1, "needs-human");
             Check(new __PR_READY__(), new __EX_SUCCEEDED__(), new __VA_NOT_REQUIRED__(), 0, 1, "complete");
             Check(new __PR_READY__(), new __EX_SUCCEEDED__(), new __VA_PENDING__(), 0, 1, "validate");
             Check(new __PR_READY__(), new __EX_SUCCEEDED__(), new __VA_PASSED__(), 0, 1, "complete");
             Check(new __PR_READY__(), new __EX_SUCCEEDED__(), new __VA_FAILED__(), 0, 1, "retry");
             Check(new __PR_READY__(), new __EX_SUCCEEDED__(), new __VA_FAILED__(), 1, 1, "needs-human");
-            Console.WriteLine("PASS 11 policy cases");
+            Console.WriteLine("PASS 13 policy cases");
             return 0;
         }
 

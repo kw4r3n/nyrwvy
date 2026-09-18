@@ -116,6 +116,11 @@
             "id": "01a0b47d-8ca6-7def-a939-26cd254d9fe1",
             "displayName": "Failed",
             "fields": []
+          },
+          {
+            "id": "01a0b4fd-5478-7f81-b617-01ec7ff644ed",
+            "displayName": "TimedOut",
+            "fields": []
           }
         ]
       }

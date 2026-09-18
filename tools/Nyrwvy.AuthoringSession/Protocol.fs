@@ -208,6 +208,20 @@ module AuthoringProtocol =
                 match session.SimulateCreateType request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateAddFieldlessUnionVariantLike" ->
+                ensureFields
+                    "simulateAddFieldlessUnionVariantLike request"
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
+                    root
+                let request: AgentAddFieldlessUnionVariantLikeRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetTypeId = id<TypeTag> "typeId" root
+                      SourceVariantId = id<VariantTag> "sourceVariantId" root
+                      NewVariantDisplayName = requiredString "displayName" root }
+                match session.SimulateAddFieldlessUnionVariantLike request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"

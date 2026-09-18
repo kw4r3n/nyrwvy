@@ -192,6 +192,14 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 
 Required-effect edits do not propagate automatically through callers and do not create obligations. Multiple explicit function edits may be composed in one transaction; full validation of the final proposed snapshot enforces caller/callee and capability/body effect consistency. Expression authoring still never mutates `RequiredEffects` implicitly.
 
+### Fieldless Union variant evolution
+
+`AgentFieldlessUnionVariantEvolutionWorkflow` supports one bounded schema-evolution operation: add a new **fieldless** variant to an existing Union while preserving the Union's `TypeId`. The caller identifies the target Union and one existing fieldless source `VariantId`; the new `VariantId` remains system-owned.
+
+Publication repairs exhaustive `MatchUnion` nodes atomically by adding an arm for the new variant whose behavior is copied from the selected source arm. Copied arm bodies receive fresh system-owned graph-node and pattern-binding IDs. The variant addition and all required match repairs are reviewed and published as one snapshot, so no intermediate non-exhaustive state becomes authoritative.
+
+This surface intentionally does not cover field-bearing variant evolution, arbitrary new match-arm recipes, type deletion, or a generalized schema-migration framework. It was added for the concrete Mini Work Planner `ExecutionState.TimedOut` maintenance case.
+
 ### Float64 structural compatibility surface
 
 `AgentStructuralWorkflow` remains available for the narrower Float64-only body-replacement recipe:
