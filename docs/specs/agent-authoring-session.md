@@ -119,10 +119,13 @@ The maintained operation set is:
 | `focusFunction` | Focused function/query projection by `functionId`. |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
+| `simulateCreateFunctionByName` | Resolve display names to current semantic identities, then simulate function creation. |
+| `simulateCreateTypeByName` | Resolve display-name type references, then simulate product/union creation. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. |
 | `simulateCreateEffect` | Simulate atomic effect declaration creation. |
 | `simulateCreateCapability` | Simulate atomic capability/operation declaration creation. |
 | `simulateReplaceBody` | Simulate whole-body `ExpressionRecipe` replacement. |
+| `simulateReplaceBodyByName` | Resolve the target function and recipe references by display name, including the current result node, then simulate whole-body replacement. |
 | `simulateReplaceTarget` | Simulate targeted `ExpressionRecipe` replacement. |
 | `commit` | Commit one ephemeral `proposalId` and persist it before success. |
 | `reject` | Reject and forget one ephemeral `proposalId`. |
@@ -164,6 +167,44 @@ References use stable IDs (`parameterId`, `fieldId`, `variantId`, `functionId`, 
 Calls and structured constructors use arrays of explicit target-ID/value pairs. Pattern references use `scopeDepth` plus `slot` (`field`, `value`, or `error`); a field slot additionally carries `fieldId`.
 
 The transport parser is only a DTO-to-existing-authoring-intent adapter. Type inference, recipe bounds, materialization, ID allocation, effect checks, control-flow checks, graph construction, and declaration validation remain exclusively in the Core workflows.
+
+## Name-resolved AI authoring
+
+The maintained protocol also exposes a convenience layer for AI tool use when persistent stable IDs are not themselves the subject of the task. These operations resolve exact display names against the current session snapshot and immediately lower them to the existing stable-ID authoring requests:
+
+- `simulateCreateTypeByName`
+- `simulateCreateFunctionByName`
+- `simulateReplaceBodyByName`
+
+This layer is not a textual source language and does not become program authority. Resolution happens inside the current single-writer session; ambiguous or missing names are rejected. Simulation, review, validation, system-owned identity allocation, commit policy, and publication are unchanged.
+
+The stable-ID operations remain the exact-identity surface for callers that already hold semantic identities. The name-resolved layer exists to remove incidental plumbing such as repeatedly discovering `TypeId`, `FieldId`, `VariantId`, `FunctionId`, `ParameterId`, or the current whole-body result node merely to express an otherwise unambiguous graph edit.
+
+Name-resolved `TypeRef` uses `{"kind":"named","name":"ChangeRequest"}` and `{"kind":"capability","name":"Console"}`. Expression recipes retain the existing structural vocabulary, but semantic references use explicit owner/name selectors. For example:
+
+```json
+{
+  "kind": "fieldAccess",
+  "source": {"kind": "parameter", "name": "request"},
+  "type": "ChangeRequest",
+  "field": "environmentDependent"
+}
+```
+
+A whole-body change therefore needs only the semantic target name and replacement structure:
+
+```json
+{
+  "id": "replace-1",
+  "op": "simulateReplaceBodyByName",
+  "function": "requires_live",
+  "replacement": {"kind": "boolLiteral", "value": false}
+}
+```
+
+The session resolves the target `FunctionId` and current result node before constructing the ordinary reviewed replacement request.
+
+This direction is consistent with evidence from structure-aware coding-agent interfaces such as [CODESTRUCT (ACL 2026)](https://aclanthology.org/2026.acl-long.607/), which found that operating on named AST entities instead of text spans can improve reliability and reduce token use. Nyrwvy does not treat that work as design authority or as evidence that every graph interface is superior. The relevant hypothesis is narrower: an AI-facing structured action space can remove text-position and identity-reconstruction work. Nyrwvy applies that idea to its authoritative typed semantic graph rather than translating the edit back into authoritative source text.
 
 ## Persistence format
 

@@ -339,6 +339,59 @@ module AuthoringSessionTests =
         document
 
     [<Fact>]
+    let ``JSONL name-resolved authoring creates and replaces without caller-managed semantic IDs`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            let tool = startTool "create" path
+
+            let commitResponse proposalId =
+                exchange tool (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+                |> requireOk
+                |> fun document -> document.Dispose()
+
+            let typeProposalId =
+                use document =
+                    exchange
+                        tool
+                        """{"id":"type","op":"simulateCreateTypeByName","displayName":"ChangeRequest","typeKind":{"kind":"product","fields":[{"displayName":"agentInteraction","type":{"kind":"primitive","primitive":"bool"}},{"displayName":"environmentDependent","type":{"kind":"primitive","primitive":"bool"}}]}}"""
+                    |> requireOk
+                document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            commitResponse typeProposalId
+
+            let functionProposalId =
+                use document =
+                    exchange
+                        tool
+                        """{"id":"function","op":"simulateCreateFunctionByName","displayName":"requires_live","parameters":[{"displayName":"request","type":{"kind":"named","name":"ChangeRequest"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"conditional","condition":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"agentInteraction"},"whenTrue":{"kind":"boolLiteral","value":true},"whenFalse":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"environmentDependent"}}}"""
+                    |> requireOk
+                document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            commitResponse functionProposalId
+
+            let replacementProposalId =
+                use document =
+                    exchange
+                        tool
+                        """{"id":"replace","op":"simulateReplaceBodyByName","function":"requires_live","replacement":{"kind":"boolLiteral","value":false}}"""
+                    |> requireOk
+                let result = document.RootElement.GetProperty("result")
+                let proposed = result.GetProperty("review").GetProperty("proposedFunction")
+                Assert.Equal("requires_live", proposed.GetProperty("displayName").GetString())
+                result.GetProperty("proposalId").GetString()
+            commitResponse replacementProposalId
+
+            use declarations = exchange tool """{"id":"decls","op":"declarations"}""" |> requireOk
+            let functions =
+                declarations.RootElement.GetProperty("result").GetProperty("functions").EnumerateArray()
+                |> Seq.toList
+            Assert.Single(functions) |> ignore
+            Assert.Equal("requires_live", functions.Head.GetProperty("displayName").GetString())
+
+            finish tool
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL process publication reopens with the same semantic identity and fingerprints`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

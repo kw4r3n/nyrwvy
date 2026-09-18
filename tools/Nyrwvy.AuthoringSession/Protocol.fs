@@ -179,6 +179,28 @@ module AuthoringProtocol =
                 match session.SimulateCreateFunction request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateCreateFunctionByName" ->
+                ensureFields
+                    "simulateCreateFunctionByName request"
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    root
+                let declarations = session.Declarations()
+                let parameters = WireSymbolic.functionParameters declarations root
+                let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root
+                      Parameters = parameters
+                      ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
+                      RequiredEffects = WireSymbolic.requiredEffects declarations root
+                      Body =
+                        WireSymbolic.recipeForNewFunction
+                            declarations
+                            parameters
+                            (property "body" root) }
+                match session.SimulateCreateFunction request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"
@@ -205,6 +227,20 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = currentSnapshotId session
                       DisplayName = requiredString "displayName" root
                       Kind = typeKindIntent (property "typeKind" root) }
+                match session.SimulateCreateType request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateCreateTypeByName" ->
+                ensureFields
+                    "simulateCreateTypeByName request"
+                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    [ "id"; "op"; "displayName"; "typeKind" ]
+                    root
+                let declarations = session.Declarations()
+                let request: AgentCreateTypeDeclarationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = requiredString "displayName" root
+                      Kind = WireSymbolic.typeKindIntent declarations (property "typeKind" root) }
                 match session.SimulateCreateType request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
@@ -258,6 +294,27 @@ module AuthoringProtocol =
                       ExpectedBaseSnapshotId = currentSnapshotId session
                       ExpectedCurrentResultNodeId = id<GraphNodeTag> "expectedCurrentResultNodeId" root
                       Replacement = recipe (property "replacement" root) }
+                match session.SimulateReplaceBody request with
+                | Ok proposal -> success requestId (WireEncode.proposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateReplaceBodyByName" ->
+                ensureFields
+                    "simulateReplaceBodyByName request"
+                    [ "id"; "op"; "function"; "replacement" ]
+                    [ "id"; "op"; "function"; "replacement" ]
+                    root
+                let declarations = session.Declarations()
+                let functionEntity =
+                    WireSymbolic.resolveFunction declarations (requiredString "function" root)
+                let request: AgentReplaceFunctionBodyWithExpressionRecipe =
+                    { TargetFunctionId = functionEntity.Id
+                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      ExpectedCurrentResultNodeId = functionEntity.Body.ResultNodeId
+                      Replacement =
+                        WireSymbolic.recipeForExistingFunction
+                            declarations
+                            functionEntity
+                            (property "replacement" root) }
                 match session.SimulateReplaceBody request with
                 | Ok proposal -> success requestId (WireEncode.proposal proposal)
                 | Error error -> sessionFailure requestId error
