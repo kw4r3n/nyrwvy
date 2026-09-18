@@ -35,14 +35,14 @@ fields = {'areas':'NyList<'+area+'>.Create(selected)', 'agentInteraction':'agent
 args = ', '.join(symbol('fields', f['id'])+': '+fields[f['displayName']] for f in ts['ChangeRequest']['typeKind']['fields'])
 harness = '''using System;
 using System.Linq;
-using NAMESPACE;
+using __NAMESPACE__;
 internal static class Program {
-    static readonly AREA[] Areas = [CONSTRUCTORS];
-    static readonly string[] Names = [NAMES];
+    static readonly __AREA__[] Areas = [__CONSTRUCTORS__];
+    static readonly string[] Names = [__NAMES__];
     static string Run(int mask, bool agent, bool environment, bool regression) {
         var selected = Areas.Where((_, i) => (mask & (1 << i)) != 0).ToArray();
-        var input = new REQUEST(ARGS);
-        return FUNCTION_CONTAINER.LABEL(FUNCTION_CONTAINER.PLAN(input));
+        var input = new __REQUEST__(__ARGS__);
+        return __FUNCTION_CONTAINER__.__LABEL__(__FUNCTION_CONTAINER__.__PLAN__(input));
     }
     static void Main(string[] args) {
         if (args.Length > 0 && args[0] != "--test") {
@@ -71,8 +71,19 @@ internal static class Program {
     }
 }
 '''
-for key,value in [('CONSTRUCTORS',constructors),('NAMES',names),('REQUEST',request_type),('ARGS',args),('LABEL',label),('PLAN',plan),('AREA',area),('NAMESPACE',symbols['namespace']),('FUNCTION_CONTAINER',symbols['functionContainer'])]:
-    harness=harness.replace(key,value)
+replacements = [
+    ('__CONSTRUCTORS__', constructors),
+    ('__NAMES__', names),
+    ('__REQUEST__', request_type),
+    ('__ARGS__', args),
+    ('__LABEL__', label),
+    ('__PLAN__', plan),
+    ('__AREA__', area),
+    ('__NAMESPACE__', symbols['namespace']),
+    ('__FUNCTION_CONTAINER__', symbols['functionContainer']),
+]
+for key, value in replacements:
+    harness = harness.replace(key, value)
 (work/'Program.cs').write_text(harness)
 (work/'Runner.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup></Project>\n')
 command=['dotnet','run','--project',str(work/'Runner.csproj'),'--','--test']
