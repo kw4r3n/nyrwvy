@@ -1,0 +1,17 @@
+{
+  "name": "nyrwvy-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.6.0" },
+  "scripts": {
+    "setup": "npm install --package-lock=false --no-audit --no-fund && dotnet build ../Nyrwvy.AuthoringSession --configuration Release",
+    "start": "node --experimental-strip-types server.mjs",
+    "test": "node --experimental-strip-types --test server.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": { "@modelcontextprotocol/client": "2.0.0" }
+}

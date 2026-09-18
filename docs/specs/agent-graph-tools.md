@@ -4,6 +4,8 @@
 
 This surface makes the existing [AuthoringSession](agent-authoring-session.md) directly callable by an ordinary AI agent. It does not introduce another runtime, authoritative format, source language, planner, or human editor. The [research context](../concepts/structured-agent-actions.md) explains the intended boundary.
 
+OpenCode and [stdio MCP clients](mcp-graph-tools.md) share the tool definitions and transport under `tools/nyrwvy-agent/`. The MCP guide includes setup and configuration for Codex CLI, Claude Code and Zed.
+
 ## Completion boundary
 
 An agent can create/open a snapshot, discover declarations, inspect typed graph structure, create Product/Union types and functions, replace a chosen expression or an intentional whole body, review the proposal, commit/reject it, and reopen committed identities. Existing exact-ID operations remain available for rename, effect/capability declarations, supported migrations, readiness and backend emission.
@@ -107,4 +109,4 @@ OpenCode UI discovery and a real model choosing the tools are a distinct live in
 
 ## Maintainer rule
 
-Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch.
+Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch. Host adapters must reuse the shared tool definitions rather than fork their behavior.

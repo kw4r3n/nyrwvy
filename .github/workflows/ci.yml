@@ -43,5 +43,11 @@ jobs:
       - name: Test authoring tools
         run: node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
 
+      - name: Install MCP adapter dependencies
+        run: npm install --prefix tools/nyrwvy-mcp --package-lock=false --no-audit --no-fund
+
+      - name: Test MCP transport contract
+        run: npm --prefix tools/nyrwvy-mcp test
+
       - name: Report encoding comparison
         run: cat /tmp/nyrwvy-encoding-comparison.txt
