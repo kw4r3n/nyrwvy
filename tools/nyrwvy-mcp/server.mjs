@@ -11,7 +11,7 @@ import { closeAuthoring } from "../nyrwvy-agent/authoring.ts"
 const { values } = parseArgs({ options: { workspace: { type: "string" }, help: { type: "boolean" } } })
 
 if (values.help) {
-  console.error("Usage: node --experimental-strip-types tools/nyrwvy-mcp/server.mjs [--workspace /path/to/project]\nSnapshots are relative to --workspace (default: current directory). The toolchain is located relative to this server, not the client directory.")
+  console.error("Usage: node --experimental-strip-types tools/nyrwvy-mcp/server.mjs [--workspace /path/to/project]\nRelative snapshots default to the MCP process current directory, which ordinary CLI clients normally launch in the active project. --workspace is an optional server-level override. nyrwvy_open also accepts a per-open workspace override for hosts that do not expose the project as cwd. The toolchain is located relative to this server.")
 } else {
   const context = { sessionID: randomUUID(), worktree: resolve(values.workspace ?? process.cwd()),
     repositoryRoot: fileURLToPath(new URL("../../", import.meta.url)) }
@@ -22,7 +22,7 @@ if (values.help) {
 
   function createServer() {
     const server = new McpServer({ name: "nyrwvy", version: "0.1.0" }, {
-      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
+      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
     })
     for (const [name, definition] of Object.entries(createGraphTools(z))) {
       server.registerTool(`nyrwvy_${name}`, {

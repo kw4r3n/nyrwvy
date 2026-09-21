@@ -40,8 +40,9 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
   await mkdir(workspace)
   let first, second
   try {
-    // Neither process starts in the toolchain repository.
-    first = await connect(root, workspace)
+    // Neither process starts in the toolchain repository. The first client starts
+    // in the graph project and therefore needs no fixed workspace registration.
+    first = await connect(workspace, undefined)
     second = await connect(root, undefined, { versionNegotiation: { mode: { pin: "2026-07-28" } } })
     assert.equal(first.getProtocolEra(), "legacy")
     assert.equal(second.getProtocolEra(), "modern")
@@ -53,7 +54,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     await failed(second, "inspect", { view: "status" })
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
     assert.equal(opened.snapshot, join(workspace, "workspace.json"))
-    await failed(second, "open", { mode: "open", snapshot: opened.snapshot })
+    await failed(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
 
     const type = await call(first, "create_type", { displayName: "Request", typeKind: { kind: "product", fields: [{ displayName: "enabled", type: { kind: "primitive", primitive: "bool" } }] } })
     await call(first, "commit", { proposalId: type.result.proposalId })
@@ -80,13 +81,14 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
 
     // EOF must release the actual AuthoringSession lock without nyrwvy_close.
     await first.close()
-    await call(second, "open", { mode: "open", snapshot: opened.snapshot })
+    const reopened = await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
+    assert.equal(reopened.snapshot, opened.snapshot)
     const resumed = (await call(second, "inspect", { view: "function", functionId })).result.function
     assert.equal(resumed.id, functionId)
     assert.equal(resumed.body.nodes[0].kind.value, false)
     await failed(second, "commit", { proposalId: pending.proposalId })
     await call(second, "close")
-    await call(second, "open", { mode: "open", snapshot: opened.snapshot })
+    await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
   } finally {
     await first?.close().catch(() => undefined)
     await second?.close().catch(() => undefined)

@@ -16,13 +16,17 @@ npm --prefix tools/nyrwvy-mcp run setup
 
 This installs the pinned MCP SDK dependencies and builds the existing Release AuthoringSession. It does not install OpenCode, need model credentials, start a network listener, or modify client configuration. Rebuild AuthoringSession after changing its implementation. The MCP client will launch the server itself.
 
-The server launch command is:
+The ordinary server launch command is:
 
 ```sh
-node --experimental-strip-types /absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs --workspace /absolute/path/my-project
+node --experimental-strip-types /absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs
 ```
 
-Use an absolute server path. `--workspace` is the base directory for relative snapshot paths; when omitted it is the MCP server process's working directory. The .NET assembly is always located relative to the server's repository, independently of the client directory. The workspace directory must already exist. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server.
+Use an absolute server path. Relative snapshot paths default to the MCP server process's working directory. For local CLI clients that launch stdio servers in the active project, this makes `nyrwvy_open {snapshot:"planner.snapshot.json"}` naturally create or open `./planner.snapshot.json` in that project.
+
+`--workspace /absolute/path/my-project` remains an optional server-level override for a deliberately fixed workspace. In addition, `nyrwvy_open` accepts an optional `workspace` argument so an agent can supply the host-known project directory when a GUI, plugin cache, desktop host, or other MCP launcher starts the server elsewhere. The user therefore does not need to bake a program directory into ordinary MCP registration.
+
+Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly is always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server.
 
 ## Client configuration
 
@@ -35,7 +39,7 @@ Add to the applicable Codex `config.toml`:
 ```toml
 [mcp_servers.nyrwvy]
 command = "node"
-args = ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs", "--workspace", "/absolute/path/my-project"]
+args = ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs"]
 ```
 
 Reference: [Codex MCP configuration](https://developers.openai.com/codex/mcp/).
@@ -49,7 +53,7 @@ For Claude Code, add the entry to the project `.mcp.json`, following the client'
   "mcpServers": {
     "nyrwvy": {
       "command": "node",
-      "args": ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs", "--workspace", "/absolute/path/my-project"]
+      "args": ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs"]
     }
   }
 }
@@ -66,7 +70,7 @@ Add to Zed settings:
   "context_servers": {
     "nyrwvy": {
       "command": "node",
-      "args": ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs", "--workspace", "/absolute/path/my-project"]
+      "args": ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs"]
     }
   }
 }
@@ -78,7 +82,7 @@ Reference: [Zed MCP](https://zed.dev/docs/ai/mcp). Tool availability and permiss
 
 `tools/list` advertises `nyrwvy_open`, `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function`, `nyrwvy_replace`, `nyrwvy_commit`, `nyrwvy_reject`, `nyrwvy_request`, and `nyrwvy_close`. Their arguments, descriptions and handlers are shared with the OpenCode adapter in `tools/nyrwvy-agent/graph-tools.mjs`.
 
-Start with `nyrwvy_open` arguments such as `{"mode":"create","snapshot":"planner.snapshot.json"}`. Then inspect, propose, read the exact returned review, and explicitly commit/reject. Proposing never auto-commits. Exact stable-ID operations remain accessible via `nyrwvy_request`.
+Start with `nyrwvy_open` arguments such as `{"mode":"create","snapshot":"planner.snapshot.json"}`. This normally resolves against the active project cwd. If the host launched MCP elsewhere but the agent knows the project directory, use `{"mode":"create","snapshot":"planner.snapshot.json","workspace":"/absolute/path/to/project"}` for that open only. Then inspect, propose, read the exact returned review, and explicitly commit/reject. Proposing never auto-commits. Exact stable-ID operations remain accessible via `nyrwvy_request`.
 
 One MCP server process owns at most one active authoring session. Concurrent tool calls, including open/close, are serialized. Different client processes do not share pending proposals. The existing snapshot lock still allows only one writer to a snapshot. Switching clients therefore means closing the previous authoring session and reopening the same committed snapshot, not simultaneous collaborative editing.
 
@@ -94,7 +98,7 @@ Run the focused deterministic MCP contract after setup:
 npm --prefix tools/nyrwvy-mcp test
 ```
 
-The contract uses the official MCP client over real subprocess stdio, then the real AuthoringSession. It covers tool discovery and schemas, working-directory independence, explicit publication, error mapping, client isolation, and EOF/reopen. Existing ordinary-tool tests continue to exercise semantic workflows through the compatibility entry point.
+The contract uses the official MCP client over real subprocess stdio, then the real AuthoringSession. It covers tool discovery and schemas, automatic cwd-relative project opening, per-open workspace fallback from an unrelated cwd, explicit publication, error mapping, client isolation, and EOF/reopen. Existing ordinary-tool tests continue to exercise semantic workflows through the compatibility entry point.
 
 Actual Codex/Claude Code/Zed UI discovery, external-agent forwarding, and model choice of tools are separate live boundaries. This adapter does not provide HTTP hosting or make a local stdio server directly available to browser-only/cloud-only clients.
 
