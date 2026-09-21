@@ -2,9 +2,9 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-09-17
-- **Current baseline:** `main` after completion of the first bounded M5 evolution slice
-- **Purpose:** Record what M3-M5 established and define the evidence-triggered boundary for later work.
+- **Updated:** 2026-09-21
+- **Current baseline:** Maintained ordinary AI graph tools and stdio MCP at `ab74ecc4`, with one qualified Codex CLI live maintenance result
+- **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
 This document began as the post-M2 proposal for moving Nyrwvy from bounded structural editing toward ordinary AI authoring. M3, M4, and the first M5 slice are now implemented and verified. The roadmap therefore no longer treats those stages as future work.
 
@@ -75,6 +75,16 @@ The deterministic Core contract, maintained AuthoringSession/JSONL exposure, and
 
 This supports the bounded conclusion that continuity-preserving cross-cutting evolution is practical through the maintained authoring surface. It does **not** justify a universal migration planner, arbitrary schema evolution, result-type migration, union-field migration, automatic effect propagation, or a generalized transaction language.
 
+## Ordinary graph tools and real-host MCP evidence
+
+The maintained baseline now includes name-resolved graph-editing tools, shared OpenCode/stdio MCP exposure, and bounded fieldless Union evolution with exhaustive-match repair. The [graph-tool contract](../specs/agent-graph-tools.md) and [MCP guide](../specs/mcp-graph-tools.md) describe the current surface.
+
+The 2026-09-21 Codex CLI probe is complete. [Run 1](../verification/codex-cli-mcp-maintenance-probe.md) found a host approval configuration blocker. [Run 2](../verification/codex-cli-mcp-maintenance-probe-run-2.md) changed only the server-level approval setting and completed known TimedOut maintenance, including review, explicit commit, close/reopen, preserved TypeId/FunctionId, a system-owned VariantId, one repaired match, and final readiness `ready`. No semantic/transport errors, mutation retries, or semantic user intervention occurred in Run 2.
+
+This establishes **Codex CLI + local repository context + Nyrwvy MCP tools** for one known task. The model consulted repository docs and `Protocol.fs`; MCP tool descriptions alone were not proven sufficient. That is observed discovery friction, not proof that reading the implementation was necessary and not a current blocker. Revisit discoverability only if another real task supplies further evidence of the same cost or a failure.
+
+No extra Codex trial, other-host matrix, or repeated success-rate measurement is required to close this probe. The result does not open M6 or authorize speculative semantic/tool redesign.
+
 ## Selection rule from here
 
 Continue applying the AI-first priorities in [Vision](../concepts/vision.md): semantic integrity and unambiguous machine interpretation first, then useful capability/composability, persistent identity, focused queries, and human supervision. Direct human-authoring convenience and personal aesthetic preferences remain secondary.
@@ -118,14 +128,14 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-With M3-M5's first slice complete, the remaining repository work is deliberately small:
+The real-host MCP probe and its evidence/documentation cleanup are complete. The next implementation task must be selected from a concrete workload or measured cost:
 
-1. **Bring this roadmap current and merge it.** Stop presenting completed M3/M4/M5 work as future milestones.
-2. **Reassess #152 against current main.** Port only still-useful verification/documentation cleanup; do not blindly revive stale proposal-state refactoring or old hardcoded assumptions.
+1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
+2. **Observe discovery friction in subsequent real tasks.** One successful task that consulted protocol code is not enough to preselect a discoverability redesign.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
 4. **Do not pre-create the next semantic milestone.** Open the next implementation issue only when a concrete task or measured cost identifies it.
 
-If #152's useful portion reduces repetitive verification commands or stale documentation, prefer one small current-main PR and close the old PR as superseded. If nothing remains valuable, close it without replacement.
+The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 
 ## Evidence and authority pointers
 
@@ -135,6 +145,10 @@ If #152's useful portion reduces repetitive verification commands or stale docum
 - [Targeted expression replacement](../decisions/targeted-expression-replacement.md)
 - [Staged declaration authoring](../decisions/declaration-authoring.md)
 - [Snapshot-backed agent authoring session](../specs/agent-authoring-session.md)
+- [Ordinary AI graph tools](../specs/agent-graph-tools.md)
+- [MCP configuration and live verification scope](../specs/mcp-graph-tools.md)
+- [Codex probe Run 1: host approval blocker](../verification/codex-cli-mcp-maintenance-probe.md)
+- [Codex probe Run 2: qualified success](../verification/codex-cli-mcp-maintenance-probe-run-2.md)
 - [Verification philosophy](../developer/verification.md)
 - [Open questions](../decisions/open-questions.md)
 - Completed work/issues: #148, #149, #153, #154, #164, #166, #168, #170

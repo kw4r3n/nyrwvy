@@ -16,7 +16,7 @@ This directory contains the maintained documentation for the current Nyrwvy desi
 - **What must an implementation preserve?** Use the maintained [specifications](specs/), including [expression structural authoring](specs/expression-authoring.md), [atomic product/union declaration authoring](specs/type-declaration-authoring.md), [atomic effect declaration authoring](specs/effect-declaration-authoring.md), [atomic capability/operation declaration authoring](specs/capability-declaration-authoring.md), the [snapshot-backed agent authoring session](specs/agent-authoring-session.md), and the narrower [Float64 bounded structural editing contract](specs/bounded-structural-editing.md).
 - **What was completed in Milestone 1?** Read the completed [Milestone 1 record](plans/milestone-1.md) and its linked verification evidence.
 - **What did Milestone 2 establish?** Read the [Milestone 2 record](plans/milestone-2.md) and its controlled structural-editing evidence.
-- **What evidence supports an implemented claim?** Use [verification records](verification/).
+- **What evidence supports an implemented claim?** Use [verification records](verification/), including the Codex CLI MCP probe: [initial approval blocker](verification/codex-cli-mcp-maintenance-probe.md) and [qualified maintenance success](verification/codex-cli-mcp-maintenance-probe-run-2.md).
 - **What is exploratory rather than a current contract?** Use [experiments](experiments/).
 - **How should documentation itself be maintained?** Read [Documentation conventions](developer/documentation.md).
 
