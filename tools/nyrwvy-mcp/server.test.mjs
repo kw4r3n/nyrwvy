@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio"
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
-const names = ["open", "inspect", "create_type", "create_function", "replace", "commit", "reject", "request", "close"]
+const names = ["open", "inspect", "recipe_reference", "create_type", "create_function", "replace", "commit", "reject", "request", "close"]
 
 async function connect(cwd, workspace, options) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
@@ -50,6 +50,17 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.deepEqual(tools.map(tool => tool.name).sort(), names.map(name => `nyrwvy_${name}`).sort())
     assert.equal(tools.find(tool => tool.name === "nyrwvy_create_function").inputSchema.properties.body.type, "object")
     assert.ok(!tools.find(tool => tool.name === "nyrwvy_replace").inputSchema.required.includes("targetNodeId"))
+    assert.equal(tools.find(tool => tool.name === "nyrwvy_recipe_reference").annotations.readOnlyHint, true)
+
+    // Recipe discovery is sessionless and covers the wire-shape mistakes observed in the first external consumer.
+    const recipeIndex = await call(first, "recipe_reference")
+    assert.ok(recipeIndex.categories.control.includes("conditional"))
+    assert.deepEqual((await call(first, "recipe_reference", { kind: "conditional" })).shape,
+      { kind: "conditional", condition: "<recipe>", whenTrue: "<recipe>", whenFalse: "<recipe>" })
+    assert.deepEqual((await call(first, "recipe_reference", { kind: "fieldAccess" })).shape,
+      { kind: "fieldAccess", source: "<recipe>", type: "<product type display name>", field: "<field display name>" })
+    assert.deepEqual((await call(first, "recipe_reference", { kind: "matchUnion" })).shape,
+      { kind: "matchUnion", type: "<union type display name>", input: "<recipe>", arms: [{ variant: "<variant display name>", body: "<recipe>" }] })
     await failed(first, "open", { mode: "unexpected", snapshot: "workspace.json" })
     await failed(second, "inspect", { view: "status" })
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })

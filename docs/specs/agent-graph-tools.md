@@ -26,6 +26,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 | --- | --- |
 | `nyrwvy_open` | Explicit `create` or `open`, with a snapshot path relative to the worktree or absolute. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
+| `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot; omit `kind` for a compact index. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named parameter/declaration references. |
 | `nyrwvy_replace` | Propose a targeted replacement using an inspected node ID; omit the target only for whole-body replacement. |
@@ -84,6 +85,10 @@ Name resolution happens at simulation. Commit still binds the exact simulated pr
 
 ## Named recipe reference guide
 
+`nyrwvy_recipe_reference` is the ordinary AI-facing wire-shape discovery surface. It is read-only, does not open an AuthoringSession, and may be called before `nyrwvy_open`. Omit `kind` for a compact categorized list; pass one listed kind to receive its exact name-resolved shape and concise construction notes. It describes the symbolic ordinary-tool format, not the stable-ID protocol form and not the semantic rules in place of validation.
+
+`nyrwvy_create_function.body` and `nyrwvy_replace.replacement` remain generic structured objects rather than a large recursive tool schema. Their descriptions point to this reference so models can fetch only the recipe shape they need.
+
 Use the existing expression kinds and explicit types. Only references differ from the stable-ID form:
 
 | Semantic reference | Named form |
@@ -103,10 +108,10 @@ Use the existing expression kinds and explicit types. Only references differ fro
 
 ## Verification boundary
 
-The ordinary client is exercised against the real maintained executable with a deterministic Verification Planner authoring/maintenance flow, exact-literal/name-ambiguity checks and a nested-scope response regression. Separate small transport tests exercise framing/serialization and lost responses. These run in the fast suite with Node 22 and do not install an agent harness or invoke a model.
+The ordinary client is exercised against the real maintained executable with a deterministic Verification Planner authoring/maintenance flow, exact-literal/name-ambiguity checks and a nested-scope response regression. Separate small transport tests exercise framing/serialization and lost responses. The MCP contract also checks sessionless recipe discovery for `conditional`, `fieldAccess`, and `matchUnion`, the concrete wire-shape mistakes observed in the first independent consumer project. These run in the fast suite with Node 22 and do not install an agent harness or invoke a model.
 
 OpenCode UI discovery and a real model choosing the tools are a distinct live integration boundary, not a claim made by these deterministic tests. The tool definitions follow OpenCode's [custom-tool contract](https://opencode.ai/docs/custom-tools/).
 
 ## Maintainer rule
 
-Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch. Host adapters must reuse the shared tool definitions rather than fork their behavior.
+Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch. Host adapters must reuse the shared tool definitions rather than fork their behavior. Keep the on-demand recipe reference aligned with the maintained name-resolved `WireSymbolic` surface; add focused regression checks for observed discovery failures rather than one test per recipe variant.

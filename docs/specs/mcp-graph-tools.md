@@ -2,7 +2,7 @@
 
 **Status:** Maintained local stdio adapter; one qualified Codex CLI live probe completed.
 
-The same nine [graph-editing tools](agent-graph-tools.md) can be used by MCP clients without OpenCode. The SDK handles MCP discovery, schemas and transport; the shared client calls the existing JSONL AuthoringSession. Semantic validation, graph identity, proposal review and publication remain in the existing implementation. No model, source language or planning service is added.
+The same ordinary [graph-editing tools](agent-graph-tools.md) can be used by MCP clients without OpenCode. The SDK handles MCP discovery, schemas and transport; the shared client calls the existing JSONL AuthoringSession. Semantic validation, graph identity, proposal review and publication remain in the existing implementation. No model, source language or planning service is added.
 
 The official SDK handles both legacy MCP initialization and the 2026-07-28 protocol on the same stdio entry. Probing/tool discovery does not open a snapshot or start AuthoringSession.
 
@@ -90,9 +90,9 @@ Reference: [Zed MCP](https://zed.dev/docs/ai/mcp). Tool availability and permiss
 
 ## Operation and lifetime
 
-`tools/list` advertises `nyrwvy_open`, `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function`, `nyrwvy_replace`, `nyrwvy_commit`, `nyrwvy_reject`, `nyrwvy_request`, and `nyrwvy_close`. Their arguments, descriptions and handlers are shared with the OpenCode adapter in `tools/nyrwvy-agent/graph-tools.mjs`.
+`tools/list` advertises `nyrwvy_open`, `nyrwvy_inspect`, `nyrwvy_recipe_reference`, `nyrwvy_create_type`, `nyrwvy_create_function`, `nyrwvy_replace`, `nyrwvy_commit`, `nyrwvy_reject`, `nyrwvy_request`, and `nyrwvy_close`. Their arguments, descriptions and handlers are shared with the OpenCode adapter in `tools/nyrwvy-agent/graph-tools.mjs`.
 
-Start with `nyrwvy_open` arguments such as `{"mode":"create","snapshot":"planner.snapshot.json"}`. This normally resolves against the active project cwd. If the host launched MCP elsewhere but the agent knows the project directory, use `{"mode":"create","snapshot":"planner.snapshot.json","workspace":"/absolute/path/to/project"}` for that open only. Then inspect, propose, read the exact returned review, and explicitly commit/reject. Proposing never auto-commits. Exact stable-ID operations remain accessible via `nyrwvy_request`.
+`nyrwvy_recipe_reference` is read-only and sessionless, so it may be called before `nyrwvy_open` when a function-body or replacement recipe shape is unfamiliar. Start an authoring session with `nyrwvy_open` arguments such as `{"mode":"create","snapshot":"planner.snapshot.json"}`. This normally resolves against the active project cwd. If the host launched MCP elsewhere but the agent knows the project directory, use `{"mode":"create","snapshot":"planner.snapshot.json","workspace":"/absolute/path/to/project"}` for that open only. Then inspect, propose, read the exact returned review, and explicitly commit/reject. Proposing never auto-commits. Exact stable-ID operations remain accessible via `nyrwvy_request`.
 
 One MCP server process owns at most one active authoring session. Concurrent tool calls, including open/close, are serialized. Different client processes do not share pending proposals. The existing snapshot lock still allows only one writer to a snapshot. Switching clients therefore means closing the previous authoring session and reopening the same committed snapshot, not simultaneous collaborative editing.
 
@@ -108,11 +108,13 @@ Run the focused deterministic MCP contract after setup:
 npm --prefix tools/nyrwvy-mcp test
 ```
 
-The contract uses the official MCP client over real subprocess stdio, then the real AuthoringSession. It covers tool discovery and schemas, automatic cwd-relative project opening, per-open workspace fallback from an unrelated cwd, explicit publication, error mapping, client isolation, and EOF/reopen. Existing ordinary-tool tests continue to exercise semantic workflows through the compatibility entry point.
+The contract uses the official MCP client over real subprocess stdio, then the real AuthoringSession. It covers tool discovery and schemas, sessionless recipe reference reads, automatic cwd-relative project opening, per-open workspace fallback from an unrelated cwd, explicit publication, error mapping, client isolation, and EOF/reopen. Existing ordinary-tool tests continue to exercise semantic workflows through the compatibility entry point.
 
 On 2026-09-21, Codex CLI 0.155.0 with `gpt-6-astra` completed the known TimedOut maintenance task through this MCP surface on commit `ab74ecc4`: project-relative open, inspect, simulate with returned review, explicit commit, close/reopen, and committed-state inspection. Existing TypeId/FunctionId values were preserved, the new VariantId was system-owned, repaired match count was 1, and final execution readiness was `ready`. The follow-up had no semantic/transport errors, mutation retries, or semantic user intervention. See [Run 1: approval-blocked](../verification/codex-cli-mcp-maintenance-probe.md) and [Run 2: configuration-corrected success](../verification/codex-cli-mcp-maintenance-probe-run-2.md).
 
-The model also consulted local repository documentation and `Protocol.fs` to discover the exact maintenance operation. The supported claim is **Codex CLI + local repository context + Nyrwvy MCP tools**; tool descriptions alone were not proven sufficient. This discovery friction did not block completion and does not by itself call for new operations or a surface redesign.
+The model also consulted local repository documentation and `Protocol.fs` to discover the exact maintenance operation. The supported claim is **Codex CLI + local repository context + Nyrwvy MCP tools**; tool descriptions alone were not proven sufficient.
+
+A later independent `nyrwvy-ai-task-router` consumer was authored without reading the Nyrwvy repository docs or implementation, but it first tried an unsupported `help` request and then incurred 10 function-recipe `ProtocolError` iterations while discovering names such as `conditional`, `whenTrue`/`whenFalse`, `fieldAccess.source`, and `matchUnion.input`. That second observed friction motivated `nyrwvy_recipe_reference`: an on-demand shared reference rather than a new semantic operation or an always-expanded recursive schema. Its deterministic MCP contract is repository-side; one bounded local consumer-authoring follow-up remains the environment-dependent check for whether the live trial-and-error is materially reduced.
 
 Claude Code/Zed model use, interactive UI discovery, and external-agent forwarding remain unverified live boundaries. This adapter does not provide HTTP hosting or make a local stdio server directly available to browser-only/cloud-only clients. No additional live run or host matrix is scheduled without a relevant implementation change or a new decision-relevant observation.
 
