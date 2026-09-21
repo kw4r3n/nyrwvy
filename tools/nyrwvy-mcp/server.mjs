@@ -22,13 +22,13 @@ if (values.help) {
 
   function createServer() {
     const server = new McpServer({ name: "nyrwvy", version: "0.1.0" }, {
-      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
+      instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Use nyrwvy_recipe_reference when an ExpressionRecipe shape is unfamiliar. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
     })
     for (const [name, definition] of Object.entries(createGraphTools(z))) {
       server.registerTool(`nyrwvy_${name}`, {
         description: definition.description,
         inputSchema: z.object(definition.args).strict(),
-        ...(name === "inspect" ? { annotations: { readOnlyHint: true } } : {}),
+        ...((name === "inspect" || name === "recipe_reference") ? { annotations: { readOnlyHint: true } } : {}),
       }, (args, requestContext) => {
         // Serialize lifecycle calls too: MCP clients may issue tools concurrently.
         const operation = tail.then(async () => {
