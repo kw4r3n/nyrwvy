@@ -7,9 +7,9 @@ export function createGraphTools(schema) {
   const recipe = object.describe("Structured expression recipe, not source code. Named references use parameter.name, fieldAccess.type/field, directCall.function and arguments[].parameter, unionConstruct.type/variant. See docs/specs/agent-graph-tools.md. Use decimal strings for exact Int64 literals.")
   return {
     open: {
-      description: "Create or reopen one persistent Nyrwvy graph. Requires the Release AuthoringSession build. No evaluation agent or per-program helper required.",
-      args: { mode: schema.enum(["create", "open"]), snapshot: schema.string() },
-      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context),
+      description: "Create or reopen one persistent Nyrwvy graph. Relative snapshots default to the client/MCP process current project. Pass workspace only when the host does not launch the server in that project.",
+      args: { mode: schema.enum(["create", "open"]), snapshot: schema.string(), workspace: schema.string().optional() },
+      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace),
     },
     inspect: {
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",

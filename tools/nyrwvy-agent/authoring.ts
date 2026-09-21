@@ -99,20 +99,21 @@ const sessions = new Map<string, AuthoringClient>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
-  mode: "create" | "open", snapshot: string, context: AuthoringContext,
+  mode: "create" | "open", snapshot: string, context: AuthoringContext, workspaceOverride?: string,
 ): Promise<string> {
   const sessionKey = key(context)
   if (sessions.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
-  const workspace = resolve(context.worktree, snapshot)
+  const worktree = resolve(context.worktree, workspaceOverride ?? ".")
+  const workspace = resolve(worktree, snapshot)
   const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
   const client = new AuthoringClient(spawn("dotnet", [assembly, mode, "--snapshot", workspace], {
-    cwd: context.worktree, stdio: ["pipe", "pipe", "pipe"],
+    cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
   }))
   sessions.set(sessionKey, client)
   try {
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
-    return JSON.stringify({ snapshot: workspace, status,
+    return JSON.stringify({ worktree, snapshot: workspace, status,
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     sessions.delete(sessionKey)
