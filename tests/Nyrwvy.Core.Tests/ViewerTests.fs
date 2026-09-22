@@ -15,6 +15,33 @@ module ViewerTests =
         |> unwrap
         |> ViewerProjection.focus
 
+    let private renderFocusAndReview (model: ViewerFocusModel) =
+        let review: ViewerChangeReviewModel =
+            { TransactionId = StableId.createForTesting<TransactionTag> "transaction-viewer-html"
+              BaseSnapshotId = model.SnapshotId
+              ProposedSnapshotId = model.SnapshotId
+              Diff =
+                { Renames = []
+                  ParametersAdded = []
+                  ArgumentsAttached = []
+                  ObligationsCreated = []
+                  ObligationsResolved = []
+                  FunctionRequiredEffectsChanged = [] }
+              Readiness = ChangeReviewReadiness.Complete
+              AffectedFunctionIds = [ model.Function.FunctionId ]
+              AffectedTypeIds = []
+              FunctionFocus = [ model ] }
+        [ ViewerHtml.renderFocusDocument model; ViewerHtml.renderChangeReviewDocument review ]
+
+    let private assertDependencyList (items: string list) (document: string) =
+        let expected =
+            [ "<ul aria-label=\"value dependencies\">"
+              yield! items |> List.map (fun item -> "<li>" + item + "</li>")
+              "</ul>" ]
+            |> String.concat "\n"
+        let lines = document.Split('\n') |> Array.map (fun line -> line.Trim()) |> String.concat "\n"
+        Assert.Contains(expected, lines)
+
     let rec private collectNodes (graph: ViewerGraph): ViewerNode list =
         graph.Nodes
         |> List.collect (fun node ->
@@ -174,17 +201,77 @@ module ViewerTests =
         if (summary listId).Dependencies <> [ leftId; leftId ] then
             failwithf "Structural dependency multiplicity was lost: %A" (summary listId).Dependencies
 
+        let item label nodeId = label + ": <code>node:" + StableId.value nodeId + "</code>"
+        for document in renderFocusAndReview model do
+            assertDependencyList [ item "left operand" leftId; item "right operand" rightId ] document
+            assertDependencyList [ item "left operand" rightId; item "right operand" leftId ] document
+            assertDependencyList [ item "list item [0]" leftId; item "list item [1]" leftId ] document
+
+        let swapped =
+            { model with
+                Graph =
+                    { model.Graph with
+                        Nodes =
+                            model.Graph.Nodes
+                            |> List.map (fun node ->
+                                if node.Id = subtractLeftRightId then
+                                    { node with ValueDependencies = expectedRightLeft }
+                                else node) } }
+        for original, reversed in List.zip (renderFocusAndReview model) (renderFocusAndReview swapped) do
+            Assert.NotEqual<string>(original, reversed)
+
     [<Fact>]
-    let ``focus HTML is deterministic under nonsemantic root-node reordering`` () =
+    let ``focus and review HTML preserve keyed dependencies and escape their identifiers`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let model = focus fixture fixture.ValidateFunctionId
+        let suffix = "<script>&\"'"
+        let escapedSuffix = "&lt;script&gt;&amp;&quot;&#39;"
+        let nodeId = StableId.createForTesting<GraphNodeTag> ("node-" + suffix)
+        let parameterId = StableId.createForTesting<ParameterTag> ("parameter-" + suffix)
+        let capabilityParameterId = StableId.createForTesting<CapabilityParameterTag> ("capability-parameter-" + suffix)
+        let fieldId = StableId.createForTesting<FieldTag> ("field-" + suffix)
+        let cases =
+            [ ViewerNodeRole.DirectCall,
+              [ ValueDependencyRole.CallArgument parameterId, "call argument parameter:parameter-" + escapedSuffix ]
+              ViewerNodeRole.CapabilityInvoke,
+              [ ValueDependencyRole.CapabilityValue, "capability value"
+                ValueDependencyRole.CapabilityArgument capabilityParameterId,
+                "capability argument capability-parameter:capability-parameter-" + escapedSuffix ]
+              ViewerNodeRole.ProductConstruct,
+              [ ValueDependencyRole.FieldValue fieldId, "field value field:field-" + escapedSuffix ]
+              ViewerNodeRole.UnionConstruct,
+              [ ValueDependencyRole.FieldValue fieldId, "field value field:field-" + escapedSuffix ] ]
+
+        for role, dependencies in cases do
+            let node: ViewerNode =
+                { Id = StableId.createForTesting<GraphNodeTag> "node-viewer-keyed-dependencies"
+                  Type = None
+                  Role = role
+                  Relations = []
+                  ValueDependencies = dependencies |> List.map (fun (role, _) -> { Role = role; NodeId = nodeId })
+                  Branches = [] }
+            let keyedModel = { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
+            let documents = renderFocusAndReview keyedModel
+            Assert.Equal<string list>(documents, renderFocusAndReview keyedModel)
+            for document in documents do
+                let expected =
+                    dependencies
+                    |> List.map (fun (_, label) -> label + ": <code>node:node-" + escapedSuffix + "</code>")
+                assertDependencyList expected document
+                Assert.DoesNotContain(suffix, document)
+                Assert.DoesNotContain("<script", document)
+
+    [<Fact>]
+    let ``focus and review HTML are deterministic under nonsemantic root-node reordering`` () =
         let fixture = MilestoneZeroGraph.create ()
         let source = SemanticQuery.focusFunction fixture.Snapshot fixture.ValidateFunctionId |> unwrap
-        let original = source |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+        let original = source |> ViewerProjection.focus |> renderFocusAndReview
 
         let reorderedFunction =
             { source.Function with
                 Body = { source.Function.Body with Nodes = List.rev source.Function.Body.Nodes } }
         let reorderedSource = { source with Function = reorderedFunction }
-        let reordered = reorderedSource |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+        let reordered = reorderedSource |> ViewerProjection.focus |> renderFocusAndReview
 
         if original <> reordered then
             failwith "Viewer output changed when only nonsemantic root node serialization order changed."

@@ -38,6 +38,9 @@ module MilestoneZeroTests =
 
         Assert.Equal(encoded, reencoded)
         Assert.Equal(fixture.Snapshot.Id, decoded.Id)
+        Assert.Equal(fixture.Snapshot.Types.Length, decoded.Types.Length)
+        Assert.Equal(fixture.Snapshot.Functions.Length, decoded.Functions.Length)
+        Assert.Equal(fixture.ConsoleCapabilityId, (List.exactlyOne decoded.Capabilities).Id)
 
     [<Fact>]
     let ``rename preserves validation function identity and direct-call target`` () =
@@ -69,6 +72,7 @@ module MilestoneZeroTests =
         | SemanticNodeKind.DirectCall(targetFunctionId, _) -> Assert.Equal(fixture.ValidateFunctionId, targetFunctionId)
         | _ -> failwith "The validation call changed semantic node kind during rename."
         Assert.Single(simulation.Diff.Renames) |> ignore
+        requireReadiness SemanticReadiness.Complete simulation.ProposedSnapshot
 
     [<Fact>]
     let ``signature evolution creates and resolves an explicit MissingArgument on the real graph`` () =
@@ -89,6 +93,7 @@ module MilestoneZeroTests =
 
         let incomplete = Transaction.simulate fixture.Snapshot addRequest |> unwrapSimulation
         requireReadiness (SemanticReadiness.Incomplete [ obligationId ]) incomplete.ProposedSnapshot
+        Assert.Single(incomplete.Diff.ParametersAdded) |> ignore
         Assert.Single(incomplete.Diff.ObligationsCreated) |> ignore
 
         let resolveRequest: TransactionRequest =
@@ -102,6 +107,7 @@ module MilestoneZeroTests =
 
         let resolved = Transaction.simulate incomplete.ProposedSnapshot resolveRequest |> unwrapSimulation
         requireReadiness SemanticReadiness.Complete resolved.ProposedSnapshot
+        Assert.Single(resolved.Diff.ArgumentsAttached) |> ignore
         Assert.Single(resolved.Diff.ObligationsResolved) |> ignore
 
         let main =
@@ -112,7 +118,14 @@ module MilestoneZeroTests =
             |> List.find (fun node -> node.Id = fixture.MainValidateCallNodeId)
 
         match call.Kind with
-        | SemanticNodeKind.DirectCall(_, arguments) ->
+        | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
+            Assert.Equal(fixture.ValidateFunctionId, targetFunctionId)
             let binding = arguments |> List.find (fun item -> item.TargetParameterId = parameterId)
             Assert.Equal(fixture.MainPolicyNodeId, binding.ValueNodeId)
         | _ -> failwith "The obligated call changed semantic node kind during resolution."
+
+        let obligation = List.exactlyOne resolved.ProposedSnapshot.Obligations
+        match obligation.Status with
+        | ObligationStatus.Open -> failwith "Resolved milestone-zero obligation remained open."
+        | ObligationStatus.Resolved resolution ->
+            Assert.Equal(fixture.MainPolicyNodeId, resolution.ValueNodeId)

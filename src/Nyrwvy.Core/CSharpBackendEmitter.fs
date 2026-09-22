@@ -13,7 +13,7 @@ module CSharpBackend =
         member _.Line(text: string) =
             if text.Length > 0 then
                 builder.Append(' ', indent * 4) |> ignore
-            builder.AppendLine(text) |> ignore
+            builder.Append(text).Append('\n') |> ignore
 
         member _.Push() = indent <- indent + 1
         member _.Pop() = indent <- indent - 1

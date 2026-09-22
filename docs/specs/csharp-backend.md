@@ -61,6 +61,8 @@ Execution functions lower deterministically to generated methods/blocks, with ex
 
 For identical supported Execution IR and backend profile, generated C# must be deterministic. Declaration order, symbol allocation, control-flow emission, and runtime support generation must not depend on hash-map traversal or unrelated environment state.
 
+Generated source uses canonical LF (`\n`) line endings, including its final newline, on every host operating system. String-literal contents are not normalized: CR, LF, CRLF, and other characters retain their exact values through C# literal escaping.
+
 ## Authority boundary
 
 Generated C# is a build artifact.

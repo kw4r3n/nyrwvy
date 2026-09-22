@@ -69,6 +69,25 @@ module ViewerHtml =
         | ViewerRelationKind.MatchInput -> "match input"
         | ViewerRelationKind.BindInput -> "evaluate before body"
 
+    let private valueDependencyLabel (role: ValueDependencyRole): string =
+        match role with
+        | ValueDependencyRole.Value -> "value"
+        | ValueDependencyRole.Error -> "error"
+        | ValueDependencyRole.Substring -> "substring"
+        | ValueDependencyRole.LeftOperand -> "left operand"
+        | ValueDependencyRole.RightOperand -> "right operand"
+        | ValueDependencyRole.Source -> "source"
+        | ValueDependencyRole.Item -> "item"
+        | ValueDependencyRole.ListItem index -> "list item [" + string index + "]"
+        | ValueDependencyRole.CallArgument parameterId -> "call argument " + stableText "parameter:" parameterId
+        | ValueDependencyRole.CapabilityValue -> "capability value"
+        | ValueDependencyRole.CapabilityArgument parameterId ->
+            "capability argument " + stableText "capability-parameter:" parameterId
+        | ValueDependencyRole.FieldValue fieldId -> "field value " + stableText "field:" fieldId
+        | ValueDependencyRole.BranchCondition -> "branch condition"
+        | ValueDependencyRole.MatchInput -> "match input"
+        | ValueDependencyRole.BindInput -> "evaluate before body"
+
     let private nodeRoleLabel (role: ViewerNodeRole): string =
         match role with
         | ViewerNodeRole.ParameterReference -> "parameter reference"
@@ -227,6 +246,15 @@ module ViewerHtml =
                     + code (targetText relation.Target) + "</li>")
             writer.Line("</ul>")
 
+    let private emitValueDependencies (writer: HtmlWriter) (dependencies: ValueDependency list) =
+        if not (List.isEmpty dependencies) then
+            writer.Line("<ul aria-label=\"value dependencies\">")
+            for dependency in dependencies do
+                writer.Line(
+                    "<li>" + html (valueDependencyLabel dependency.Role) + ": "
+                    + code (stableText "node:" dependency.NodeId) + "</li>")
+            writer.Line("</ul>")
+
     let rec private emitGraph (writer: HtmlWriter) (graph: ViewerGraph) =
         writer.Line("<section class=\"graph\" aria-label=\"value graph\">")
         writer.Line("<p>Graph result: " + code (stableText "node:" graph.ResultNodeId) + "</p>")
@@ -239,7 +267,8 @@ module ViewerHtml =
             match node.Type with
             | Some nodeType -> writer.Line("<p>Type: " + code (typeRefText nodeType) + "</p>")
             | None -> writer.Line("<p>Type: <strong>unknown / not derivable</strong></p>")
-            emitRelations writer node.Relations
+            emitRelations writer (node.Relations |> List.filter (fun relation -> relation.Kind <> ViewerRelationKind.DependsOn))
+            emitValueDependencies writer node.ValueDependencies
             for branch in node.Branches do
                 writer.Line("<section class=\"branch\">")
                 writer.Line("<h5>Branch: " + html (branchLabel branch.Role) + "</h5>")
