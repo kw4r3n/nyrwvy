@@ -85,7 +85,9 @@ This establishes **Codex CLI + local repository context + Nyrwvy MCP tools** for
 
 No extra Codex trial, other-host matrix, or repeated success-rate measurement is required to close this probe. The result does not open M6 or authorize speculative semantic/tool redesign.
 
-A subsequent independent `nyrwvy-ai-task-router` project supplied the additional discoverability evidence this roadmap required before changing the tool surface. The model completed new-program authoring without reading Nyrwvy repository docs or implementation, but first attempted unsupported `help` and then needed 10 function-recipe `ProtocolError` iterations to discover exact symbolic wire names. #198 therefore adds a sessionless `nyrwvy_recipe_reference` in the shared ordinary-tool layer, with no Core/AuthoringSession semantic change and focused deterministic coverage for the observed `conditional`, `fieldAccess`, and `matchUnion` mistakes. One bounded external-consumer live follow-up is appropriate after the interaction surface changes; it is not a repeated success-rate tranche.
+A subsequent independent `nyrwvy-ai-task-router` project supplied the additional discoverability evidence this roadmap required before changing the tool surface. The model completed new-program authoring without reading Nyrwvy repository docs or implementation, but first attempted unsupported `help` and then needed 10 function-recipe `ProtocolError` iterations to discover exact symbolic wire names. #198 therefore added a sessionless `nyrwvy_recipe_reference` in the shared ordinary-tool layer, with no Core/AuthoringSession semantic change and focused deterministic coverage for the observed `conditional`, `fieldAccess`, and `matchUnion` mistakes.
+
+The bounded 2026-09-22 external-consumer follow-up then created three types and a nested `decide` policy function from an empty project. The model discovered `nyrwvy_recipe_reference` itself, read the index plus five needed recipe shapes, and submitted the function proposal successfully on the first attempt. All four proposals were reviewed and committed, close/reopen preserved the final snapshot/fingerprints, and the reopened function had no effects or obligations. There were zero `ProtocolError`, semantic, transport, or approval failures and no repository-documentation/source lookup. This closes the measured recipe-discovery repair; repeat live validation only after a relevant interaction-surface change.
 
 ## Selection rule from here
 
@@ -133,7 +135,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 The real-host MCP probe and its evidence/documentation cleanup are complete. The next implementation task must be selected from a concrete workload or measured cost:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
-2. **Validate the measured recipe-discovery repair once in a real external consumer.** After #198, run one bounded live authoring task without supplying recipe names; record whether `nyrwvy_recipe_reference` removes the prior trial-and-error, then reuse that evidence until the interaction surface changes again.
+2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
 4. **Do not pre-create the next semantic milestone.** Open the next implementation issue only when a concrete task or measured cost identifies it.
 
@@ -154,7 +156,7 @@ The earlier #152 cleanup suggestion is historical planning context; this probe d
 - [Verification philosophy](../developer/verification.md)
 - [Open questions](../decisions/open-questions.md)
 - Completed work/issues: #148, #149, #153, #154, #164, #166, #168, #170
-- Current measured discoverability repair: #198
+- Completed measured discoverability repair: #198; [bounded live follow-up](../verification/expression-recipe-reference-live-probe.md)
 - Deferred build-cost investigation: #109
 
 The roadmap should be revised again only when later observed work changes these milestone conclusions or creates a concrete M6 trigger. Historical implementation details remain in the linked issues, PRs, specifications, verification records, and experiment artifacts rather than being duplicated here.
