@@ -81,6 +81,92 @@ module ValidationTests =
         SnapshotValidator.validate { fixture.Snapshot with Functions = functions }
         |> requireIssue "ValueNodeOutOfScope"
 
+    let private dependencySnapshot (graph: ValueGraph) =
+        let functionEntity: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-dependencies"
+              DisplayName = "dependencies"
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.Int64
+              RequiredEffects = []
+              Body = graph }
+        { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependencies") with
+            Functions = [ functionEntity ] }
+
+    let private sharedDependencyGraph depth: ValueGraph =
+        let nodeId (index: int) = StableId.createForTesting<GraphNodeTag> $"node-shared-{index:D2}"
+        { Nodes =
+            [ for index in 0 .. depth ->
+                { Id = nodeId index
+                  Kind =
+                    if index = 0 then SemanticNodeKind.Int64Literal 1L
+                    else SemanticNodeKind.Int64WrappingAdd(nodeId (index - 1), nodeId (index - 1)) } ]
+          ResultNodeId = nodeId depth }
+
+    [<Fact>]
+    let ``shared value dependencies form a valid DAG independent of node order`` () =
+        let graph = sharedDependencyGraph 32
+        Assert.Empty(SnapshotValidator.validate (dependencySnapshot graph))
+        Assert.Empty(SnapshotValidator.validate (dependencySnapshot { graph with Nodes = List.rev graph.Nodes }))
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``shared dependencies and unknown IDs do not hide disconnected cycles`` includeUnknownDependency =
+        let graph = sharedDependencyGraph 8
+        let firstId = StableId.createForTesting<GraphNodeTag> "node-z-cycle-first"
+        let secondId = StableId.createForTesting<GraphNodeTag> "node-z-cycle-second"
+        let dependencyId =
+            if includeUnknownDependency then StableId.createForTesting<GraphNodeTag> "node-missing"
+            else graph.ResultNodeId
+        let cycleNodes =
+            [ { Id = firstId; Kind = SemanticNodeKind.Int64WrappingAdd(dependencyId, secondId) }
+              { Id = secondId; Kind = SemanticNodeKind.Int64WrappingAdd(firstId, graph.ResultNodeId) } ]
+        let issues =
+            dependencySnapshot { graph with Nodes = graph.Nodes @ cycleNodes }
+            |> SnapshotValidator.validate
+        let expectedCodes =
+            if includeUnknownDependency then [ "GraphNodeDependencyCycle"; "ValueNodeOutOfScope" ]
+            else [ "GraphNodeDependencyCycle" ]
+
+        Assert.Equal<string list>(expectedCodes, issues |> List.map (fun issue -> issue.Code))
+
+    [<Theory>]
+    [<InlineData("shared", "")>]
+    [<InlineData("cycle", "GraphNodeDependencyCycle")>]
+    [<InlineData("sibling", "ValueNodeOutOfScope")>]
+    [<InlineData("unknown", "ValueNodeOutOfScope")>]
+    [<InlineData("foreign-result", "UnknownGraphResultNode")>]
+    let ``branch dependency checks preserve lexical scope and cycle diagnostics`` referenceKind expectedCode =
+        let sharedId = StableId.createForTesting<GraphNodeTag> "node-branch-shared"
+        let conditionId = StableId.createForTesting<GraphNodeTag> "node-branch-condition"
+        let conditionalId = StableId.createForTesting<GraphNodeTag> "node-branch-conditional"
+        let trueId = StableId.createForTesting<GraphNodeTag> "node-branch-true"
+        let falseId = StableId.createForTesting<GraphNodeTag> "node-branch-false"
+        let dependencyId, resultId =
+            match referenceKind with
+            | "shared" -> sharedId, trueId
+            | "cycle" -> conditionalId, trueId
+            | "sibling" -> falseId, trueId
+            | "unknown" -> StableId.createForTesting<GraphNodeTag> "node-branch-missing", trueId
+            | "foreign-result" -> sharedId, sharedId
+            | other -> failwithf "Unknown fixture case: %s" other
+        let whenTrue: ValueGraph =
+            { Nodes = [ { Id = trueId; Kind = SemanticNodeKind.Int64WrappingAdd(dependencyId, sharedId) } ]
+              ResultNodeId = resultId }
+        let whenFalse: ValueGraph =
+            { Nodes = [ { Id = falseId; Kind = SemanticNodeKind.Int64WrappingAdd(sharedId, sharedId) } ]
+              ResultNodeId = falseId }
+        let graph: ValueGraph =
+            { Nodes =
+                [ { Id = sharedId; Kind = SemanticNodeKind.Int64Literal 1L }
+                  { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral false }
+                  { Id = conditionalId; Kind = SemanticNodeKind.Conditional(conditionId, whenTrue, whenFalse) } ]
+              ResultNodeId = conditionalId }
+        let issues = dependencySnapshot graph |> SnapshotValidator.validate
+        let expectedCodes = if expectedCode = "" then [] else [ expectedCode ]
+
+        Assert.Equal<string list>(expectedCodes, issues |> List.map (fun issue -> issue.Code))
+
     [<Fact>]
     let ``value dependency cycles are rejected`` () =
         let fixture = TestGraph.create ()

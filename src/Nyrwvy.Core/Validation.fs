@@ -128,15 +128,20 @@ module SnapshotValidator =
         | SemanticNodeKind.OptionNone _ -> []
 
     let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>): bool =
+        let acyclic = System.Collections.Generic.HashSet<GraphNodeId>()
         let rec visit path nodeId =
             if Set.contains nodeId path then
                 true
+            elif acyclic.Contains nodeId then
+                false
             else
                 match Map.tryFind nodeId nodesById with
                 | None -> false
                 | Some node ->
                     let nextPath = Set.add nodeId path
-                    nodeDependencies node |> List.exists (visit nextPath)
+                    let hasCycle = nodeDependencies node |> List.exists (visit nextPath)
+                    if not hasCycle then acyclic.Add nodeId |> ignore
+                    hasCycle
 
         nodesById |> Map.exists (fun nodeId _ -> visit Set.empty nodeId)
 

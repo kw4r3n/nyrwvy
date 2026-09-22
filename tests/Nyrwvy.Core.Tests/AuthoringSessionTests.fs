@@ -339,6 +339,38 @@ module AuthoringSessionTests =
         document
 
     [<Fact>]
+    let ``JSONL rejects duplicate properties without publishing or consuming the reviewed proposal`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let before = status session
+            let persistedBefore = File.ReadAllText(path)
+            let proposal =
+                creationRequest session "value" [] int64Type (ExpressionRecipe.Int64Literal 1L)
+                |> simulateCreation session
+            let requests =
+                [ """{"id":"first","id":"second","op":"status"}"""
+                  sprintf """{"id":"commit","op":"reject","op":"commit","proposalId":"%s"}""" proposal.ProposalId
+                  sprintf """{"id":"commit","op":"commit","proposalId":"missing","proposalId":"%s"}""" proposal.ProposalId
+                  """{"id":"nested","op":"simulateCreateFunctionByName","displayName":"nested","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true,"value":false}}"""
+                  """{"id":"type","op":"simulateCreateTypeByName","displayName":"Record","typeKind":{"kind":"product","fields":[{"displayName":"first","displayName":"second","type":{"kind":"primitive","primitive":"bool"}}]}}""" ]
+
+            for request in requests do
+                use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+                let error = response.RootElement.GetProperty("error")
+                Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+                Assert.Contains("duplicate", error.GetProperty("message").GetString())
+                Assert.Equal(before, status session)
+                Assert.Equal(persistedBefore, File.ReadAllText(path))
+
+            commit session proposal |> ignore
+            Assert.Single(session.Declarations().Functions) |> ignore
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL name-resolved authoring creates and replaces without caller-managed semantic IDs`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

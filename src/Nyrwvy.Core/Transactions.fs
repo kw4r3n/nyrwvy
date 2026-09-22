@@ -534,6 +534,26 @@ module Transaction =
                     | FunctionRequiredEffectChange.Removed(functionId, effectId) ->
                         StableId.value functionId, StableId.value effectId, 1) }
 
+    let private netRequiredEffectChanges
+        (baseSnapshot: Snapshot)
+        (proposedSnapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        =
+        let requirements (snapshot: Snapshot) =
+            snapshot.Functions
+            |> List.collect (fun item -> item.RequiredEffects |> List.map (fun effectId -> item.Id, effectId))
+            |> Set.ofList
+
+        let before = requirements baseSnapshot
+        let after = requirements proposedSnapshot
+        changes.FunctionRequiredEffectsChanged
+        |> List.distinct
+        |> List.filter (function
+            | FunctionRequiredEffectChange.Added(functionId, effectId) ->
+                not (Set.contains (functionId, effectId) before) && Set.contains (functionId, effectId) after
+            | FunctionRequiredEffectChange.Removed(functionId, effectId) ->
+                Set.contains (functionId, effectId) before && not (Set.contains (functionId, effectId) after))
+
     let simulate (baseSnapshot: Snapshot) (request: TransactionRequest): SimulationResult =
         match SnapshotValidator.validate baseSnapshot with
         | issue :: _ -> reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
@@ -572,7 +592,7 @@ module Transaction =
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
-                          FunctionRequiredEffectsChanged = changes.FunctionRequiredEffectsChanged }
+                          FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes }
 
                     let hasChanges =
                         not (List.isEmpty diff.Renames)

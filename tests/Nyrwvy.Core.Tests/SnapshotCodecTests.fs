@@ -1,5 +1,6 @@
 namespace Nyrwvy.Core.Tests
 
+open System.Text.Json.Nodes
 open Nyrwvy.Core
 open Xunit
 
@@ -77,6 +78,56 @@ module SnapshotCodecTests =
         match SnapshotCodec.deserialize json with
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("duplicate", message)
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
+
+    [<Theory>]
+    [<InlineData("null")>]
+    [<InlineData("[]")>]
+    [<InlineData("true")>]
+    [<InlineData("42")>]
+    [<InlineData("\"text\"")>]
+    let ``snapshot codec rejects non-object tagged records without throwing`` (invalidValue: string) =
+        let fixture = TestGraph.create ()
+        let encoded = SnapshotCodec.serialize fixture.Snapshot |> unwrap
+        let replacements: (JsonNode -> unit) list =
+            [ (fun root -> root.["types"].[0] <- JsonNode.Parse invalidValue)
+              (fun root -> root.["functions"].[0].["resultType"] <- JsonNode.Parse invalidValue)
+              (fun root -> root.["functions"].[0].["body"].["nodes"].[0] <- JsonNode.Parse invalidValue)
+              (fun root -> root.["obligations"].AsArray().Add(JsonNode.Parse invalidValue)) ]
+
+        for replace in replacements do
+            let root = JsonNode.Parse encoded
+            replace root
+            match SnapshotCodec.deserialize (root.ToJsonString()) with
+            | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("object", message)
+            | result -> failwithf "Expected non-object InvalidShape, got %A" result
+
+    [<Theory>]
+    [<InlineData(@"\uD800")>]
+    [<InlineData(@"\uDC00")>]
+    [<InlineData(@"\uD800A")>]
+    [<InlineData(@"\uD800\uD800")>]
+    [<InlineData(@"\uDC00\uD800")>]
+    let ``snapshot codec rejects malformed surrogate escapes in names strings and ID arrays`` (invalidEscape: string) =
+        let fixture = TestGraph.create ()
+        let encoded = SnapshotCodec.serialize fixture.Snapshot |> unwrap
+        let malformedStrings =
+            [ encoded.Replace(StableId.value fixture.Snapshot.Id, invalidEscape)
+              encoded.Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\"" + invalidEscape + "\"]")
+              encoded.Replace("\"schemaVersion\":", "\"" + invalidEscape + "\":")
+              encoded.Replace("\"displayName\":", "\"" + invalidEscape + "\":") ]
+
+        for json in malformedStrings do
+            match SnapshotCodec.deserialize json with
+            | Error(SnapshotCodecError.InvalidShape _) -> ()
+            | result -> failwithf "Expected malformed-string InvalidShape, got %A" result
+
+    [<Fact>]
+    let ``snapshot codec preserves valid surrogate pairs`` () =
+        let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-\U0001F600")
+        let encoded = SnapshotCodec.serialize snapshot |> unwrap
+        let decoded = SnapshotCodec.deserialize encoded |> unwrap
+
+        Assert.Equal(snapshot, decoded)
 
     [<Fact>]
     let ``snapshot codec rejects obsolete schema versions`` () =

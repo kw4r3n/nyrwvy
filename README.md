@@ -57,7 +57,7 @@ The write-side goal is an adequate AI graph-editing toolset, not a natural-langu
 
 ## Build and verify
 
-The repository uses the .NET 10 SDK and Node 22 for the small ordinary-authoring tool tests. Routine development and routine CI use the fast test graph plus these tool contracts:
+The repository uses the .NET 10 SDK and Node 22 for the small tool and verification-script tests. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 ./scripts/test-fast.fish
@@ -67,8 +67,10 @@ Equivalent direct invocation:
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
+node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
+
+CI additionally runs the MCP and evaluation-transport contracts after installing their Node dependencies. These are deterministic transport checks, not live model evaluations; see [test suites](tests/README.md#node-transport-and-script-contracts) for the local commands.
 
 Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification.
 

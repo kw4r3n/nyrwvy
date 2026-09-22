@@ -36,7 +36,10 @@ module SnapshotCodec =
 
         let propertyNames =
             element.EnumerateObject()
-            |> Seq.map (fun property -> property.Name)
+            |> Seq.map (fun property ->
+                try property.Name
+                with :? InvalidOperationException as error ->
+                    invalidShape $"Invalid JSON property name encoding: {error.Message}")
             |> List.ofSeq
 
         let actual = Set.ofList propertyNames
@@ -56,6 +59,7 @@ module SnapshotCodec =
             invalidShape $"{context} contains unsupported properties: {unexpectedText}."
 
     let private requireProperty (name: string) (element: JsonElement) =
+        ensureObject $"Container for property '{name}'" element
         let mutable value = Unchecked.defaultof<JsonElement>
         if element.TryGetProperty(name, &value) then value
         else invalidShape $"Missing required property '{name}'."
@@ -64,11 +68,16 @@ module SnapshotCodec =
         let mutable value = Unchecked.defaultof<JsonElement>
         if element.TryGetProperty(name, &value) then Some value else None
 
+    let private decodeString (element: JsonElement) =
+        try element.GetString()
+        with :? InvalidOperationException as error ->
+            invalidShape $"Invalid JSON string encoding: {error.Message}"
+
     let private readString (name: string) (element: JsonElement) =
         let value = requireProperty name element
         if value.ValueKind <> JsonValueKind.String then
             invalidShape $"Property '{name}' must be a string."
-        match value.GetString() with
+        match decodeString value with
         | null -> invalidShape $"Property '{name}' must not be null."
         | text -> text
 
@@ -118,7 +127,7 @@ module SnapshotCodec =
         |> Seq.map (fun item ->
             if item.ValueKind <> JsonValueKind.String then
                 invalidShape $"Property '{name}' must contain only stable-ID strings."
-            match item.GetString() with
+            match decodeString item with
             | null -> invalidShape $"Property '{name}' contains null."
             | text ->
                 match StableId.tryCreate<'Kind> text with

@@ -62,6 +62,8 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.deepEqual((await call(first, "recipe_reference", { kind: "matchUnion" })).shape,
       { kind: "matchUnion", type: "<union type display name>", input: "<recipe>", arms: [{ variant: "<variant display name>", body: "<recipe>" }] })
     await failed(first, "open", { mode: "unexpected", snapshot: "workspace.json" })
+    await failed(first, "recipe_reference", { kind: "__proto__" })
+    await failed(first, "inspect", { view: "status", extra: true })
     await failed(second, "inspect", { view: "status" })
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
     assert.equal(opened.snapshot, join(workspace, "workspace.json"))
@@ -89,6 +91,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const pending = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     assert.equal((await call(first, "request", { op: "executionReadiness", arguments: {} })).result.kind, "ready")
     await failed(first, "request", { op: "status", arguments: { id: "not-tool-owned" } })
+    await failed(first, "request", { op: "status", arguments: { op: "declarations" } })
 
     // EOF must release the actual AuthoringSession lock without nyrwvy_close.
     await first.close()
@@ -98,8 +101,14 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(resumed.id, functionId)
     assert.equal(resumed.body.nodes[0].kind.value, false)
     await failed(second, "commit", { proposalId: pending.proposalId })
-    await call(second, "close")
-    await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
+    // Lifecycle calls share the same queue as requests, even when sent without awaiting one another.
+    const concurrent = await Promise.all([
+      call(second, "close"),
+      call(second, "open", { mode: "open", snapshot: "workspace.json", workspace }),
+      call(second, "inspect", { view: "function", functionId }),
+    ])
+    assert.equal(concurrent[1].snapshot, opened.snapshot)
+    assert.deepEqual(concurrent[2].result.function, resumed)
   } finally {
     await first?.close().catch(() => undefined)
     await second?.close().catch(() => undefined)

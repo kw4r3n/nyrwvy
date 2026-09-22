@@ -43,11 +43,11 @@ module NyasonSyntax =
                 this.Fail("Incomplete Unicode escape in string literal.")
 
             let hex = text.Substring(index, 4)
-            match Int32.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture) with
-            | true, value ->
+            match Int32.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) with
+            | true, value when hex |> Seq.forall Uri.IsHexDigit ->
                 index <- index + 4
                 char value
-            | false, _ ->
+            | _ ->
                 this.Fail("Invalid Unicode escape in string literal.")
                 Unchecked.defaultof<char>
 

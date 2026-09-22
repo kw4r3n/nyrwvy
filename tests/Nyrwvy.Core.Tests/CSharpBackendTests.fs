@@ -214,7 +214,35 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
 
     [<Fact>]
     let ``generated C# compiles and runs the representative M0 behavior`` () =
-        let fixture, _, artifact = emitRepresentative ()
+        let original = MilestoneZeroGraph.create ()
+        let unusedLiteral: SemanticNode =
+            { Id = StableId.createForTesting<GraphNodeTag> "node-backend-unused-literal"
+              Kind = SemanticNodeKind.Int64Literal 42L }
+        let fixture =
+            { original with
+                Snapshot =
+                    { original.Snapshot with
+                        Functions =
+                            original.Snapshot.Functions
+                            |> List.map (fun functionEntity ->
+                                if functionEntity.Id = original.ValidateFunctionId then
+                                    { functionEntity with
+                                        Body = { functionEntity.Body with Nodes = unusedLiteral :: functionEntity.Body.Nodes } }
+                                else
+                                    functionEntity) } }
+        let typed =
+            match TypedSemanticIr.project fixture.Snapshot with
+            | Ok value -> value
+            | Error error -> failwithf "Unexpected Typed Semantic IR error: %A" error
+        let execution =
+            match ExecutionIr.lower typed with
+            | Ok value -> value
+            | Error error -> failwithf "Unexpected Execution IR error: %A" error
+        let profile = CSharpBackendProfile.systemConsoleWriteLine fixture.ConsoleWriteLineOperationId
+        let artifact =
+            match CSharpBackend.emit execution profile with
+            | Ok value -> value
+            | Error error -> failwithf "Unexpected C# backend error: %A" error
         let tempRoot =
             Path.Combine(Path.GetTempPath(), "nyrwvy-csharp-backend-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(tempRoot) |> ignore

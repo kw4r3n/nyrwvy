@@ -274,7 +274,7 @@ export function createLiveSession(
   child.stderr.on("data", (chunk: string) => {
     session.stderr += chunk
   })
-  child.on("error", (error) => {
+  const onError = (error: Error) => {
     session.closed = true
     reportHarnessDiagnostic("runner-error", {
       sessionID: session.sessionID,
@@ -285,8 +285,13 @@ export function createLiveSession(
     const safeError = new Error(runnerFailureMessage)
     session.bridgeError ??= safeError
     rejectWaiters(session, safeError)
+  }
+  child.on("error", onError)
+  child.stdin.on("error", (error) => {
+    onError(error)
+    void stopChild(child).catch(() => undefined)
   })
-  child.on("exit", (code) => {
+  child.on("close", (code) => {
     session.closed = true
     reportHarnessDiagnostic("runner-exit", {
       sessionID: session.sessionID,

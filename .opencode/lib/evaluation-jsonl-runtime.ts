@@ -247,7 +247,7 @@ export function createPersistentEvaluationRuntime(config: EvaluationRuntimeConfi
       flushLines(session)
     })
     child.stderr.on("data", (chunk: string) => (session.stderr += chunk))
-    child.on("error", (error) => {
+    const onError = (error: Error) => {
       session.closed = true
       const safe = new Error(config.messages.runnerFailure)
       session.bridgeError ??= safe
@@ -258,14 +258,17 @@ export function createPersistentEvaluationRuntime(config: EvaluationRuntimeConfi
         error: errorDetails(error),
         stderr: session.stderr,
       })
+    }
+    child.on("error", onError)
+    child.stdin.on("error", (error) => {
+      onError(error)
+      void stopChild(child).catch(() => undefined)
     })
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       session.closed = true
-      if (code !== 0) {
-        const safe = new Error(config.messages.runnerFailure)
-        session.bridgeError ??= safe
-        rejectWaiters(session, safe)
-      }
+      const safe = new Error(config.messages.runnerFailure)
+      session.bridgeError ??= safe
+      rejectWaiters(session, safe)
       reportHarnessDiagnostic("runner-exit", {
         sessionID: sessionKey,
         artifactDirectory,

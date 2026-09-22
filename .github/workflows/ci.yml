@@ -40,8 +40,14 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Test authoring tools
-        run: node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
+      - name: Test authoring tools and verification scripts
+        run: node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
+
+      - name: Install evaluation transport test dependency
+        run: npm install --prefix .opencode --no-save --package-lock=false --no-audit --no-fund @opencode-ai/plugin@1.18.31
+
+      - name: Test evaluation transport regressions without live models
+        run: node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
 
       - name: Install MCP adapter dependencies
         run: npm install --prefix tools/nyrwvy-mcp --package-lock=false --no-audit --no-fund

@@ -15,7 +15,10 @@ module internal WireInput =
 
     let private propertyNames (element: JsonElement): Set<string> =
         if element.ValueKind <> JsonValueKind.Object then fail "Expected a JSON object."
-        element.EnumerateObject() |> Seq.map (fun item -> item.Name) |> Set.ofSeq
+        let names = element.EnumerateObject() |> Seq.map (fun item -> item.Name) |> Seq.toList
+        let distinct = Set.ofList names
+        if names.Length <> distinct.Count then fail "JSON object contains duplicate property names."
+        distinct
 
     let ensureFields (context: string) (allowed: string list) (required: string list) (element: JsonElement): unit =
         let actual = propertyNames element

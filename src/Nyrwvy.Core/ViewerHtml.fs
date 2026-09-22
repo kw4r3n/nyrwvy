@@ -189,6 +189,17 @@ module ViewerHtml =
         writer.Line("</tbody>")
         writer.Line("</table>")
 
+    let private emitRequiredEffects (writer: HtmlWriter) (effects: EffectId list) =
+        let text =
+            match effects with
+            | [] -> "None."
+            | effects ->
+                effects
+                |> List.sortBy StableId.value
+                |> List.map (stableText "effect:" >> code)
+                |> String.concat ", "
+        writer.Line("<p>Required effects: " + text + "</p>")
+
     let private emitCallSites
         (writer: HtmlWriter)
         (heading: string)
@@ -348,6 +359,7 @@ module ViewerHtml =
         writer.Line("</header>")
         writer.Line("<section><h2>Signature</h2>")
         emitParameters writer model.Function.Parameters
+        emitRequiredEffects writer model.Function.RequiredEffects
         writer.Line("</section>")
         emitCallSites writer "Direct callers" model.Callers (fun site -> site.CallerFunctionId)
         emitCallSites writer "Direct callees" model.Callees (fun site -> site.CalleeFunctionId)
@@ -362,7 +374,9 @@ module ViewerHtml =
             writer.Line("<article><h4>" + html signature.DisplayName + "</h4>")
             writer.Line("<p>" + code (stableText "function:" signature.FunctionId) + "</p>")
             emitParameters writer signature.Parameters
-            writer.Line("<p>Result: " + code (typeRefText signature.ResultType) + "</p></article>")
+            writer.Line("<p>Result: " + code (typeRefText signature.ResultType) + "</p>")
+            emitRequiredEffects writer signature.RequiredEffects
+            writer.Line("</article>")
         writer.Line("</details>")
 
     let renderFocusDocument (model: ViewerFocusModel): string =
@@ -394,6 +408,17 @@ module ViewerHtml =
                 + " added " + html item.AddedDisplayName + " — "
                 + code (stableText "parameter:" item.AddedParameterId)
                 + "; type " + code (typeRefText item.AddedType) + "</li>")
+        writer.Line("</ul>")
+
+        writer.Line("<h3>Required effects changed</h3><ul>")
+        for change in diff.FunctionRequiredEffectsChanged do
+            let functionId, effectId, verb =
+                match change with
+                | FunctionRequiredEffectChange.Added(functionId, effectId) -> functionId, effectId, "added"
+                | FunctionRequiredEffectChange.Removed(functionId, effectId) -> functionId, effectId, "removed"
+            writer.Line(
+                "<li>" + code (stableText "function:" functionId)
+                + " " + verb + " required effect " + code (stableText "effect:" effectId) + "</li>")
         writer.Line("</ul>")
 
         writer.Line("<h3>Arguments attached</h3><ul>")

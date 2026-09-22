@@ -106,7 +106,7 @@ or:
 {"id":"caller-token","ok":false,"error":{"code":"...","message":"..."}}
 ```
 
-Unknown properties that would change request meaning are rejected rather than ignored.
+Unknown properties that would change request meaning are rejected rather than ignored. Duplicate property names in request objects, including nested recipes and declarations, are rejected as `ProtocolError` rather than resolved by first- or last-value precedence.
 
 ### Operations
 

@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -50,6 +50,43 @@ function arm(graph, variantId) {
   return match.kind.arms.find(arm => arm.variantId === variantId).body
 }
 function resultNode(graph) { return graph.nodes.find(node => node.id === graph.resultNodeId) }
+
+test("a cancelled open does not create a snapshot or reserve a session", { timeout: 10000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nyrwvy-cancelled-open-"))
+  const snapshot = join(directory, "workspace.json")
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  try {
+    await assert.rejects(openAuthoring("create", snapshot, { ...context, abort: AbortSignal.abort() }), /cancelled|aborted/i)
+    await assert.rejects(stat(snapshot), { code: "ENOENT" })
+    await openAuthoring("create", snapshot, context)
+    assert.ok((await request(context, { op: "status" })).snapshotId)
+  } finally {
+    await closeAuthoring(context).catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("authoring sessions are isolated by both worktree and session ID", { timeout: 15000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "nyrwvy-isolated-tools-"))
+  const sessionID = randomUUID()
+  const contexts = [
+    { sessionID, worktree: join(root, "first"), repositoryRoot: process.cwd() },
+    { sessionID, worktree: join(root, "second"), repositoryRoot: process.cwd() },
+    { sessionID: randomUUID(), worktree: join(root, "first"), repositoryRoot: process.cwd() },
+  ]
+  try {
+    await Promise.all([mkdir(contexts[0].worktree), mkdir(contexts[1].worktree)])
+    await Promise.all(contexts.map((context, index) => openAuthoring("create", `${index}.json`, context)))
+    const snapshots = await Promise.all(contexts.map(context => request(context, { op: "status" })))
+    assert.equal(new Set(snapshots.map(status => status.snapshotId)).size, 3)
+    await closeAuthoring(contexts[0])
+    assert.deepEqual(await request(contexts[1], { op: "status" }), snapshots[1])
+    assert.deepEqual(await request(contexts[2], { op: "status" }), snapshots[2])
+  } finally {
+    await Promise.all(contexts.map(context => closeAuthoring(context).catch(() => undefined)))
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("ordinary tool bridge authors Verification Planner and maintains one branch across reopen", { timeout: 30000 }, async () => {
   await workspace(async (context, snapshot) => {

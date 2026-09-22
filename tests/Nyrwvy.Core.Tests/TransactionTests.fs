@@ -135,6 +135,81 @@ module TransactionTests =
         Assert.Single(simulation.Diff.ArgumentsAttached) |> ignore
         requireReadiness SemanticReadiness.Complete simulation.ProposedSnapshot
 
+    let private requiredEffectTransaction initiallyRequired =
+        let fixture = TestGraph.create ()
+        let effectId = StableId.createForTesting<EffectTag> "effect-net-change"
+        let snapshot =
+            { fixture.Snapshot with
+                Effects = [ { Id = effectId; DisplayName = "NetChange" } ]
+                Functions =
+                    fixture.Snapshot.Functions
+                    |> List.map (fun item ->
+                        if item.Id = fixture.RunFunctionId && initiallyRequired then
+                            { item with RequiredEffects = [ effectId ] }
+                        else item) }
+        let effectRequest: FunctionRequiredEffectRequest =
+            { TargetFunctionId = fixture.RunFunctionId; EffectId = effectId }
+        let change, inverse, expected =
+            if initiallyRequired then
+                RemoveFunctionRequiredEffect effectRequest,
+                AddFunctionRequiredEffect effectRequest,
+                FunctionRequiredEffectChange.Removed(fixture.RunFunctionId, effectId)
+            else
+                AddFunctionRequiredEffect effectRequest,
+                RemoveFunctionRequiredEffect effectRequest,
+                FunctionRequiredEffectChange.Added(fixture.RunFunctionId, effectId)
+        let request: TransactionRequest =
+            { Id = StableId.createForTesting<TransactionTag> "transaction-net-effect"
+              BaseSnapshotId = snapshot.Id
+              ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-net-effect"
+              Operations = [ change; inverse ] }
+        snapshot, request, change, expected
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``cancelling required effect edits do not publish a no-change snapshot`` initiallyRequired =
+        let snapshot, request, _, _ = requiredEffectTransaction initiallyRequired
+        let workspace =
+            match SemanticWorkspace.create snapshot with
+            | Ok value -> value
+            | Error issues -> failwithf "Unexpected invalid fixture: %A" issues
+
+        match Transaction.simulate snapshot request with
+        | Rejected [ diagnostic ] -> Assert.Equal("NoChange", diagnostic.Code)
+        | result -> failwithf "Expected cancelled effect edits to have no net change, got %A" result
+
+        match SemanticWorkspace.commit workspace request with
+        | WorkspaceCommitResult.Rejected [ diagnostic ] -> Assert.Equal("NoChange", diagnostic.Code)
+        | result -> failwithf "Expected cancelled effect edits not to publish, got %A" result
+
+        Assert.Equal(snapshot, SemanticWorkspace.currentSnapshot workspace)
+        Assert.Empty(SemanticWorkspace.previousSnapshots workspace)
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``required effect diff reports only the final change rather than intermediate edits`` initiallyRequired =
+        let snapshot, request, change, expected = requiredEffectTransaction initiallyRequired
+        let simulation =
+            Transaction.simulate snapshot { request with Operations = request.Operations @ [ change ] }
+            |> unwrap
+
+        Assert.Equal<FunctionRequiredEffectChange list>([ expected ], simulation.Diff.FunctionRequiredEffectsChanged)
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``cancelled required effect edits do not pollute an unrelated rename diff`` initiallyRequired =
+        let snapshot, request, _, _ = requiredEffectTransaction initiallyRequired
+        let rename = RenameDisplayName(RenameTarget.FunctionTarget snapshot.Functions.Head.Id, "renamed")
+        let simulation =
+            Transaction.simulate snapshot { request with Operations = request.Operations @ [ rename ] }
+            |> unwrap
+
+        Assert.Single(simulation.Diff.Renames) |> ignore
+        Assert.Empty(simulation.Diff.FunctionRequiredEffectsChanged)
+
     [<Fact>]
     let ``add parameter refuses incomplete call-site plans`` () =
         let fixture = TestGraph.create ()

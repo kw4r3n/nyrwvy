@@ -38,7 +38,9 @@ export class AuthoringClient {
       }
     })
     lines.on("close", () => {
-      if (this.pending) this.fail(new Error(`AuthoringSession closed before replying. ${this.stderr} Reopen and inspect committed state.`))
+      if (this.pending || !this.closing) {
+        this.fail(new Error(`AuthoringSession closed its response stream. ${this.stderr} Reopen and inspect committed state.`))
+      }
     })
     child.on("error", (error) => this.fail(error))
     child.stdin.on("error", (error) => this.fail(error))
@@ -101,6 +103,7 @@ function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0
 export async function openAuthoring(
   mode: "create" | "open", snapshot: string, context: AuthoringContext, workspaceOverride?: string,
 ): Promise<string> {
+  if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
   const sessionKey = key(context)
   if (sessions.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")

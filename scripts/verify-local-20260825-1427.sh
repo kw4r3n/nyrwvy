@@ -15,7 +15,7 @@ usage() {
 Usage: scripts/verify-local-20260825-1427.sh [--clean] [--allow-dirty]
 
 Options:
-  --clean        Remove all bin/ and obj/ directories before restore.
+  --clean        Remove bin/ and obj/ beside .NET project files before restore.
   --allow-dirty  Permit verification with uncommitted tracked changes.
   -h, --help     Show this help.
 
@@ -98,11 +98,18 @@ echo "clean: $CLEAN"
 echo
 
 if [[ "$CLEAN" -eq 1 ]]; then
-  echo "--- Clean bin/obj ---"
-  while IFS= read -r -d '' dir; do
-    echo "remove: ${dir#$ROOT_DIR/}"
-    rm -rf "$dir"
-  done < <(find "$ROOT_DIR" -type d \( -name bin -o -name obj \) -print0)
+  echo "--- Clean .NET project bin/obj ---"
+  while IFS= read -r -d '' project; do
+    project_dir="$(dirname "$project")"
+    for dir in "$project_dir/bin" "$project_dir/obj"; do
+      if [[ -d "$dir" ]]; then
+        echo "remove: ${dir#$ROOT_DIR/}"
+        rm -rf "$dir"
+      fi
+    done
+  done < <(find "$ROOT_DIR" \
+    -type d \( -name node_modules -o -name .git -o -name bin -o -name obj \) -prune -o \
+    -type f \( -name '*.fsproj' -o -name '*.csproj' \) -print0)
   echo
 fi
 

@@ -85,21 +85,24 @@ function createSession(child: ChildProcessWithoutNullStreams): Session {
     flushLines(session)
   })
   child.stderr.on("data", (chunk: string) => (session.stderr += chunk))
-  child.on("error", () => {
+  const onError = () => {
     const failure = new Error("Nyrwvy pure-control evaluation runner failed.")
     session.closed = true
     session.failure ??= failure
     rejectWaiters(session, failure)
+  }
+  child.on("error", onError)
+  child.stdin.on("error", () => {
+    onError()
+    child.kill()
   })
-  child.on("exit", (code) => {
+  child.on("close", (code) => {
     session.closed = true
-    if (code !== 0) {
-      const failure = new Error(
-        `Nyrwvy pure-control evaluation runner exited with code ${code ?? "signal"}. ${session.stderr}`,
-      )
-      session.failure ??= failure
-      rejectWaiters(session, failure)
-    }
+    const failure = new Error(
+      `Nyrwvy pure-control evaluation runner exited with code ${code ?? "signal"}. ${session.stderr}`,
+    )
+    session.failure ??= failure
+    rejectWaiters(session, failure)
   })
   return session
 }

@@ -11,4 +11,4 @@ or exit $status
 
 cd "$repo_root"
 or exit $status
-exec node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs
+exec node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs

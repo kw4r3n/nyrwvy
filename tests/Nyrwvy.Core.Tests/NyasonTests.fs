@@ -94,6 +94,44 @@ module NyasonTests =
         | Error(NyasonCodecError.InvalidSyntax _) -> ()
         | result -> failwithf "Expected InvalidSyntax, got %A" result
 
+    [<Theory>]
+    [<InlineData(" 041")>]
+    [<InlineData("004 ")>]
+    [<InlineData("\t041")>]
+    [<InlineData("041\t")>]
+    [<InlineData("\n041")>]
+    [<InlineData("041\r")>]
+    [<InlineData("004\u0000")>]
+    [<InlineData("0G41")>]
+    [<InlineData("041")>]
+    [<InlineData("")>]
+    let ``Nyason Unicode escapes require four hexadecimal digits`` (digits: string) =
+        let source = "\"\\u" + digits + "\""
+        match NyasonSyntax.parse source with
+        | Error error ->
+            Assert.Equal(3, error.Position)
+            Assert.Contains("Unicode escape", error.Message)
+        | result -> failwithf "Expected invalid Unicode escape, got %A" result
+
+        let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-unicode-escape")
+        let encoded = NyasonCodec.serialize snapshot |> unwrap
+        let malformed = encoded.Replace("\"" + NyasonCodec.schemaId + "\"", source, StringComparison.Ordinal)
+        match NyasonCodec.deserialize malformed with
+        | Error(NyasonCodecError.InvalidSyntax _) -> ()
+        | result -> failwithf "Expected InvalidSyntax for Unicode escape, got %A" result
+
+    [<Theory>]
+    [<InlineData("0041", "A")>]
+    [<InlineData("00e9", "\u00E9")>]
+    [<InlineData("00E9", "\u00E9")>]
+    [<InlineData("0000", "\u0000")>]
+    [<InlineData(@"D83D\uDE00", "\U0001F600")>]
+    [<InlineData("0041F", "AF")>]
+    let ``Nyason decodes four hex digits and preserves canonical string roundtrip`` (digits: string) expected =
+        let decoded = NyasonSyntax.parse ("\"\\u" + digits + "\"") |> unwrap
+        Assert.Equal<NyasonValue>(NyasonValue.Text expected, decoded)
+        Assert.Equal<NyasonValue>(decoded, NyasonSyntax.render decoded |> NyasonSyntax.parse |> unwrap)
+
     [<Fact>]
     let ``Nyason percent-escapes opaque stable ID payloads and restores them exactly`` () =
         let snapshotId = StableId.createForTesting<SnapshotTag> "snapshot with / slash and % sign"

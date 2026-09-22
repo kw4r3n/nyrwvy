@@ -228,6 +228,51 @@ module ViewerTests =
                 failwithf "Viewer document omitted inspectable semantic information: %s" expected
 
     [<Fact>]
+    let ``focus HTML distinguishes required effects from referenced declarations`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let pureDocument = focus fixture fixture.ValidateFunctionId |> ViewerHtml.renderFocusDocument
+        let effectfulDocument = focus fixture fixture.MainFunctionId |> ViewerHtml.renderFocusDocument
+        let effectText = "<p>Required effects: <code>effect:" + StableId.value fixture.ConsoleEffectId + "</code></p>"
+
+        Assert.Contains("<p>Required effects: None.</p>", pureDocument)
+        Assert.Contains(effectText, effectfulDocument)
+        let relatedSignatures =
+            effectfulDocument.Substring(effectfulDocument.IndexOf("<details><summary>Related function signatures", StringComparison.Ordinal))
+        Assert.Contains(effectText, relatedSignatures)
+
+    [<Fact>]
+    let ``change review HTML includes required effect additions and removals`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let effectRequest: FunctionRequiredEffectRequest =
+            { TargetFunctionId = fixture.ValidateFunctionId
+              EffectId = fixture.ConsoleEffectId }
+        let simulate suffix (snapshot: Snapshot) operation =
+            let request: TransactionRequest =
+                { Id = StableId.createForTesting<TransactionTag> ("transaction-viewer-effect-" + suffix)
+                  BaseSnapshotId = snapshot.Id
+                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> ("snapshot-viewer-effect-" + suffix)
+                  Operations = [ operation ] }
+            match Transaction.simulate snapshot request with
+            | Proposed value -> value
+            | Rejected diagnostics -> failwithf "Unexpected transaction rejection: %A" diagnostics
+
+        let added = simulate "add" fixture.Snapshot (SemanticOperation.AddFunctionRequiredEffect effectRequest)
+        let removed = simulate "remove" added.ProposedSnapshot (SemanticOperation.RemoveFunctionRequiredEffect effectRequest)
+        for verb, simulation in [ "added", added; "removed", removed ] do
+            Assert.Single(simulation.Diff.FunctionRequiredEffectsChanged) |> ignore
+            let document =
+                ChangeReviewQuery.project simulation
+                |> unwrap
+                |> ViewerProjection.changeReview
+                |> ViewerHtml.renderChangeReviewDocument
+            let expected =
+                "<li><code>function:" + StableId.value fixture.ValidateFunctionId
+                + "</code> " + verb + " required effect <code>effect:"
+                + StableId.value fixture.ConsoleEffectId + "</code></li>"
+            Assert.Contains("<h3>Required effects changed</h3>", document)
+            Assert.Contains(expected, document)
+
+    [<Fact>]
     let ``change review HTML exposes incomplete readiness diff and blocking obligation`` () =
         let fixture = MilestoneZeroGraph.create ()
         let newParameterId = StableId.createForTesting<ParameterTag> "parameter-viewer-policy"
