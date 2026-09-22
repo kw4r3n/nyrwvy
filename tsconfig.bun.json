@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun-types/test"]
+  },
+  "include": [".opencode/**/*.test.ts", "tools/nyrwvy-agent/node-web-types.d.ts"],
+  "exclude": ["**/node_modules"]
+}

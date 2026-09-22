@@ -16,34 +16,79 @@ if (values.help) {
   const context = { sessionID: randomUUID(), worktree: resolve(values.workspace ?? process.cwd()),
     repositoryRoot: fileURLToPath(new URL("../../", import.meta.url)) }
   const lifetime = new AbortController()
+  /** @type {ReturnType<typeof serveStdio> | undefined} */
   let handle
   let tail = Promise.resolve()
+  /** @type {Set<AbortController>} */
+  const pending = new Set()
+  const queueDrainTimeoutMs = 5_000
+  /** @type {Promise<void> | undefined} */
   let shutdownPromise
 
   function createServer() {
     const server = new McpServer({ name: "nyrwvy", version: "0.1.0" }, {
       instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Use nyrwvy_recipe_reference when an ExpressionRecipe shape is unfamiliar. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
     })
-    for (const [name, definition] of Object.entries(createGraphTools(z))) {
+    /**
+     * Explicit unknowns matter: omitted generic slots in JSDoc become any.
+     * @type {typeof createGraphTools<z.core.$ZodType<unknown, unknown>>}
+     */
+    const graphTools = createGraphTools
+    const definitions = graphTools(z)
+    /**
+     * Keep each native schema paired with its handler. Object.entries would
+     * erase that relationship into a union of incompatible argument types.
+     * @template {z.ZodRawShape} Args
+     * @param {string} name
+     * @param {import("../nyrwvy-agent/graph-tools.mjs").GraphTool<Args>} definition
+     */
+    function register(name, definition) {
       server.registerTool(`nyrwvy_${name}`, {
         description: definition.description,
-        inputSchema: z.object(definition.args).strict(),
+        inputSchema: z.strictObject(definition.args),
         ...((name === "inspect" || name === "recipe_reference") ? { annotations: { readOnlyHint: true } } : {}),
       }, (args, requestContext) => {
-        // Serialize lifecycle calls too: MCP clients may issue tools concurrently.
-        const operation = tail.then(async () => {
-          const signal = AbortSignal.any([lifetime.signal, requestContext.mcpReq.signal])
+        // Start a close's drain deadline on receipt, not behind a stuck tool.
+        // Only its predecessors are cancelled; later open/inspect keep FIFO order.
+        const predecessors = name === "close" ? [...pending] : []
+        const cancellation = new AbortController()
+        const signal = AbortSignal.any([lifetime.signal, requestContext.mcpReq.signal, cancellation.signal])
+        pending.add(cancellation)
+        /** @type {Error | undefined} */
+        let drainFailure
+        const timer = name === "close" ? setTimeout(() => {
+          if (signal.aborted) return
+          drainFailure = new Error(`MCP authoring queue did not drain within ${queueDrainTimeoutMs}ms; unsent requests were discarded. A sent request's outcome is unknown if its response was lost. Reopen and inspect committed state before retrying; requests are never replayed.`)
+          for (const predecessor of predecessors) predecessor.abort(drainFailure)
+        }, queueDrainTimeoutMs) : undefined
+        const operation = tail.then(/** @returns {Promise<import("@modelcontextprotocol/server").CallToolResult>} */ async () => {
+          clearTimeout(timer)
           signal.throwIfAborted()
           const text = await definition.execute(args, { ...context, abort: signal })
+          // A timed-out open may already have reaped and removed its session.
+          if (drainFailure) throw drainFailure
           let value
           try { value = JSON.parse(text) } catch { value = { message: text } }
           return { content: [{ type: "text", text }], structuredContent: value,
             ...(value.ok === false ? { isError: true } : {}) }
+        }).finally(() => {
+          clearTimeout(timer)
+          pending.delete(cancellation)
         })
         tail = operation.then(() => undefined, () => undefined)
-        return operation.catch(error => ({ isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }))
+        return operation.catch(/** @returns {import("@modelcontextprotocol/server").CallToolResult} */ error => ({ isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] }))
       })
     }
+    register("open", definitions.open)
+    register("inspect", definitions.inspect)
+    register("recipe_reference", definitions.recipe_reference)
+    register("create_type", definitions.create_type)
+    register("create_function", definitions.create_function)
+    register("replace", definitions.replace)
+    register("commit", definitions.commit)
+    register("reject", definitions.reject)
+    register("request", definitions.request)
+    register("close", definitions.close)
     return server
   }
 

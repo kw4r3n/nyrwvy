@@ -39,18 +39,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+
+      - name: Install locked adapter and typechecking dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck maintained adapters and Bun tests
+        run: npm run typecheck
+
+      - name: Test shared schemas and typechecking contracts
+        run: npm run test:adapters
+
+      - name: Set up Bun for adapter unit tests
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+
+      - name: Test Bun adapter contracts without live models
+        run: npm run test:bun
 
       - name: Test authoring tools and verification scripts
         run: node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 
-      - name: Install evaluation transport test dependency
-        run: npm install --prefix .opencode --no-save --package-lock=false --no-audit --no-fund @opencode-ai/plugin@1.18.31
-
       - name: Test evaluation transport regressions without live models
         run: node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
-
-      - name: Install MCP adapter dependencies
-        run: npm install --prefix tools/nyrwvy-mcp --package-lock=false --no-audit --no-fund
 
       - name: Test MCP transport contract
         run: npm --prefix tools/nyrwvy-mcp test

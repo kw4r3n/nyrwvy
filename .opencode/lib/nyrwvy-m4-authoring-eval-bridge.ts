@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { once } from "node:events"
 import { appendFile, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
@@ -33,15 +34,25 @@ type Session = {
   completedLines: string[]
   stderr: string
   waiters: ResponseWaiter[]
-  operationTail: Promise<void>
   closed: boolean
+  reaped: boolean
+  exited: Promise<number | null>
+  closePromise?: Promise<void>
   failure?: Error
   workspacePath: string
   resultRoot: string
   worktree: string
 }
 
-const sessions = new Map<string, Session>()
+// Keep the queue and finalizer attached to the owner, including across restart.
+type SessionOwner = {
+  current: Session
+  operationTail: Promise<void>
+  finalization?: Promise<string>
+}
+
+const sessions = new Map<string, SessionOwner>()
+const startingSessions = new Set<string>()
 const finalized = new Set<string>()
 
 const protocolGuide = `Nyrwvy bounded authoring evaluation session started with a new maintained snapshot.
@@ -132,8 +143,9 @@ function createSession(
     completedLines: [],
     stderr: "",
     waiters: [],
-    operationTail: Promise.resolve(),
     closed: false,
+    reaped: false,
+    exited: new Promise(resolveExit => child.once("close", resolveExit)),
     workspacePath,
     resultRoot,
     worktree,
@@ -151,19 +163,20 @@ function createSession(
     flushLines(session)
   })
   child.stderr.on("data", (chunk: string) => (session.stderr += chunk))
-  const onError = () => {
-    const failure = new Error("Nyrwvy maintained authoring session failed.")
+  const onError = (error: Error) => {
+    const failure = new Error(`Nyrwvy maintained authoring session failed: ${error.message}`, { cause: error })
     session.closed = true
     session.failure ??= failure
     rejectWaiters(session, failure)
   }
   child.on("error", onError)
-  child.stdin.on("error", () => {
-    onError()
-    child.kill()
+  child.stdin.on("error", (error) => {
+    onError(error)
+    void closeSession(session).catch(() => undefined)
   })
   child.on("close", (code) => {
     session.closed = true
+    session.reaped = true
     const failure = new Error(
       `Nyrwvy maintained authoring session exited with code ${code ?? "signal"}. ${session.stderr}`,
     )
@@ -193,13 +206,13 @@ function spawnAuthoring(mode: "create" | "open", workspacePath: string, resultRo
   return createSession(child, workspacePath, resultRoot, worktree)
 }
 
-async function withLock<T>(session: Session, operation: () => Promise<T>): Promise<T> {
-  const previous = session.operationTail
+async function withLock<T>(owner: SessionOwner, operation: (session: Session) => Promise<T>): Promise<T> {
+  const previous = owner.operationTail
   let release: () => void = () => undefined
-  session.operationTail = new Promise<void>((resolveLock) => (release = resolveLock))
+  owner.operationTail = new Promise<void>((resolveLock) => (release = resolveLock))
   await previous
   try {
-    return await operation()
+    return await operation(owner.current)
   } finally {
     release()
   }
@@ -216,43 +229,48 @@ async function readResponse(session: Session): Promise<string> {
     waiter.timeout = setTimeout(() => {
       const index = session.waiters.indexOf(waiter)
       if (index >= 0) session.waiters.splice(index, 1)
-      reject(new Error("Nyrwvy maintained authoring request timed out."))
-      try { session.child.kill() } catch {}
+      session.failure ??= new Error("Nyrwvy maintained authoring request timed out; a sent mutation's outcome is unknown. Reopen and inspect committed state; requests are never replayed.")
+      reject(session.failure)
+      void closeSession(session).catch(() => undefined)
     }, requestTimeoutMs)
     session.waiters.push(waiter)
     flushLines(session)
   })
 }
 
-async function waitForExit(child: ChildProcessWithoutNullStreams): Promise<number | null> {
-  if (child.exitCode !== null || child.signalCode !== null) return child.exitCode
-  return await new Promise<number | null>((resolveExit) => {
-    let settled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const finish = (code: number | null) => {
-      if (settled) return
-      settled = true
-      if (timer) clearTimeout(timer)
-      child.removeListener("exit", onExit)
-      resolveExit(code)
-    }
-    const onExit = (code: number | null) => finish(code)
-    child.once("exit", onExit)
-    timer = setTimeout(() => finish(child.exitCode), shutdownTimeoutMs)
-    timer.unref?.()
-  })
+async function waitForExit(session: Session): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      session.exited.then(() => true),
+      new Promise<false>(resolveTimeout => { timer = setTimeout(() => resolveTimeout(false), shutdownTimeoutMs) }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-async function closeSession(session: Session) {
-  try { session.child.stdin.end() } catch {}
-  let code = await waitForExit(session.child)
-  if (code === null && session.child.exitCode === null) {
-    try { session.child.kill() } catch {}
-    code = await waitForExit(session.child)
-  }
-  if (code !== 0) {
-    throw session.failure ?? new Error(`Nyrwvy maintained authoring session did not close cleanly. ${session.stderr}`)
-  }
+function closeSession(session: Session): Promise<void> {
+  session.closed = true
+  session.closePromise ??= Promise.resolve().then(async () => {
+    try { session.child.stdin.end() } catch {}
+    if (!await waitForExit(session)) {
+      for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+        try { session.child.kill(signal) } catch (error) {
+          session.failure ??= error instanceof Error ? error : new Error(String(error))
+        }
+        if (await waitForExit(session)) break
+      }
+    }
+    if (!session.reaped) {
+      throw new Error(`Nyrwvy maintained authoring session did not close within ${shutdownTimeoutMs}ms after SIGKILL; child ownership is retained until reaped.`)
+    }
+    const code = await session.exited
+    if (code !== 0) {
+      throw session.failure ?? new Error(`Nyrwvy maintained authoring session did not close cleanly. ${session.stderr}`)
+    }
+  })
+  return session.closePromise
 }
 
 function configuredResultRoot(context: ToolContext) {
@@ -267,23 +285,45 @@ function configuredResultRoot(context: ToolContext) {
 export async function startM4AuthoringEvaluation(context: ToolContext): Promise<string> {
   requireAgent(context.agent)
   if (finalized.has(context.sessionID)) throw new Error("This M4 authoring evaluation session already finalized.")
-  if (sessions.has(context.sessionID)) throw new Error("An M4 authoring evaluation session is already active.")
+  if (startingSessions.has(context.sessionID) || sessions.has(context.sessionID)) {
+    throw new Error("An M4 authoring evaluation session is already active or starting.")
+  }
 
-  const resultRoot = configuredResultRoot(context)
-  await mkdir(resultRoot, { recursive: true, mode: 0o700 })
-  const workspacePath = join(resultRoot, "workspace.json")
-  const session = spawnAuthoring("create", workspacePath, resultRoot, context.worktree)
-  sessions.set(context.sessionID, session)
-  await record(session, { kind: "start" })
-  return protocolGuide
+  startingSessions.add(context.sessionID)
+  let owner: SessionOwner | undefined
+  try {
+    const resultRoot = configuredResultRoot(context)
+    await mkdir(resultRoot, { recursive: true, mode: 0o700 })
+    const workspacePath = join(resultRoot, "workspace.json")
+    const session = spawnAuthoring("create", workspacePath, resultRoot, context.worktree)
+    owner = { current: session, operationTail: Promise.resolve() }
+    sessions.set(context.sessionID, owner)
+    await once(session.child, "spawn")
+    await record(session, { kind: "start" })
+    if (session.failure) throw session.failure
+    return protocolGuide
+  } catch (error) {
+    if (owner) {
+      try { await closeSession(owner.current) } catch (cleanupError) {
+        if (!owner.current.reaped) throw new AggregateError([error, cleanupError], "M4 authoring startup failed; unreaped child ownership is retained. Finalize before retrying.")
+      } finally {
+        if (owner.current.reaped) sessions.delete(context.sessionID)
+      }
+    }
+    throw error
+  } finally {
+    startingSessions.delete(context.sessionID)
+  }
 }
 
 export async function requestM4AuthoringEvaluation(requestText: string, context: ToolContext): Promise<string> {
   requireAgent(context.agent)
-  const session = sessions.get(context.sessionID)
-  if (!session) throw new Error("No active M4 authoring evaluation session.")
+  if (startingSessions.has(context.sessionID)) throw new Error("The M4 authoring evaluation session is still starting.")
+  const owner = sessions.get(context.sessionID)
+  if (!owner) throw new Error("No active M4 authoring evaluation session.")
+  if (owner.finalization) throw new Error("The M4 authoring evaluation session is finalizing.")
 
-  return await withLock(session, async () => {
+  return await withLock(owner, async (session) => {
     if (session.closed || session.failure) {
       throw session.failure ?? new Error("Nyrwvy maintained authoring session is no longer available.")
     }
@@ -303,29 +343,45 @@ export async function requestM4AuthoringEvaluation(requestText: string, context:
 
 export async function restartM4AuthoringEvaluation(context: ToolContext): Promise<string> {
   requireAgent(context.agent)
-  const session = sessions.get(context.sessionID)
-  if (!session) throw new Error("No active M4 authoring evaluation session.")
+  if (startingSessions.has(context.sessionID)) throw new Error("The M4 authoring evaluation session is still starting.")
+  const owner = sessions.get(context.sessionID)
+  if (!owner) throw new Error("No active M4 authoring evaluation session.")
+  if (owner.finalization) throw new Error("The M4 authoring evaluation session is finalizing.")
 
-  return await withLock(session, async () => {
+  return await withLock(owner, async (session) => {
     await record(session, { kind: "restart" })
     await closeSession(session)
     const reopened = spawnAuthoring("open", session.workspacePath, session.resultRoot, session.worktree)
-    sessions.set(context.sessionID, reopened)
-    await record(reopened, { kind: "reopened" })
+    owner.current = reopened
+    try {
+      await once(reopened.child, "spawn")
+      await record(reopened, { kind: "reopened" })
+      if (reopened.failure) throw reopened.failure
+    } catch (error) {
+      await closeSession(reopened).catch(() => undefined)
+      throw error
+    }
     return "Nyrwvy maintained authoring session reopened from the persisted snapshot. Rediscover status and declarations; pre-restart proposal handles are not valid after restart."
   })
 }
 
 export async function finalizeM4AuthoringEvaluation(context: ToolContext): Promise<string> {
   requireAgent(context.agent)
-  const session = sessions.get(context.sessionID)
-  if (!session) return "No active M4 authoring evaluation session."
+  if (startingSessions.has(context.sessionID)) throw new Error("The M4 authoring evaluation session is still starting.")
+  const owner = sessions.get(context.sessionID)
+  if (!owner) return "No active M4 authoring evaluation session."
 
-  return await withLock(session, async () => {
-    await record(session, { kind: "finalize" })
-    sessions.delete(context.sessionID)
-    finalized.add(context.sessionID)
-    await closeSession(session)
+  owner.finalization ??= withLock(owner, async (session) => {
+    try { await record(session, { kind: "finalize" }) }
+    finally { await closeSession(session) }
     return "Nyrwvy M4 authoring evaluation session finalized. The persisted workspace remains in the evaluation result directory."
   })
+  try {
+    return await owner.finalization
+  } finally {
+    if (owner.current.reaped) {
+      sessions.delete(context.sessionID)
+      finalized.add(context.sessionID)
+    }
+  }
 }

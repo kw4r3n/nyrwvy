@@ -5,6 +5,7 @@ const typeRef = {
   builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list>", arguments: ["<typeRef>"] },
 }
 
+/** @satisfies {Record<string, (keyof typeof references)[]>} */
 const categories = {
   references: ["parameter", "patternReference"],
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
@@ -26,8 +27,11 @@ export const recipeKinds = Object.freeze(Object.values(categories).flat())
 
 const recipe = "<recipe>"
 const type = "<typeRef>"
+/** @param {string} kind */
 const unary = kind => ({ shape: { kind, value: recipe } })
+/** @param {string} kind */
 const binary = kind => ({ shape: { kind, left: recipe, right: recipe } })
+/** @param {string} kind */
 const listCallback = kind => ({ shape: { kind, source: recipe, function: "<function display name>" } })
 
 const references = {
@@ -121,6 +125,9 @@ const references = {
   },
 }
 
+/** @typedef {keyof typeof references} RecipeKind */
+
+/** @param {RecipeKind} [kind] */
 export function recipeReference(kind) {
   if (kind === undefined) {
     return {

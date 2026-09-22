@@ -1,0 +1,27 @@
+{
+  "name": "nyrwvy-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "workspaces": [
+    "tools/nyrwvy-mcp"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck:adapters && npm run typecheck:bun",
+    "typecheck:adapters": "tsc --project tsconfig.json",
+    "typecheck:bun": "tsc --project tsconfig.bun.json",
+    "test:adapters": "node --experimental-strip-types --test tools/nyrwvy-agent/*.test.mjs",
+    "test:node": "node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs .opencode/tests/nyrwvy-evaluation-transport.test.mjs scripts/tests/*.test.mjs && npm test --workspace tools/nyrwvy-mcp",
+    "test:bun": "bun test ./.opencode/plugins/*.test.ts ./.opencode/tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.31",
+    "@types/node": "22.20.4",
+    "bun-types": "1.4.2",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  }
+}

@@ -36,6 +36,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 Tool arguments are objects, not JSON-generating Python/F#/C# programs. The bridge handles request IDs, JSONL transport, request serialization and session ownership. It does not resolve semantic ambiguity, retry mutations, auto-commit or inspect snapshot JSON. A cancelled/lost response requires reopening and inspecting committed state, not assuming that publication failed.
 
+
 For example, a function proposal takes these arguments directly:
 
 ```json
@@ -49,6 +50,14 @@ For example, a function proposal takes these arguments directly:
 ```
 
 After reviewing the returned `createdFunction` and receipt, pass its exact `proposalId` to `nyrwvy_commit`. No declaration IDs are supplied for this creation. Existing IDs remain visible in the result and can be used through `nyrwvy_request` when exact identity matters.
+
+## Transport lifetime
+
+`close()` is idempotent, rejects new requests, and gives the already accepted request queue **5 seconds** to drain successful responses. After draining it sends stdin EOF and allows **5 seconds** for the child's `close` event. A queue deadline or transport failure settles pending/queued callers with an actionable error; unsent requests are discarded. Shutdown then allows **5 seconds after SIGTERM**, escalating to **SIGKILL with a final 5-second reaping window**. These are fixed per-phase limits, not request timeouts during ordinary authoring; the longest shutdown path is 20 seconds of deadline waits. Cancellation after sending invalidates the transport and starts termination even without an explicit close.
+
+Sending a signal is not proof of exit. Open-failure cleanup and close retain the session slot until the child is reaped and its pipes close. If even the SIGKILL window expires (for example, termination was denied by the OS), close reports that ownership is retained rather than claiming success or allowing a replacement child. After resolving the external process problem, close again to release the reaped slot. A sent mutation with a missing response has **unknown outcome**: inspect committed state after reopening; never automatically replay it. Normal shutdown still drains responses and releases the actual snapshot lock.
+
+The evaluation-only M4 bridge also reserves a session before startup's first asynchronous step. A concurrent same-session start receives an explicit active/starting error; request/restart/finalize during startup reports still starting. Failed startup releases that reservation only after child cleanup (an unreaped child retains its owned slot). Different session IDs remain independent. Restart and finalization share one owner/queue across child generations; concurrent finalizers join, and transcript-write failure cannot skip child cleanup. Its EOF/TERM/KILL reaping windows are likewise 5 seconds each; its existing evaluation request timeout is unchanged.
 
 ## Structured graph reading
 

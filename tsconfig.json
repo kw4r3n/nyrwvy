@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "paths": {
+      "@opencode-ai/plugin": ["./node_modules/@opencode-ai/plugin/dist/index.d.ts"]
+    }
+  },
+  "include": [".opencode/**/*.ts", "tools/nyrwvy-agent/**/*.ts", "tools/nyrwvy-agent/*.mjs", "tools/nyrwvy-mcp/server.mjs"],
+  "exclude": ["**/node_modules", "**/*.test.ts", "**/*.test.mjs"]
+}

@@ -24,6 +24,39 @@ Run for larger related changes and milestone validation:
 
 `Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. It is intentionally not part of routine CI.
 
+## Adapter toolchain and typechecking
+
+From the repository root, using a current Node 22 release (22.22.2+ recommended for dependency installation) and npm:
+
+```shell
+npm ci
+npm run typecheck
+npm run test:adapters
+```
+
+These commands require neither .NET build outputs nor a global TypeScript, OpenCode, or Bun installation. `package.json` and `package-lock.json` own the adapter development dependencies and the `tools/nyrwvy-mcp` npm workspace. Direct versions are exact pins, including TypeScript 5.9.3, Node 22 type definitions, the OpenCode plugin, and MCP packages. `npm ci` restores the entire dependency graph without resolving new versions. Run it from the root, not with an ad-hoc install into `.opencode`.
+
+The adapter runtime minimum remains Node 22.6.0. Clean-install typechecks and adapter tests also pass on Node 22.6.0 / npm 10.8.2, but that npm installation reports `EBADENGINE`: the pinned plugin depends on `effect@4.0.0-beta.83`, whose `ini@7.0.0` dependency declares Node `^22.22.2 || ^24.15.0 || >=26.0.0`. Use a current Node 22 release, as CI does, to satisfy the full development dependency graph; do not override those dependencies just to suppress the warning.
+
+OpenCode manages its ignored `.opencode/package.json`, lockfile, and dependencies independently. Do not edit, track, or require those generated files for repository checks. The TypeScript `paths` entry resolves the plugin's **real published declarations** from the root-owned installation even when OpenCode has installed another local copy. It does not change runtime module resolution: OpenCode keeps its own installation; a clean checkout's Node/Bun contract tests resolve the root installation. All `node_modules` directories are ignored.
+
+The check boundaries are:
+
+- `tsconfig.json` / `npm run typecheck:adapters`: all maintained non-test TypeScript under `.opencode` and `tools/nyrwvy-agent`, plus the shared `.mjs` implementations and MCP server with `allowJs` + `checkJs`. Only Node ambient types are loaded.
+- `tsconfig.bun.json` / `npm run typecheck:bun`: all maintained Bun `.test.ts` files and their imports. It loads the official pinned `bun-types/test` declarations for `bun:test`, not Bun's global Node overrides. These tests use Node-compatible APIs and `bun:test`, not Bun-specific runtime globals. The full Bun 1.4.2 ambient bundle has upstream incompatibilities with Node 22 declarations; loading only the API used here avoids those conflicts without skipping library checks.
+- Both configs use strict checking, `noEmit`, `allowImportingTsExtensions`, `verbatimModuleSyntax`, and `erasableSyntaxOnly`. `module: Preserve` / `moduleResolution: Bundler` supports OpenCode's Bun modules (including extensionless imports) without depending on the generated `.opencode` package scope. Nothing is transpiled or bundled; Node tests still execute real `.ts` imports with native stripping.
+- Neither config disables library checking or introduces browser globals. `node-web-types.d.ts` supplies OpenCode's missing global `HeadersInit` alias from the actual Node 22 `RequestInit["headers"]` contract; it does not replace any implementation with a declaration stub.
+
+The shared schema builder retains each host's native Zod family: OpenCode plugin 1.18.31 uses Zod 4.1.8, while MCP uses Zod 4.3.6. Only the builder operations used by the tools are modeled. Both registrations check each handler against its native input schema; no cross-version schema casts, dependency overrides, or runtime schema conversion are used. `npm run test:adapters` checks both versions' validation and published JSON schemas, Promise-based OpenCode recipe discovery, configuration coverage, and compiler diagnostics from in-memory implementation/schema mistakes. It never edits the checked sources or starts AuthoringSession.
+
+To execute the Bun unit tests, install Bun **1.4.2** separately (the version pinned in CI), then run:
+
+```shell
+npm run test:bun
+```
+
+Bun is the test runtime only; npm remains the repository dependency/lockfile manager. No `bun install` or generated `.opencode` manifest is needed.
+
 ## Node transport and script contracts
 
 The fast wrapper also runs the ordinary-authoring Node tests and the isolated verification-script regression tests:
@@ -32,16 +65,20 @@ The fast wrapper also runs the ordinary-authoring Node tests and the isolated ve
 node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
 
-CI additionally verifies the MCP adapter and evaluation bridges. To run those contracts locally after building the Release AuthoringSession, prepare their existing dependencies once:
+CI additionally verifies the MCP adapter and evaluation bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
 
 ```shell
-npm install --prefix tools/nyrwvy-mcp --package-lock=false --no-audit --no-fund
-npm install --prefix .opencode --no-save --package-lock=false --no-audit --no-fund @opencode-ai/plugin@1.18.31
-npm --prefix tools/nyrwvy-mcp test
+npm run test:node
+```
+
+Or select an individual boundary:
+
+```shell
+npm test --workspace tools/nyrwvy-mcp
 node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
 ```
 
-The evaluation transport tests use small local Node children, not live models or frozen evaluation reruns. The pinned plugin bootstrap is explicit because OpenCode manages its own ignored `.opencode/package.json`; the default fast wrapper does not install or require these additional packages.
+The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport and lifecycle-isolation tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
 
 ## live / environment-dependent
 

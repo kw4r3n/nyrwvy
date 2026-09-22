@@ -70,7 +70,15 @@ dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Rel
 node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
 
-CI additionally runs the MCP and evaluation-transport contracts after installing their Node dependencies. These are deterministic transport checks, not live model evaluations; see [test suites](tests/README.md#node-transport-and-script-contracts) for the local commands.
+The maintained Node/Bun adapters also have a repository-owned, locked TypeScript toolchain. From a clean checkout, no global `tsc`, OpenCode installation, or .NET build is needed to typecheck them:
+
+```shell
+npm ci
+npm run typecheck
+npm run test:adapters
+```
+
+CI runs these checks plus the MCP, evaluation-transport, and Bun unit contracts. These are deterministic adapter checks, not live model evaluations. Node 22.6 or later runs the Node adapters with native type stripping; Bun 1.4.2 runs the Bun tests. See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
 
 Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification.
 

@@ -8,14 +8,34 @@ export type Request = { op: string; [key: string]: unknown }
 type Reply = { id: string; ok: boolean; result?: unknown; error?: unknown }
 type Pending = { id: string; resolve: (line: string) => void; reject: (error: Error) => void }
 
+const shutdownTimeoutMs = 5_000
+const recoveryAdvice = "A sent request's outcome is unknown if its response was lost. Reopen and inspect committed state before retrying; requests are never replayed."
+
+async function settlesWithin(promise: Promise<unknown>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>(resolveTimeout => { timer = setTimeout(() => resolveTimeout(false), shutdownTimeoutMs) }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Transport only. All semantic decisions and publication remain in AuthoringSession. */
 export class AuthoringClient {
   private pending?: Pending
   private failure?: Error
   private tail: Promise<unknown> = Promise.resolve()
   private closing = false
+  private closePromise?: Promise<void>
+  private termination?: Promise<void>
+  private reaped = false
   private stderr = ""
   private exited: Promise<number | null>
+
+  get isReaped(): boolean { return this.reaped }
 
   private child: ChildProcessWithoutNullStreams
 
@@ -39,28 +59,47 @@ export class AuthoringClient {
     })
     lines.on("close", () => {
       if (this.pending || !this.closing) {
-        this.fail(new Error(`AuthoringSession closed its response stream. ${this.stderr} Reopen and inspect committed state.`))
+        this.fail(new Error(`AuthoringSession closed its response stream. ${this.stderr}`))
       }
     })
     child.on("error", (error) => this.fail(error))
     child.stdin.on("error", (error) => this.fail(error))
     this.exited = new Promise((finish) => {
       child.once("close", (code) => {
-        this.fail(new Error(`AuthoringSession exited (${code ?? "signal"}). ${this.stderr}`), false)
+        this.reaped = true
+        if (code !== 0 || this.pending || !this.closing) {
+          this.fail(new Error(`AuthoringSession exited (${code ?? child.signalCode ?? "signal"}). ${this.stderr}`), false)
+        }
         finish(code)
       })
     })
   }
 
-  private fail(error: Error, kill = true) {
-    this.failure ??= error
+  private fail(error: Error, terminate = true) {
+    this.failure ??= new Error(`${error.message} ${recoveryAdvice}`, { cause: error })
     this.pending?.reject(this.failure)
     this.pending = undefined
-    if (kill) this.child.kill()
+    if (terminate) void this.terminate().catch(() => undefined)
+  }
+
+  private terminate(): Promise<void> {
+    // Store ownership before signalling: kill can itself emit an error synchronously.
+    this.termination ??= Promise.resolve().then(async () => {
+      if (this.reaped) return
+      this.child.stdin.destroy()
+      for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+        try { this.child.kill(signal) } catch (error) {
+          this.fail(error instanceof Error ? error : new Error(String(error)), false)
+        }
+        if (await settlesWithin(this.exited)) return
+      }
+      throw new Error(`AuthoringSession did not close within ${shutdownTimeoutMs}ms after SIGKILL; child ownership is retained until reaped. ${recoveryAdvice}`)
+    })
+    return this.termination
   }
 
   request(request: Request, signal?: AbortSignal): Promise<string> {
-    if (this.closing) return Promise.reject(new Error("AuthoringSession is closing."))
+    if (this.closing) return Promise.reject(new Error("AuthoringSession is closing; this request was not sent."))
     const operation = this.tail.then(async () => {
       if (this.failure) throw this.failure
       if (signal?.aborted) throw new Error("Authoring request cancelled before sending.")
@@ -73,12 +112,16 @@ export class AuthoringClient {
         }
         return value
       })
-      const abort = () => this.fail(new Error("Authoring request cancelled; reopen and inspect committed state before retrying."))
+      const abort = () => this.fail(new Error("Authoring request cancelled after sending."))
       try {
         return await new Promise<string>((accept, reject) => {
           this.pending = { id, resolve: accept, reject }
           signal?.addEventListener("abort", abort, { once: true })
-          this.child.stdin.write(`${line}\n`, (error) => { if (error) this.fail(error) })
+          try {
+            this.child.stdin.write(`${line}\n`, (error) => { if (error) this.fail(error) })
+          } catch (error) {
+            this.fail(error instanceof Error ? error : new Error(String(error)))
+          }
         })
       } finally {
         signal?.removeEventListener("abort", abort)
@@ -88,12 +131,26 @@ export class AuthoringClient {
     return operation
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this.closing = true
-    await this.tail
-    this.child.stdin.end()
-    const code = await this.exited
-    if (code !== 0) throw this.failure ?? new Error(`AuthoringSession exited (${code}).`)
+    this.closePromise ??= this.finishClose()
+    return this.closePromise
+  }
+
+  private async finishClose(): Promise<void> {
+    if (!await settlesWithin(this.tail)) {
+      this.fail(new Error(`AuthoringSession request queue did not drain within ${shutdownTimeoutMs}ms; unsent requests were discarded.`))
+    }
+    if (!this.failure) {
+      this.child.stdin.end()
+      if (!await settlesWithin(this.exited)) {
+        this.fail(new Error(`AuthoringSession did not close within ${shutdownTimeoutMs}ms after stdin EOF.`))
+      }
+    }
+    if (this.failure) await this.terminate()
+    // A signal being sent is not evidence of exit; only close releases ownership.
+    await this.exited
+    if (this.failure) throw this.failure
   }
 }
 
@@ -119,8 +176,11 @@ export async function openAuthoring(
     return JSON.stringify({ worktree, snapshot: workspace, status,
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
-    sessions.delete(sessionKey)
-    await client.close().catch(() => undefined)
+    try { await client.close() } catch (cleanupError) {
+      if (!client.isReaped) throw new AggregateError([error, cleanupError], "Authoring open failed; unreaped child ownership is retained. Close the session before reopening.")
+    } finally {
+      if (client.isReaped && sessions.get(sessionKey) === client) sessions.delete(sessionKey)
+    }
     throw error
   }
 }
@@ -142,6 +202,6 @@ export async function closeAuthoring(context: AuthoringContext): Promise<string>
     await client.close()
     return "Authoring session closed. Only committed graph changes persist; reopen the snapshot to resume."
   } finally {
-    sessions.delete(sessionKey)
+    if (client.isReaped && sessions.get(sessionKey) === client) sessions.delete(sessionKey)
   }
 }

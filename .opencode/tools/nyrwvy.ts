@@ -1,7 +1,8 @@
 import { tool } from "@opencode-ai/plugin"
 import { createGraphTools } from "../../tools/nyrwvy-agent/graph-tools.mjs"
 
-const definitions = createGraphTools(tool.schema)
+type OpenCodeSchema = ReturnType<typeof tool>["args"][string]
+const definitions = createGraphTools<OpenCodeSchema>(tool.schema)
 export const open = tool(definitions.open)
 export const inspect = tool(definitions.inspect)
 export const recipe_reference = tool(definitions.recipe_reference)

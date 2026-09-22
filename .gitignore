@@ -4,3 +4,4 @@
 TestResults/
 artifacts/
 .opencode-trace/
+node_modules/
