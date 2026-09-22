@@ -237,13 +237,16 @@ module AgentCapabilityDeclarationWorkflow =
                 match SemanticFingerprint.compute proposedSnapshot with
                 | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
                 | Ok semanticFingerprint ->
-                    Ok
-                        { TransactionId = transactionId
-                          BaseSnapshotId = baseSnapshot.Id
-                          BaseSnapshotFingerprint = baseFingerprint
-                          ProposedSnapshotId = proposedSnapshot.Id
-                          ProposedSnapshotFingerprint = proposedFingerprint
-                          ProposedSemanticFingerprint = semanticFingerprint }
+                    Ok(
+                        TransactionPreviewReceipt.create
+                            None
+                            transactionId
+                            baseSnapshot.Id
+                            baseFingerprint
+                            proposedSnapshot.Id
+                            proposedFingerprint
+                            semanticFingerprint
+                    )
 
     let simulate
         (workspace: AgentWorkspace)

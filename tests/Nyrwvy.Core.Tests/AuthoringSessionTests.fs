@@ -423,8 +423,10 @@ module AuthoringSessionTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    [<Fact>]
-    let ``JSONL process publication reopens with the same semantic identity and fingerprints`` () =
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``JSONL process publication reopens with the same semantic identity and fingerprints`` abruptTermination =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")
         try
@@ -492,7 +494,12 @@ module AuthoringSessionTests =
                 result.GetProperty("snapshotId").GetString(),
                 result.GetProperty("snapshotFingerprint").GetString(),
                 result.GetProperty("semanticFingerprint").GetString()
-            finish first
+            if abruptTermination then
+                first.Kill(true)
+                Assert.True(first.WaitForExit(5000), "The authoring process did not terminate within five seconds.")
+                first.Dispose()
+            else
+                finish first
 
             let second = startTool "open" path
             use reopenedStatus = exchange second """{"id":"status","op":"status"}""" |> requireOk

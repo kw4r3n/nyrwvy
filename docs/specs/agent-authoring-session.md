@@ -6,7 +6,7 @@ This specification defines the Milestone 3 maintained authoring boundary tracked
 
 ## Purpose
 
-An ordinary agent must be able to open one explicitly selected Nyrwvy snapshot, discover stable declarations, propose and review semantic changes, publish accepted changes durably, close the process, and later resume from the same committed semantic identities.
+An ordinary agent must be able to open one explicitly selected Nyrwvy snapshot, discover stable declarations, propose and review semantic changes, persist accepted changes across authoring-process restarts, close the process, and later resume from the same committed semantic identities.
 
 The maintained path is a single-workspace, single-writer session. Frozen M1/M2 evaluation protocols remain historical verification surfaces and are not imported as the production authoring protocol.
 
@@ -15,11 +15,27 @@ The maintained path is a single-workspace, single-writer session. Frozen M1/M2 e
 A session starts in exactly one of two explicit modes:
 
 1. **Open** an existing snapshot file. The file is decoded with the existing strict `SnapshotCodec`, validated, and wrapped in `AgentWorkspace`.
-2. **Create** a new snapshot file. The session creates `Snapshot.empty` with a system-owned snapshot ID, validates it through `AgentWorkspace`, serializes it with `SnapshotCodec`, and durably creates the selected file before reporting success.
+2. **Create** a new snapshot file. The session creates `Snapshot.empty` with a system-owned snapshot ID, validates it through `AgentWorkspace`, serializes it with `SnapshotCodec`, and creates the selected persistent file before reporting success.
 
 Opening a missing file is an error. Creating over an existing file is an error. There is no implicit fallback between the two modes.
 
 A live session owns one workspace path. Proposal handles are process-local and may be discarded when the process ends. A new process reopens the last published snapshot and must simulate/review any later change again.
+
+## Persistence guarantee and failure boundaries
+
+The maintained storage contract is **atomic snapshot visibility and persistence across authoring-process restarts**, not machine-crash or power-loss durability:
+
+| Boundary | Maintained guarantee |
+| --- | --- |
+| Successful create/commit response | The complete snapshot has been written, the temporary file has been closed, and the selected path has been created/replaced before success is reported. A later authoring process can reopen the published state while the OS/filesystem remains healthy. |
+| Authoring-process termination after success | The published file does not depend on the terminated process's memory or proposal handles. Normal close and abrupt process termination preserve the acknowledged snapshot under the same healthy-OS assumption. |
+| Snapshot visibility during publication | Same-directory replacement is the publication boundary; supported storage must provide the local filesystem's atomic rename/replace and exclusive-lock semantics. Network, distributed, or unusual filesystems are not independently certified by this contract. |
+| OS crash, reboot after kernel failure, or power loss | **No guarantee.** `File.WriteAllText` plus `File.Move` does not explicitly flush file contents or parent-directory metadata to durable media. An acknowledged commit may be lost or damaged under these failures. |
+| Response lost during/after publication | The mutation outcome is unknown. Reopen, decode/validate, and inspect the persisted state before deciding the next action; do not replay the mutation or reuse the old proposal handle automatically. |
+
+This scope describes the existing implementation rather than claiming stronger storage behavior from process-reopen tests. A future machine-crash guarantee needs an explicit supported OS/filesystem scope, durable file and directory synchronization, and targeted failure-injection evidence. Its error protocol must distinguish a pre-replacement failure from a post-replacement synchronization failure: the latter cannot safely be described as an unchanged authoritative file.
+
+See `AuthoringSessionTests` for acknowledged publication/reopen, abrupt process termination, single-writer exclusion, and reported I/O/external-modification failure checks. These tests establish process-level behavior, not power-loss durability.
 
 ## Single-writer and external modification rule
 
@@ -46,7 +62,7 @@ A mutation follows this lifecycle:
 6. Re-check the persisted-source token, write the complete candidate to a temporary file in the same directory, and replace the authoritative file as one publication boundary.
 7. Only after persistence succeeds does the session replace its in-memory workspace and report commit success.
 
-A failed write therefore leaves both the authoritative snapshot file and the session's current workspace at the previously published state. A rejected semantic commit never reaches the persistence step.
+A reported temporary-write or replacement failure leaves the session's current workspace at the previously published state and does not intentionally publish the candidate file. The existing I/O-failure tests retain the previous authoritative file. This is not a promise about OS/storage failure or a lost response after a successful replacement; those boundaries are distinguished above. A rejected semantic commit never reaches the persistence step.
 
 The session does not provide a durable proposal database. Existing proposal handles that become stale after another publication are allowed to fail through the existing stale-base checks.
 

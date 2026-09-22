@@ -37,7 +37,25 @@ flowchart TD
     L --> M[C# / .NET backend]
 ```
 
-Simulation and reviewed commit use the same ordered operation request. A reviewed proposal is bound to the exact base and proposed result; stale or substituted proposals require a new review.
+Simulation and reviewed commit use the same ordered operation request. A reviewed proposal is bound to the exact request, base, and proposed result; stale or substituted proposals require a new review.
+
+### Low-level reviewed receipts
+
+`SemanticWorkspace.simulate` returns an opaque in-process `TransactionPreviewReceipt` that retains the immutable `TransactionRequest`, including the ordered operation list and all operation payloads. `commitReviewed` and `commitReviewedWithPolicy` require structural equality with that retained request, not object identity or merely an equal final snapshot. Inserting, removing, replacing, or reordering operations requires a fresh review even when the proposed fingerprints are unchanged. This binding uses the existing typed request directly; it introduces no request hash, stable-ID allocation, or durable operation encoding.
+
+Existing diagnostic precedence is preserved: request IDs, already-published snapshot identity, simulation (including `StaleBaseSnapshot`), base fingerprint, and result fingerprints are checked before the additional ordered-intent comparison. A different ordered request with otherwise matching facts rejects with `PreviewReceiptRequestMismatch`. Existing `PreviewReceiptBaseMismatch`, `PreviewReceiptResultMismatch`, and blocking-obligation policy remain intact.
+
+The receipt continues to expose these read-only facts:
+
+- `TransactionId`;
+- `BaseSnapshotId` and `BaseSnapshotFingerprint`;
+- `ProposedSnapshotId`, `ProposedSnapshotFingerprint`, and `ProposedSemanticFingerprint`.
+
+**In-process API migration:** receipt record construction, record copying, and record-pattern matching are no longer public operations. Low-level callers retain the receipt returned by simulation and pass it unchanged to reviewed commit; property reads and commit function signatures remain the same. Receipts for distinct requests may now compare unequal despite identical exposed facts. This is an intentional source/API restriction, not a claim of binary compatibility or cryptographic approval.
+
+Ordinary `AgentWorkflow` proposals already retain the request and continue through this same reviewed-commit path. Structural and declaration workflows retain their intent and exact materialized snapshot in their own opaque proposals; their snapshot-only receipts do not authorize a low-level `TransactionRequest`.
+
+Wire receipt objects remain the existing six-field read-only projections. They are not deserializable publication authority. AuthoringSession and frozen evaluation protocols retain their existing proposal handles and encodings; no snapshot schema, fingerprint domain, stable identity, or historical evaluation record changes.
 
 ## Implementation boundaries
 
@@ -143,6 +161,8 @@ Storage representation is deliberately separate from semantic authority.
 - Nyason is the actively explored Nyrwvy-native portable encoding candidate;
 - a database may serve as a working/index store and could become authoritative only if operational evidence justifies that choice without changing semantic meaning;
 - schema versions are explicit and migrations must not silently invent semantics.
+
+The current snapshot-backed session guarantees atomic publication and persistence across authoring-process restarts on a healthy OS/filesystem. It does not claim machine-crash or power-loss durability; see the [persistence guarantee and failure boundaries](../specs/agent-authoring-session.md#persistence-guarantee-and-failure-boundaries).
 
 See [Nyason and storage direction](../concepts/nyason-and-storage.md) and the [schema evolution policy](../specs/schema-evolution-policy.md).
 

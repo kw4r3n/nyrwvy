@@ -170,6 +170,8 @@ The requested recipe and resulting materialized structure are distinct review fa
 
 `AgentStructuralChangeProposal` is opaque. Simulation allocates the transaction ID and proposed snapshot ID system-side and stores the exact proposed snapshot plus review.
 
+Its `TransactionPreviewReceipt` exposes the same six read-only identity/fingerprint facts as ordinary transaction review, but the structural intent is bound by the opaque proposal rather than a `TransactionRequest`. Such a snapshot-only receipt cannot authorize publication through low-level `SemanticWorkspace.commitReviewed`, even if a supplied operation sequence produces the same snapshot. See the [low-level receipt contract and in-process API migration](../developer/architecture.md#low-level-reviewed-receipts). Wire receipt projections and frozen evaluation records are unchanged.
+
 Commit checks:
 
 1. the current snapshot ID still equals the reviewed base snapshot ID;

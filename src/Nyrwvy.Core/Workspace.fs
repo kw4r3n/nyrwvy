@@ -12,13 +12,37 @@ type CommitPolicy =
 
 type WorkspaceState = private { CurrentSnapshot: Snapshot; PreviousSnapshots: Snapshot list }
 
+/// In-process review binding, not a receipt reconstructed from wire fingerprint facts.
+/// Structural workflows retain their intent in opaque proposals instead of a TransactionRequest.
 type TransactionPreviewReceipt =
-    { TransactionId: TransactionId
-      BaseSnapshotId: SnapshotId
-      BaseSnapshotFingerprint: SnapshotFingerprint
-      ProposedSnapshotId: SnapshotId
-      ProposedSnapshotFingerprint: SnapshotFingerprint
-      ProposedSemanticFingerprint: SemanticFingerprint }
+    private
+        { RecordedTransactionId: TransactionId
+          RecordedBaseSnapshotId: SnapshotId
+          RecordedBaseSnapshotFingerprint: SnapshotFingerprint
+          RecordedProposedSnapshotId: SnapshotId
+          RecordedProposedSnapshotFingerprint: SnapshotFingerprint
+          RecordedProposedSemanticFingerprint: SemanticFingerprint
+          ReviewedRequest: TransactionRequest option }
+
+    member this.TransactionId = this.RecordedTransactionId
+    member this.BaseSnapshotId = this.RecordedBaseSnapshotId
+    member this.BaseSnapshotFingerprint = this.RecordedBaseSnapshotFingerprint
+    member this.ProposedSnapshotId = this.RecordedProposedSnapshotId
+    member this.ProposedSnapshotFingerprint = this.RecordedProposedSnapshotFingerprint
+    member this.ProposedSemanticFingerprint = this.RecordedProposedSemanticFingerprint
+
+    member internal this.MatchesRequest(request: TransactionRequest) =
+        this.ReviewedRequest = Some request
+
+module internal TransactionPreviewReceipt =
+    let create reviewedRequest transactionId baseSnapshotId baseFingerprint proposedSnapshotId proposedFingerprint semanticFingerprint =
+        { RecordedTransactionId = transactionId
+          RecordedBaseSnapshotId = baseSnapshotId
+          RecordedBaseSnapshotFingerprint = baseFingerprint
+          RecordedProposedSnapshotId = proposedSnapshotId
+          RecordedProposedSnapshotFingerprint = proposedFingerprint
+          RecordedProposedSemanticFingerprint = semanticFingerprint
+          ReviewedRequest = reviewedRequest }
 
 type WorkspacePreview =
     { Simulation: TransactionSimulation
@@ -131,6 +155,7 @@ module SemanticWorkspace =
             Ok(TransactionReadiness.Incomplete obligationIds)
 
     let private createReceipt
+        (request: TransactionRequest)
         (baseSnapshot: Snapshot)
         (simulation: TransactionSimulation)
         : Result<TransactionPreviewReceipt, TransactionDiagnostic list> =
@@ -143,13 +168,16 @@ module SemanticWorkspace =
                 match SemanticFingerprint.compute simulation.ProposedSnapshot with
                 | Error error -> Error [ fingerprintDiagnostic "Proposed semantic state" error ]
                 | Ok semanticFingerprint ->
-                    Ok
-                        { TransactionId = simulation.TransactionId
-                          BaseSnapshotId = simulation.BaseSnapshotId
-                          BaseSnapshotFingerprint = baseFingerprint
-                          ProposedSnapshotId = simulation.ProposedSnapshot.Id
-                          ProposedSnapshotFingerprint = proposedFingerprint
-                          ProposedSemanticFingerprint = semanticFingerprint }
+                    Ok(
+                        TransactionPreviewReceipt.create
+                            (Some request)
+                            simulation.TransactionId
+                            simulation.BaseSnapshotId
+                            baseFingerprint
+                            simulation.ProposedSnapshot.Id
+                            proposedFingerprint
+                            semanticFingerprint
+                    )
 
     let simulate
         (workspace: WorkspaceState)
@@ -162,7 +190,7 @@ module SemanticWorkspace =
             match classifyReadiness simulation.ProposedSnapshot with
             | Error diagnostics -> WorkspaceSimulationResult.Rejected diagnostics
             | Ok readiness ->
-                match createReceipt workspace.CurrentSnapshot simulation with
+                match createReceipt request workspace.CurrentSnapshot simulation with
                 | Error diagnostics -> WorkspaceSimulationResult.Rejected diagnostics
                 | Ok receipt ->
                     WorkspaceSimulationResult.Preview
@@ -268,6 +296,11 @@ module SemanticWorkspace =
                         [ diagnostic
                             "PreviewReceiptResultMismatch"
                             "Re-simulation produced a proposed state different from the reviewed preview receipt." ]
+                elif not (reviewedReceipt.MatchesRequest request) then
+                    WorkspaceCommitResult.Rejected
+                        [ diagnostic
+                            "PreviewReceiptRequestMismatch"
+                            "The reviewed preview receipt is not bound to this exact ordered transaction request." ]
                 else
                     publishWithPolicy workspace regenerated policy
 
