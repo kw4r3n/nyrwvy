@@ -59,10 +59,10 @@ export function createGraphTools(schema) {
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   return {
     open: defineTool({
-      description: "Create or reopen one persistent Nyrwvy graph. Relative snapshots default to the client/MCP process current project. Pass workspace only when the host does not launch the server in that project.",
-      args: { mode: schema.enum(["create", "open"]), snapshot: schema.string(), workspace: schema.string().optional() },
-      /** @param {{ mode: "create" | "open"; snapshot: string; workspace?: string }} args */
-      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace),
+      description: "Create or reopen one persistent Nyrwvy graph. Optional dependency pins a complete standalone source snapshot on create only. Relative snapshot and dependency paths resolve against workspace or the current project. Pass workspace only when the host starts elsewhere.",
+      args: { mode: schema.enum(["create", "open"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional() },
+      /** @param {{ mode: "create" | "open"; snapshot: string; workspace?: string; dependency?: string }} args */
+      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency),
     }),
     inspect: defineTool({
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",

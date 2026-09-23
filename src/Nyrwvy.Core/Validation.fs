@@ -414,6 +414,8 @@ module SnapshotValidator =
                 | ObligationStatus.Resolved _ -> None)
             |> Set.ofList
 
+        let createNodeTypeResolver = SemanticFacts.createNodeTypeResolverFactory snapshot
+
         for functionEntity in snapshot.Functions do
             let allNodes = ValueGraph.collectNodes functionEntity.Body
             let nodesById = allNodes |> List.map (fun node -> node.Id, node) |> Map.ofList
@@ -422,7 +424,7 @@ module SnapshotValidator =
                 |> List.map (fun parameter -> parameter.Id, parameter)
                 |> Map.ofList
             let requiredEffects = Set.ofList functionEntity.RequiredEffects
-            let nodeType = SemanticFacts.createNodeTypeResolver snapshot functionEntity
+            let nodeType = createNodeTypeResolver functionEntity
 
             let requireNodeType code message expectedType nodeId =
                 match nodeType nodeId with

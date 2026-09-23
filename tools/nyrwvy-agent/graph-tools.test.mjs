@@ -8,7 +8,7 @@ import * as openCodeTools from "../../.opencode/tools/nyrwvy.ts"
 
 const context = { sessionID: "schema-contract", worktree: process.cwd() }
 const samples = {
-  open: { valid: { mode: "create", snapshot: "workspace.json" }, invalid: { mode: "unexpected", snapshot: "workspace.json" } },
+  open: { valid: { mode: "create", snapshot: "workspace.json", dependency: "policy.json" }, invalid: { mode: "create", snapshot: "workspace.json", dependency: 42 } },
   inspect: { valid: { view: "function", function: "Identity" }, invalid: { view: "unknown" } },
   recipe_reference: { valid: { kind: "conditional" }, invalid: { kind: "__proto__" } },
   create_type: { valid: { displayName: "Item", typeKind: {} }, invalid: { displayName: "Item", typeKind: [] } },
@@ -53,6 +53,8 @@ for (const [host, schema, minor] of [["OpenCode", tool.schema, 1], ["MCP", z, 3]
     assert.throws(() => definitions.inspect.execute({ view: "status", function: "Identity" }, context), /view=function/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { op: "commit" } }, context), /Pass op separately/)
+    await assert.rejects(definitions.open.execute({ mode: "open", snapshot: "workspace.json", dependency: "policy.json" }, context), /requires mode=create/)
+    await assert.rejects(definitions.open.execute({ mode: "create", snapshot: "workspace.json", dependency: " " }, context), /non-blank/)
     assert.equal(await definitions.close.execute({}, context), "No active Nyrwvy authoring session.")
   })
 }

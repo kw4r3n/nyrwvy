@@ -128,12 +128,9 @@ module AuthoringSessionTests =
             | Error error -> failwithf "Dependency did not lower: %A" error
             let original = File.ReadAllText(plannerPath)
             match reopened.SimulateOperations([ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function policyId, "hijacked") ]) with
-            | Error error -> failwithf "Unexpected simulation error: %A" error
-            | Ok proposal ->
-                match reopened.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
-                | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->
-                    Assert.Contains(issues, fun issue -> issue.Code = "ImportedDeclarationModified")
-                | other -> failwithf "Imported declaration edit was published: %A" other
+            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->
+                Assert.Contains(issues, fun issue -> issue.Code = "ImportedDeclarationModified")
+            | other -> failwithf "Imported declaration edit reached review: %A" other
             Assert.Equal(original, File.ReadAllText(plannerPath))
             reopened.Close()
 
@@ -320,6 +317,14 @@ module AuthoringSessionTests =
             | Error(AuthoringSessionError.CommitRejected diagnostics) ->
                 Assert.Contains(diagnostics, fun diagnostic -> diagnostic.Code = "StaleBaseSnapshot")
             | result -> failwithf "Expected stale proposal rejection, got %A" result
+            match session.Reject second.ProposalId with
+            | Ok receipt ->
+                Assert.Equal(second.ProposalId, StableId.value receipt.TransactionId)
+                Assert.Equal(afterFirst.SnapshotId, receipt.RetainedSnapshotId)
+            | Error error -> failwithf "Could not discard stale proposal: %A" error
+            match session.Reject second.ProposalId with
+            | Error(AuthoringSessionError.ProposalNotFound id) -> Assert.Equal(second.ProposalId, id)
+            | other -> failwithf "Rejected proposal remained registered: %A" other
             Assert.Equal(afterFirst.SnapshotId, (status session).SnapshotId)
             Assert.Equal(persistedAfterFirst, File.ReadAllText(path))
         finally

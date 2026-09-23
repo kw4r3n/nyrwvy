@@ -119,6 +119,67 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
   }
 })
 
+test("MCP creates and reopens a pinned dependency with relative paths and read-only imports", { timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-dependency-"))
+  const workspace = join(root, "graph workspace")
+  await mkdir(workspace)
+  let client
+  try {
+    client = await connect(root)
+    const tools = (await client.listTools()).tools
+    const openSchema = tools.find(tool => tool.name === "nyrwvy_open").inputSchema
+    assert.equal(openSchema.properties.dependency.type, "string")
+    assert.ok(!openSchema.required.includes("dependency"))
+    await call(client, "open", { mode: "create", snapshot: "policy.json", workspace })
+    const policy = (await call(client, "create_function", { displayName: "policy", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
+    await call(client, "commit", { proposalId: policy.proposalId })
+    await call(client, "close")
+    const source = await readFile(join(workspace, "policy.json"), "utf8")
+
+    // Invalid combinations must not start a process, create files or reserve a slot.
+    await failed(client, "open", { mode: "open", snapshot: "planner.json", workspace, dependency: "policy.json" })
+    await failed(client, "open", { mode: "create", snapshot: "planner.json", workspace, dependency: " " })
+    await assert.rejects(readFile(join(workspace, "planner.json")), { code: "ENOENT" })
+    await call(client, "open", { mode: "create", snapshot: "planner.json", workspace, dependency: "policy.json" })
+    const selection = (await call(client, "request", { op: "dependency", arguments: {} })).result
+    assert.equal(selection.selection.path, join(workspace, "policy.json"))
+    const before = (await call(client, "inspect", { view: "status" })).result
+    const importedEdit = await failed(client, "replace", { function: "policy", replacement: bool(false) })
+    assert.match(JSON.stringify(importedEdit.structuredContent), /ImportedDeclarationModified/)
+    await failed(client, "create_function", { displayName: "policy", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(false) })
+    assert.deepEqual((await call(client, "inspect", { view: "status" })).result, before)
+
+    const local = (await call(client, "create_function", { displayName: "plan", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [],
+      body: { kind: "directCall", function: "policy", arguments: [] } })).result
+    await call(client, "commit", { proposalId: local.proposalId })
+    const localFile = join(workspace, "planner.json")
+    const stored = JSON.parse(await readFile(localFile, "utf8"))
+    assert.equal(stored.functions.length, 1)
+    assert.equal(stored.functions[0].id, local.review.createdFunction.id)
+    assert.equal(await readFile(join(workspace, "policy.json"), "utf8"), source)
+    await call(client, "close")
+    await call(client, "open", { mode: "open", snapshot: "planner.json", workspace })
+    assert.equal((await call(client, "inspect", { view: "declarations" })).result.functions.length, 2)
+    assert.equal((await call(client, "request", { op: "executionReadiness", arguments: {} })).result.kind, "ready")
+    await call(client, "close")
+
+    // Exercise the reported null-path crash through the real process boundary.
+    const manifestFile = localFile + ".dependency.json"
+    const manifest = await readFile(manifestFile, "utf8")
+    await writeFile(manifestFile, JSON.stringify({ ...JSON.parse(manifest), path: null }))
+    const invalid = await failed(client, "open", { mode: "open", snapshot: "planner.json", workspace })
+    assert.match(JSON.stringify(invalid.content), /DependencyFailure/)
+    await writeFile(manifestFile, manifest)
+    await call(client, "open", { mode: "open", snapshot: "planner.json", workspace })
+  } finally {
+    await client?.close().catch(() => undefined)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 // Raw stdio deliberately avoids the SDK client's own kill deadlines: only the
 // server under test may terminate/reap its authoring child before we assert exit.
 async function abnormalServer(t, phase) {

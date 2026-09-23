@@ -24,11 +24,11 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 | Tool | Role |
 | --- | --- |
-| `nyrwvy_open` | Explicit `create` or `open`, with a snapshot path relative to the worktree or absolute. |
+| `nyrwvy_open` | Explicit `create` or `open`; optional `dependency` selects a complete standalone source on creation only. Relative snapshot/dependency paths use the selected workspace or worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot; omit `kind` for a compact index. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
-| `nyrwvy_create_function` | Propose a function with named parameter/declaration references. |
+| `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
 | `nyrwvy_replace` | Propose a targeted replacement using an inspected node ID; omit the target only for whole-body replacement. |
 | `nyrwvy_commit` / `nyrwvy_reject` | Publish or discard exactly the reviewed proposal handle. |
 | `nyrwvy_request` | Direct structured access to every maintained protocol operation, including exact-ID operations. |
@@ -48,6 +48,8 @@ For example, a function proposal takes these arguments directly:
   "body": {"kind": "parameter", "name": "value"}
 }
 ```
+
+To create against a pinned source, use `nyrwvy_open` with `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}`. The source must be complete and standalone; imported declarations can be inspected/referenced but not edited. Reopen with only `mode: "open"` and the local snapshot path. A dependency argument on reopen is rejected, not silently ignored or used to change the pin. Dependency-update/relocation limitations are documented in the [session contract](agent-authoring-session.md#pinned-snapshot-dependency-one-level).
 
 After reviewing the returned `createdFunction` and receipt, pass its exact `proposalId` to `nyrwvy_commit`. No declaration IDs are supplied for this creation. Existing IDs remain visible in the result and can be used through `nyrwvy_request` when exact identity matters.
 

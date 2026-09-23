@@ -136,13 +136,13 @@ module SemanticFacts =
         | Some _ :: _
         | None :: _ -> None
 
-    /// Creates one type resolver for a function. The resolver uses only semantic
-    /// facts in the supplied snapshot and returns None when the graph is not
-    /// sufficiently valid to derive a type. Callers must not substitute a fallback.
-    let createNodeTypeResolver
-        (snapshot: Snapshot)
-        (functionEntity: SemanticFunction)
-        : GraphNodeId -> TypeRef option =
+    type private SnapshotTypeIndex =
+        { Functions: Map<FunctionId, SemanticFunction>
+          CapabilityOperations: Map<CapabilityOperationId, SemanticCapabilityOperation>
+          ProductFields: Map<FieldId, SemanticField>
+          Variants: Map<VariantId, TypeId> }
+
+    let private indexSnapshot (snapshot: Snapshot): SnapshotTypeIndex =
         let functionsById =
             snapshot.Functions
             |> List.map (fun item -> item.Id, item)
@@ -172,6 +172,17 @@ module SemanticFacts =
                     variants |> List.map (fun variant -> variant.Id, typeEntity.Id))
             |> Map.ofList
 
+        { Functions = functionsById
+          CapabilityOperations = capabilityOperationsById
+          ProductFields = productFieldsById
+          Variants = variantsById }
+
+    let private createResolver
+        (index: SnapshotTypeIndex)
+        (functionEntity: SemanticFunction)
+        : GraphNodeId -> TypeRef option =
+        // These indexes and the memo belong to this function only. In particular,
+        // an invalid graph reusing another function's node IDs cannot borrow types.
         let nodesById =
             ValueGraph.collectNodes functionEntity.Body
             |> List.map (fun node -> node.Id, node)
@@ -187,7 +198,19 @@ module SemanticFacts =
             |> List.map (fun binding -> binding.Id, binding)
             |> Map.ofList
 
+        let resolvedTypes = System.Collections.Generic.Dictionary<GraphNodeId, TypeRef option>()
+
         let rec tryNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
+            match resolvedTypes.TryGetValue nodeId with
+            | true, result -> result
+            | false, _ ->
+                let result = inferNodeType visiting nodeId
+                // Cache failures as well: shared invalid subgraphs otherwise have
+                // the same exponential traversal cost as shared valid subgraphs.
+                resolvedTypes[nodeId] <- result
+                result
+
+        and inferNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
             if Set.contains nodeId visiting then
                 None
             else
@@ -258,23 +281,23 @@ module SemanticFacts =
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
                         | _ -> None
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId functionsById with
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ mapper.ResultType ]))
                         | _ -> None
                     | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
-                        Map.tryFind targetFunctionId functionsById
+                        Map.tryFind targetFunctionId index.Functions
                         |> Option.map (fun target -> target.ResultType)
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
-                        Map.tryFind operationId capabilityOperationsById
+                        Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)
                     | SemanticNodeKind.ProductConstruct(typeId, _) ->
                         Some(TypeRef.Named typeId)
                     | SemanticNodeKind.FieldAccess(_, fieldId) ->
-                        Map.tryFind fieldId productFieldsById
+                        Map.tryFind fieldId index.ProductFields
                         |> Option.map (fun field -> field.Type)
                     | SemanticNodeKind.UnionConstruct(variantId, _) ->
-                        Map.tryFind variantId variantsById
+                        Map.tryFind variantId index.Variants
                         |> Option.map TypeRef.Named
                     | SemanticNodeKind.OptionNone itemType ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
@@ -302,7 +325,27 @@ module SemanticFacts =
                     | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
                         commonType [ graphResultType okArm.Body; graphResultType errArm.Body ]
 
-        tryNodeType Set.empty
+        // Keep concurrent calls to the public resolver safe without sharing
+        // mutable memo state between different function resolvers.
+        fun nodeId -> lock resolvedTypes (fun () -> tryNodeType Set.empty nodeId)
+
+    /// Builds snapshot-wide indexes once for a validation/projection pass. Each
+    /// function gets its own memoized resolver. No cache is keyed by SnapshotId:
+    /// edited snapshots may retain an ID while carrying different declarations.
+    let internal createNodeTypeResolverFactory
+        (snapshot: Snapshot)
+        : SemanticFunction -> GraphNodeId -> TypeRef option =
+        let index = indexSnapshot snapshot
+        fun functionEntity -> createResolver index functionEntity
+
+    /// Creates one type resolver for a function. The resolver uses only semantic
+    /// facts in the supplied snapshot and returns None when the graph is not
+    /// sufficiently valid to derive a type. Callers must not substitute a fallback.
+    let createNodeTypeResolver
+        (snapshot: Snapshot)
+        (functionEntity: SemanticFunction)
+        : GraphNodeId -> TypeRef option =
+        createNodeTypeResolverFactory snapshot functionEntity
 
     let nodeTypes
         (snapshot: Snapshot)
