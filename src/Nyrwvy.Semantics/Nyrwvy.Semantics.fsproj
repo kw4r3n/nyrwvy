@@ -3,32 +3,34 @@
     <InternalsVisibleTo Include="Nyrwvy.Execution" />
     <InternalsVisibleTo Include="Nyrwvy.Core.Tests" />
     <InternalsVisibleTo Include="Nyrwvy.Extended.Tests" />
+    <InternalsVisibleTo Include="Nyrwvy.AgentEval.Structural" />
+    <InternalsVisibleTo Include="Nyrwvy.AgentEval.ListMapStructural" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../Nyrwvy.Core/StableId.fs" Link="StableId.fs" />
-    <Compile Include="../Nyrwvy.Core/StableIdAllocator.fs" Link="StableIdAllocator.fs" />
-    <Compile Include="../Nyrwvy.Core/Foundation.fs" Link="Foundation.fs" />
-    <Compile Include="../Nyrwvy.Core/SnapshotComputationScope.fs" Link="SnapshotComputationScope.fs" />
-    <Compile Include="../Nyrwvy.Core/SemanticFacts.fs" Link="SemanticFacts.fs" />
-    <Compile Include="../Nyrwvy.Core/SemanticQuery.fs" Link="SemanticQuery.fs" />
-    <Compile Include="../Nyrwvy.Core/Validation.fs" Link="Validation.fs" />
-    <Compile Include="../Nyrwvy.Core/SnapshotCodec.fs" Link="SnapshotCodec.fs" />
-    <Compile Include="../Nyrwvy.Core/Fingerprint.fs" Link="Fingerprint.fs" />
-    <Compile Include="../Nyrwvy.Core/NyasonSyntax.fs" Link="NyasonSyntax.fs" />
-    <Compile Include="../Nyrwvy.Core/NyasonCodec.fs" Link="NyasonCodec.fs" />
-    <Compile Include="../Nyrwvy.Core/Readiness.fs" Link="Readiness.fs" />
-    <Compile Include="../Nyrwvy.Core/Transactions.fs" Link="Transactions.fs" />
-    <Compile Include="../Nyrwvy.Core/Workspace.fs" Link="Workspace.fs" />
-    <Compile Include="../Nyrwvy.Core/ChangeReviewQuery.fs" Link="ChangeReviewQuery.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentWorkflow.fs" Link="AgentWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentTypeDeclarationWorkflow.fs" Link="AgentTypeDeclarationWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentEffectDeclarationWorkflow.fs" Link="AgentEffectDeclarationWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentCapabilityDeclarationWorkflow.fs" Link="AgentCapabilityDeclarationWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentStructuralWorkflow.fs" Link="AgentStructuralWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentFieldlessUnionVariantEvolutionWorkflow.fs" Link="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentExpressionStructuralWorkflow.fs" Link="AgentExpressionStructuralWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentParameterTypeMigrationWorkflow.fs" Link="AgentParameterTypeMigrationWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentPureExpressionStructuralWorkflow.fs" Link="AgentPureExpressionStructuralWorkflow.fs" />
-    <Compile Include="../Nyrwvy.Core/AgentListMapStructuralWorkflow.fs" Link="AgentListMapStructuralWorkflow.fs" />
+    <Compile Include="StableId.fs" />
+    <Compile Include="StableIdAllocator.fs" />
+    <Compile Include="Foundation.fs" />
+    <Compile Include="SnapshotComputationScope.fs" />
+    <Compile Include="SemanticFacts.fs" />
+    <Compile Include="SemanticQuery.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="SnapshotCodec.fs" />
+    <Compile Include="Fingerprint.fs" />
+    <Compile Include="NyasonSyntax.fs" />
+    <Compile Include="NyasonCodec.fs" />
+    <Compile Include="Readiness.fs" />
+    <Compile Include="Transactions.fs" />
+    <Compile Include="Workspace.fs" />
+    <Compile Include="ChangeReviewQuery.fs" />
+    <Compile Include="AgentWorkflow.fs" />
+    <Compile Include="AgentTypeDeclarationWorkflow.fs" />
+    <Compile Include="AgentEffectDeclarationWorkflow.fs" />
+    <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
+    <Compile Include="StructuralContracts.fs" />
+    <Compile Include="StructuralTransactionInternals.fs" />
+    <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
+    <Compile Include="AgentExpressionStructuralWorkflow.fs" />
+    <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
+    <Compile Include="AgentPureExpressionStructuralWorkflow.fs" />
   </ItemGroup>
 </Project>

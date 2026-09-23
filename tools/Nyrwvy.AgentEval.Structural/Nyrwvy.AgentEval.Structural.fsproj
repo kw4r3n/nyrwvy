@@ -3,6 +3,7 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="AgentStructuralWorkflow.fs" />
     <Compile Include="../Nyrwvy.AgentEval/ArtifactPermissions.fs" Link="ArtifactPermissions.fs" />
     <Compile Include="StructuralHarnessBindings.fs" />
     <Compile Include="StructuralVerification.fs" />

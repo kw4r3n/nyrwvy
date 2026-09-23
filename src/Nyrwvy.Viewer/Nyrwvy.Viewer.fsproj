@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <Compile Include="../Nyrwvy.Core/ViewerModel.fs" Link="ViewerModel.fs" />
-    <Compile Include="../Nyrwvy.Core/ViewerHtml.fs" Link="ViewerHtml.fs" />
-    <Compile Include="../Nyrwvy.Core/ViewerArtifact.fs" Link="ViewerArtifact.fs" />
+    <Compile Include="ViewerModel.fs" />
+    <Compile Include="ViewerHtml.fs" />
+    <Compile Include="ViewerArtifact.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
