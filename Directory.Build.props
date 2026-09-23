@@ -1,0 +1,7 @@
+<Project>
+  <!-- Keep generated C# consumers independent of the F# build policy. -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.fsproj'">
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

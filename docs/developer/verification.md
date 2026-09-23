@@ -9,6 +9,25 @@ Nyrwvy is both an implementation project and an experimental investigation into 
 
 The second job can justify expensive controlled experiments. It does not make those experiments a routine cost for every later feature.
 
+## Reproducible tooling and shell checks
+
+The exact .NET SDK is selected by [`global.json`](../../global.json), with
+roll-forward disabled and prerelease SDKs excluded. CI uses that same file.
+Upgrade the SDK pin deliberately and verify the build/tests with that version.
+[`Directory.Build.props`](../../Directory.Build.props) owns the shared F# target
+framework and warnings-as-errors policy; project-specific executable/test flags
+remain in their projects. Generated C# projects do not inherit this F# policy.
+
+The verification entry points require fish 3.4+ and Node 22.6+. CI executes
+`fish scripts/test-fast.fish --no-build --no-restore` once after building and
+installing the locked Node dependencies, rather than repeating its suites.
+It also syntax-checks every tracked `.fish` file and runs the offline
+`scripts/tests/m2-listmap-evaluation-summary.test.fish` contract. The
+`test-extended.fish` wrapper remains opt-in. Exploratory/live runner and preflight
+scripts, freeze-ref materialization, and historical evaluation helpers are
+syntax-checked only; discovering a `.fish` file does not authorize executing a
+model, changing Git refs, or running frozen workloads in routine CI.
+
 ## Evidence is reusable
 
 A completed experiment establishes evidence under a set of assumptions. Reuse that evidence until a later change materially invalidates those assumptions.

@@ -1,8 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Nyrwvy.Core/TypedSemanticIr.fs" Link="TypedSemanticIr.fs" />
     <Compile Include="../Nyrwvy.Core/AgentExecution.fs" Link="AgentExecution.fs" />

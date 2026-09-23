@@ -57,7 +57,7 @@ The write-side goal is an adequate AI graph-editing toolset, not a natural-langu
 
 ## Build and verify
 
-The repository uses the .NET 10 SDK and Node 22 for the small tool and verification-script tests. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
+Install the exact .NET SDK selected by [`global.json`](global.json) (currently 10.0.112), Node 22.6+ and fish 3.4+ for the verification entry points. SDK roll-forward is disabled so local and CI builds use the same compiler; SDK patch updates are explicit repository changes. Shared F# settings live in `Directory.Build.props`. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 ./scripts/test-fast.fish
