@@ -158,10 +158,10 @@ const sessions = new Map<string, AuthoringClient>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
-  mode: "create" | "open", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
+  mode: "create" | "open" | "pin", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
 ): Promise<string> {
-  if (dependency !== undefined && (mode !== "create" || dependency.trim() === "")) {
-    throw new Error("dependency requires mode=create and a non-blank source snapshot path.")
+  if (dependency !== undefined && (mode === "open" || dependency.trim() === "")) {
+    throw new Error("dependency requires mode=create or mode=pin and a non-blank source snapshot path.")
   }
   if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
   const sessionKey = key(context)

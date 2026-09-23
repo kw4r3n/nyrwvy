@@ -152,14 +152,13 @@ module AuthoringSessionTests =
                 creationRequest policy "changed" [] int64Type (ExpressionRecipe.Int64Literal 0L)
                 |> simulateCreation policy
             commit policy change |> ignore
-            match plannerBeforePolicyUpdate.Commit(pending.ProposalId, CommitPolicy.RejectBlockingObligations) with
-            | Error(AuthoringSessionError.DependencyFailure _) -> ()
-            | other -> failwithf "Commit against changed dependency succeeded: %A" other
+            // The selected content is now retained in the sidecar, not a mutable
+            // source path. An unrelated upstream commit cannot invalidate it.
+            commit plannerBeforePolicyUpdate pending |> ignore
             plannerBeforePolicyUpdate.Close()
-            match AuthoringSession.openExisting plannerPath with
-            | Error(AuthoringSessionError.DependencyFailure _) -> ()
-            | Ok session -> session.Close(); failwith "Changed dependency was accepted."
-            | Error error -> failwithf "Unexpected dependency failure: %A" error
+            use afterPolicyUpdate = openSession plannerPath
+            Assert.DoesNotContain(afterPolicyUpdate.Declarations().Functions, fun item -> item.DisplayName = "changed")
+            Assert.Contains(afterPolicyUpdate.Declarations().Functions, fun item -> item.DisplayName = "pending")
         finally
             Directory.Delete(root, true)
 

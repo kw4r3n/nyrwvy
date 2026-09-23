@@ -144,6 +144,8 @@ test("MCP creates and reopens a pinned dependency with relative paths and read-o
     await call(client, "open", { mode: "create", snapshot: "planner.json", workspace, dependency: "policy.json" })
     const selection = (await call(client, "request", { op: "dependency", arguments: {} })).result
     assert.equal(selection.selection.path, join(workspace, "policy.json"))
+    assert.equal(selection.selection.storage, "embedded")
+    assert.equal(selection.selection.snapshotJson, undefined)
     const before = (await call(client, "inspect", { view: "status" })).result
     const importedEdit = await failed(client, "replace", { function: "policy", replacement: bool(false) })
     assert.match(JSON.stringify(importedEdit.structuredContent), /ImportedDeclarationModified/)
@@ -161,6 +163,11 @@ test("MCP creates and reopens a pinned dependency with relative paths and read-o
     assert.equal(stored.functions[0].id, local.review.createdFunction.id)
     assert.equal(await readFile(join(workspace, "policy.json"), "utf8"), source)
     await call(client, "close")
+    await call(client, "open", { mode: "open", snapshot: "policy.json", workspace })
+    const upstream = (await call(client, "create_function", { displayName: "new_upstream", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(false) })).result
+    await call(client, "commit", { proposalId: upstream.proposalId })
+    await call(client, "close")
     await call(client, "open", { mode: "open", snapshot: "planner.json", workspace })
     assert.equal((await call(client, "inspect", { view: "declarations" })).result.functions.length, 2)
     assert.equal((await call(client, "request", { op: "executionReadiness", arguments: {} })).result.kind, "ready")
@@ -168,6 +175,19 @@ test("MCP creates and reopens a pinned dependency with relative paths and read-o
 
     // Exercise the reported null-path crash through the real process boundary.
     const manifestFile = localFile + ".dependency.json"
+    // Reproduce the old source-only format and recover through the real pin CLI
+    // mode exposed by MCP. A different upstream version cannot be substituted.
+    const { snapshotJson, ...legacyManifest } = JSON.parse(await readFile(manifestFile, "utf8"))
+    assert.equal(typeof snapshotJson, "string")
+    await writeFile(manifestFile, JSON.stringify(legacyManifest))
+    await writeFile(join(workspace, "original-policy.json"), source)
+    const localBytes = await readFile(localFile, "utf8")
+    await failed(client, "open", { mode: "open", snapshot: "planner.json", workspace })
+    await failed(client, "open", { mode: "pin", snapshot: "planner.json", workspace, dependency: "policy.json" })
+    await call(client, "open", { mode: "pin", snapshot: "planner.json", workspace, dependency: "original-policy.json" })
+    assert.equal((await call(client, "inspect", { view: "declarations" })).result.functions.length, 2)
+    assert.equal(await readFile(localFile, "utf8"), localBytes)
+    await call(client, "close")
     const manifest = await readFile(manifestFile, "utf8")
     await writeFile(manifestFile, JSON.stringify({ ...JSON.parse(manifest), path: null }))
     const invalid = await failed(client, "open", { mode: "open", snapshot: "planner.json", workspace })

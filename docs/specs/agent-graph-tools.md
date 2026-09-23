@@ -24,7 +24,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 | Tool | Role |
 | --- | --- |
-| `nyrwvy_open` | Explicit `create` or `open`; optional `dependency` selects a complete standalone source on creation only. Relative snapshot/dependency paths use the selected workspace or worktree. |
+| `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot; omit `kind` for a compact index. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
@@ -49,7 +49,7 @@ For example, a function proposal takes these arguments directly:
 }
 ```
 
-To create against a pinned source, use `nyrwvy_open` with `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}`. The source must be complete and standalone; imported declarations can be inspected/referenced but not edited. Reopen with only `mode: "open"` and the local snapshot path. A dependency argument on reopen is rejected, not silently ignored or used to change the pin. Dependency-update/relocation limitations are documented in the [session contract](agent-authoring-session.md#pinned-snapshot-dependency-one-level).
+To create against a pinned source, use `nyrwvy_open` with `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}`. The source must be complete and standalone; its exact content is retained in a sidecar, so later source changes do not change or invalidate the pin. Imported declarations can be inspected/referenced but not edited. Reopen with only `mode: "open"` and the local path; clone/move both the local graph and its sidecar together. For an old source-only selection, use `mode: "pin"` and optionally `dependency` pointing to an exact original copy. Pin only migrates/repairs storage, never upgrades the selected version. A dependency argument on ordinary open is rejected. See the [session contract](agent-authoring-session.md#pinned-snapshot-dependency-one-level).
 
 After reviewing the returned `createdFunction` and receipt, pass its exact `proposalId` to `nyrwvy_commit`. No declaration IDs are supplied for this creation. Existing IDs remain visible in the result and can be used through `nyrwvy_request` when exact identity matters.
 
