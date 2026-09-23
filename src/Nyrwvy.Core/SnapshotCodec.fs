@@ -633,10 +633,13 @@ module SnapshotCodec =
         writer.Flush()
         Encoding.UTF8.GetString(stream.ToArray())
 
-    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> =
-        match SnapshotValidator.validate snapshot with
-        | [] -> Ok(writeSnapshot None snapshot)
-        | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
+    let private serializeCached: Snapshot -> Result<string, SnapshotCodecError> =
+        SnapshotComputationScope.Memoize("serialization", fun snapshot ->
+            match SnapshotValidator.validate snapshot with
+            | [] -> Ok(writeSnapshot None snapshot)
+            | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
+
+    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
 
     /// The imported declarations retain their original IDs; duplicate IDs are
     /// rejected by the ordinary snapshot validator before any local publication.

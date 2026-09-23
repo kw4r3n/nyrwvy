@@ -152,7 +152,7 @@ module SnapshotValidator =
         | Some _ :: _
         | None :: _ -> None
 
-    let validate (snapshot: Snapshot): ValidationIssue list =
+    let private validateUncached (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
         let add code message = issues.Add({ Code = code; Message = message })
 
@@ -1132,3 +1132,6 @@ module SnapshotValidator =
         issues
         |> Seq.sortBy (fun issue -> issue.Code, issue.Message)
         |> List.ofSeq
+
+    let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached)
+    let validate (snapshot: Snapshot): ValidationIssue list = validateCached snapshot

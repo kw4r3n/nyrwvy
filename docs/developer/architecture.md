@@ -132,6 +132,19 @@ Nyrwvy distinguishes at least four classes of failure/state:
 
 See the [failure and obligation policy](../specs/failure-obligation-policy.md) for the maintained classification rules.
 
+### Request-scoped derived facts
+
+`SnapshotComputationScope` can reuse validation, canonical serialization and
+fingerprints for the exact same immutable snapshot object during a synchronous
+request/pass. AuthoringSession and its JSONL adapter establish this scope;
+nested calls share it and disposal clears retained snapshots. It is not a global
+snapshot-ID cache. Different snapshot objects still undergo full validation,
+including commit re-simulation results and semantic-fingerprint normalization.
+No-scope callers use the uncached oracle. External-file/dependency checks and
+publication I/O are never memoized. Optional measurement/reuse-disable controls
+support the [authoring profiling probe](../../scripts/measure-authoring-passes.fsx),
+not a semantic-validation bypass.
+
 ## Identity
 
 Production stable IDs are typed semantic identities. Their current payload and textual contract are documented in the [stable-ID reference](../reference/stable-ids.md).

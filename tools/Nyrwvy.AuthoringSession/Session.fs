@@ -124,7 +124,7 @@ module private SessionStorage =
         | :? IOException
         | :? UnauthorizedAccessException -> ()
 
-    let createAtomically (path: string) (content: string): Result<unit, AuthoringSessionError> =
+    let private createAtomicallyCore (path: string) (content: string): Result<unit, AuthoringSessionError> =
         match writeTemporary path content with
         | Error error -> Error error
         | Ok tempPath ->
@@ -139,7 +139,7 @@ module private SessionStorage =
                 cleanupTemporary tempPath
                 Error(AuthoringSessionError.IoFailure error.Message)
 
-    let replaceAtomically (path: string) (content: string): Result<unit, AuthoringSessionError> =
+    let private replaceAtomicallyCore (path: string) (content: string): Result<unit, AuthoringSessionError> =
         match writeTemporary path content with
         | Error error -> Error error
         | Ok tempPath ->
@@ -153,6 +153,12 @@ module private SessionStorage =
             | :? UnauthorizedAccessException as error ->
                 cleanupTemporary tempPath
                 Error(AuthoringSessionError.IoFailure error.Message)
+
+    let createAtomically path content =
+        SnapshotComputationScope.Measure("persistence.create", fun () -> createAtomicallyCore path content)
+
+    let replaceAtomically path content =
+        SnapshotComputationScope.Measure("persistence.replace", fun () -> replaceAtomicallyCore path content)
 
     let ensureParentDirectory (path: string): Result<unit, AuthoringSessionError> =
         try
@@ -360,6 +366,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.DependencySelection = selection |> Option.map PinnedDependency.describe
 
     member _.Status(): Result<AuthoringSessionStatus, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match AgentWorkspace.currentSnapshotFingerprint workspace with
         | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
         | Ok snapshotFingerprint ->
@@ -385,6 +392,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.GetUses(functionId, nodeId) = AgentWorkspace.getUses workspace functionId nodeId
 
     member _.SimulateOperations(operations: AgentOperationIntent list): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -394,6 +402,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentChangeProposal.transactionId proposal) (PendingProposal.Operations proposal) (AuthoringProposalReview.Operations(AgentChangeProposal.review proposal))
 
     member _.SimulateReplaceBody(request: AgentReplaceFunctionBodyWithExpressionRecipe): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -403,6 +412,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentExpressionStructuralChangeProposal.transactionId proposal) (PendingProposal.ReplaceBody proposal) (AuthoringProposalReview.ReplaceBody(AgentExpressionStructuralChangeProposal.review proposal))
 
     member _.SimulateReplaceTarget(request: AgentExpressionStructuralWorkflow.Targeted.Request): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -412,6 +422,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentExpressionStructuralWorkflow.Targeted.Proposal.transactionId proposal) (PendingProposal.ReplaceTarget proposal) (AuthoringProposalReview.ReplaceTarget(AgentExpressionStructuralWorkflow.Targeted.Proposal.review proposal))
 
     member _.SimulateCreateFunction(request: AgentExpressionStructuralWorkflow.FunctionCreation.Request): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -421,6 +432,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.transactionId proposal) (PendingProposal.CreateFunction proposal) (AuthoringProposalReview.CreateFunction(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review proposal))
 
     member _.SimulateParameterTypeMigration(request: AgentParameterTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -430,6 +442,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentParameterTypeMigrationProposal.transactionId proposal) (PendingProposal.ParameterTypeMigration proposal) (AuthoringProposalReview.ParameterTypeMigration(AgentParameterTypeMigrationProposal.review proposal))
 
     member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -439,6 +452,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentTypeDeclarationProposal.transactionId proposal) (PendingProposal.CreateType proposal) (AuthoringProposalReview.CreateType(AgentTypeDeclarationProposal.review proposal))
 
     member _.SimulateAddFieldlessUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -453,6 +467,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     ))
 
     member _.SimulateCreateEffect(request: AgentCreateEffectDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -462,6 +477,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentEffectDeclarationProposal.transactionId proposal) (PendingProposal.CreateEffect proposal) (AuthoringProposalReview.CreateEffect(AgentEffectDeclarationProposal.review proposal))
 
     member _.SimulateCreateCapability(request: AgentCreateCapabilityDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -471,6 +487,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 register (AgentCapabilityDeclarationProposal.transactionId proposal) (PendingProposal.CreateCapability proposal) (AuthoringProposalReview.CreateCapability(AgentCapabilityDeclarationProposal.review proposal))
 
     member _.Commit(proposalId: string, policy: CommitPolicy): Result<AuthoringCommitReceipt, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
@@ -541,6 +558,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 Ok { TransactionId = transactionId; RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
 
     member _.ProjectExecution(): Result<ExecutionProgram, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         match AgentExecution.projectTypedSemanticIr workspace with
         | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
         | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure
@@ -573,6 +591,7 @@ module AuthoringSession =
             |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
 
     let private openUsing (path: string) pin sourceOverride: Result<AuthoringSession, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
         if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
         else
@@ -610,6 +629,7 @@ module AuthoringSession =
     let pinExistingDependency path sourceOverride = openUsing path true sourceOverride
 
     let createNewWithDependency (path: string) (dependencyPath: string option): Result<AuthoringSession, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
         match SessionStorage.ensureParentDirectory path with
         | Error error -> Error error

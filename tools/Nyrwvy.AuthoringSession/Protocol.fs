@@ -105,6 +105,7 @@ module AuthoringProtocol =
           Replacement = recipe (property "replacement" item) }
 
     let executeLine (session: AuthoringSession) line =
+        use _scope = SnapshotComputationScope.Start()
         let mutable requestId: string = null
         try
             use document = parseDocument line

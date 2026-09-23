@@ -8,6 +8,7 @@
     <Compile Include="../Nyrwvy.Core/StableId.fs" Link="StableId.fs" />
     <Compile Include="../Nyrwvy.Core/StableIdAllocator.fs" Link="StableIdAllocator.fs" />
     <Compile Include="../Nyrwvy.Core/Foundation.fs" Link="Foundation.fs" />
+    <Compile Include="../Nyrwvy.Core/SnapshotComputationScope.fs" Link="SnapshotComputationScope.fs" />
     <Compile Include="../Nyrwvy.Core/SemanticFacts.fs" Link="SemanticFacts.fs" />
     <Compile Include="../Nyrwvy.Core/SemanticQuery.fs" Link="SemanticQuery.fs" />
     <Compile Include="../Nyrwvy.Core/Validation.fs" Link="Validation.fs" />
