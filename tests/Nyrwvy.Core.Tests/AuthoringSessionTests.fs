@@ -75,6 +75,98 @@ module AuthoringSessionTests =
         |> List.find (fun functionEntity -> functionEntity.Id = functionId)
 
     [<Fact>]
+    let ``pinned dependency permits reviewed foreign calls without persisting imported declarations`` () =
+        let root = tempDirectory ()
+        let policyPath = Path.Combine(root, "policy.json")
+        let plannerPath = Path.Combine(root, "planner.json")
+        try
+            let policyId, policyParameterId =
+                use policy = createSession policyPath
+                let proposal =
+                    creationRequest policy "policy" [ parameter "input" int64Type ] int64Type (ExpressionRecipe.ParameterSlot 0)
+                    |> simulateCreation policy
+                let created = createdFunction proposal
+                commit policy proposal |> ignore
+                created.Id, created.Parameters.Head.Id
+
+            let imported =
+                match SnapshotCodec.deserialize (File.ReadAllText(policyPath)) with
+                | Ok snapshot -> snapshot
+                | Error error -> failwithf "Invalid policy fixture: %A" error
+            let collision = { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with Functions = imported.Functions }
+            match SnapshotCodec.serializeResolved imported collision with
+            | Error(SnapshotCodecError.InvalidSnapshot issues) ->
+                Assert.Contains(issues, fun issue -> issue.Code = "DuplicateFunctionId")
+            | other -> failwithf "Imported identity collision accepted: %A" other
+
+            let plannerId =
+                use planner =
+                    match AuthoringSession.createNewWithDependency plannerPath (Some policyPath) with
+                    | Ok value -> value
+                    | Error error -> failwithf "Dependency creation failed: %A" error
+                Assert.Contains(planner.Declarations().Functions, fun item -> item.Id = policyId)
+                let proposal =
+                    creationRequest planner "plan" [ parameter "input" int64Type ] int64Type
+                        (ExpressionRecipe.DirectCall(policyId, [ policyParameterId, ExpressionRecipe.ParameterSlot 0 ]))
+                    |> simulateCreation planner
+                let id = (createdFunction proposal).Id
+                commit planner proposal |> ignore
+                id
+
+            let localSource = File.ReadAllText(plannerPath)
+            Assert.Contains(StableId.value policyId, localSource) // A reference, not a copied declaration.
+            use stored = JsonDocument.Parse(localSource)
+            Assert.Equal(1, stored.RootElement.GetProperty("functions").GetArrayLength())
+            match SnapshotCodec.deserialize localSource with
+            | Error(SnapshotCodecError.InvalidShape _) -> ()
+            | other -> failwithf "Standalone local snapshot unexpectedly validated: %A" other
+            use reopened = openSession plannerPath
+            Assert.Contains(reopened.Declarations().Functions, fun item -> item.Id = policyId)
+            Assert.Contains(reopened.Declarations().Functions, fun item -> item.Id = plannerId)
+            match reopened.ProjectExecution() with
+            | Ok program -> Assert.Equal(2, program.Functions.Length)
+            | Error error -> failwithf "Dependency did not lower: %A" error
+            let original = File.ReadAllText(plannerPath)
+            match reopened.SimulateOperations([ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function policyId, "hijacked") ]) with
+            | Error error -> failwithf "Unexpected simulation error: %A" error
+            | Ok proposal ->
+                match reopened.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+                | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->
+                    Assert.Contains(issues, fun issue -> issue.Code = "ImportedDeclarationModified")
+                | other -> failwithf "Imported declaration edit was published: %A" other
+            Assert.Equal(original, File.ReadAllText(plannerPath))
+            reopened.Close()
+
+            let manifestPath = plannerPath + ".dependency.json"
+            let manifest = File.ReadAllText(manifestPath)
+            File.Delete(manifestPath)
+            match AuthoringSession.openExisting plannerPath with
+            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | Ok session -> session.Close(); failwith "Removed dependency manifest was accepted."
+            | Error error -> failwithf "Unexpected missing-manifest error: %A" error
+            File.WriteAllText(manifestPath, manifest)
+
+            use plannerBeforePolicyUpdate = openSession plannerPath
+            let pending =
+                creationRequest plannerBeforePolicyUpdate "pending" [] int64Type (ExpressionRecipe.Int64Literal 0L)
+                |> simulateCreation plannerBeforePolicyUpdate
+            use policy = openSession policyPath
+            let change =
+                creationRequest policy "changed" [] int64Type (ExpressionRecipe.Int64Literal 0L)
+                |> simulateCreation policy
+            commit policy change |> ignore
+            match plannerBeforePolicyUpdate.Commit(pending.ProposalId, CommitPolicy.RejectBlockingObligations) with
+            | Error(AuthoringSessionError.DependencyFailure _) -> ()
+            | other -> failwithf "Commit against changed dependency succeeded: %A" other
+            plannerBeforePolicyUpdate.Close()
+            match AuthoringSession.openExisting plannerPath with
+            | Error(AuthoringSessionError.DependencyFailure _) -> ()
+            | Ok session -> session.Close(); failwith "Changed dependency was accepted."
+            | Error error -> failwithf "Unexpected dependency failure: %A" error
+        finally
+            Directory.Delete(root, true)
+
+    [<Fact>]
     let ``durable session creates helper and caller reopens identities and preserves unrelated IDs on nested replacement`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

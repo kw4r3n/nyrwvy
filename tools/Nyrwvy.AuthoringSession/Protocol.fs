@@ -123,6 +123,13 @@ module AuthoringProtocol =
                 match session.Status() with
                 | Ok value -> success requestId (WireEncode.status value)
                 | Error error -> sessionFailure requestId error
+            | "dependency" ->
+                ensureFields "dependency request" [ "id"; "op" ] [ "id"; "op" ] root
+                match session.DependencySelection with
+                | None -> success requestId (objectValue [ "selection", null ])
+                | Some manifest ->
+                    let selected = JsonSerializer.Deserialize<JsonElement>(manifest)
+                    success requestId (objectValue [ "selection", box selected ])
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))

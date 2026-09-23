@@ -313,6 +313,7 @@ module internal WireEncode =
             | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
             | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
             | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
+            | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
         match details with
         | None -> objectValue [ "code", box code; "message", box message ]
         | Some detail -> objectValue [ "code", box code; "message", box message; "details", detail ]

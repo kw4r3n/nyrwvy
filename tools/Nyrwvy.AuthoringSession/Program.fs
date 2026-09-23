@@ -9,12 +9,13 @@ type private StartupMode =
     | Create
 
 module private CommandLine =
-    let usage = "Usage: Nyrwvy.AuthoringSession <open|create> --snapshot <snapshot-path>"
+    let usage = "Usage: Nyrwvy.AuthoringSession <open|create> --snapshot <snapshot-path> [--dependency <snapshot-path> (create only)]"
 
-    let parse (arguments: string list): Result<StartupMode * string, string> =
+    let parse (arguments: string list): Result<StartupMode * string * string option, string> =
         match arguments with
-        | [ "open"; "--snapshot"; path ] -> Ok(StartupMode.Open, path)
-        | [ "create"; "--snapshot"; path ] -> Ok(StartupMode.Create, path)
+        | [ "open"; "--snapshot"; path ] -> Ok(StartupMode.Open, path, None)
+        | [ "create"; "--snapshot"; path ] -> Ok(StartupMode.Create, path, None)
+        | [ "create"; "--snapshot"; path; "--dependency"; dependency ] -> Ok(StartupMode.Create, path, Some dependency)
         | _ -> Error usage
 
 [<EntryPoint>]
@@ -23,11 +24,11 @@ let main argv =
     | Error error ->
         Console.Error.WriteLine(error)
         2
-    | Ok(mode, path) ->
+    | Ok(mode, path, dependency) ->
         let result =
             match mode with
             | StartupMode.Open -> AuthoringSession.openExisting path
-            | StartupMode.Create -> AuthoringSession.createNew path
+            | StartupMode.Create -> AuthoringSession.createNewWithDependency path dependency
         match result with
         | Error error ->
             Console.Error.WriteLine(sprintf "%A" error)

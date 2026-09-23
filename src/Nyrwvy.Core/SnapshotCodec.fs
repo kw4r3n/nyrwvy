@@ -593,12 +593,19 @@ module SnapshotCodec =
             writer.WriteString("resolutionValueNodeId", StableId.value resolution.ValueNodeId)
         writer.WriteEndObject()
 
-    let private writeSnapshot (snapshot: Snapshot) =
+    let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream)
         writer.WriteStartObject()
         writer.WriteNumber("schemaVersion", schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
+        match dependencyMarker with
+        | Some(id, fingerprint) ->
+            writer.WriteStartObject("dependency")
+            writer.WriteString("snapshotId", id)
+            writer.WriteString("digest", fingerprint)
+            writer.WriteEndObject()
+        | None -> ()
         match snapshot.ParentId with
         | Some parentId -> writer.WriteString("parentSnapshotId", StableId.value parentId)
         | None -> ()
@@ -628,8 +635,32 @@ module SnapshotCodec =
 
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> =
         match SnapshotValidator.validate snapshot with
-        | [] -> Ok(writeSnapshot snapshot)
+        | [] -> Ok(writeSnapshot None snapshot)
         | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
+
+    /// The imported declarations retain their original IDs; duplicate IDs are
+    /// rejected by the ordinary snapshot validator before any local publication.
+    let resolveDependency (dependency: Snapshot) (local: Snapshot): Snapshot =
+        { local with
+            Types = dependency.Types @ local.Types
+            Effects = dependency.Effects @ local.Effects
+            Capabilities = dependency.Capabilities @ local.Capabilities
+            Functions = dependency.Functions @ local.Functions
+            Obligations = dependency.Obligations @ local.Obligations }
+
+    let private dependencyDigest (dependency: Snapshot) =
+        writeSnapshot None dependency
+        |> Encoding.UTF8.GetBytes
+        |> System.Security.Cryptography.SHA256.HashData
+        |> Convert.ToHexString
+        |> fun value -> value.ToLowerInvariant()
+
+    /// Encode local declarations only after validating their resolved graph with the
+    /// selected dependency. The dependency is never written into the local snapshot.
+    let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
+        match SnapshotValidator.validate (resolveDependency dependency local) with
+        | issue :: rest -> Error(SnapshotCodecError.InvalidSnapshot(issue :: rest))
+        | [] -> Ok(writeSnapshot (Some(StableId.value dependency.Id, dependencyDigest dependency)) local)
 
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element
@@ -1036,18 +1067,24 @@ module SnapshotCodec =
                       ValueNodeId = readId<GraphNodeTag> "resolutionValueNodeId" element } }
         | value -> invalidShape $"Unsupported obligation status '{value}'."
 
-    let deserialize (json: string): Result<Snapshot, SnapshotCodecError> =
+    let private deserializeUsing (dependency: Snapshot option) (json: string): Result<Snapshot, SnapshotCodecError> =
         if isNull json then
             Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
         else
             try
                 use document = JsonDocument.Parse(json)
                 let root = document.RootElement
-                ensureProperties
-                    "Snapshot"
-                    (set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ])
-                    (set [ "schemaVersion"; "snapshotId"; "parentSnapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ])
-                    root
+                let required = set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ]
+                let allowed = Set.add "parentSnapshotId" required
+                match dependency with
+                | None -> ensureProperties "Snapshot" required allowed root
+                | Some imported ->
+                    ensureProperties "Resolved snapshot" (Set.add "dependency" required) (Set.add "dependency" allowed) root
+                    let marker = requireProperty "dependency" root
+                    ensureProperties "Dependency marker" (set [ "snapshotId"; "digest" ]) (set [ "snapshotId"; "digest" ]) marker
+                    if readString "snapshotId" marker <> StableId.value imported.Id
+                       || readString "digest" marker <> dependencyDigest imported then
+                        invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
                 if version <> schemaVersion then
                     Error(SnapshotCodecError.UnsupportedSchemaVersion version)
@@ -1064,7 +1101,11 @@ module SnapshotCodec =
                           Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
-                    match SnapshotValidator.validate snapshot with
+                    let resolved =
+                        match dependency with
+                        | None -> snapshot
+                        | Some imported -> resolveDependency imported snapshot
+                    match SnapshotValidator.validate resolved with
                     | [] -> Ok snapshot
                     | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
             with
@@ -1072,3 +1113,10 @@ module SnapshotCodec =
             | :? InvalidDataException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? ArgumentException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? KeyNotFoundException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
+
+    let deserialize (json: string): Result<Snapshot, SnapshotCodecError> =
+        deserializeUsing None json
+
+    /// Strict parsing and validation with an explicitly resolved dependency graph.
+    let deserializeResolved (dependency: Snapshot) (json: string): Result<Snapshot, SnapshotCodecError> =
+        deserializeUsing (Some dependency) json

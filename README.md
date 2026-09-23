@@ -45,7 +45,7 @@ Important boundaries include:
 
 ## AI graph authoring
 
-The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. No per-program Python/F#/C# authoring helper is required. Prepare the executable once:
+The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. For an independent workspace referencing a published snapshot, the JSON-lines executable also supports `create --snapshot <new-local-path> --dependency <source-snapshot-path>`; later use `open --snapshot <local-path>`. The read-only `dependency` operation shows the pinned provenance. Foreign declarations remain owned by the source and are not stored in the local snapshot. See [pinned snapshot dependency](docs/specs/agent-authoring-session.md#pinned-snapshot-dependency-one-level). No per-program Python/F#/C# authoring helper is required. Prepare the executable once:
 
 ```shell
 dotnet build tools/Nyrwvy.AuthoringSession --configuration Release

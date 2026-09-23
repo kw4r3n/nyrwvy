@@ -64,6 +64,10 @@ module AgentWorkspace =
         SemanticWorkspace.create initialSnapshot
         |> Result.map (fun workspace -> { Workspace = workspace })
 
+    /// Open a locally stored snapshot against a separately validated, pinned dependency.
+    let createResolved (dependency: Snapshot) (local: Snapshot): Result<AgentWorkspace, ValidationIssue list> =
+        create (SnapshotCodec.resolveDependency dependency local)
+
     let currentSnapshotId (workspace: AgentWorkspace): SnapshotId =
         SemanticWorkspace.currentSnapshot workspace.Workspace |> fun snapshot -> snapshot.Id
 
@@ -86,6 +90,28 @@ module AgentWorkspace =
         (workspace: AgentWorkspace)
         : Result<string, SnapshotCodecError> =
         snapshot workspace |> SnapshotCodec.serialize
+
+    /// Refuse publication if an imported declaration changed or disappeared. Only
+    /// locally owned declarations are persisted; no imported graph is copied.
+    let serializeWithDependency (dependency: Snapshot) (workspace: AgentWorkspace): Result<string, SnapshotCodecError> =
+        let combined = snapshot workspace
+        let importedIds items id = items |> List.map id |> Set.ofList
+        let split imported id items = items |> List.partition (fun item -> Set.contains (id item) imported)
+        let importedTypes, localTypes = split (importedIds dependency.Types (fun (item: SemanticType) -> item.Id)) (fun (item: SemanticType) -> item.Id) combined.Types
+        let importedEffects, localEffects = split (importedIds dependency.Effects (fun (item: SemanticEffect) -> item.Id)) (fun (item: SemanticEffect) -> item.Id) combined.Effects
+        let importedCapabilities, localCapabilities = split (importedIds dependency.Capabilities (fun (item: SemanticCapability) -> item.Id)) (fun (item: SemanticCapability) -> item.Id) combined.Capabilities
+        let importedFunctions, localFunctions = split (importedIds dependency.Functions (fun (item: SemanticFunction) -> item.Id)) (fun (item: SemanticFunction) -> item.Id) combined.Functions
+        let importedObligations, localObligations = split (importedIds dependency.Obligations (fun (item: MissingArgumentObligation) -> item.Id)) (fun (item: MissingArgumentObligation) -> item.Id) combined.Obligations
+        if importedTypes <> dependency.Types || importedEffects <> dependency.Effects
+           || importedCapabilities <> dependency.Capabilities || importedFunctions <> dependency.Functions
+           || importedObligations <> dependency.Obligations then
+            Error(SnapshotCodecError.InvalidSnapshot
+                [ { Code = "ImportedDeclarationModified"; Message = "A dependency declaration was modified or removed." } ])
+        else
+            SnapshotCodec.serializeResolved dependency
+                { combined with Types = localTypes; Effects = localEffects
+                                Capabilities = localCapabilities; Functions = localFunctions
+                                Obligations = localObligations }
 
     /// Read-only declaration discovery for the maintained authoring surface.
     let listFunctions (workspace: AgentWorkspace): SemanticFunction list =

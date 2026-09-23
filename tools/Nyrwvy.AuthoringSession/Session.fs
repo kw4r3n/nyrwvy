@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.IO
 open System.Text
+open System.Text.Json
 open Nyrwvy.Core
 
 [<RequireQualifiedAccess>]
@@ -27,6 +28,7 @@ type AuthoringSessionError =
     | SemanticProjectionFailure of TypedSemanticIrError
     | ExecutionLoweringFailure of ExecutionIrError
     | BackendFailure of CSharpBackendError
+    | DependencyFailure of string
 
 type AuthoringSessionStatus =
     { SnapshotId: SnapshotId
@@ -147,7 +149,7 @@ module private SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
-type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream) =
+type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream, dependency: Snapshot option, dependencyManifest: string option) =
     let proposals = Dictionary<string, PendingProposal>(StringComparer.Ordinal)
     let mutable workspace = initialWorkspace
     let mutable persistedSource = initialPersistedSource
@@ -164,14 +166,42 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         proposals.Add(proposalId, pending)
         { ProposalId = proposalId; Review = review }
 
+    let dependencyStillPinned () =
+        match dependency, dependencyManifest with
+        | Some imported, Some manifest ->
+            use document = JsonDocument.Parse(manifest)
+            let sourcePath = document.RootElement.GetProperty("path").GetString()
+            match SessionStorage.readText sourcePath with
+            | Error _ -> false
+            | Ok source ->
+                match SnapshotCodec.deserialize source with
+                | Error _ -> false
+                | Ok current ->
+                    match SnapshotFingerprint.compute current, SnapshotFingerprint.compute imported with
+                    | Ok actual, Ok expected -> actual = expected && current.Id = imported.Id
+                    | _ -> false
+        | _ -> true
+
     let persistCandidate candidate =
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
-            match AgentWorkspace.serializeCurrentSnapshot candidate with
+            let serialized =
+                match dependency with
+                | None -> AgentWorkspace.serializeCurrentSnapshot candidate
+                | Some imported -> AgentWorkspace.serializeWithDependency imported candidate
+            match serialized with
             | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
             | Ok candidateSource ->
-                if not (File.Exists path) then
+                let selectionChanged =
+                    dependencyManifest |> Option.exists (fun expected ->
+                        match SessionStorage.readText (path + ".dependency.json") with
+                        | Ok actual -> actual <> expected
+                        | Error _ -> true)
+                if selectionChanged || not (dependencyStillPinned ()) then
+                    invalidated <- true
+                    Error(AuthoringSessionError.DependencyFailure "The dependency selection changed outside this session.")
+                elif not (File.Exists path) then
                     invalidated <- true
                     Error AuthoringSessionError.ExternalModification
                 else
@@ -196,6 +226,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             Ok { TransactionId = transactionId; PublishedSnapshotId = publishedSnapshotId; Readiness = readiness }
 
     member _.Path = path
+    member _.DependencySelection = dependencyManifest
 
     member _.Status(): Result<AuthoringSessionStatus, AuthoringSessionError> =
         match AgentWorkspace.currentSnapshotFingerprint workspace with
@@ -433,10 +464,53 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
 [<RequireQualifiedAccess>]
 module AuthoringSession =
-    let private workspaceFromSource (source: string): Result<AgentWorkspace, AuthoringSessionError> =
-        match SnapshotCodec.deserialize source with
+    let private workspaceFromSource (dependency: Snapshot option) (source: string): Result<AgentWorkspace, AuthoringSessionError> =
+        let decoded =
+            match dependency with
+            | None -> SnapshotCodec.deserialize source
+            | Some imported -> SnapshotCodec.deserializeResolved imported source
+        match decoded with
         | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
-        | Ok snapshot -> AgentWorkspace.create snapshot |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
+        | Ok snapshot ->
+            (match dependency with
+             | None -> AgentWorkspace.create snapshot
+             | Some imported -> AgentWorkspace.createResolved imported snapshot)
+            |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
+
+    let private loadDependency (path: string): Result<(Snapshot * string) option, AuthoringSessionError> =
+        let manifestPath = path + ".dependency.json"
+        if not (File.Exists manifestPath) then Ok None
+        else
+            try
+                let manifest = File.ReadAllText(manifestPath, Encoding.UTF8)
+                use document = JsonDocument.Parse(manifest)
+                let root = document.RootElement
+                let fields = root.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.toList
+                if List.sort fields <> [ "fingerprint"; "path"; "snapshotId" ] then
+                    Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+                else
+                    let sourcePath = root.GetProperty("path").GetString()
+                    let fingerprint = root.GetProperty("fingerprint").GetString()
+                    let snapshotId = root.GetProperty("snapshotId").GetString()
+                    if not (Path.IsPathFullyQualified sourcePath) || not (File.Exists sourcePath) then
+                        Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
+                    else
+                        match SessionStorage.readText sourcePath with
+                        | Error error -> Error error
+                        | Ok source ->
+                            match SnapshotCodec.deserialize source with
+                            | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                            | Ok imported ->
+                                match SnapshotFingerprint.compute imported with
+                                | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                                | Ok actual when SnapshotFingerprint.value actual = fingerprint
+                                                 && StableId.value imported.Id = snapshotId -> Ok(Some(imported, manifest))
+                                | Ok _ -> Error(AuthoringSessionError.DependencyFailure "The selected dependency version changed.")
+            with
+            | :? JsonException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+            | :? InvalidOperationException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+            | :? KeyNotFoundException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+            | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
     let openExisting (path: string): Result<AuthoringSession, AuthoringSessionError> =
         let path = SessionStorage.fullPath path
@@ -450,38 +524,93 @@ module AuthoringSession =
                     lockHandle.Dispose()
                     Error error
                 | Ok source ->
-                    match workspaceFromSource source with
+                    let loaded = loadDependency path
+                    match loaded |> Result.bind (fun selected ->
+                        workspaceFromSource (selected |> Option.map fst) source
+                        |> Result.map (fun workspace -> selected, workspace)) with
                     | Error error ->
                         lockHandle.Dispose()
                         Error error
-                    | Ok workspace -> Ok(new AuthoringSession(path, workspace, source, lockHandle))
+                    | Ok(selected, workspace) ->
+                        Ok(new AuthoringSession(path, workspace, source, lockHandle,
+                            selected |> Option.map fst, selected |> Option.map snd))
 
-    let createNew (path: string): Result<AuthoringSession, AuthoringSessionError> =
+    let createNewWithDependency (path: string) (dependencyPath: string option): Result<AuthoringSession, AuthoringSessionError> =
         let path = SessionStorage.fullPath path
         match SessionStorage.ensureParentDirectory path with
         | Error error -> Error error
-        | Ok() when File.Exists path -> Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
+        | Ok() when File.Exists path || File.Exists(path + ".dependency.json") -> Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
         | Ok() ->
             match SessionStorage.acquireLock path with
             | Error error -> Error error
             | Ok lockHandle ->
-                if File.Exists path then
+                if File.Exists path || File.Exists(path + ".dependency.json") then
                     lockHandle.Dispose()
                     Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
                 else
-                    let snapshot = Snapshot.empty (StableIdAllocator.newSnapshotId ())
-                    match AgentWorkspace.create snapshot with
-                    | Error issues ->
+                    let selection =
+                        match dependencyPath with
+                        | None -> Ok None
+                        | Some sourcePath ->
+                            let sourcePath = SessionStorage.fullPath sourcePath
+                            if sourcePath = path || not (File.Exists sourcePath) then
+                                Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
+                            elif File.Exists(sourcePath + ".dependency.json") then
+                                Error(AuthoringSessionError.DependencyFailure "Nested dependencies are not supported.")
+                            else
+                                match SessionStorage.readText sourcePath with
+                                | Error error -> Error error
+                                | Ok source ->
+                                    match SnapshotCodec.deserialize source with
+                                    | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                                    | Ok imported ->
+                                        match SnapshotFingerprint.compute imported with
+                                        | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                                        | Ok fingerprint ->
+                                            let manifest = JsonSerializer.Serialize(
+                                                {| path = sourcePath
+                                                   snapshotId = StableId.value imported.Id
+                                                   fingerprint = SnapshotFingerprint.value fingerprint |})
+                                            Ok(Some(imported, manifest))
+                    match selection with
+                    | Error error ->
                         lockHandle.Dispose()
-                        Error(AuthoringSessionError.WorkspaceValidationFailure issues)
-                    | Ok workspace ->
-                        match AgentWorkspace.serializeCurrentSnapshot workspace with
-                        | Error error ->
+                        Error error
+                    | Ok selected ->
+                        let snapshot = Snapshot.empty (StableIdAllocator.newSnapshotId ())
+                        let dependency = selected |> Option.map fst
+                        let workspaceResult =
+                            match dependency with
+                            | None -> AgentWorkspace.create snapshot
+                            | Some imported -> AgentWorkspace.createResolved imported snapshot
+                        match workspaceResult with
+                        | Error issues ->
                             lockHandle.Dispose()
-                            Error(AuthoringSessionError.SnapshotCodecFailure error)
-                        | Ok source ->
-                            match SessionStorage.createAtomically path source with
+                            Error(AuthoringSessionError.WorkspaceValidationFailure issues)
+                        | Ok workspace ->
+                            let serialized =
+                                match dependency with
+                                | None -> AgentWorkspace.serializeCurrentSnapshot workspace
+                                | Some imported -> AgentWorkspace.serializeWithDependency imported workspace
+                            match serialized with
                             | Error error ->
                                 lockHandle.Dispose()
-                                Error error
-                            | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle))
+                                Error(AuthoringSessionError.SnapshotCodecFailure error)
+                            | Ok source ->
+                                let manifestResult =
+                                    match selected with
+                                    | None -> Ok()
+                                    | Some(_, manifest) -> SessionStorage.createAtomically (path + ".dependency.json") manifest
+                                match manifestResult with
+                                | Error error -> lockHandle.Dispose(); Error error
+                                | Ok() ->
+                                    match SessionStorage.createAtomically path source with
+                                    | Error error ->
+                                        if selected.IsSome then File.Delete(path + ".dependency.json")
+                                        lockHandle.Dispose()
+                                        Error error
+                                    | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle,
+                                        dependency, selected |> Option.map snd))
+
+    let createNew (path: string): Result<AuthoringSession, AuthoringSessionError> =
+        createNewWithDependency path None

@@ -10,6 +10,12 @@ An ordinary agent must be able to open one explicitly selected Nyrwvy snapshot, 
 
 The maintained path is a single-workspace, single-writer session. Frozen M1/M2 evaluation protocols remain historical verification surfaces and are not imported as the production authoring protocol.
 
+## Pinned snapshot dependency (one level)
+
+`create --snapshot <local> --dependency <existing-source-snapshot>` explicitly selects one independent, strict, complete source snapshot. `open --snapshot <local>` re-resolves that selection from `<local>.dependency.json`. A new session cannot attach another dependency to an existing local snapshot; nested dependencies are rejected. The manifest pins the absolute source path, source snapshot ID, and structural fingerprint. The local snapshot contains a dependency ID and canonical-source digest marker, so removal or substitution of the manifest does not silently turn a dependent workspace into a standalone one. Missing, changed, corrupt, or incompatible sources fail closed on reopen; publication also checks the source and manifest again. The manifest and local snapshot are separately atomically written; a failed create can leave an orphan manifest, which must be inspected/removed explicitly before retrying. No cross-file crash atomicity or concurrent dependency-writer transaction is promised.
+
+The read/review/workspace and C# emission projection use the validated union of imported and locally authored declarations. All imported declarations (including their body and referenced type closure) remain in the source file, keep their exact stable identities and are inspectable via `declarations`/`focusFunction`. Local snapshots persist **only** local declarations and references to imported IDs, never a copy of imported declarations. Validation rejects duplicate identities, missing references and invalid combined graphs. A candidate that changes or removes an imported declaration cannot be published. The selected provenance is inspectable via the read-only `dependency` operation. The dependency is selected at workspace creation, not added by a mutation proposal; all planner declarations and edits still use ordinary simulation, review and explicit commit. This is deliberately a single, full-snapshot dependency, not a package resolver, general namespace mechanism or merge system. Standalone strict snapshot decoding continues to reject dependency-bearing local files without resolution.
+
 ## Session lifecycle
 
 A session starts in exactly one of two explicit modes:
@@ -131,6 +137,7 @@ The maintained operation set is:
 | `op` | Purpose |
 | --- | --- |
 | `status` | Current snapshot ID and fingerprints. |
+| `dependency` | Read-only pinned dependency path, snapshot ID and fingerprint, or null. |
 | `declarations` | Stable-ID declaration discovery. |
 | `focusFunction` | Focused function/query projection by `functionId`. |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
