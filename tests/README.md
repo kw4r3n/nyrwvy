@@ -12,7 +12,7 @@ Run during ordinary development and CI:
 
 The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project or unrelated solution tools. It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
 
-A few broad execution tests remain in their feature files to avoid duplicating fixture/setup code, but `fast.runsettings` excludes the cases that compile and execute generated projects in child `dotnet` processes.
+A few broad execution tests remain in their feature files to avoid duplicating fixture/setup code. Mark these methods `[<Fact; Trait("Suite", "Extended")>]`. `fast.runsettings` selects `Suite!=Extended`; `extended.runsettings` selects `Suite=Extended`. Routing never depends on a display name or module-name substring, so renaming a test does not change suite ownership.
 
 ## extended
 
@@ -22,7 +22,14 @@ Run for larger related changes and milestone validation:
 ./scripts/test-extended.fish
 ```
 
-`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. It is intentionally not part of routine CI.
+`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. It is intentionally not part of routine CI.
+
+After changing suite ownership, build the solution in Release and run
+`node scripts/check-test-suite-partition.mjs`. This opt-in discovery-only audit
+checks that fast and extended are disjoint and cover every discovered case,
+including new modules. It does not execute tests or impose historical test-count
+gates. An unclassified extended-project module fails the audit instead of silently
+falling outside both maintained entry points.
 
 ## Adapter toolchain and typechecking
 

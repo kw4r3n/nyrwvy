@@ -7,6 +7,7 @@ open Nyrwvy.Core
 open Nyrwvy.AgentEval.ListMapStructural
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module ListMapStructuralEvalHarnessTests =
     let private tempDirectory () =
         let path = Path.Combine(Path.GetTempPath(), "nyrwvy-listmap-harness-" + Guid.NewGuid().ToString("N"))

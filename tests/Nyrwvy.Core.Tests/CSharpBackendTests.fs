@@ -111,7 +111,7 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
     throw new System.InvalidOperationException("Generated literal changed UTF-16 code units.");
 """
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# executes Bind effects once in explicit order and skips unselected bodies`` () =
         let execution, profile, harness = AgentExpressionBindTests.executionFixture ()
         let artifact =
@@ -242,7 +242,7 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
         if not (artifact.Source.Contains("NyFunctions", StringComparison.Ordinal)) then
             failwith "Generated C# does not contain the expected generated function container."
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# compiles and runs the representative M0 behavior`` () =
         let original = MilestoneZeroGraph.create () |> withLiteralProbe
         let unusedLiteral: SemanticNode =

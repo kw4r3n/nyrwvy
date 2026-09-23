@@ -9,6 +9,7 @@ open Nyrwvy.Core
 open Nyrwvy.AgentEval.Structural
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module M2StructuralEvaluationCorpusTests =
     let private createWorkspace (snapshot: Snapshot): AgentWorkspace =
         match AgentWorkspace.create snapshot with

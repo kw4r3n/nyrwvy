@@ -8,6 +8,7 @@ open Nyrwvy.AgentEval
 open Nyrwvy.Core
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module AgentEvalVerificationProtocolTests =
     let private objectValue (pairs: (string * obj) list): obj =
         let value = Dictionary<string, obj>(StringComparer.Ordinal)

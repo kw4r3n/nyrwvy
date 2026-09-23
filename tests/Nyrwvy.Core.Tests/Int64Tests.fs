@@ -293,7 +293,7 @@ module Int64Tests =
         Assert.Contains(" - ", artifact.Source)
         Assert.Contains(" * ", artifact.Source)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# executes Int64 wrapping arithmetic and comparisons`` () =
         let fixture = createFixture ()
         let artifact = emit fixture

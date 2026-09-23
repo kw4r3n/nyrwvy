@@ -474,7 +474,7 @@ module ListHigherOrderTests =
         Assert.Contains("NyFunctions." + CSharpBackendNames.functionName fixture.PositiveFunctionId, artifact.Source)
         Assert.Contains("NyFunctions." + CSharpBackendNames.functionName fixture.BoolIdentityFunctionId, artifact.Source)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# executes pure higher-order List and empty Any All semantics`` () =
         let fixture = createFixture ()
         let artifact = emit fixture.Snapshot

@@ -429,7 +429,7 @@ module Float64Tests =
         Assert.Contains("double.IsInfinity(", artifact.Source)
         Assert.Contains(" / ", artifact.Source)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# executes IEEE binary64 arithmetic equality division and classification`` () =
         let fixture = createFixture ()
         let artifact = emit fixture
