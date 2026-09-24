@@ -198,6 +198,7 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 - removing a Product field and its constructor bindings when all field accesses have already been repaired; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
 - deleting an unused function only after all direct calls and List callbacks are gone, and when no obligation targets its body;
 - deleting an unreferenced Product or Union declaration, including its field/variant identities; dependent functions can be removed in the **same** reviewed transaction, but any surviving references (including nested type references) prevent publication;
+- deleting an unreferenced Capability and Effect declaration after consumers have been repaired or removed; one reviewed batch may remove the dependent function, Capability, then Effect in that order, and the diff retains removed operation/parameter identities;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
 
 Field-addition plans use `(constructNodeId, valueNodeId)` pairs for existing values, not arbitrary graph payloads or an implicit default. No partial publication is allowed: missing/duplicate plans, wrong types, or out-of-scope references reject. Function deletion likewise does not silently rewrite callers. The review diff lists added/removed fields, affected constructor identities, and deleted function/node identities. This is a bounded T1 change, not general Product field migration or deletion of referenced declarations.

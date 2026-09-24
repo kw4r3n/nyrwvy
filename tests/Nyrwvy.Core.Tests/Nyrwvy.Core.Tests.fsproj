@@ -65,6 +65,7 @@
     <Compile Include="StringConcatTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
+    <Compile Include="DeclarationCleanupTests.fs" />
     <Compile Include="MilestoneOneGraph.fs" />
     <Compile Include="AgentExecutionTests.fs" />
     <Compile Include="Float64Tests.fs" />

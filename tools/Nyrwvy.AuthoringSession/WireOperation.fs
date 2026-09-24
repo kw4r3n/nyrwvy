@@ -71,6 +71,12 @@ module internal WireOperation =
         | "deleteType" ->
             ensureFields "delete-type operation" [ "kind"; "typeId" ] [ "kind"; "typeId" ] element
             AgentOperationIntent.DeleteType(id<TypeTag> "typeId" element)
+        | "deleteEffect" ->
+            ensureFields "delete-effect operation" [ "kind"; "effectId" ] [ "kind"; "effectId" ] element
+            AgentOperationIntent.DeleteEffect(id<EffectTag> "effectId" element)
+        | "deleteCapability" ->
+            ensureFields "delete-capability operation" [ "kind"; "capabilityId" ] [ "kind"; "capabilityId" ] element
+            AgentOperationIntent.DeleteCapability(id<CapabilityTag> "capabilityId" element)
         | "resolveMissingArgument" ->
             ensureFields "resolve-missing-argument operation" [ "kind"; "obligationId"; "valueNodeId" ] [ "kind"; "obligationId"; "valueNodeId" ] element
             AgentOperationIntent.ResolveMissingArgument
