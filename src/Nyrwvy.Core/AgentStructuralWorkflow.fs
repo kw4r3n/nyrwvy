@@ -58,6 +58,7 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)

@@ -85,6 +85,7 @@ type ExecutionInstructionKind =
     | StringIsEmpty of ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
+    | StringConcat of leftId: ExecutionValueId * rightId: ExecutionValueId
     | Int64WrappingAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64WrappingSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64WrappingMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId

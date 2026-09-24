@@ -50,6 +50,7 @@ module internal WireGraph =
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
+        | SemanticNodeKind.StringConcat(left, right) -> tagged "stringConcat" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.Int64WrappingAdd(left, right) -> binary "int64WrappingAdd" left right
         | SemanticNodeKind.Int64WrappingSubtract(left, right) -> binary "int64WrappingSubtract" left right
         | SemanticNodeKind.Int64WrappingMultiply(left, right) -> binary "int64WrappingMultiply" left right

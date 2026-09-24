@@ -11,7 +11,8 @@ type ValidationIssue =
 module SnapshotValidator =
     let private nodeDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
-        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
         | SemanticNodeKind.StringLiteral _
@@ -74,7 +75,8 @@ module SnapshotValidator =
 
     let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
-        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -614,6 +616,10 @@ module SnapshotValidator =
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
                             node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
+                        requireBinaryOperands
+                            "StringIntrinsicTypeMismatch" "StringConcat" (TypeRef.Primitive PrimitiveType.String)
+                            node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
@@ -1110,6 +1116,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _

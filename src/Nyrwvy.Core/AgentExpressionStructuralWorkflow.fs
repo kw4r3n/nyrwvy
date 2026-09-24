@@ -26,6 +26,7 @@ type ExpressionRecipe =
     | StringIsEmpty of ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
+    | StringConcat of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingAdd of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingSubtract of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingMultiply of ExpressionRecipe * ExpressionRecipe
@@ -165,6 +166,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringEqual(left, right)
+        | ExpressionRecipe.StringConcat(left, right)
         | ExpressionRecipe.Bind(left, right)
         | ExpressionRecipe.Int64WrappingAdd(left, right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right)
@@ -507,6 +509,7 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringIsEmpty value -> unary "StringIsEmpty" stringType boolType value
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
+            | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
             | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary "Int64WrappingAdd" int64Type int64Type left right
             | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary "Int64WrappingSubtract" int64Type int64Type left right
             | ExpressionRecipe.Int64WrappingMultiply(left, right) -> binary "Int64WrappingMultiply" int64Type int64Type left right
@@ -947,6 +950,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringIsEmpty value -> unary SemanticNodeKind.StringIsEmpty value
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
+        | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary SemanticNodeKind.Int64WrappingAdd left right
         | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary SemanticNodeKind.Int64WrappingSubtract left right
         | ExpressionRecipe.Int64WrappingMultiply(left, right) -> binary SemanticNodeKind.Int64WrappingMultiply left right

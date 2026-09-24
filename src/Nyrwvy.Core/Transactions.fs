@@ -203,6 +203,7 @@ module Transaction =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _
@@ -573,6 +574,7 @@ module Transaction =
                         | SemanticNodeKind.StringIsEmpty _
                         | SemanticNodeKind.StringContains _
                         | SemanticNodeKind.StringEqual _
+                        | SemanticNodeKind.StringConcat _
                         | SemanticNodeKind.Int64WrappingAdd _
                         | SemanticNodeKind.Int64WrappingSubtract _
                         | SemanticNodeKind.Int64WrappingMultiply _

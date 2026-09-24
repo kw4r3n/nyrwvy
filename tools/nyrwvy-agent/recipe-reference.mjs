@@ -10,7 +10,7 @@ const categories = {
   references: ["parameter", "patternReference"],
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
-    "stringIsEmpty", "stringContains", "stringEqual",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -55,6 +55,7 @@ const references = {
   stringIsEmpty: unary("stringIsEmpty"),
   stringContains: { shape: { kind: "stringContains", value: recipe, substring: recipe } },
   stringEqual: { ...binary("stringEqual"), notes: "Ordinal, case-sensitive exact equality; both operands must be String." },
+  stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
   int64WrappingAdd: binary("int64WrappingAdd"),
   int64WrappingSubtract: binary("int64WrappingSubtract"),
   int64WrappingMultiply: binary("int64WrappingMultiply"),

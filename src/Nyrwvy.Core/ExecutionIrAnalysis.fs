@@ -32,7 +32,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
-        | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
@@ -87,6 +88,7 @@ module internal ExecutionIrAnalysis =
                 graphFreeReferences someArm.Body @ graphFreeReferences noneBody
             | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
                 graphFreeReferences okArm.Body @ graphFreeReferences errArm.Body
+            | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _
@@ -181,6 +183,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
+        | TypedSemanticNodeKind.StringConcat _
         | TypedSemanticNodeKind.Int64WrappingAdd _
         | TypedSemanticNodeKind.Int64WrappingSubtract _
         | TypedSemanticNodeKind.Int64WrappingMultiply _
@@ -290,6 +293,7 @@ module internal ExecutionIrAnalysis =
                 | Ok (), Ok () -> Ok ()
                 | Error error, _
                 | _, Error error -> Error error
+            | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _

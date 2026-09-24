@@ -209,6 +209,7 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "substring" element)
             )
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
+        | "stringConcat" -> binary "string-concat recipe" ExpressionRecipe.StringConcat
         | "int64WrappingAdd" -> binary "int64-wrapping-add recipe" ExpressionRecipe.Int64WrappingAdd
         | "int64WrappingSubtract" -> binary "int64-wrapping-subtract recipe" ExpressionRecipe.Int64WrappingSubtract
         | "int64WrappingMultiply" -> binary "int64-wrapping-multiply recipe" ExpressionRecipe.Int64WrappingMultiply

@@ -9,7 +9,8 @@ module SemanticFacts =
     /// need structured control-flow dependencies should traverse the child graphs.
     let directValueDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
-        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -96,6 +97,7 @@ module SemanticFacts =
             | SemanticNodeKind.StringIsEmpty _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
+            | SemanticNodeKind.StringConcat _
             | SemanticNodeKind.Int64WrappingAdd _
             | SemanticNodeKind.Int64WrappingSubtract _
             | SemanticNodeKind.Int64WrappingMultiply _
@@ -208,7 +210,8 @@ module SemanticFacts =
                     | SemanticNodeKind.PatternReference bindingId ->
                         Map.tryFind bindingId patternBindingsById
                         |> Option.map (fun binding -> binding.Type)
-                    | SemanticNodeKind.StringLiteral _ ->
+                    | SemanticNodeKind.StringLiteral _
+                    | SemanticNodeKind.StringConcat _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.BoolLiteral _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)

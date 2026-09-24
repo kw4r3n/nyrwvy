@@ -140,6 +140,13 @@ module AgentParameterTypeMigrationWorkflow =
                     rewrite right
                     |> Result.map (fun mappedRight ->
                         ExpressionRecipe.StringEqual(mappedLeft, mappedRight))
+            | ExpressionRecipe.StringConcat(left, right) ->
+                match rewrite left with
+                | Error error -> Error error
+                | Ok mappedLeft ->
+                    rewrite right
+                    |> Result.map (fun mappedRight ->
+                        ExpressionRecipe.StringConcat(mappedLeft, mappedRight))
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
                 rewritePairs fields
                 |> Result.map (fun mapped ->

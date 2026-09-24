@@ -345,6 +345,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = string.Equals(" + valueName leftValueId + ", " + valueName rightValueId + ", StringComparison.Ordinal);")
+        | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
+            writer.Line(target + " = string.Concat(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "+" rightValueId true
         | ExecutionInstructionKind.Int64WrappingSubtract(leftValueId, rightValueId) ->
