@@ -55,7 +55,7 @@ module StringConcatTests =
                                     | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# runs JSONL-authored StringConcat preserving order empties and Unicode`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-concat-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

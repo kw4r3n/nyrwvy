@@ -247,7 +247,7 @@ module ListFoldTests =
         Assert.Contains("public S Fold<S>(S seed, Func<S, T, S> folder)", emitted.Source)
         Assert.Contains(".Fold(", emitted.Source)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated fold searches an exact ordinal key in input order including empty and absent inputs`` () =
         let snapshot, _, search, digits = fixture ()
         let execution = TypedSemanticIr.project snapshot |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
@@ -289,7 +289,7 @@ module ListFoldTests =
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated fold retrieves a typed element by runtime index with empty and out of range cases`` () =
         let snapshot, folder, at = indexFixture ()
         let json = SnapshotCodec.serialize snapshot |> unwrap "serialize index"
@@ -339,7 +339,7 @@ module ListFoldTests =
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated fold returns first typed matching value with an absent and empty result`` () =
         let snapshot, folder, find, entryId, entryKeyId, entryValueId = findFixture ()
         let json = SnapshotCodec.serialize snapshot |> unwrap "serialize find"

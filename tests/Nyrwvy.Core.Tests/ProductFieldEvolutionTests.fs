@@ -249,7 +249,7 @@ module ProductFieldEvolutionTests =
         | SimulationResult.Rejected [ diagnostic ] -> Assert.Equal("ProductFieldCreatedInTransaction", diagnostic.Code)
         | other -> failwithf "Add-remove no-op transaction was accepted: %A" other
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``generated C# executes reviewed Product field evolution`` () =
         let initial = fixture ()
         let ws = workspace initial

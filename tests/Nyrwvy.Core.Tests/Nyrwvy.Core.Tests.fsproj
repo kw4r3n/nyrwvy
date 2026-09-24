@@ -1,9 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestGraph.fs" />
@@ -11,6 +9,8 @@
     <Compile Include="FoundationTests.fs" />
     <Compile Include="StableIdAllocatorTests.fs" />
     <Compile Include="ValidationTests.fs" />
+    <Compile Include="SemanticFactsTests.fs" />
+    <Compile Include="SnapshotComputationScopeTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="FingerprintTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
@@ -41,6 +41,8 @@
     <Compile Include="StructuralAgentEvalProtocolTests.fs" />
     <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="AuthoringSessionTests.fs" />
+    <Compile Include="AuthoringDependencyTests.fs" />
+    <Compile Include="PinnedDependencyRecoveryTests.fs" />
     <Compile Include="AuthoringParameterMigrationSessionTests.fs" />
     <Compile Include="AuthoringDiscoveryTests.fs" />
     <Compile Include="AuthoringTypeSessionTests.fs" />

@@ -159,7 +159,7 @@ module PureRunTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``runPure executes authored fold and roundtrips typed List results`` () =
         let root, path, _, _, _, _ = tempSession ()
         try
@@ -214,7 +214,7 @@ module PureRunTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``runPure roundtrips scalar Options and executes optional fold results`` () =
         let root, path, _, _, _, _ = tempSession ()
         try
@@ -274,7 +274,31 @@ module PureRunTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``runPure uses embedded dependency after source deletion and refuses changed pins`` () =
+        let root, source, concat, _, _, _ = tempSession ()
+        try
+            let local = Path.Combine(root, "local.json")
+            use created = AuthoringSession.createNewWithDependency local (Some source) |> function
+                | Ok value -> value
+                | Error error -> failwithf "Create failed: %A" error
+            created.Close()
+            File.Delete(source)
+            use session = AuthoringSession.openExisting local |> function
+                | Ok value -> value
+                | Error error -> failwithf "Reopen failed: %A" error
+            let args = [ PureRunValue.String "pinned"; PureRunValue.String " content" ]
+            match PureRun.run session concat args (Some(PureRunValue.String "pinned content")) with
+            | Ok result -> Assert.Equal(Some true, result.Matches)
+            | Error error -> failwithf "Embedded execution failed: %A" error
+            File.AppendAllText(local + ".dependency.json", " ")
+            match PureRun.run session concat args None with
+            | Error(PureRunError.SessionFailure(AuthoringSessionError.DependencyFailure _)) -> ()
+            | other -> failwithf "Modified pin executed: %A" other
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
     let ``authoring CLI runs committed pure scalar function without a handwritten C# harness`` () =
         let root, path, concat, _, _, _ = tempSession ()
         try
@@ -311,7 +335,7 @@ module PureRunTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``runPure compiles and checks typed scalar results for the committed snapshot`` () =
         let root, path, concat, equal, plus, _ = tempSession ()
         try

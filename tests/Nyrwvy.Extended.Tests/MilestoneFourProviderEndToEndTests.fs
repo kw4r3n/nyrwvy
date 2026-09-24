@@ -8,6 +8,7 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module MilestoneFourProviderEndToEndTests =
     let private stringType = TypeRef.Primitive PrimitiveType.String
     let private unitType = TypeRef.Primitive PrimitiveType.Unit

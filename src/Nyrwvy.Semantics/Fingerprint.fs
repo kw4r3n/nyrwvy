@@ -29,9 +29,12 @@ module SnapshotFingerprint =
     // not invalidate previously reviewed fingerprint values.
     let private domain = "nayamnyam.snapshot-fingerprint.v6"
 
-    let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> =
-        SnapshotCodec.serialize snapshot
-        |> Result.map (FingerprintHash.sha256 domain >> SnapshotFingerprint)
+    let private computeCached: Snapshot -> Result<SnapshotFingerprint, SnapshotCodecError> =
+        SnapshotComputationScope.Memoize("snapshotFingerprint", fun snapshot ->
+            SnapshotCodec.serialize snapshot
+            |> Result.map (FingerprintHash.sha256 domain >> SnapshotFingerprint))
+
+    let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> = computeCached snapshot
 
     let value (SnapshotFingerprint value) = value
 
@@ -165,7 +168,7 @@ module SemanticFingerprint =
     /// and obligation resolution values remain significant. This is still not an
     /// alpha-equivalence or behavioral-equivalence fingerprint: changing semantic
     /// stable identities changes this fingerprint.
-    let compute (snapshot: Snapshot): Result<SemanticFingerprint, SnapshotCodecError> =
+    let private computeUncached (snapshot: Snapshot): Result<SemanticFingerprint, SnapshotCodecError> =
         let normalized =
             { Id = neutralSnapshotId
               ParentId = None
@@ -177,5 +180,8 @@ module SemanticFingerprint =
 
         SnapshotCodec.serialize normalized
         |> Result.map (FingerprintHash.sha256 domain >> SemanticFingerprint)
+
+    let private computeCached = SnapshotComputationScope.Memoize("semanticFingerprint", computeUncached)
+    let compute (snapshot: Snapshot): Result<SemanticFingerprint, SnapshotCodecError> = computeCached snapshot
 
     let value (SemanticFingerprint value) = value

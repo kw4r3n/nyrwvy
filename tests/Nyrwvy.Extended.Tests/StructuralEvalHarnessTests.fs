@@ -7,6 +7,7 @@ open Nyrwvy.Core
 open Nyrwvy.AgentEval.Structural
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module StructuralEvalHarnessTests =
     let private tempDirectory () =
         let path = Path.Combine(Path.GetTempPath(), "nyrwvy-structural-harness-" + Guid.NewGuid().ToString("N"))

@@ -7,15 +7,18 @@ open Nyrwvy.Tools.AuthoringSession
 type private StartupMode =
     | Open
     | Create
+    | Pin
 
 module private CommandLine =
-    let usage = "Usage: Nyrwvy.AuthoringSession <open|create> --snapshot <snapshot-path> [--dependency <snapshot-path> (create only)]"
+    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> (create or same-content pin only)]"
 
     let parse (arguments: string list): Result<StartupMode * string * string option, string> =
         match arguments with
         | [ "open"; "--snapshot"; path ] -> Ok(StartupMode.Open, path, None)
         | [ "create"; "--snapshot"; path ] -> Ok(StartupMode.Create, path, None)
         | [ "create"; "--snapshot"; path; "--dependency"; dependency ] -> Ok(StartupMode.Create, path, Some dependency)
+        | [ "pin"; "--snapshot"; path ] -> Ok(StartupMode.Pin, path, None)
+        | [ "pin"; "--snapshot"; path; "--dependency"; dependency ] -> Ok(StartupMode.Pin, path, Some dependency)
         | _ -> Error usage
 
 [<EntryPoint>]
@@ -29,6 +32,7 @@ let main argv =
             match mode with
             | StartupMode.Open -> AuthoringSession.openExisting path
             | StartupMode.Create -> AuthoringSession.createNewWithDependency path dependency
+            | StartupMode.Pin -> AuthoringSession.pinExistingDependency path dependency
         match result with
         | Error error ->
             Console.Error.WriteLine(sprintf "%A" error)

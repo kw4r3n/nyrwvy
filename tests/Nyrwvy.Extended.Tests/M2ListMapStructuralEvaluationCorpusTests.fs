@@ -9,6 +9,7 @@ open Nyrwvy.Core
 open Nyrwvy.AgentEval.ListMapStructural
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module M2ListMapStructuralEvaluationCorpusTests =
     let private createWorkspace (snapshot: Snapshot): AgentWorkspace =
         match AgentWorkspace.create snapshot with

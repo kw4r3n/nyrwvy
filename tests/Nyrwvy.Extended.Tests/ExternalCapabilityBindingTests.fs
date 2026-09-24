@@ -100,7 +100,7 @@ module ExternalCapabilityBindingTests =
             failwithf "dotnet %A failed:\n%s\n%s" args stdout.Result stderr.Result
         stdout.Result
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``external interface binds product values and typed Result failure without hiding Nyrwvy control`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-external-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

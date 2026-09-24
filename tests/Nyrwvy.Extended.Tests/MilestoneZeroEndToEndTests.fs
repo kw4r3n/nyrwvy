@@ -7,6 +7,7 @@ open System.Text
 open Nyrwvy.Core
 open Xunit
 
+[<Trait("Suite", "Extended")>]
 module MilestoneZeroEndToEndTests =
     let private unwrap label result =
         match result with

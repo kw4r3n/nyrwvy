@@ -170,6 +170,7 @@ module AuthoringProtocol =
           Replacement = recipe (property "replacement" item) }
 
     let executeLine (session: AuthoringSession) line =
+        use _scope = SnapshotComputationScope.Start()
         let mutable requestId: string = null
         try
             use document = parseDocument line
@@ -279,10 +280,13 @@ module AuthoringProtocol =
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
+                let displayName = requiredString "displayName" root
+                if declarations.Functions |> List.exists (fun item -> item.DisplayName = displayName) then
+                    WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
                 let parameters = WireSymbolic.functionParameters declarations root
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = currentSnapshotId session
-                      DisplayName = requiredString "displayName" root
+                      DisplayName = displayName
                       Parameters = parameters
                       ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
                       RequiredEffects = WireSymbolic.requiredEffects declarations root

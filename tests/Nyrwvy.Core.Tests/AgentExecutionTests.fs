@@ -170,7 +170,7 @@ NyFunctions.{mainFunctionName}(empty, console);
         | Error(TypedSemanticIrError.IncompleteSnapshot [ _ ]) -> ()
         | result -> failwithf "Expected incomplete execution rejection, got %A" result
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``reviewed M1 cross-function commit lowers and executes from the exact committed workspace`` () =
         let fixture = MilestoneOneGraph.create ()
         let workspace = createWorkspace fixture.Snapshot

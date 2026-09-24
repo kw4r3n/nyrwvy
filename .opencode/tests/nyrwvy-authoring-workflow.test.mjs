@@ -163,7 +163,15 @@ test("structured reads preserve exact literals and ambiguous names retain exact-
     const first = await publish(context, payload)
     const firstId = first.review.createdFunction.id
     assert.equal(resultNode(first.review.createdFunction.body).kind.value, "9223372036854775807")
-    await publish(context, payload)
+    const beforeDuplicate = await request(context, { op: "status" })
+    const duplicate = JSON.parse(await requestAuthoring(payload, context))
+    assert.equal(duplicate.ok, false)
+    assert.match(duplicate.error.message, /already exists/)
+    assert.deepEqual(await request(context, { op: "status" }), beforeDuplicate)
+    assert.equal((await request(context, { op: "declarations" })).functions.length, 1)
+    // Explicit identity-based creation remains available for intentional duplicate
+    // display names; name-based reads still fail closed on that pre-existing case.
+    await publish(context, { ...payload, op: "simulateCreateFunction" })
     const before = await request(context, { op: "status" })
     const ambiguous = JSON.parse(await requestAuthoring({ op: "readFunction", function: "exact" }, context))
     assert.equal(ambiguous.ok, false)

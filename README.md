@@ -45,7 +45,7 @@ Important boundaries include:
 
 ## AI graph authoring
 
-The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. For an independent workspace referencing a published snapshot, the JSON-lines executable also supports `create --snapshot <new-local-path> --dependency <source-snapshot-path>`; later use `open --snapshot <local-path>`. The read-only `dependency` operation shows the pinned provenance. Foreign declarations remain owned by the source and are not stored in the local snapshot. See [pinned snapshot dependency](docs/specs/agent-authoring-session.md#pinned-snapshot-dependency-one-level). No per-program Python/F#/C# authoring helper is required. Prepare the executable once:
+The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. For an independent workspace referencing a published snapshot, the JSON-lines executable also supports `create --snapshot <new-local-path> --dependency <source-snapshot-path>`; later use `open --snapshot <local-path>`. The read-only `dependency` operation shows the pinned provenance. The selected source content is retained in a sidecar, while the local graph stores only local declarations and references. Clone/move both files together. `nyrwvy_open` also accepts `dependency` on create and `mode: "pin"` for same-content recovery of older source-only selections. See [pinned snapshot dependency](docs/specs/agent-authoring-session.md#pinned-snapshot-dependency-one-level). No per-program Python/F#/C# authoring helper is required. Prepare the executable once:
 
 ```shell
 dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
@@ -57,7 +57,7 @@ The write-side goal is an adequate AI graph-editing toolset, not a natural-langu
 
 ## Build and verify
 
-The repository uses the .NET 10 SDK and Node 22 for the small tool and verification-script tests. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
+Install the exact .NET SDK selected by [`global.json`](global.json) (currently 10.0.112), Node 22.6+ and fish 3.4+ for the verification entry points. SDK roll-forward is disabled so local and CI builds use the same compiler; SDK patch updates are explicit repository changes. Shared F# settings live in `Directory.Build.props`. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 ./scripts/test-fast.fish

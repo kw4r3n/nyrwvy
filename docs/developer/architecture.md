@@ -83,6 +83,20 @@ semantic / execution / backend contracts
      recorded evidence
 ```
 
+### Physical source ownership
+
+Production F# sources live directly in their owning assembly directories:
+`src/Nyrwvy.Semantics`, `src/Nyrwvy.Execution`, `src/Nyrwvy.Backend.CSharp`,
+and `src/Nyrwvy.Viewer`. Their project files declare local compile items in
+explicit F# order; they no longer link a shared `src/Nyrwvy.Core` source bucket.
+The public **namespace remains `Nyrwvy.Core`**; namespaces and physical ownership
+need not have identical names.
+
+`StructuralContracts.fs` owns reusable structural review, receipt, dependency
+role and error types. `StructuralTransactionInternals.fs` owns trusted shared
+recipe bounds, review summarization and publication checks. Both belong to
+Semantics, independently of any evaluation recipe or protocol.
+
 ### `Nyrwvy.Semantics`
 
 Owns stable IDs and allocation, semantic graph state, validation/readiness, semantic facts and queries, operations and transactions, obligations, fingerprints, reviewed proposals, and the ordinary agent workflow facade.
@@ -111,6 +125,22 @@ A controlled evaluation may reveal that an interaction model is confusing, unrel
 
 When historical replay requires preserving such behavior, keep compatibility in the evaluation or adapter layer. If a protocol is deliberately promoted from evaluation machinery to a maintained product contract, record that as a separate design decision rather than inheriting the status implicitly from a frozen run.
 
+The Float64-only `AgentStructuralWorkflow` implementation lives in
+`tools/Nyrwvy.AgentEval.Structural`; the frozen ListMap workflow lives in
+`tools/Nyrwvy.AgentEval.ListMapStructural`. Their existing `Nyrwvy.Core` type/module
+names are retained for evaluation source compatibility, but the types now belong
+to those downstream tool assemblies. Consumers of those evaluation-only APIs
+must reference/rebuild against the respective tool project; no upstream type
+forwarder or binary-compatibility promise is introduced. The two trusted
+compatibility assemblies have friend access to existing internal structural
+helpers, not a new public raw-snapshot publication API. Production assemblies do
+not reference them; ordinary authoring uses `AgentExpressionStructuralWorkflow`.
+
+Historical frozen input-path lists remain tied to their recorded revisions.
+They are not rewritten to treat this moved implementation as identical frozen
+evidence. Current protocol/corpus regression suites still exercise the relocated
+implementations, without generating a new live-model evaluation record.
+
 Evidence produced by an expensive experiment remains useful while its assumptions hold. See [Verification philosophy](verification.md) for the distinction between regression validation, milestone validation, and experimental evidence generation.
 
 ## Semantic state and operations
@@ -131,6 +161,19 @@ Nyrwvy distinguishes at least four classes of failure/state:
 - expected runtime-domain failure -> explicit program semantics such as `Result` or `Option`.
 
 See the [failure and obligation policy](../specs/failure-obligation-policy.md) for the maintained classification rules.
+
+### Request-scoped derived facts
+
+`SnapshotComputationScope` can reuse validation, canonical serialization and
+fingerprints for the exact same immutable snapshot object during a synchronous
+request/pass. AuthoringSession and its JSONL adapter establish this scope;
+nested calls share it and disposal clears retained snapshots. It is not a global
+snapshot-ID cache. Different snapshot objects still undergo full validation,
+including commit re-simulation results and semantic-fingerprint normalization.
+No-scope callers use the uncached oracle. External-file/dependency checks and
+publication I/O are never memoized. Optional measurement/reuse-disable controls
+support the [authoring profiling probe](../../scripts/measure-authoring-passes.fsx),
+not a semantic-validation bypass.
 
 ## Identity
 

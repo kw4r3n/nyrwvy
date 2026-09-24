@@ -447,9 +447,10 @@ module TypedSemanticIr =
 
     let private projectFunction
         (snapshot: Snapshot)
+        (createNodeTypeResolver: SemanticFunction -> GraphNodeId -> TypeRef option)
         (functionEntity: SemanticFunction)
         : Result<TypedSemanticFunction, TypedSemanticIrError> =
-        let resolveType = SemanticFacts.createNodeTypeResolver snapshot functionEntity
+        let resolveType = createNodeTypeResolver functionEntity
 
         projectGraph snapshot functionEntity resolveType functionEntity.Body
         |> Result.map (fun body ->
@@ -469,9 +470,10 @@ module TypedSemanticIr =
         | Ok(SemanticReadiness.Incomplete obligationIds) ->
             Error(TypedSemanticIrError.IncompleteSnapshot obligationIds)
         | Ok SemanticReadiness.Complete ->
+            let createNodeTypeResolver = SemanticFacts.createNodeTypeResolverFactory snapshot
             snapshot.Functions
             |> List.sortBy (fun functionEntity -> StableId.value functionEntity.Id)
-            |> traverse (projectFunction snapshot)
+            |> traverse (projectFunction snapshot createNodeTypeResolver)
             |> Result.map (fun functions ->
                 { SourceSnapshotId = snapshot.Id
                   Types =
