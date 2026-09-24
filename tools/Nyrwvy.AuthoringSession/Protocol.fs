@@ -36,6 +36,15 @@ module AuthoringProtocol =
         | "int64" ->
             ensureFields "Int64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
             PureRunValue.Int64(requiredInt64 "value" item)
+        | "option" ->
+            let hasValue = requiredBool "hasValue" item
+            let fields = [ "kind"; "itemKind"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
+            ensureFields "Option run value" fields fields item
+            match requiredString "itemKind" item with
+            | "string" -> PureRunValue.StringOption(if hasValue then Some(requiredString "value" item) else None)
+            | "bool" -> PureRunValue.BoolOption(if hasValue then Some(requiredBool "value" item) else None)
+            | "int64" -> PureRunValue.Int64Option(if hasValue then Some(requiredInt64 "value" item) else None)
+            | _ -> fail "Option itemKind must be string, bool or int64."
         | "list" ->
             ensureFields "List run value" [ "kind"; "itemKind"; "items" ] [ "kind"; "itemKind"; "items" ] item
             let items = array "items" item
@@ -65,7 +74,14 @@ module AuthoringProtocol =
     let private encodePureValue value =
         let listValue kind items =
             objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
+        let optionValue kind item =
+            objectValue
+                ([ "kind", box "option"; "itemKind", box kind; "hasValue", box (Option.isSome item) ]
+                 @ (item |> Option.map (fun value -> [ "value", value ]) |> Option.defaultValue []))
         match value with
+        | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)
+        | PureRunValue.BoolOption item -> optionValue "bool" (item |> Option.map box)
+        | PureRunValue.Int64Option item -> optionValue "int64" (item |> Option.map (fun number -> box (number.ToString(Globalization.CultureInfo.InvariantCulture))))
         | PureRunValue.StringList items -> listValue "string" (items |> List.map box)
         | PureRunValue.BoolList items -> listValue "bool" (items |> List.map box)
         | PureRunValue.Int64List items -> listValue "int64" (items |> List.map (fun item -> box (item.ToString(Globalization.CultureInfo.InvariantCulture))))

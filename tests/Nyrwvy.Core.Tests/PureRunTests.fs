@@ -61,6 +61,19 @@ module PureRunTests =
                 create current name (listType itemType) (listType itemType)
                     (ExpressionRecipe.ListConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
                 |> fst) ws
+        let optionType item = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])
+        let ws =
+            [ "intOption", intType; "stringOption", stringType; "boolOption", TypeRef.Primitive PrimitiveType.Bool ]
+            |> List.fold (fun current (name, itemType) ->
+                create current name (optionType itemType) (optionType itemType) (ExpressionRecipe.ParameterSlot 0)
+                |> fst) ws
+        let ws, _ =
+            create ws "optionalSum" (listType intType) (optionType intType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64Equal(ExpressionRecipe.ListLength(ExpressionRecipe.ParameterSlot 0), ExpressionRecipe.Int64Literal 0L),
+                    ExpressionRecipe.OptionNone intType,
+                    ExpressionRecipe.OptionSome(ExpressionRecipe.ListFold(
+                        ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, plus))))
         let json = AgentWorkspace.serializeCurrentSnapshot ws |> function
             | Ok text -> text
             | Error error -> failwithf "Fixture serialization failed: %A" error
@@ -173,6 +186,63 @@ module PureRunTests =
             run "stringList" texts """{"kind":"list","itemKind":"string","items":[]}""" texts |> ignore
             let booleans = """{"kind":"list","itemKind":"bool","items":[true,false]}"""
             run "boolList" """{"kind":"list","itemKind":"bool","items":[]}""" booleans booleans |> ignore
+            Assert.Equal(original, File.ReadAllText(path))
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``runPure rejects malformed Option values and distinguishes empty element types`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let target = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "intOption")
+            for value in
+                [ """{"kind":"option","itemKind":"int64","hasValue":false,"value":0}"""
+                  """{"kind":"option","itemKind":"int64","hasValue":true}"""
+                  """{"kind":"option","itemKind":"int64","hasValue":true,"value":null}"""
+                  """{"kind":"option","itemKind":"int64","hasValue":true,"value":"9223372036854775808"}"""
+                  """{"kind":"option","itemKind":"list","hasValue":false}""" ] do
+                let command = $"""{{"id":"bad","op":"runPure","functionId":"{StableId.value target.Id}","arguments":[{value},{value}]}}"""
+                use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Equal("ProtocolError", response.RootElement.GetProperty("error").GetProperty("code").GetString())
+            match PureRun.run session target.Id [ PureRunValue.StringOption None; PureRunValue.Int64Option None ] None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTypeMismatch", code)
+            | other -> failwithf "Wrong None type accepted: %A" other
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``runPure roundtrips scalar Options and executes optional fold results`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let original = File.ReadAllText(path)
+            let run name left right expected matches =
+                let target = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
+                let command = $"""{{"id":"option","op":"runPure","functionId":"{StableId.value target.Id}","arguments":[{left},{right}],"expected":{expected}}}"""
+                use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
+                Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                let result = response.RootElement.GetProperty("result")
+                Assert.Equal(matches, result.GetProperty("matches").GetBoolean())
+                result.GetProperty("actual").Clone()
+            let none = """{"kind":"option","itemKind":"int64","hasValue":false}"""
+            let some = """{"kind":"option","itemKind":"int64","hasValue":true,"value":"9223372036854775807"}"""
+            let actual = run "intOption" some none some true
+            Assert.Equal("9223372036854775807", actual.GetProperty("value").GetString())
+            let empty = """{"kind":"list","itemKind":"int64","items":[]}"""
+            let absent = run "optionalSum" empty empty none true
+            Assert.False(absent.GetProperty("hasValue").GetBoolean())
+            Assert.False(absent.TryGetProperty("value") |> fst)
+            run "optionalSum" """{"kind":"list","itemKind":"int64","items":["2","-2"]}""" empty none false |> ignore
+            let text = """{"kind":"option","itemKind":"string","hasValue":true,"value":"🍀"}"""
+            run "stringOption" text text text true |> ignore
+            let boolean = """{"kind":"option","itemKind":"bool","hasValue":true,"value":false}"""
+            run "boolOption" boolean boolean boolean true |> ignore
             Assert.Equal(original, File.ReadAllText(path))
         finally
             if Directory.Exists root then Directory.Delete(root, true)
