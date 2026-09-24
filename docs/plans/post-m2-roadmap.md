@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-09-21
+- **Updated:** 2026-09-24
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -13,6 +13,8 @@ Existing specifications and accepted decisions remain authoritative for exact co
 ## Current recommendation
 
 **Do not expand the language or infrastructure merely because M3-M5 are complete.** The next substantial implementation should be selected from a concrete blocked task, measured interaction cost, or real scale/collaboration pressure.
+
+The 2026-09-24 rrawrlet workload review now supplies a concrete language/tool implementation queue in the [general-purpose programming roadmap](general-purpose-programming-roadmap.md). It targets the ability to author and maintain ordinary programs without editing source text, not rrawrlet-specific builtins or provider implementations. The completed M3-M5 claims below remain unchanged; this does not automatically open M6 scale/collaboration work.
 
 The post-M2 sequence established that an agent can create a small persistent program, define its domain/capability surface, and perform one identity-preserving cross-cutting evolution through the maintained authoring path. The next question is therefore not “which generic framework comes next?” but “what real task now fails or costs too much?”
 
@@ -132,12 +134,12 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and its evidence/documentation cleanup are complete. The next implementation task must be selected from a concrete workload or measured cost:
+The real-host MCP probe and its evidence/documentation cleanup are complete. Use the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) for the current implementation queue: data operations and repetition, general external binding, declaration evolution/deletion, library reuse, and asynchronous/resource-lifetime expressiveness, with a shared execution/diagnostic path. Select one coherent slice and preserve these constraints:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
 2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
-4. **Do not pre-create the next semantic milestone.** Open the next implementation issue only when a concrete task or measured cost identifies it.
+4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first; dependency-tool exposure and retained pins are already implemented in open PR #214 at the review date and must not be duplicated.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 
@@ -159,4 +161,4 @@ The earlier #152 cleanup suggestion is historical planning context; this probe d
 - Completed measured discoverability repair: #198; [bounded live follow-up](../verification/expression-recipe-reference-live-probe.md)
 - Deferred build-cost investigation: #109
 
-The roadmap should be revised again only when later observed work changes these milestone conclusions or creates a concrete M6 trigger. Historical implementation details remain in the linked issues, PRs, specifications, verification records, and experiment artifacts rather than being duplicated here.
+Revise this milestone record when later observed work changes its conclusions or creates a concrete M6 trigger; maintain the current language/tool implementation queue in the linked general-purpose programming roadmap. Historical implementation details remain in the linked issues, PRs, specifications, verification records, and experiment artifacts rather than being duplicated here.

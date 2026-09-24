@@ -8,6 +8,12 @@ Use this entry point when changing, reviewing, or validating Nyrwvy itself.
 
 Inspect the default branch, open issues, and open pull requests, including drafts and stacked PRs, before recommending new work or creating an issue. Check related PR bases/heads, implementation status, and recorded verification evidence: an unchanged `main` or an open design issue does not mean the work has not already been prepared. Continue or review existing work rather than creating a duplicate, and reuse sufficient verification unless the relevant implementation has changed.
 
+## Scope of workload-driven features
+
+Nyrwvy is a programming-language replacement and semantic authoring layer, not an application framework. Use real applications such as rrawrlet to identify missing general-purpose language and tool capabilities; do not turn their product features into Nyrwvy builtins. For external integration, distinguish the typed declaration/binding/value-passing mechanism from the concrete provider or library implementation. Reuse existing constructs or libraries when they satisfy the requirement, but do not conceal missing language capability by moving the application's logic wholesale into host code.
+
+Keep application runtime concurrency separate from concurrent editing of Nyrwvy snapshots. Neither implies a requirement or a conclusion about the other. Record confirmed implementation limits, open design choices, and work already prepared in PRs separately. The [general-purpose programming roadmap](../plans/general-purpose-programming-roadmap.md) is the current workload-driven implementation queue.
+
 ## Before changing semantics
 
 1. Read the [architecture](architecture.md) for current system boundaries and invariants.
