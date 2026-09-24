@@ -67,6 +67,22 @@ module PureRunTests =
             |> List.fold (fun current (name, itemType) ->
                 create current name (optionType itemType) (optionType itemType) (ExpressionRecipe.ParameterSlot 0)
                 |> fst) ws
+        let resultType okType errorType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
+        let boolType = TypeRef.Primitive PrimitiveType.Bool
+        let ws =
+            [ "intStringResult", intType, stringType
+              "stringBoolResult", stringType, boolType
+              "boolIntResult", boolType, intType
+              "boolBoolResult", boolType, boolType ]
+            |> List.fold (fun current (name, okType, errorType) ->
+                create current name (resultType okType errorType) (resultType okType errorType) (ExpressionRecipe.ParameterSlot 0)
+                |> fst) ws
+        let ws, _ =
+            create ws "checkedText" stringType (resultType intType stringType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.StringIsEmpty(ExpressionRecipe.ParameterSlot 0),
+                    ExpressionRecipe.ResultErr(intType, ExpressionRecipe.ParameterSlot 1),
+                    ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.Int64Literal Int64.MinValue)))
         let ws, _ =
             create ws "optionalSum" (listType intType) (optionType intType)
                 (ExpressionRecipe.Conditional(
@@ -86,6 +102,88 @@ module PureRunTests =
         let json, concat, equal, plus, unitFunction = fixture ()
         File.WriteAllText(path, json)
         root, path, concat, equal, plus, unitFunction
+
+    [<Fact>]
+    let ``runPure rejects malformed Results and mismatched inactive kinds before execution`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok result -> result
+                | Error error -> failwithf "Cannot open session: %A" error
+            let fn = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "intStringResult")
+            let original = File.ReadAllText path
+            let valid = """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":"0"}"""
+            let reject value expectedCode =
+                let request = $"""{{"id":"bad-result","op":"runPure","functionId":"{StableId.value fn.Id}","arguments":[{value},{valid}]}}"""
+                use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                Assert.Equal(expectedCode, response.RootElement.GetProperty("error").GetProperty("code").GetString())
+            for malformed in
+                [ """{"kind":"result","okKind":"int64","isOk":true,"value":"0"}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","value":"0"}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","isOk":false,"value":null}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":"9223372036854775808"}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":false}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"list","isOk":true,"value":"0"}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true}"""
+                  """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":"0","extra":0}""" ] do
+                reject malformed "ProtocolError"
+            reject """{"kind":"result","okKind":"int64","errorKind":"bool","isOk":true,"value":"0"}""" "RunArgumentTypeMismatch"
+            reject """{"kind":"result","okKind":"bool","errorKind":"string","isOk":false,"value":"err"}""" "RunArgumentTypeMismatch"
+            let validValue = PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 0L)
+            let wrongExpected = PureRunValue.ResultOk(PureRunScalarKind.Bool, PureRunScalar.Int64 0L)
+            match PureRun.run session fn.Id [ validValue; validValue ] (Some wrongExpected) with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunExpectedTypeMismatch", code)
+            | other -> failwithf "Mismatched Result expectation accepted: %A" other
+            let args = [ PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String(String([| char 0xD800 |])))
+                         PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 0L) ]
+            match PureRun.run session fn.Id args None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunInvalidString", code)
+            | other -> failwithf "Invalid payload accepted: %A" other
+            let large = PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String(String('x', 65537)))
+            match PureRun.run session fn.Id [ large; large ] None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTooLarge", code)
+            | other -> failwithf "Oversized payload accepted: %A" other
+            Assert.Equal(original, File.ReadAllText path)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``runPure roundtrips scalar Results and evaluates both authored branches`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok result -> result
+                | Error error -> failwithf "Cannot open session: %A" error
+            let original = File.ReadAllText path
+            let run name args (expected: string) expectedMatch =
+                let fn = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
+                let request = $"""{{"id":"result","op":"runPure","functionId":"{StableId.value fn.Id}","arguments":[{args}],"expected":{expected}}}"""
+                use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                let result = response.RootElement.GetProperty("result")
+                Assert.Equal(expectedMatch, result.GetProperty("matches").GetBoolean())
+                if expectedMatch then
+                    use expectedJson = JsonDocument.Parse(expected)
+                    Assert.True(JsonElement.DeepEquals(expectedJson.RootElement, result.GetProperty("actual")), result.ToString())
+            for name, value in
+                [ "intStringResult", """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":"9223372036854775807"}"""
+                  "intStringResult", """{"kind":"result","okKind":"int64","errorKind":"string","isOk":false,"value":""}"""
+                  "stringBoolResult", """{"kind":"result","okKind":"string","errorKind":"bool","isOk":true,"value":"雪\\\"\n"}"""
+                  "stringBoolResult", """{"kind":"result","okKind":"string","errorKind":"bool","isOk":false,"value":false}"""
+                  "boolIntResult", """{"kind":"result","okKind":"bool","errorKind":"int64","isOk":true,"value":false}"""
+                  "boolIntResult", """{"kind":"result","okKind":"bool","errorKind":"int64","isOk":false,"value":"-9223372036854775808"}""" ] do
+                run name (value + "," + value) value true
+            let ok = """{"kind":"result","okKind":"bool","errorKind":"bool","isOk":true,"value":false}"""
+            let err = """{"kind":"result","okKind":"bool","errorKind":"bool","isOk":false,"value":false}"""
+            run "boolBoolResult" (ok + "," + err) err false
+            run "checkedText" """{"kind":"string","value":""},{"kind":"string","value":"missing"}"""
+                """{"kind":"result","okKind":"int64","errorKind":"string","isOk":false,"value":"missing"}""" true
+            run "checkedText" """{"kind":"string","value":"present"},{"kind":"string","value":"unused"}"""
+                """{"kind":"result","okKind":"int64","errorKind":"string","isOk":true,"value":"-9223372036854775808"}""" true
+            Assert.Equal(original, File.ReadAllText path)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
     let ``runPure rejects wrong types missing targets and unsupported results without publication`` () =

@@ -36,6 +36,24 @@ module AuthoringProtocol =
         | "int64" ->
             ensureFields "Int64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
             PureRunValue.Int64(requiredInt64 "value" item)
+        | "result" ->
+            let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
+            ensureFields "Result run value" fields fields item
+            let kind name =
+                match requiredString name item with
+                | "string" -> PureRunScalarKind.String
+                | "bool" -> PureRunScalarKind.Bool
+                | "int64" -> PureRunScalarKind.Int64
+                | _ -> fail "Result okKind and errorKind must be string, bool or int64."
+            let okKind, errorKind = kind "okKind", kind "errorKind"
+            let isOk = requiredBool "isOk" item
+            let value =
+                match (if isOk then okKind else errorKind) with
+                | PureRunScalarKind.String -> PureRunScalar.String(requiredString "value" item)
+                | PureRunScalarKind.Bool -> PureRunScalar.Bool(requiredBool "value" item)
+                | PureRunScalarKind.Int64 -> PureRunScalar.Int64(requiredInt64 "value" item)
+            if isOk then PureRunValue.ResultOk(errorKind, value)
+            else PureRunValue.ResultErr(okKind, value)
         | "option" ->
             let hasValue = requiredBool "hasValue" item
             let fields = [ "kind"; "itemKind"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
@@ -78,7 +96,25 @@ module AuthoringProtocol =
             objectValue
                 ([ "kind", box "option"; "itemKind", box kind; "hasValue", box (Option.isSome item) ]
                  @ (item |> Option.map (fun value -> [ "value", value ]) |> Option.defaultValue []))
+        let resultValue isOk inactiveKind item =
+            let kind = function
+                | PureRunScalarKind.String -> "string"
+                | PureRunScalarKind.Bool -> "bool"
+                | PureRunScalarKind.Int64 -> "int64"
+            let activeKind, payload =
+                match item with
+                | PureRunScalar.String text -> "string", box text
+                | PureRunScalar.Bool value -> "bool", box value
+                | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
+            objectValue
+                [ "kind", box "result"
+                  "okKind", box (if isOk then activeKind else kind inactiveKind)
+                  "errorKind", box (if isOk then kind inactiveKind else activeKind)
+                  "isOk", box isOk
+                  "value", payload ]
         match value with
+        | PureRunValue.ResultOk(errorKind, item) -> resultValue true errorKind item
+        | PureRunValue.ResultErr(okKind, item) -> resultValue false okKind item
         | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)
         | PureRunValue.BoolOption item -> optionValue "bool" (item |> Option.map box)
         | PureRunValue.Int64Option item -> optionValue "int64" (item |> Option.map (fun number -> box (number.ToString(Globalization.CultureInfo.InvariantCulture))))

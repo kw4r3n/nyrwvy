@@ -9,6 +9,18 @@ open System.Text.Json
 open Nyrwvy.Core
 
 [<RequireQualifiedAccess>]
+type PureRunScalarKind =
+    | String
+    | Bool
+    | Int64
+
+[<RequireQualifiedAccess>]
+type PureRunScalar =
+    | String of string
+    | Bool of bool
+    | Int64 of int64
+
+[<RequireQualifiedAccess>]
 type PureRunValue =
     | String of string
     | Bool of bool
@@ -19,6 +31,8 @@ type PureRunValue =
     | StringOption of string option
     | BoolOption of bool option
     | Int64Option of int64 option
+    | ResultOk of errorKind: PureRunScalarKind * value: PureRunScalar
+    | ResultErr of okKind: PureRunScalarKind * error: PureRunScalar
 
 [<RequireQualifiedAccess>]
 type PureRunError =
@@ -32,7 +46,7 @@ type PureRunResult =
       Expected: PureRunValue option
       Matches: bool option }
 
-/// Bounded T3 execution path: pure scalar/flat-List entrypoints, no host bindings or
+/// Bounded T3 execution path: pure scalar/flat-container entrypoints, no host bindings or
 /// caller-authored C# source. Runs in a separate, bounded child process.
 [<RequireQualifiedAccess>]
 module PureRun =
@@ -40,7 +54,31 @@ module PureRun =
 
     let private optionType primitive = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive primitive ])
 
+    let private scalarValue = function
+        | PureRunScalar.String text -> PureRunValue.String text
+        | PureRunScalar.Bool value -> PureRunValue.Bool value
+        | PureRunScalar.Int64 value -> PureRunValue.Int64 value
+
+    let private scalarType = function
+        | PureRunScalarKind.String -> TypeRef.Primitive PrimitiveType.String
+        | PureRunScalarKind.Bool -> TypeRef.Primitive PrimitiveType.Bool
+        | PureRunScalarKind.Int64 -> TypeRef.Primitive PrimitiveType.Int64
+
+    let private scalarSourceType = function
+        | PureRunScalarKind.String -> "string"
+        | PureRunScalarKind.Bool -> "bool"
+        | PureRunScalarKind.Int64 -> "long"
+
+    let private scalarKind = function
+        | PureRunScalar.String _ -> PureRunScalarKind.String
+        | PureRunScalar.Bool _ -> PureRunScalarKind.Bool
+        | PureRunScalar.Int64 _ -> PureRunScalarKind.Int64
+
     let private valueType = function
+        | PureRunValue.ResultOk(errorKind, value) ->
+            TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ scalarType (scalarKind value); scalarType errorKind ])
+        | PureRunValue.ResultErr(okKind, error) ->
+            TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ scalarType okKind; scalarType (scalarKind error) ])
         | PureRunValue.String _ -> TypeRef.Primitive PrimitiveType.String
         | PureRunValue.Bool _ -> TypeRef.Primitive PrimitiveType.Bool
         | PureRunValue.Int64 _ -> TypeRef.Primitive PrimitiveType.Int64
@@ -60,6 +98,14 @@ module PureRun =
             | None -> $"NyOption<{name}>.None()"
             | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
         match value with
+        | PureRunValue.ResultOk(errorKind, item) ->
+            let okType, errorType = scalarSourceType (scalarKind item), scalarSourceType errorKind
+            let source = sourceArgument (scalarValue item)
+            $"NyResult<{okType}, {errorType}>.Ok({source})"
+        | PureRunValue.ResultErr(okKind, item) ->
+            let okType, errorType = scalarSourceType okKind, scalarSourceType (scalarKind item)
+            let source = sourceArgument (scalarValue item)
+            $"NyResult<{okType}, {errorType}>.Err({source})"
         | PureRunValue.StringOption item -> optionSource "string" (item |> Option.map PureRunValue.String)
         | PureRunValue.BoolOption item -> optionSource "bool" (item |> Option.map PureRunValue.Bool)
         | PureRunValue.Int64Option item -> optionSource "long" (item |> Option.map PureRunValue.Int64)
@@ -89,6 +135,8 @@ module PureRun =
             valid
 
     let private strings = function
+        | PureRunValue.ResultOk(_, PureRunScalar.String text)
+        | PureRunValue.ResultErr(_, PureRunScalar.String text) -> [ text ]
         | PureRunValue.String text -> [ text ]
         | PureRunValue.StringList items -> items
         | PureRunValue.StringOption item -> Option.toList item
@@ -140,11 +188,46 @@ module PureRun =
         | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
         | :? AggregateException as error -> Error(diagnostic "RunIoFailure" error.Message)
 
+    let private supportedScalar = function
+        | TypeRef.Primitive PrimitiveType.String
+        | TypeRef.Primitive PrimitiveType.Bool
+        | TypeRef.Primitive PrimitiveType.Int64 -> true
+        | _ -> false
+
+    let private supportedResult = function
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+            supportedScalar okType && supportedScalar errorType
+        | _ -> false
+
     let private parseResult resultType (output: string) =
         try
             use document = JsonDocument.Parse(output)
             let value = document.RootElement
             match resultType, value.ValueKind with
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]), JsonValueKind.Array
+                when supportedResult resultType && value.GetArrayLength() = 2
+                     && (value[0].ValueKind = JsonValueKind.True || value[0].ValueKind = JsonValueKind.False) ->
+                let isOk = value[0].GetBoolean()
+                let item = value[1]
+                let selectedType = if isOk then okType else errorType
+                let parsed =
+                    match selectedType with
+                    | TypeRef.Primitive PrimitiveType.String when item.ValueKind = JsonValueKind.String ->
+                        let text = item.GetString()
+                        if wellFormedUtf16 text then Some(PureRunScalar.String text) else None
+                    | TypeRef.Primitive PrimitiveType.Bool when item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False ->
+                        Some(PureRunScalar.Bool(item.GetBoolean()))
+                    | TypeRef.Primitive PrimitiveType.Int64 when item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64()) ->
+                        Some(PureRunScalar.Int64(item.GetInt64()))
+                    | _ -> None
+                let kind = function
+                    | TypeRef.Primitive PrimitiveType.String -> PureRunScalarKind.String
+                    | TypeRef.Primitive PrimitiveType.Bool -> PureRunScalarKind.Bool
+                    | _ -> PureRunScalarKind.Int64
+                match parsed with
+                | Some item when isOk -> Ok(PureRunValue.ResultOk(kind errorType, item))
+                | Some item -> Ok(PureRunValue.ResultErr(kind okType, item))
+                | None -> Error(diagnostic "RunInvalidResult" "A Result payload has the wrong type or invalid UTF-16.")
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive primitive ]), JsonValueKind.Array
                 when value.GetArrayLength() <= 1 ->
                 let item = value.EnumerateArray() |> Seq.tryHead
@@ -205,7 +288,7 @@ module PureRun =
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->
             Error(diagnostic "RunArgumentTypeMismatch" "An argument has the wrong type.")
-        | Some fn when not (List.contains fn.ResultType
+        | Some fn when not (supportedResult fn.ResultType) && not (List.contains fn.ResultType
             [ TypeRef.Primitive PrimitiveType.String
               TypeRef.Primitive PrimitiveType.Bool
               TypeRef.Primitive PrimitiveType.Int64
@@ -215,7 +298,7 @@ module PureRun =
               optionType PrimitiveType.String
               optionType PrimitiveType.Bool
               optionType PrimitiveType.Int64 ]) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Only String, Bool, Int64 and flat Lists or Options of these scalars are supported.")
+            Error(diagnostic "RunResultTypeUnsupported" "Only String, Bool, Int64 and flat Lists, Options or Results of these scalars are supported.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
         | Some fn when arguments @ Option.toList expected |> List.exists oversized ->
@@ -248,6 +331,16 @@ module PureRun =
                                 + "if (!WellFormed(result)) { Console.Error.WriteLine(\"Invalid UTF-16 result.\"); Environment.ExitCode = 1; }\n"
                                 + "else Console.WriteLine(JsonSerializer.Serialize(result));\n"
                                 + "static bool WellFormed(string value) { if (value == null) return false; for (int i = 0; i < value.Length; i++) { if (char.IsHighSurrogate(value[i])) { if (++i == value.Length || !char.IsLowSurrogate(value[i])) return false; } else if (char.IsLowSurrogate(value[i])) return false; } return true; }\n"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                let guard field itemType =
+                                    if itemType = TypeRef.Primitive PrimitiveType.String then
+                                        $"if (result.{field} == null) throw new InvalidOperationException(\"Null String payload.\"); new UTF8Encoding(false, true).GetByteCount(result.{field}); "
+                                    else ""
+                                prefix
+                                + "if (result.IsOk) { " + guard "OkValue" okType
+                                + "Console.WriteLine(JsonSerializer.Serialize(new object[] { true, result.OkValue })); }\n"
+                                + "else { " + guard "ErrorValue" errorType
+                                + "Console.WriteLine(JsonSerializer.Serialize(new object[] { false, result.ErrorValue })); }\n"
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive primitive ]) ->
                                 let itemType =
                                     match primitive with
