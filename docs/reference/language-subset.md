@@ -55,7 +55,7 @@ Wrapping arithmetic uses two's-complement modulo-`2^64` behavior. Checked arithm
 
 ## Immutable ordered `List<T>`
 
-`List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures.
+`List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition is not a built-in `ListAt`, does not stop the fold early, and must currently be authored again for each concrete element type until type abstraction is available.
 
 The current collection surface includes:
 

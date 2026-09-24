@@ -105,6 +105,56 @@ module ListFoldTests =
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
 
+    let private indexFixture () =
+        let intType = TypeRef.Primitive PrimitiveType.Int64
+        let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])
+        let stateId = id<TypeTag> "index-state"
+        let remainingId = id<FieldTag> "remaining"
+        let itemId = id<FieldTag> "item"
+        let stateType = TypeRef.Named stateId
+        let state: SemanticType =
+            { Id = stateId
+              DisplayName = "IndexState"
+              Kind = SemanticTypeKind.Product
+                [ { Id = remainingId; DisplayName = "remaining"; Type = intType }
+                  { Id = itemId; DisplayName = "item"; Type = optionType } ] }
+        let ws =
+            { Snapshot.empty (id<SnapshotTag> "index-initial") with Types = [ state ] }
+            |> AgentWorkspace.create
+            |> function
+                | Ok value -> value
+                | Error errors -> failwithf "Invalid index fixture: %A" errors
+        let acc = ExpressionRecipe.ParameterSlot 0
+        let remaining = ExpressionRecipe.FieldAccess(acc, remainingId)
+        let previous = ExpressionRecipe.FieldAccess(acc, itemId)
+        let step =
+            ExpressionRecipe.Conditional(
+                ExpressionRecipe.Int64Equal(remaining, ExpressionRecipe.Int64Literal 0L),
+                ExpressionRecipe.ProductConstruct(stateId,
+                    [ remainingId, ExpressionRecipe.Int64Literal -1L
+                      itemId, ExpressionRecipe.OptionSome(ExpressionRecipe.ParameterSlot 1) ]),
+                ExpressionRecipe.ProductConstruct(stateId,
+                    [ remainingId,
+                        ExpressionRecipe.Int64WrappingSubtract(remaining, ExpressionRecipe.Int64Literal 1L)
+                      itemId, previous ]))
+        let ws, folder =
+            create ws "index_step"
+                [ parameter "state" stateType; parameter "item" stringType ] stateType step
+        let index = ExpressionRecipe.ParameterSlot 1
+        let seed =
+            ExpressionRecipe.ProductConstruct(stateId,
+                [ remainingId, index; itemId, ExpressionRecipe.OptionNone stringType ])
+        let lookup =
+            ExpressionRecipe.Conditional(
+                ExpressionRecipe.Int64LessThan(index, ExpressionRecipe.Int64Literal 0L),
+                ExpressionRecipe.OptionNone stringType,
+                ExpressionRecipe.FieldAccess(
+                    ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id), itemId))
+        let ws, at =
+            create ws "item_at"
+                [ parameter "items" listType; parameter "index" intType ] optionType lookup
+        AgentWorkspace.snapshotForStructuralEditing ws, folder, at
+
     [<Fact>]
     let ``fold with runtime context authors publishes persists and lowers with stable callback identity`` () =
         let snapshot, folder, search, _ = fixture ()
@@ -171,6 +221,56 @@ module ListFoldTests =
             start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
             let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
             Assert.Equal("True\nFalse\nFalse\nFalse\n123\n0", output.Replace("\r\n", "\n").Trim())
+        finally
+            if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``generated fold retrieves a typed element by runtime index with empty and out of range cases`` () =
+        let snapshot, folder, at = indexFixture ()
+        let json = SnapshotCodec.serialize snapshot |> unwrap "serialize index"
+        let restored = SnapshotCodec.deserialize json |> unwrap "reopen index"
+        let nyason = NyasonCodec.serialize restored |> unwrap "nyason index"
+        let reopened = NyasonCodec.deserialize nyason |> unwrap "reopen nyason index"
+        let focus = SemanticQuery.focusFunction reopened at.Id |> unwrap "index focus"
+        Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
+        let execution = TypedSemanticIr.project reopened |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
+        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-index-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempRoot) |> ignore
+        try
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"),
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
+            let functionName = "NyFunctions." + CSharpBackendNames.functionName at.Id
+            let inputs =
+                [ "NyList<string>.Empty(), 0L"
+                  "NyList<string>.Create(\"first\", \"second\", \"third\"), -1L"
+                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 0L"
+                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 1L"
+                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 2L"
+                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 3L" ]
+            let program =
+                [ "using System; using Nyrwvy.Generated;" ]
+                @ (inputs |> List.map (fun args ->
+                    $"{{ var result = {functionName}({args}); Console.WriteLine(result.HasValue ? result.Value : \"<none>\"); }}"))
+                |> String.concat "\n"
+            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), program)
+            let start args =
+                let info = ProcessStartInfo("dotnet")
+                info.WorkingDirectory <- tempRoot
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                for arg in args do info.ArgumentList.Add(arg)
+                use child = Process.Start(info)
+                let stdout = child.StandardOutput.ReadToEndAsync()
+                let stderr = child.StandardError.ReadToEndAsync()
+                child.WaitForExit()
+                if child.ExitCode <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout.Result stderr.Result
+                stdout.Result
+            start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
+            let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
+            Assert.Equal("<none>\n<none>\nfirst\nsecond\nthird\n<none>", output.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
