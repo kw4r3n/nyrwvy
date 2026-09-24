@@ -36,9 +36,39 @@ module AuthoringProtocol =
         | "int64" ->
             ensureFields "Int64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
             PureRunValue.Int64(requiredInt64 "value" item)
+        | "list" ->
+            ensureFields "List run value" [ "kind"; "itemKind"; "items" ] [ "kind"; "itemKind"; "items" ] item
+            let items = array "items" item
+            if items.Length > 4096 then fail "List run values may contain at most 4096 items."
+            match requiredString "itemKind" item with
+            | "string" ->
+                PureRunValue.StringList(items |> List.map (fun value ->
+                    if value.ValueKind <> JsonValueKind.String then fail "String List items must be strings."
+                    value.GetString()))
+            | "bool" ->
+                PureRunValue.BoolList(items |> List.map (fun value ->
+                    if value.ValueKind <> JsonValueKind.True && value.ValueKind <> JsonValueKind.False then fail "Bool List items must be booleans."
+                    value.GetBoolean()))
+            | "int64" ->
+                PureRunValue.Int64List(items |> List.map (fun value ->
+                    let parsed =
+                        match value.ValueKind with
+                        | JsonValueKind.Number -> value.TryGetInt64()
+                        | JsonValueKind.String -> Int64.TryParse(value.GetString(), Globalization.NumberStyles.AllowLeadingSign, Globalization.CultureInfo.InvariantCulture)
+                        | _ -> false, 0L
+                    match parsed with
+                    | true, number -> number
+                    | _ -> fail "Int64 List items must be exact integers or decimal strings."))
+            | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
-    let private encodePureValue = function
+    let private encodePureValue value =
+        let listValue kind items =
+            objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
+        match value with
+        | PureRunValue.StringList items -> listValue "string" (items |> List.map box)
+        | PureRunValue.BoolList items -> listValue "bool" (items |> List.map box)
+        | PureRunValue.Int64List items -> listValue "int64" (items |> List.map (fun item -> box (item.ToString(Globalization.CultureInfo.InvariantCulture))))
         | PureRunValue.String value -> objectValue [ "kind", box "string"; "value", box value ]
         | PureRunValue.Bool value -> objectValue [ "kind", box "bool"; "value", box value ]
         | PureRunValue.Int64 value ->

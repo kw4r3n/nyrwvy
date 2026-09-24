@@ -49,6 +49,18 @@ module PureRunTests =
                 (ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
         let ws, unitFunction =
             create ws "unit" stringType (TypeRef.Primitive PrimitiveType.Unit) ExpressionRecipe.UnitLiteral
+        let listType item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
+        let ws, _ =
+            create ws "sumLists" (listType intType) intType
+                (ExpressionRecipe.ListFold(
+                    ExpressionRecipe.ListConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1),
+                    ExpressionRecipe.Int64Literal 0L, plus))
+        let ws =
+            [ "intList", intType; "stringList", stringType; "boolList", TypeRef.Primitive PrimitiveType.Bool ]
+            |> List.fold (fun current (name, itemType) ->
+                create current name (listType itemType) (listType itemType)
+                    (ExpressionRecipe.ListConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
+                |> fst) ws
         let json = AgentWorkspace.serializeCurrentSnapshot ws |> function
             | Ok text -> text
             | Error error -> failwithf "Fixture serialization failed: %A" error
@@ -105,6 +117,63 @@ module PureRunTests =
             Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
             Assert.Equal("ExternalModification", rejected.RootElement.GetProperty("error").GetProperty("code").GetString())
             Assert.Equal(modified, File.ReadAllText(path))
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``runPure rejects malformed and oversized List values before execution`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let target = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "sumLists")
+            for value in
+                [ """{"kind":"list","itemKind":"int64","items":[true]}"""
+                  """{"kind":"list","itemKind":"int64","items":["9223372036854775808"]}"""
+                  """{"kind":"list","itemKind":"list","items":[]}"""
+                  """{"kind":"list","itemKind":"int64","items":[],"extra":true}""" ] do
+                let command = $"""{{"id":"bad","op":"runPure","functionId":"{StableId.value target.Id}","arguments":[{value},{value}]}}"""
+                use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Equal("ProtocolError", response.RootElement.GetProperty("error").GetProperty("code").GetString())
+            match PureRun.run session target.Id [ PureRunValue.Int64List(List.replicate 4097 1L); PureRunValue.Int64List [] ] None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTooLarge", code)
+            | other -> failwithf "Oversized list accepted: %A" other
+            match PureRun.run session target.Id [ PureRunValue.StringList []; PureRunValue.Int64List [] ] None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTypeMismatch", code)
+            | other -> failwithf "Wrong empty list type accepted: %A" other
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``runPure executes authored fold and roundtrips typed List results`` () =
+        let root, path, _, _, _, _ = tempSession ()
+        try
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let original = File.ReadAllText(path)
+            let run name left right expected =
+                let target = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
+                let command = $"""{{"id":"list","op":"runPure","functionId":"{StableId.value target.Id}","arguments":[{left},{right}],"expected":{expected}}}"""
+                use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
+                Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                let result = response.RootElement.GetProperty("result")
+                Assert.True(result.GetProperty("matches").GetBoolean(), result.ToString())
+                result.GetProperty("actual").Clone()
+            let empty = """{"kind":"list","itemKind":"int64","items":[]}"""
+            run "sumLists" """{"kind":"list","itemKind":"int64","items":["1","2","3"]}""" empty
+                """{"kind":"int64","value":"6"}""" |> ignore
+            run "sumLists" empty empty """{"kind":"int64","value":"0"}""" |> ignore
+            let integers = """{"kind":"list","itemKind":"int64","items":["9223372036854775807","-9223372036854775808"]}"""
+            let actual = run "intList" integers empty integers
+            Assert.Equal("9223372036854775807", (actual.GetProperty("items")[0]).GetString())
+            let texts = """{"kind":"list","itemKind":"string","items":["🍀","","a\r\n"]}"""
+            run "stringList" texts """{"kind":"list","itemKind":"string","items":[]}""" texts |> ignore
+            let booleans = """{"kind":"list","itemKind":"bool","items":[true,false]}"""
+            run "boolList" """{"kind":"list","itemKind":"bool","items":[]}""" booleans booleans |> ignore
+            Assert.Equal(original, File.ReadAllText(path))
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
