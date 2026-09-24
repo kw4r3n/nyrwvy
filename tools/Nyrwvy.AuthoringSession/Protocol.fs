@@ -25,17 +25,29 @@ module AuthoringProtocol =
 
     let private sessionFailure id error = failure id (WireEncode.error error)
 
+    let private pureScalar (item: JsonElement): PureRunScalar =
+        ensureFields "Scalar run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+        match requiredString "kind" item with
+        | "string" -> PureRunScalar.String(requiredString "value" item)
+        | "bool" -> PureRunScalar.Bool(requiredBool "value" item)
+        | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
+        | _ -> fail "Scalar run values must be string, bool or int64."
+
     let private pureValue (item: JsonElement): PureRunValue =
         match requiredString "kind" item with
-        | "string" ->
-            ensureFields "String run value" [ "kind"; "value" ] [ "kind"; "value" ] item
-            PureRunValue.String(requiredString "value" item)
-        | "bool" ->
-            ensureFields "Bool run value" [ "kind"; "value" ] [ "kind"; "value" ] item
-            PureRunValue.Bool(requiredBool "value" item)
-        | "int64" ->
-            ensureFields "Int64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
-            PureRunValue.Int64(requiredInt64 "value" item)
+        | "string" | "bool" | "int64" ->
+            match pureScalar item with
+            | PureRunScalar.String text -> PureRunValue.String text
+            | PureRunScalar.Bool value -> PureRunValue.Bool value
+            | PureRunScalar.Int64 value -> PureRunValue.Int64 value
+        | "product" ->
+            ensureFields "Product run value" [ "kind"; "typeId"; "fields" ] [ "kind"; "typeId"; "fields" ] item
+            let fields = array "fields" item
+            if fields.Length > 256 then fail "Product run values may contain at most 256 fields."
+            PureRunValue.Product(id<TypeTag> "typeId" item,
+                fields |> List.map (fun field ->
+                    ensureFields "Product run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
+                    id<FieldTag> "fieldId" field, pureScalar (property "value" field)))
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -89,6 +101,14 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
+    let private encodePureScalar value =
+        let kind, payload =
+            match value with
+            | PureRunScalar.String text -> "string", box text
+            | PureRunScalar.Bool value -> "bool", box value
+            | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
+        objectValue [ "kind", box kind; "value", payload ]
+
     let private encodePureValue value =
         let listValue kind items =
             objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
@@ -113,6 +133,12 @@ module AuthoringProtocol =
                   "isOk", box isOk
                   "value", payload ]
         match value with
+        | PureRunValue.Product(typeId, fields) ->
+            objectValue
+                [ "kind", box "product"
+                  "typeId", box (StableId.value typeId)
+                  "fields", fields |> List.map (fun (fieldId, value) ->
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
         | PureRunValue.ResultOk(errorKind, item) -> resultValue true errorKind item
         | PureRunValue.ResultErr(okKind, item) -> resultValue false okKind item
         | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)
@@ -121,10 +147,9 @@ module AuthoringProtocol =
         | PureRunValue.StringList items -> listValue "string" (items |> List.map box)
         | PureRunValue.BoolList items -> listValue "bool" (items |> List.map box)
         | PureRunValue.Int64List items -> listValue "int64" (items |> List.map (fun item -> box (item.ToString(Globalization.CultureInfo.InvariantCulture))))
-        | PureRunValue.String value -> objectValue [ "kind", box "string"; "value", box value ]
-        | PureRunValue.Bool value -> objectValue [ "kind", box "bool"; "value", box value ]
-        | PureRunValue.Int64 value ->
-            objectValue [ "kind", box "int64"; "value", box (value.ToString(Globalization.CultureInfo.InvariantCulture)) ]
+        | PureRunValue.String value -> encodePureScalar (PureRunScalar.String value)
+        | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
+        | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
 
     let private currentSnapshotId (session: AuthoringSession) =
         match session.Status() with

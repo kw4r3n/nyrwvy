@@ -33,6 +33,7 @@ type PureRunValue =
     | Int64Option of int64 option
     | ResultOk of errorKind: PureRunScalarKind * value: PureRunScalar
     | ResultErr of okKind: PureRunScalarKind * error: PureRunScalar
+    | Product of typeId: TypeId * fields: (FieldId * PureRunScalar) list
 
 [<RequireQualifiedAccess>]
 type PureRunError =
@@ -75,6 +76,7 @@ module PureRun =
         | PureRunScalar.Int64 _ -> PureRunScalarKind.Int64
 
     let private valueType = function
+        | PureRunValue.Product(typeId, _) -> TypeRef.Named typeId
         | PureRunValue.ResultOk(errorKind, value) ->
             TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ scalarType (scalarKind value); scalarType errorKind ])
         | PureRunValue.ResultErr(okKind, error) ->
@@ -98,6 +100,10 @@ module PureRun =
             | None -> $"NyOption<{name}>.None()"
             | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
         match value with
+        | PureRunValue.Product(typeId, fields) ->
+            let arguments = fields |> List.map (fun (fieldId, item) ->
+                CSharpBackendNames.fieldName fieldId + ": " + sourceArgument (scalarValue item)) |> String.concat ", "
+            "new " + CSharpBackendNames.typeName typeId + "(" + arguments + ")"
         | PureRunValue.ResultOk(errorKind, item) ->
             let okType, errorType = scalarSourceType (scalarKind item), scalarSourceType errorKind
             let source = sourceArgument (scalarValue item)
@@ -135,6 +141,8 @@ module PureRun =
             valid
 
     let private strings = function
+        | PureRunValue.Product(_, fields) ->
+            fields |> List.choose (fun (_, value) -> match value with PureRunScalar.String text -> Some text | _ -> None)
         | PureRunValue.ResultOk(_, PureRunScalar.String text)
         | PureRunValue.ResultErr(_, PureRunScalar.String text) -> [ text ]
         | PureRunValue.String text -> [ text ]
@@ -143,6 +151,11 @@ module PureRun =
         | _ -> []
 
     let private oversized = function
+        | PureRunValue.Product(_, fields) ->
+            fields.Length > 256 || (fields |> List.sumBy (fun (_, value) ->
+                match value with
+                | PureRunScalar.String text -> if isNull text then 65537L else int64 text.Length
+                | _ -> 0L)) > 65536L
         | PureRunValue.StringList items ->
             items.Length > 4096 || (items |> List.sumBy (fun text -> if isNull text then 65537L else int64 text.Length)) > 65536L
         | PureRunValue.BoolList items -> items.Length > 4096
@@ -199,27 +212,62 @@ module PureRun =
             supportedScalar okType && supportedScalar errorType
         | _ -> false
 
-    let private parseResult resultType (output: string) =
+    let private productFields (types: SemanticType list) typeId =
+        types |> List.tryFind (fun item -> item.Id = typeId)
+        |> Option.bind (fun item ->
+            match item.Kind with
+            | SemanticTypeKind.Product fields when fields.Length <= 256 && fields |> List.forall (fun field -> supportedScalar field.Type) ->
+                Some(fields |> List.sortBy (fun field -> StableId.value field.Id))
+            | _ -> None)
+
+    let private validProduct types = function
+        | PureRunValue.Product(typeId, fields) ->
+            match productFields types typeId with
+            | None -> false
+            | Some declared ->
+                let sorted = fields |> List.sortBy (fst >> StableId.value)
+                declared.Length = sorted.Length
+                && List.forall2 (fun (field: SemanticField) (fieldId, value) ->
+                    field.Id = fieldId && field.Type = scalarType (scalarKind value)) declared sorted
+        | _ -> true
+
+    let private canonicalValue = function
+        | PureRunValue.Product(typeId, fields) ->
+            PureRunValue.Product(typeId, fields |> List.sortBy (fst >> StableId.value))
+        | value -> value
+
+    let private parseScalar itemType (item: JsonElement) =
+        match itemType with
+        | TypeRef.Primitive PrimitiveType.String when item.ValueKind = JsonValueKind.String ->
+            let text = item.GetString()
+            if wellFormedUtf16 text then Some(PureRunScalar.String text) else None
+        | TypeRef.Primitive PrimitiveType.Bool when item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False ->
+            Some(PureRunScalar.Bool(item.GetBoolean()))
+        | TypeRef.Primitive PrimitiveType.Int64 when item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64()) ->
+            Some(PureRunScalar.Int64(item.GetInt64()))
+        | _ -> None
+
+    let private parseResult types resultType (output: string) =
         try
             use document = JsonDocument.Parse(output)
             let value = document.RootElement
             match resultType, value.ValueKind with
+            | TypeRef.Named typeId, JsonValueKind.Array ->
+                match productFields types typeId with
+                | Some fields when fields.Length = value.GetArrayLength() ->
+                    let parsed = fields |> List.mapi (fun index field ->
+                        parseScalar field.Type value[index] |> Option.map (fun item -> field.Id, item))
+                    if parsed |> List.exists Option.isNone then
+                        Error(diagnostic "RunInvalidResult" "A Product field has the wrong type or invalid UTF-16.")
+                    else Ok(PureRunValue.Product(typeId, parsed |> List.choose id))
+                | _ -> Error(diagnostic "RunInvalidResult" "The Product result does not match its declaration.")
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]), JsonValueKind.Array
                 when supportedResult resultType && value.GetArrayLength() = 2
                      && (value[0].ValueKind = JsonValueKind.True || value[0].ValueKind = JsonValueKind.False) ->
                 let isOk = value[0].GetBoolean()
                 let item = value[1]
                 let selectedType = if isOk then okType else errorType
-                let parsed =
-                    match selectedType with
-                    | TypeRef.Primitive PrimitiveType.String when item.ValueKind = JsonValueKind.String ->
-                        let text = item.GetString()
-                        if wellFormedUtf16 text then Some(PureRunScalar.String text) else None
-                    | TypeRef.Primitive PrimitiveType.Bool when item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False ->
-                        Some(PureRunScalar.Bool(item.GetBoolean()))
-                    | TypeRef.Primitive PrimitiveType.Int64 when item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64()) ->
-                        Some(PureRunScalar.Int64(item.GetInt64()))
-                    | _ -> None
+                let parsed = parseScalar selectedType item
                 let kind = function
                     | TypeRef.Primitive PrimitiveType.String -> PureRunScalarKind.String
                     | TypeRef.Primitive PrimitiveType.Bool -> PureRunScalarKind.Bool
@@ -280,6 +328,11 @@ module PureRun =
         (expected: PureRunValue option)
         : Result<PureRunResult, PureRunError> =
         let declarations = session.Declarations()
+        let arguments = arguments |> List.map canonicalValue
+        let expected = expected |> Option.map canonicalValue
+        let supportedProduct = function
+            | TypeRef.Named typeId -> productFields declarations.Types typeId |> Option.isSome
+            | _ -> false
         match declarations.Functions |> List.tryFind (fun item -> item.Id = functionId) with
         | None -> Error(diagnostic "RunFunctionNotFound" "The entry function does not exist.")
         | Some fn when not (List.isEmpty fn.RequiredEffects) ->
@@ -288,7 +341,9 @@ module PureRun =
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->
             Error(diagnostic "RunArgumentTypeMismatch" "An argument has the wrong type.")
-        | Some fn when not (supportedResult fn.ResultType) && not (List.contains fn.ResultType
+        | Some fn when arguments |> List.exists (validProduct declarations.Types >> not) ->
+            Error(diagnostic "RunProductShapeMismatch" "Product arguments must supply each declared scalar field exactly once with its exact type (at most 256 fields).")
+        | Some fn when not (supportedProduct fn.ResultType) && not (supportedResult fn.ResultType) && not (List.contains fn.ResultType
             [ TypeRef.Primitive PrimitiveType.String
               TypeRef.Primitive PrimitiveType.Bool
               TypeRef.Primitive PrimitiveType.Int64
@@ -298,11 +353,13 @@ module PureRun =
               optionType PrimitiveType.String
               optionType PrimitiveType.Bool
               optionType PrimitiveType.Int64 ]) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Only String, Bool, Int64 and flat Lists, Options or Results of these scalars are supported.")
+            Error(diagnostic "RunResultTypeUnsupported" "Only String, Bool, Int64, flat Lists/Options/Results, and Products with at most 256 scalar fields are supported.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
+        | Some fn when expected |> Option.exists (validProduct declarations.Types >> not) ->
+            Error(diagnostic "RunProductShapeMismatch" "A Product expectation must supply each declared scalar field exactly once with its exact type.")
         | Some fn when arguments @ Option.toList expected |> List.exists oversized ->
-            Error(diagnostic "RunArgumentTooLarge" "Lists are limited to 4096 items and String Lists to 65536 total UTF-16 code units.")
+            Error(diagnostic "RunArgumentTooLarge" "Lists are limited to 4096 items; Products to 256 fields; each List/Product to 65536 total String UTF-16 code units.")
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (fun text -> isNull text || text.Length > 65536) ->
             Error(diagnostic "RunArgumentTooLarge" "A String argument or expectation is null or exceeds 65536 UTF-16 code units.")
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (wellFormedUtf16 >> not) ->
@@ -326,6 +383,15 @@ module PureRun =
                                 "using System; using System.Globalization; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
                                 + $"var result = NyFunctions.{entry}({args});\n"
                             match fn.ResultType with
+                            | TypeRef.Named typeId ->
+                                let fields = productFields declarations.Types typeId |> Option.get
+                                let guards = fields |> List.choose (fun field ->
+                                    if field.Type = TypeRef.Primitive PrimitiveType.String then
+                                        let access = "result." + CSharpBackendNames.fieldName field.Id
+                                        Some($"if ({access} == null) throw new InvalidOperationException(\"Null String field.\"); new UTF8Encoding(false, true).GetByteCount({access});\n")
+                                    else None) |> String.concat ""
+                                let values = fields |> List.map (fun field -> "result." + CSharpBackendNames.fieldName field.Id) |> String.concat ", "
+                                prefix + guards + $"Console.WriteLine(JsonSerializer.Serialize(new object[] {{ {values} }}));\n"
                             | TypeRef.Primitive PrimitiveType.String ->
                                 prefix
                                 + "if (!WellFormed(result)) { Console.Error.WriteLine(\"Invalid UTF-16 result.\"); Environment.ExitCode = 1; }\n"
@@ -371,7 +437,7 @@ module PureRun =
                         launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
                             launch root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
-                        |> Result.bind (parseResult fn.ResultType)
+                        |> Result.bind (parseResult declarations.Types fn.ResultType)
                         |> Result.map (fun actual ->
                             { SnapshotId = status.SnapshotId
                               FunctionId = fn.Id
