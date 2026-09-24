@@ -18,6 +18,7 @@
     <Compile Include="MilestoneZeroEndToEndTests.fs" />
     <Compile Include="MilestoneOneEndToEndTests.fs" />
     <Compile Include="MilestoneFourProviderEndToEndTests.fs" />
+    <Compile Include="ExternalCapabilityBindingTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

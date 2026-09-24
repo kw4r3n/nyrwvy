@@ -234,7 +234,11 @@ module CSharpBackend =
         let anyBound =
             capability.Operations
             |> List.exists (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
-        allBound && anyBound
+        allBound
+        && anyBound
+        && (capability.Operations
+            |> List.forall (fun operation ->
+                Map.find operation.Id context.BindingsByOperation = CSharpCapabilityBindingKind.SystemConsoleWriteLine))
 
     let private emitAdapters
         (writer: SourceWriter)
@@ -262,6 +266,8 @@ module CSharpBackend =
                         let parameterName = CSharpBackendNames.capabilityParameterName parameter.Id
                         writer.Line("System.Console.WriteLine(" + parameterName + ");")
                         writer.Line("return NyUnit.Value;")
+                    | CSharpCapabilityBindingKind.ExternalImplementation ->
+                        invalidOp "An external implementation does not generate an adapter."
                     writer.Pop()
                     writer.Line("}")
                 writer.Pop()

@@ -6,6 +6,8 @@ open System.Text
 [<RequireQualifiedAccess>]
 type CSharpCapabilityBindingKind =
     | SystemConsoleWriteLine
+    /// The host implements the generated typed capability interface and supplies it as a function argument.
+    | ExternalImplementation
 
 type CSharpCapabilityBinding =
     { OperationId: CapabilityOperationId
@@ -41,6 +43,7 @@ type CSharpBackendError =
     | MissingCapabilityBinding of CapabilityOperationId
     | UnknownCapabilityBindingOperation of CapabilityOperationId
     | IncompatibleSystemConsoleWriteLineBinding of CapabilityOperationId
+    | MixedCapabilityBindingKinds of CapabilityId
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId
     | UnknownCapabilityOperation of CapabilityOperationId
@@ -58,6 +61,13 @@ module CSharpBackendProfile =
         { CapabilityBindings =
             [ { OperationId = operationId
                 Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
+
+    let externalImplementations (operationIds: CapabilityOperationId list): CSharpBackendProfile =
+        { CapabilityBindings =
+            operationIds
+            |> List.map (fun operationId ->
+                { OperationId = operationId
+                  Kind = CSharpCapabilityBindingKind.ExternalImplementation }) }
 
 [<RequireQualifiedAccess>]
 module CSharpBackendNames =

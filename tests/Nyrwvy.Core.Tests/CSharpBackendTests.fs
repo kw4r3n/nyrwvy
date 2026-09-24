@@ -200,6 +200,27 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
         | result -> failwithf "Expected MissingCapabilityBinding, got %A" result
 
     [<Fact>]
+    let ``external binding does not erase FailureType or silently translate host exceptions`` () =
+        let fixture, execution = lowerRepresentative ()
+        let withFailure =
+            { execution with
+                Capabilities =
+                    execution.Capabilities
+                    |> List.map (fun capability ->
+                        if capability.Id <> fixture.ConsoleCapabilityId then capability
+                        else
+                            { capability with
+                                Operations =
+                                    capability.Operations
+                                    |> List.map (fun operation ->
+                                        { operation with FailureType = Some(TypeRef.Primitive PrimitiveType.String) }) }) }
+        let profile = CSharpBackendProfile.externalImplementations [ fixture.ConsoleWriteLineOperationId ]
+        match CSharpBackend.emit withFailure profile with
+        | Error(CSharpBackendError.UnsupportedCapabilityFailure operationId) ->
+            Assert.Equal(fixture.ConsoleWriteLineOperationId, operationId)
+        | result -> failwithf "FailureType must not acquire an implicit exception mapping: %A" result
+
+    [<Fact>]
     let ``C# backend rejects unknown higher-order List callback targets`` () =
         let _, execution = lowerRepresentative ()
         let unknown = StableId.createForTesting<FunctionTag> "function-m1-h-unknown-list-callback"

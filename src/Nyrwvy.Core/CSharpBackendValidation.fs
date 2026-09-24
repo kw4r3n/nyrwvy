@@ -163,33 +163,45 @@ module internal CSharpBackendValidation =
                             match missingAdapterBinding with
                             | Some operation -> Error(CSharpBackendError.MissingCapabilityBinding operation.Id)
                             | None ->
-                                match
-                                    orderedBindings
-                                    |> List.tryPick (fun binding ->
-                                        let _, operation = Map.find binding.OperationId operationsById
-                                        match binding.Kind with
-                                        | CSharpCapabilityBindingKind.SystemConsoleWriteLine ->
-                                            if isSystemConsoleWriteLineCompatible operation then
-                                                None
-                                            else
-                                                Some(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding binding.OperationId))
-                                with
-                                | Some error -> Error error
+                                let mixedCapability =
+                                    program.Capabilities
+                                    |> List.sortBy (fun capability -> StableId.value capability.Id)
+                                    |> List.tryFind (fun capability ->
+                                        capability.Operations
+                                        |> List.choose (fun operation -> Map.tryFind operation.Id bindingsByOperation)
+                                        |> List.distinct
+                                        |> List.length > 1)
+                                match mixedCapability with
+                                | Some capability -> Error(CSharpBackendError.MixedCapabilityBindingKinds capability.Id)
                                 | None ->
                                     match
-                                        operationEntries
-                                        |> List.map snd
-                                        |> List.map snd
-                                        |> List.sortBy (fun operation -> StableId.value operation.Id)
-                                        |> List.tryFind (fun operation -> Option.isSome operation.FailureType)
+                                        orderedBindings
+                                        |> List.tryPick (fun binding ->
+                                            let _, operation = Map.find binding.OperationId operationsById
+                                            match binding.Kind with
+                                            | CSharpCapabilityBindingKind.SystemConsoleWriteLine ->
+                                                if isSystemConsoleWriteLineCompatible operation then
+                                                    None
+                                                else
+                                                    Some(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding binding.OperationId)
+                                            | CSharpCapabilityBindingKind.ExternalImplementation -> None)
                                     with
-                                    | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
+                                    | Some error -> Error error
                                     | None ->
-                                        Ok
-                                            { FunctionsById = functionsById
-                                              TypesById = typesById
-                                              VariantsById = variantsById
-                                              FieldsById = fieldsById
-                                              CapabilitiesById = capabilitiesById
-                                              OperationsById = operationsById
-                                              BindingsByOperation = bindingsByOperation }
+                                        match
+                                            operationEntries
+                                            |> List.map snd
+                                            |> List.map snd
+                                            |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                            |> List.tryFind (fun operation -> Option.isSome operation.FailureType)
+                                        with
+                                        | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
+                                        | None ->
+                                            Ok
+                                                { FunctionsById = functionsById
+                                                  TypesById = typesById
+                                                  VariantsById = variantsById
+                                                  FieldsById = fieldsById
+                                                  CapabilitiesById = capabilitiesById
+                                                  OperationsById = operationsById
+                                                  BindingsByOperation = bindingsByOperation }

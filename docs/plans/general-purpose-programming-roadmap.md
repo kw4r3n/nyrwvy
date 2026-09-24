@@ -44,6 +44,8 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 `feat/g1-data-operations` で純粋な `ListFold(source, seed, folder)` を追加した。蓄積型 `S` と要素型 `T` に対して既存の関数 `f : (S, T) -> S` を参照し、左から右へ処理する。seedに実行時キーを保持した検索と非可換の集計を、通常の関数authoring、review/commit、JSON/Nyason保存、lowering、C#実行まで小さく確認した。文字列の完全一致はこの検証では既存の序数的 `StringContains` を双方向に合成して表現しており、専用の等値操作や一般的な要素取得はまだない。この記録はG1/T3全体の完了を意味しない。以下の「確認した制限」は計画策定時点の記述であり、foldの不足はこの第1段階で解消した。
 
+`feat/g1-data-operations` の後続ではG3の最初の境界として、既存のCapability interfaceに外部実装を注入する明示的なC# profileを追加した。型付きProduct入力と`Result`による正常な失敗をfake hostで往復し、NyrwvyのMatchResultで分岐することを確認した。`FailureType`やhost例外をResultへ暗黙変換しない。新しい外部オブジェクト表現、実装の自動ロード、リソース寿命・T3の共通実行入口は未着手であり、G3全体の完了宣言ではない。
+
 ## 3. 実装目標一覧
 
 P0は最初に着手する候補、P1はその後のまとまった実装目標を表す。全項目を一括実装する指示ではない。

@@ -435,6 +435,19 @@ module AuthoringProtocol =
                         CSharpBackendProfile.systemConsoleWriteLine(
                             id<CapabilityOperationTag> "operationId" profileValue
                         )
+                    | "externalImplementations" ->
+                        ensureFields
+                            "External C# implementations profile"
+                            [ "kind"; "operationIds" ]
+                            [ "kind"; "operationIds" ]
+                            profileValue
+                        let operationIds =
+                            array "operationIds" profileValue
+                            |> List.map (fun element ->
+                                if element.ValueKind <> JsonValueKind.String then
+                                    WireInput.fail "External operation ID must be a string."
+                                stableId<CapabilityOperationTag> "operationId" (element.GetString()))
+                        CSharpBackendProfile.externalImplementations operationIds
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
                 match session.EmitCSharp profile with
                 | Ok artifact -> success requestId (WireEncode.csharpArtifact artifact)
