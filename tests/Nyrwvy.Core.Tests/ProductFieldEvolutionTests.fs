@@ -154,6 +154,102 @@ module ProductFieldEvolutionTests =
         | Error error -> failwithf "Lowering failed: %A" error
 
     [<Fact>]
+    let ``removing an unreferenced Product field repairs nested constructions and preserves identities`` () =
+        let initial = fixture ()
+        let first = workspace initial
+        let added = published first (simulate first (AgentOperationIntent.AddProductField(intent plans)))
+        let addedSnapshot = AgentWorkspace.snapshotForStructuralEditing added
+        let fieldId = (newField addedSnapshot).Id
+        let proposal = simulate added (AgentOperationIntent.RemoveProductField fieldId)
+        let review = AgentChangeProposal.review proposal
+        let removed = List.exactlyOne review.ResultingChange.Diff.ProductFieldsRemoved
+        Assert.Equal(fieldId, removed.RemovedFieldId)
+        Assert.Equal<GraphNodeId list>(plans |> List.map (fun plan -> plan.ConstructNodeId) |> List.sortBy StableId.value,
+            removed.AffectedConstructNodeIds)
+        Assert.Equal<TypeId list>([ productId ], review.ResultingChange.AffectedTypeIds)
+        Assert.Equal(2, review.ResultingChange.FunctionFocus.Length)
+        let updated = published added proposal
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing updated
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        Assert.Equal<SemanticType list>(initial.Types, snapshot.Types)
+        Assert.Equal<SemanticFunction list>(initial.Functions, snapshot.Functions)
+        let json = AgentWorkspace.serializeCurrentSnapshot updated |> function
+            | Ok text -> text
+            | Error error -> failwithf "Serialization failed: %A" error
+        match SnapshotCodec.deserialize json with
+        | Ok reopened ->
+            Assert.Equal<SemanticType list>(initial.Types, reopened.Types)
+            Assert.Equal<FunctionId list>(initial.Functions |> List.map (fun fn -> fn.Id),
+                reopened.Functions |> List.map (fun fn -> fn.Id))
+            for fn in reopened.Functions do
+                let before = initial.Functions |> List.find (fun item -> item.Id = fn.Id)
+                Assert.Equal<GraphNodeId list>(
+                    ValueGraph.collectNodes before.Body |> List.map (fun node -> node.Id) |> List.sortBy StableId.value,
+                    ValueGraph.collectNodes fn.Body |> List.map (fun node -> node.Id) |> List.sortBy StableId.value)
+        | Error error -> failwithf "Reopen failed: %A" error
+
+    [<Fact>]
+    let ``Product field deletion rejects live accesses and invalid field identities`` () =
+        let initial = fixture ()
+        let productInput: SemanticParameter =
+            { Id = stable<ParameterTag> "access-parameter"; DisplayName = "value"; Type = TypeRef.Named productId }
+        let sourceId = stable<GraphNodeTag> "access-source"
+        let accessId = stable<GraphNodeTag> "access"
+        let accessor: SemanticFunction =
+            { Id = stable<FunctionTag> "accessor"
+              DisplayName = "accessor"
+              Parameters = [ productInput ]
+              ResultType = stringType
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ { Id = sourceId; Kind = SemanticNodeKind.ParameterReference productInput.Id }
+                      { Id = accessId; Kind = SemanticNodeKind.FieldAccess(sourceId, originalFieldId) } ]
+                  ResultNodeId = accessId } }
+        let ws = workspace { initial with Functions = accessor :: initial.Functions }
+        match AgentWorkflow.simulate ws [ AgentOperationIntent.RemoveProductField originalFieldId ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("ProductFieldStillReferenced", diagnostic.Code)
+        | other -> failwithf "Referenced field was removed: %A" other
+        match AgentWorkflow.simulate ws [ AgentOperationIntent.RemoveProductField(stable<FieldTag> "missing") ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) -> Assert.Equal("TargetNotFound", diagnostic.Code)
+        | other -> failwithf "Missing field was removed: %A" other
+        Assert.Equal(initial.Id, AgentWorkspace.currentSnapshotId ws)
+
+    [<Fact>]
+    let ``Product field removal does not discard potentially effectful field evaluation`` () =
+        let initial = fixture ()
+        let effectId = stable<EffectTag> "observable"
+        let withEffects =
+            { initial with
+                Effects = [ { Id = effectId; DisplayName = "observable" } ]
+                Functions =
+                    initial.Functions
+                    |> List.map (fun fn ->
+                        if fn.Id = directId then { fn with RequiredEffects = [ effectId ] } else fn) }
+        let ws = workspace withEffects
+        match AgentWorkflow.simulate ws [ AgentOperationIntent.RemoveProductField originalFieldId ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("ProductFieldMayDiscardEffects", diagnostic.Code)
+        | other -> failwithf "Effectful field evaluation was discarded: %A" other
+        let fieldId = stable<FieldTag> "new-and-removed"
+        let request: TransactionRequest =
+            { Id = StableIdAllocator.newTransactionId ()
+              BaseSnapshotId = initial.Id
+              ProposedSnapshotId = StableIdAllocator.newSnapshotId ()
+              Operations =
+                [ SemanticOperation.AddProductField
+                    { TargetTypeId = productId
+                      NewFieldId = fieldId
+                      NewFieldDisplayName = "temporary"
+                      NewFieldType = stringType
+                      ConstructionPlans = plans }
+                  SemanticOperation.RemoveProductField fieldId ] }
+        match Transaction.simulate initial request with
+        | SimulationResult.Rejected [ diagnostic ] -> Assert.Equal("ProductFieldCreatedInTransaction", diagnostic.Code)
+        | other -> failwithf "Add-remove no-op transaction was accepted: %A" other
+
+    [<Fact>]
     let ``generated C# executes reviewed Product field evolution`` () =
         let initial = fixture ()
         let ws = workspace initial
@@ -335,11 +431,24 @@ Console.WriteLine(NyFunctions.{nested}("second").{field});
                 AuthoringProtocol.executeLine reopened ($"""{{"id":"commit","op":"commit","proposalId":"{deletionProposalId}"}}""")
                 |> JsonDocument.Parse
             Assert.True(deletedCommit.RootElement.GetProperty("ok").GetBoolean(), deletedCommit.RootElement.ToString())
+            let fieldId = (newField stored).Id
+            let removeRequest =
+                $"""{{"id":"remove","op":"simulateOperations","operations":[{{"kind":"removeProductField","fieldId":"{StableId.value fieldId}"}}]}}"""
+            use removalReview = AuthoringProtocol.executeLine reopened removeRequest |> JsonDocument.Parse
+            Assert.True(removalReview.RootElement.GetProperty("ok").GetBoolean(), removalReview.RootElement.ToString())
+            let removalResult = removalReview.RootElement.GetProperty("result")
+            Assert.Equal(1, removalResult.GetProperty("review").GetProperty("diff").GetProperty("productFieldsRemoved").GetArrayLength())
+            let removalProposalId = removalResult.GetProperty("proposalId").GetString()
+            use removalCommit =
+                AuthoringProtocol.executeLine reopened ($"""{{"id":"commit","op":"commit","proposalId":"{removalProposalId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(removalCommit.RootElement.GetProperty("ok").GetBoolean(), removalCommit.RootElement.ToString())
             reopened.Close()
             let afterDelete =
                 match SnapshotCodec.deserialize (File.ReadAllText path) with
                 | Ok value -> value
                 | Error error -> failwithf "Deleted graph invalid: %A" error
             Assert.Equal<FunctionId list>([ nestedId ], afterDelete.Functions |> List.map (fun fn -> fn.Id))
+            Assert.Equal<SemanticType list>(initial.Types, afterDelete.Types)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

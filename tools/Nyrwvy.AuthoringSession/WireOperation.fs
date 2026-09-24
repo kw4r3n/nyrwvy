@@ -62,6 +62,9 @@ module internal WireOperation =
                   NewFieldDisplayName = requiredString "displayName" element
                   NewFieldType = typeRef (property "type" element)
                   ConstructionPlans = plans }
+        | "removeProductField" ->
+            ensureFields "remove-product-field operation" [ "kind"; "fieldId" ] [ "kind"; "fieldId" ] element
+            AgentOperationIntent.RemoveProductField(id<FieldTag> "fieldId" element)
         | "deleteFunction" ->
             ensureFields "delete-function operation" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
             AgentOperationIntent.DeleteFunction(id<FunctionTag> "functionId" element)

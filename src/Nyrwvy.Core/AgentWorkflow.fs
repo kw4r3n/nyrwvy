@@ -35,6 +35,7 @@ type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
     | AddFunctionParameter of AgentAddFunctionParameterIntent
     | AddProductField of AgentAddProductFieldIntent
+    | RemoveProductField of FieldId
     | DeleteFunction of FunctionId
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
@@ -205,6 +206,8 @@ module AgentWorkflow =
                   NewFieldDisplayName = request.NewFieldDisplayName
                   NewFieldType = request.NewFieldType
                   ConstructionPlans = request.ConstructionPlans }
+        | AgentOperationIntent.RemoveProductField fieldId ->
+            SemanticOperation.RemoveProductField fieldId
         | AgentOperationIntent.DeleteFunction functionId ->
             SemanticOperation.DeleteFunction functionId
         | AgentOperationIntent.ResolveMissingArgument request ->
