@@ -25,6 +25,25 @@ module AuthoringProtocol =
 
     let private sessionFailure id error = failure id (WireEncode.error error)
 
+    let private pureValue (item: JsonElement): PureRunValue =
+        match requiredString "kind" item with
+        | "string" ->
+            ensureFields "String run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+            PureRunValue.String(requiredString "value" item)
+        | "bool" ->
+            ensureFields "Bool run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+            PureRunValue.Bool(requiredBool "value" item)
+        | "int64" ->
+            ensureFields "Int64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+            PureRunValue.Int64(requiredInt64 "value" item)
+        | value -> fail $"Unsupported pure run value kind '{value}'."
+
+    let private encodePureValue = function
+        | PureRunValue.String value -> objectValue [ "kind", box "string"; "value", box value ]
+        | PureRunValue.Bool value -> objectValue [ "kind", box "bool"; "value", box value ]
+        | PureRunValue.Int64 value ->
+            objectValue [ "kind", box "int64"; "value", box (value.ToString(Globalization.CultureInfo.InvariantCulture)) ]
+
     let private currentSnapshotId (session: AuthoringSession) =
         match session.Status() with
         | Ok status -> status.SnapshotId
@@ -414,6 +433,31 @@ module AuthoringProtocol =
                               "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
                               "functionCount", box execution.Functions.Length ])
                 | Error error -> sessionFailure requestId error
+            | "runPure" ->
+                ensureFields
+                    "runPure request"
+                    [ "id"; "op"; "functionId"; "arguments"; "expected" ]
+                    [ "id"; "op"; "functionId"; "arguments" ]
+                    root
+                let functionId = id<FunctionTag> "functionId" root
+                let arguments = array "arguments" root |> List.map pureValue
+                let expected = tryProperty "expected" root |> Option.map pureValue
+                match PureRun.run session functionId arguments expected with
+                | Ok result ->
+                    success requestId
+                        (objectValue
+                            [ "sourceSnapshotId", box (StableId.value result.SnapshotId)
+                              "functionId", box (StableId.value result.FunctionId)
+                              "actual", encodePureValue result.Actual
+                              "expected", result.Expected |> Option.map encodePureValue |> Option.defaultValue null
+                              "matches", result.Matches |> Option.map box |> Option.defaultValue null ])
+                | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
+                | Error(PureRunError.Unsupported(code, message)) ->
+                    failure requestId
+                        (objectValue
+                            [ "code", box code
+                              "message", box message
+                              "functionId", box (StableId.value functionId) ])
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"

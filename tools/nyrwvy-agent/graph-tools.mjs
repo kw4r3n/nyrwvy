@@ -115,7 +115,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "reject", ...args }, context),
     }),
     request: defineTool({
-      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, atomic migrations, readiness and emission. A request id is supplied by the bridge; simulations never auto-commit.",
+      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, atomic migrations, readiness, emission, and explicit runPure verification of committed pure scalar functions. A request id is supplied by the bridge; simulations never auto-commit.",
       args: { op: schema.string(), arguments: object },
       /** @param {{ op: string; arguments: Record<string, unknown> }} args */
       execute(args, context) {

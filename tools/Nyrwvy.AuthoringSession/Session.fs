@@ -182,6 +182,26 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     | _ -> false
         | _ -> true
 
+    let checkPersistedSource () =
+        let selectionChanged =
+            dependencyManifest |> Option.exists (fun expected ->
+                match SessionStorage.readText (path + ".dependency.json") with
+                | Ok actual -> actual <> expected
+                | Error _ -> true)
+        if selectionChanged || not (dependencyStillPinned ()) then
+            invalidated <- true
+            Error(AuthoringSessionError.DependencyFailure "The dependency selection changed outside this session.")
+        elif not (File.Exists path) then
+            invalidated <- true
+            Error AuthoringSessionError.ExternalModification
+        else
+            match SessionStorage.readText path with
+            | Error error -> Error error
+            | Ok currentSource when currentSource <> persistedSource ->
+                invalidated <- true
+                Error AuthoringSessionError.ExternalModification
+            | Ok _ -> Ok()
+
     let persistCandidate candidate =
         match ensureUsable () with
         | Error error -> Error error
@@ -193,30 +213,15 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match serialized with
             | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
             | Ok candidateSource ->
-                let selectionChanged =
-                    dependencyManifest |> Option.exists (fun expected ->
-                        match SessionStorage.readText (path + ".dependency.json") with
-                        | Ok actual -> actual <> expected
-                        | Error _ -> true)
-                if selectionChanged || not (dependencyStillPinned ()) then
-                    invalidated <- true
-                    Error(AuthoringSessionError.DependencyFailure "The dependency selection changed outside this session.")
-                elif not (File.Exists path) then
-                    invalidated <- true
-                    Error AuthoringSessionError.ExternalModification
-                else
-                    match SessionStorage.readText path with
+                match checkPersistedSource () with
+                | Error error -> Error error
+                | Ok() ->
+                    match SessionStorage.replaceAtomically path candidateSource with
                     | Error error -> Error error
-                    | Ok currentSource when currentSource <> persistedSource ->
-                        invalidated <- true
-                        Error AuthoringSessionError.ExternalModification
-                    | Ok _ ->
-                        match SessionStorage.replaceAtomically path candidateSource with
-                        | Error error -> Error error
-                        | Ok() ->
-                            workspace <- candidate
-                            persistedSource <- candidateSource
-                            Ok()
+                    | Ok() ->
+                        workspace <- candidate
+                        persistedSource <- candidateSource
+                        Ok()
 
     let commitCandidate proposalId transactionId publishedSnapshotId readiness candidate =
         match persistCandidate candidate with
@@ -227,6 +232,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     member _.Path = path
     member _.DependencySelection = dependencyManifest
+
+    /// Read-only execution must not run a stale in-memory graph after the selected
+    /// snapshot or its pinned dependency was changed outside the session.
+    member _.VerifyPersistedSource(): Result<unit, AuthoringSessionError> =
+        ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
 
     member _.Status(): Result<AuthoringSessionStatus, AuthoringSessionError> =
         match AgentWorkspace.currentSnapshotFingerprint workspace with
