@@ -9,6 +9,7 @@ module SemanticFacts =
     /// need structured control-flow dependencies should traverse the child graphs.
     let directValueDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -94,6 +95,7 @@ module SemanticFacts =
             | SemanticNodeKind.Float64Literal _
             | SemanticNodeKind.StringIsEmpty _
             | SemanticNodeKind.StringContains _
+            | SemanticNodeKind.StringEqual _
             | SemanticNodeKind.Int64WrappingAdd _
             | SemanticNodeKind.Int64WrappingSubtract _
             | SemanticNodeKind.Int64WrappingMultiply _
@@ -226,6 +228,7 @@ module SemanticFacts =
                         Some(TypeRef.Primitive PrimitiveType.Float64)
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
+                    | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.Int64Equal _
                     | SemanticNodeKind.Int64LessThan _
                     | SemanticNodeKind.Int64LessThanOrEqual _

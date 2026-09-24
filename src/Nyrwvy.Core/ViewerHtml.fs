@@ -99,6 +99,7 @@ module ViewerHtml =
         | ViewerNodeRole.Float64Literal bits -> "Float64 literal 0x" + Float64Bits.toHex bits
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
         | ViewerNodeRole.StringContains -> "string contains"
+        | ViewerNodeRole.StringEqual -> "string equal"
         | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
         | ViewerNodeRole.Int64WrappingSubtract -> "Int64 wrapping subtract"
         | ViewerNodeRole.Int64WrappingMultiply -> "Int64 wrapping multiply"

@@ -40,6 +40,7 @@ type ViewerNodeRole =
     | Float64Literal of Float64Bits
     | StringIsEmpty
     | StringContains
+    | StringEqual
     | Int64WrappingAdd
     | Int64WrappingSubtract
     | Int64WrappingMultiply
@@ -172,6 +173,7 @@ module ViewerProjection =
         | SemanticNodeKind.Float64Literal bits -> ViewerNodeRole.Float64Literal bits, []
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
+        | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
         | SemanticNodeKind.Int64WrappingSubtract _ -> ViewerNodeRole.Int64WrappingSubtract, []
         | SemanticNodeKind.Int64WrappingMultiply _ -> ViewerNodeRole.Int64WrappingMultiply, []
@@ -313,6 +315,7 @@ module ViewerProjection =
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _

@@ -70,6 +70,7 @@ module internal WireRecipe =
         | "stringContains" ->
             ensureFields "string-contains recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringContains(recipe (property "value" element), recipe (property "substring" element))
+        | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
         | "int64WrappingAdd" -> binary "int64-wrapping-add recipe" ExpressionRecipe.Int64WrappingAdd
         | "int64WrappingSubtract" -> binary "int64-wrapping-subtract recipe" ExpressionRecipe.Int64WrappingSubtract
         | "int64WrappingMultiply" -> binary "int64-wrapping-multiply recipe" ExpressionRecipe.Int64WrappingMultiply

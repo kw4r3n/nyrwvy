@@ -220,6 +220,8 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringContains")
               property "valueId" (executionValueIdValue valueId)
               property "substringId" (executionValueIdValue substringId) ]
+        | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
+            writeBinaryInstruction "stringEqual" leftValueId rightValueId
         | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64WrappingAdd" leftValueId rightValueId
         | ExecutionInstructionKind.Int64WrappingSubtract(leftValueId, rightValueId) ->

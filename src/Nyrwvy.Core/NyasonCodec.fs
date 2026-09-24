@@ -437,6 +437,8 @@ module NyasonCodec =
                 [ nodeId
                   "value", encodeId "node" valueNodeId
                   "substring", encodeId "node" substringNodeId ]
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "string-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-wrapping-add" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
@@ -683,6 +685,8 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "value" fields),
                     decodeId<GraphNodeTag> "node" (require "substring" fields)
                 ) }
+        | NyasonValue.Record("string-equal", _) ->
+            decodeBinaryNode "string-equal" value (fun left right -> SemanticNodeKind.StringEqual(left, right))
         | NyasonValue.Record("int64-wrapping-add", _) ->
             decodeBinaryNode "int64-wrapping-add" value (fun left right -> SemanticNodeKind.Int64WrappingAdd(left, right))
         | NyasonValue.Record("int64-wrapping-subtract", _) ->

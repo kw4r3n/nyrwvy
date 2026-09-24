@@ -361,6 +361,8 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64WrappingAdd" leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
@@ -865,6 +867,8 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "valueNodeId"; "substringNodeId" ])
                     element
                 SemanticNodeKind.StringContains(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "substringNodeId" element)
+            | "stringEqual" ->
+                readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
             | "int64WrappingAdd" ->
                 readBinaryNode "Int64WrappingAdd node" element (fun left right -> SemanticNodeKind.Int64WrappingAdd(left, right))
             | "int64WrappingSubtract" ->

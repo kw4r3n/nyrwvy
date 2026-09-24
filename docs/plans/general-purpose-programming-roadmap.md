@@ -42,11 +42,11 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 ### 着手後の記録（G1 第1段階）
 
-`feat/g1-data-operations` で純粋な `ListFold(source, seed, folder)` を追加した。蓄積型 `S` と要素型 `T` に対して既存の関数 `f : (S, T) -> S` を参照し、左から右へ処理する。seedに実行時キーを保持した検索と非可換の集計を、通常の関数authoring、review/commit、JSON/Nyason保存、lowering、C#実行まで小さく確認した。文字列の完全一致はこの検証では既存の序数的 `StringContains` を双方向に合成して表現しており、専用の等値操作や一般的な要素取得はまだない。この記録はG1/T3全体の完了を意味しない。以下の「確認した制限」は計画策定時点の記述であり、foldの不足はこの第1段階で解消した。
+`feat/g1-data-operations` で純粋な `ListFold(source, seed, folder)` を追加した。蓄積型 `S` と要素型 `T` に対して既存の関数 `f : (S, T) -> S` を参照し、左から右へ処理する。seedに実行時キーを保持した検索と非可換の集計を、通常の関数authoring、review/commit、JSON/Nyason保存、lowering、C#実行まで小さく確認した。当初の検証は序数的 `StringContains` を双方向に合成していたが、包含関係は等値ではないため、後続で専用の `StringEqual` に置き換えた。一般的な要素取得も現段階では型ごとにfold関数を作成する。この記録はG1/T3全体の完了を意味しない。以下の「確認した制限」は計画策定時点の記述であり、foldの不足はこの第1段階で解消した。
 
 `feat/g1-data-operations` の後続ではG3の最初の境界として、既存のCapability interfaceに外部実装を注入する明示的なC# profileを追加した。型付きProduct入力と`Result`による正常な失敗をfake hostで往復し、NyrwvyのMatchResultで分岐することを確認した。`FailureType`やhost例外をResultへ暗黙変換しない。新しい外部オブジェクト表現、実装の自動ロード、リソース寿命・T3の共通実行入口は未着手であり、G3全体の完了宣言ではない。
 
-G1の後続検証では、`ListFold`の蓄積値に残りindexと`Option<String>`を持たせ、通常の関数authoringから型付き`item_at : List<String> * Int64 -> Option<String>`を構築・保存・実行した。空、範囲外、負のindexを確認し、専用のListAtノードを増やさず要素取得を表現できることを確認した。ただし型ごとの関数本体複製を避けるG2の型抽象化、List自体の早期停止、文字列の正確な等値比較は未解決。
+G1の後続検証では、`ListFold`の蓄積値に残りindexと`Option<String>`を持たせ、通常の関数authoringから型付き`item_at : List<String> * Int64 -> Option<String>`を構築・保存・実行した。空、範囲外、負のindexを確認し、専用のListAtノードを増やさず要素取得を表現できることを確認した。次の段階では正確な序数的`StringEqual`も追加し、双方向`StringContains`の誤一致（`"ab"`対`"abab"`など）をなくした。foldによる実行時キー検索を作成・保存・lowering・C#実行まで通した。ただし型ごとの関数本体複製を避けるG2の型抽象化、List自体の早期停止、文字列変換や効果付き反復などは未解決。
 
 T1の最初の段階では既存のreviewed transactionへ`addProductField`と`deleteFunction`を追加した。Product field追加はすべての構築箇所に型付き既存値を明示して一括修正し、未指定や型不正は公開しない。不要関数はDirectCall/List callback参照・obligationがなくなった後だけ削除できる。既存identityの保持、review、JSONL経由のcommitと再オープンを確認した。次の小さな段階では`removeProductField`も追加し、field accessを事前に修正した後に宣言と構築値を一括除去する。効果を宣言する関数内の構築値は、評価が失われる可能性があるため保守的に拒否する。新しい値の作成を伴うfield移行、既存fieldの型変更、参照元の同時書き換えはまだ扱わず、T1全体の達成ではない。
 

@@ -41,6 +41,7 @@ ExpressionRecipe =
   | Float64Literal(Float64Bits)
   | StringIsEmpty(expr)
   | StringContains(value, substring)
+  | StringEqual(left, right)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)

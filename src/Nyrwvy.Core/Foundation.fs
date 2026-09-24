@@ -166,6 +166,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -264,6 +265,7 @@ module ValueGraph =
                     collectNodes someArm.Body @ collectNodes noneBody
                 | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
                     collectNodes okArm.Body @ collectNodes errArm.Body
+                | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -338,6 +340,7 @@ module ValueGraph =
                     let mappedOkArm = { okArm with Body = mapNodes transform okArm.Body }
                     let mappedErrArm = { errArm with Body = mapNodes transform errArm.Body }
                     SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
+                | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _

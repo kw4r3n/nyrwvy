@@ -261,6 +261,8 @@ module ExecutionIr =
                                 Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringContains(valueId, substringId)))
                             | Error error, _
                             | _, Error error -> Error error
+                        | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringEqual(left, right))
                         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingAdd(left, right))
                         | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
@@ -550,6 +552,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.StringContains _
+                        | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.Int64WrappingAdd _
                         | TypedSemanticNodeKind.Int64WrappingSubtract _
                         | TypedSemanticNodeKind.Int64WrappingMultiply _

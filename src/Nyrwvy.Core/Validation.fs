@@ -11,6 +11,7 @@ type ValidationIssue =
 module SnapshotValidator =
     let private nodeDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
         | SemanticNodeKind.StringLiteral _
@@ -73,6 +74,7 @@ module SnapshotValidator =
 
     let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -608,6 +610,10 @@ module SnapshotValidator =
                             $"StringContains node '{StableId.value node.Id}' requires a String substring."
                             (TypeRef.Primitive PrimitiveType.String)
                             substringNodeId
+                    | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+                        requireBinaryOperands
+                            "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
+                            node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
@@ -1103,6 +1109,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _

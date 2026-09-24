@@ -463,6 +463,35 @@ module AuthoringSessionTests =
             if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
+    let ``JSONL authors ordinal StringEqual with typed operands and reopens stable node`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let request =
+                """{"id":"same","op":"simulateCreateFunctionByName","displayName":"same","parameters":[{"displayName":"left","type":{"kind":"primitive","primitive":"string"}},{"displayName":"right","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"stringEqual","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}}"""
+            use proposed = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+            Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
+            let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use committed =
+                AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+                |> JsonDocument.Parse
+            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
+            session.Close()
+            use reopened = openSession path
+            let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> function
+                | Ok value -> value
+                | Error error -> failwithf "Reopen failed: %A" error
+            let authored = snapshot.Functions |> List.find (fun fn -> fn.DisplayName = "same")
+            Assert.Contains(authored.Body.Nodes, fun node ->
+                match node.Kind with
+                | SemanticNodeKind.StringEqual _ -> true
+                | _ -> false)
+            Assert.Empty(SnapshotValidator.validate snapshot)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL name-resolved fold recipe publishes and reopens with callback identity`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

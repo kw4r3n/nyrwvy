@@ -516,6 +516,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Float64Literal"
               "StringIsEmpty"
               "StringContains"
+              "StringEqual"
               "Int64WrappingAdd"
               "Int64WrappingSubtract"
               "Int64WrappingMultiply"

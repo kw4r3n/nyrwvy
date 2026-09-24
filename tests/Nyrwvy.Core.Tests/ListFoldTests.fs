@@ -62,11 +62,8 @@ module ListFoldTests =
                 field foundId,
                 ExpressionRecipe.ParameterSlot 0,
                 ExpressionRecipe.Conditional(
-                    ExpressionRecipe.StringContains(item, field keyId),
-                    ExpressionRecipe.Conditional(
-                        ExpressionRecipe.StringContains(field keyId, item),
-                        stateWithFound,
-                        ExpressionRecipe.ParameterSlot 0),
+                    ExpressionRecipe.StringEqual(item, field keyId),
+                    stateWithFound,
                     ExpressionRecipe.ParameterSlot 0))
         let ws, folder =
             create ws "lookup_step"
@@ -164,6 +161,7 @@ module ListFoldTests =
         let nyason = NyasonCodec.serialize restored |> unwrap "serialize Nyason"
         let reopened = NyasonCodec.deserialize nyason |> unwrap "restore Nyason"
         Assert.Contains("list-fold", nyason)
+        Assert.Contains("string-equal", nyason)
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
         let focus = SemanticQuery.focusFunction reopened search.Id |> unwrap "focus"
         Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)
@@ -181,12 +179,14 @@ module ListFoldTests =
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"listFold\"", TypedSemanticIrCodec.serialize typed)
         Assert.Contains("\"listFold\"", ExecutionIrCodec.serialize execution)
+        Assert.Contains("\"stringEqual\"", TypedSemanticIrCodec.serialize typed)
+        Assert.Contains("\"stringEqual\"", ExecutionIrCodec.serialize execution)
         let emitted = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
         Assert.Contains("public S Fold<S>(S seed, Func<S, T, S> folder)", emitted.Source)
         Assert.Contains(".Fold(", emitted.Source)
 
     [<Fact>]
-    let ``generated fold searches an arbitrary key in input order including empty and absent inputs`` () =
+    let ``generated fold searches an exact ordinal key in input order including empty and absent inputs`` () =
         let snapshot, _, search, digits = fixture ()
         let execution = TypedSemanticIr.project snapshot |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
         let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
@@ -204,6 +204,9 @@ module ListFoldTests =
                 $"Console.WriteLine({call}(NyList<string>.Create(\"a\", \"b\"), \"z\"));\n" +
                 $"Console.WriteLine({call}(NyList<string>.Empty(), \"b\"));\n" +
                 $"Console.WriteLine({call}(NyList<string>.Create(\"ab\"), \"a\"));\n" +
+                $"Console.WriteLine({call}(NyList<string>.Create(\"ab\"), \"abab\"));\n" +
+                $"Console.WriteLine({call}(NyList<string>.Create(\"A\"), \"a\"));\n" +
+                $"Console.WriteLine({call}(NyList<string>.Create(\"\"), \"\"));\n" +
                 $"Console.WriteLine({digitCall}(NyList<long>.Create(1L, 2L, 3L)));\n" +
                 $"Console.WriteLine({digitCall}(NyList<long>.Empty()));\n")
             let start args =
@@ -220,7 +223,7 @@ module ListFoldTests =
                 stdout.Result
             start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
             let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
-            Assert.Equal("True\nFalse\nFalse\nFalse\n123\n0", output.Replace("\r\n", "\n").Trim())
+            Assert.Equal("True\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\n123\n0", output.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
 
@@ -273,6 +276,39 @@ module ListFoldTests =
             Assert.Equal("<none>\n<none>\nfirst\nsecond\nthird\n<none>", output.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``StringEqual rejects a mistyped operand before publication and during snapshot validation`` () =
+        let initial = Snapshot.empty (id<SnapshotTag> "equality-initial")
+        let ws = AgentWorkspace.create initial |> unwrap "workspace"
+        let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+            { ExpectedBaseSnapshotId = initial.Id
+              DisplayName = "same"
+              Parameters = [ parameter "left" stringType; parameter "right" stringType ]
+              ResultType = boolType
+              RequiredEffects = []
+              Body = ExpressionRecipe.StringEqual(ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.ParameterSlot 1) }
+        match AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request with
+        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("PureExpressionOperandTypeMismatch", diagnostic.Code)
+        | other -> failwithf "Mistyped equality was accepted: %A" other
+        let ws, fn =
+            create ws "same" request.Parameters boolType
+                (ExpressionRecipe.StringEqual(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing ws
+        let corrupted =
+            { snapshot with
+                Functions = snapshot.Functions |> List.map (fun item ->
+                    if item.Id <> fn.Id then item else
+                        { item with
+                            Body =
+                                { item.Body with
+                                    Nodes = item.Body.Nodes |> List.map (fun node ->
+                                        match node.Kind with
+                                        | SemanticNodeKind.ParameterReference parameterId when parameterId = item.Parameters.Head.Id ->
+                                            { node with Kind = SemanticNodeKind.Int64Literal 1L }
+                                        | _ -> node) } }) }
+        Assert.Contains(SnapshotValidator.validate corrupted, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
 
     [<Fact>]
     let ``fold rejects a folder with the wrong accumulator type before publication`` () =

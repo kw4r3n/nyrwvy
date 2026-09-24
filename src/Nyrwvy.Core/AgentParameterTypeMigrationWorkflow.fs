@@ -133,6 +133,13 @@ module AgentParameterTypeMigrationWorkflow =
                     rewrite substring
                     |> Result.map (fun mappedSubstring ->
                         ExpressionRecipe.StringContains(mappedValue, mappedSubstring))
+            | ExpressionRecipe.StringEqual(left, right) ->
+                match rewrite left with
+                | Error error -> Error error
+                | Ok mappedLeft ->
+                    rewrite right
+                    |> Result.map (fun mappedRight ->
+                        ExpressionRecipe.StringEqual(mappedLeft, mappedRight))
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
                 rewritePairs fields
                 |> Result.map (fun mapped ->

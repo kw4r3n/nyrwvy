@@ -283,6 +283,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64WrappingAdd" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
