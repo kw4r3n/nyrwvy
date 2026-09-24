@@ -30,6 +30,7 @@ module ViewerTests =
                   TypesRemoved = []
                   EffectsRemoved = []
                   CapabilitiesRemoved = []
+                  CapabilityOperationsRemoved = []
                   ArgumentsAttached = []
                   ObligationsCreated = []
                   ObligationsResolved = []

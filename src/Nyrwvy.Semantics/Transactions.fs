@@ -46,6 +46,7 @@ type SemanticOperation =
     | DeleteType of TypeId
     | DeleteEffect of EffectId
     | DeleteCapability of CapabilityId
+    | DeleteCapabilityOperation of CapabilityOperationId
     | ResolveMissingArgument of ResolveMissingArgumentRequest
     | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
@@ -80,6 +81,12 @@ type CapabilityRemoved =
     { CapabilityId: CapabilityId
       DisplayName: string
       RemovedOperationIds: CapabilityOperationId list
+      RemovedParameterIds: CapabilityParameterId list }
+
+type CapabilityOperationRemoved =
+    { OwnerCapabilityId: CapabilityId
+      OperationId: CapabilityOperationId
+      DisplayName: string
       RemovedParameterIds: CapabilityParameterId list }
 
 type TypeRemoved =
@@ -136,6 +143,7 @@ type SemanticDiff =
       TypesRemoved: TypeRemoved list
       EffectsRemoved: EffectRemoved list
       CapabilitiesRemoved: CapabilityRemoved list
+      CapabilityOperationsRemoved: CapabilityOperationRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -165,6 +173,7 @@ type private ChangeAccumulator =
       TypesRemoved: TypeRemoved list
       EffectsRemoved: EffectRemoved list
       CapabilitiesRemoved: CapabilityRemoved list
+      CapabilityOperationsRemoved: CapabilityOperationRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -184,6 +193,7 @@ module Transaction =
           TypesRemoved = []
           EffectsRemoved = []
           CapabilitiesRemoved = []
+          CapabilityOperationsRemoved = []
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = []
@@ -610,6 +620,33 @@ module Transaction =
                           |> List.sortBy StableId.value }
                 safe, { changes with CapabilitiesRemoved = removed :: changes.CapabilitiesRemoved })
 
+    let private deleteCapabilityOperation
+        (operationId: CapabilityOperationId)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        let target =
+            snapshot.Capabilities |> List.tryPick (fun capability ->
+                capability.Operations |> List.tryFind (fun operation -> operation.Id = operationId)
+                |> Option.map (fun operation -> capability, operation))
+        match target with
+        | None -> Error("TargetNotFound", "The capability operation to delete was not found.")
+        | Some(owner, operation) ->
+            let candidate =
+                { snapshot with
+                    Capabilities = snapshot.Capabilities |> List.map (fun capability ->
+                        if capability.Id = owner.Id then
+                            { capability with Operations = capability.Operations |> List.filter (fun item -> item.Id <> operationId) }
+                        else capability) }
+            ensureDeletionSafe "CapabilityOperationStillReferenced" "capability operation" candidate
+            |> Result.map (fun safe ->
+                let removed: CapabilityOperationRemoved =
+                    { OwnerCapabilityId = owner.Id
+                      OperationId = operation.Id
+                      DisplayName = operation.DisplayName
+                      RemovedParameterIds = operation.Parameters |> List.map (fun item -> item.Id) |> List.sortBy StableId.value }
+                safe, { changes with CapabilityOperationsRemoved = removed :: changes.CapabilityOperationsRemoved })
+
     let private deleteFunction
         (functionId: FunctionId)
         (snapshot: Snapshot)
@@ -819,6 +856,7 @@ module Transaction =
         | DeleteType typeId -> deleteType typeId snapshot changes
         | DeleteEffect effectId -> deleteEffect effectId snapshot changes
         | DeleteCapability capabilityId -> deleteCapability capabilityId snapshot changes
+        | DeleteCapabilityOperation operationId -> deleteCapabilityOperation operationId snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
@@ -866,6 +904,7 @@ module Transaction =
             TypesRemoved = changes.TypesRemoved |> List.sortBy (fun item -> StableId.value item.TypeId)
             EffectsRemoved = changes.EffectsRemoved |> List.sortBy (fun item -> StableId.value item.EffectId)
             CapabilitiesRemoved = changes.CapabilitiesRemoved |> List.sortBy (fun item -> StableId.value item.CapabilityId)
+            CapabilityOperationsRemoved = changes.CapabilityOperationsRemoved |> List.sortBy (fun item -> StableId.value item.OperationId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
@@ -949,6 +988,7 @@ module Transaction =
                           TypesRemoved = changes.TypesRemoved
                           EffectsRemoved = changes.EffectsRemoved
                           CapabilitiesRemoved = changes.CapabilitiesRemoved
+                          CapabilityOperationsRemoved = changes.CapabilityOperationsRemoved
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
@@ -964,6 +1004,7 @@ module Transaction =
                         || not (List.isEmpty diff.TypesRemoved)
                         || not (List.isEmpty diff.EffectsRemoved)
                         || not (List.isEmpty diff.CapabilitiesRemoved)
+                        || not (List.isEmpty diff.CapabilityOperationsRemoved)
                         || not (List.isEmpty diff.ArgumentsAttached)
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)

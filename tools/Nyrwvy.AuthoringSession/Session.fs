@@ -305,6 +305,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     imported.Effects |> List.exists (fun effect -> effect.Id = removed.EffectId)))
                 || (item.ResultingChange.Diff.CapabilitiesRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
+                || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->
+                    imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.OwnerCapabilityId)))
             | _ -> false
         if functions |> List.exists (fun id -> Set.contains id importedFunctionIds)
            || types |> List.exists (fun id -> Set.contains id importedTypeIds)

@@ -40,6 +40,10 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 本計画の調査は仕様・ソース・PR差分の照合であり、新しいビルド、実行プローブ、全体移植を行った証拠ではない。
 
+### T1のCapability operation削除
+
+`DeleteCapabilityOperation`を追加した。Capability全体や兄弟operationを保持し、未参照のoperationとそのparameterだけを削除できる。既存のsnapshot検証を再利用して生存する呼び出しを拒否し、削除IDをreview／JSONL／HTMLに残す。関数削除→operation削除→不要Effect削除を同じtransactionに合成できる。空Capabilityを許容し、依存先のoperation編集は拒否する。Capability signature変更や参照元一括移行を完了したものではない。
+
 ### T2の既存作業の統合
 
 PR #214（head `d94e536`）の内容をローカルmainへ統合した。依存snapshotの内容保持、通常ツールからの依存指定、同一版に限ったpin復旧・移行を再利用している。ソース所有ディレクトリの整理に合わせてG1の依存関係投影を移し、追加済みの実行テストに`Suite=Extended`を付けた。T1の削除操作は依存先の関数・型・Capability・Effectをsimulation時にも拒否する。runPureは元の依存ファイル削除後もembedded contentを利用し、manifestの外部変更は拒否する。複数・多段依存、新版へのsemantic upgrade、G2の型抽象化は引き続き未実装。GitHub上のPR状態とは別に、これはローカルでの統合記録である。

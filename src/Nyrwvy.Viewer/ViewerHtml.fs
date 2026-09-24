@@ -442,6 +442,17 @@ module ViewerHtml =
                 + "; type " + code (typeRefText item.AddedType) + "</li>")
         writer.Line("</ul>")
 
+        writer.Line("<h3>Capability operations removed</h3><ul>")
+        for item in diff.CapabilityOperationsRemoved do
+            writer.Line(
+                "<li>" + code (stableText "capability:" item.OwnerCapabilityId)
+                + " removed " + html item.DisplayName + " — "
+                + code (stableText "operation:" item.OperationId))
+            for parameterId in item.RemovedParameterIds do
+                writer.Line("; removed " + code (stableText "capabilityParameter:" parameterId))
+            writer.Line("</li>")
+        writer.Line("</ul>")
+
         writer.Line("<h3>Required effects changed</h3><ul>")
         for change in diff.FunctionRequiredEffectsChanged do
             let functionId, effectId, verb =

@@ -127,6 +127,115 @@ module DeclarationCleanupTests =
         reject withType [ AgentOperationIntent.DeleteCapability capabilityId ] "CapabilityStillReferenced"
 
     [<Fact>]
+    let ``operation deletion preserves sibling operations and capability value references`` () =
+        let initial = fixture ()
+        let owner = List.exactlyOne initial.Capabilities
+        let unusedOperationId = id<CapabilityOperationTag> "unused-operation"
+        let unusedParameterId = id<CapabilityParameterTag> "unused-parameter"
+        let unused =
+            { List.exactlyOne owner.Operations with
+                Id = unusedOperationId; DisplayName = "unused <operation>"
+                Parameters = [ { Id = unusedParameterId; DisplayName = "unused"; Type = stringType } ] }
+        let initial = { initial with Capabilities = [ { owner with Operations = owner.Operations @ [ unused ] } ] }
+        let ws = workspace initial
+        let proposal = AgentWorkflow.simulate ws [ AgentOperationIntent.DeleteCapabilityOperation unusedOperationId ] |> function
+            | Ok value -> value
+            | Error error -> failwithf "Simulation failed: %A" error
+        let review = AgentChangeProposal.review proposal
+        let removed = List.exactlyOne review.ResultingChange.Diff.CapabilityOperationsRemoved
+        Assert.Equal(capabilityId, removed.OwnerCapabilityId)
+        Assert.Equal(unusedOperationId, removed.OperationId)
+        Assert.Equal<CapabilityParameterId list>([ unusedParameterId ], removed.RemovedParameterIds)
+        Assert.Empty(review.ResultingChange.Diff.CapabilitiesRemoved)
+        let document = review.ResultingChange |> ViewerProjection.changeReview |> ViewerHtml.renderChangeReviewDocument
+        Assert.Contains("unused &lt;operation&gt;", document)
+        Assert.Contains(StableId.value unusedParameterId, document)
+        let next = AgentWorkflow.commit ws proposal |> function
+            | AgentCommitResult.Committed(value, _) -> value
+            | other -> failwithf "Commit failed: %A" other
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing next
+        Assert.Equal<SemanticCapability list>([ owner ], snapshot.Capabilities)
+        Assert.Equal<SemanticFunction list>(initial.Functions, snapshot.Functions)
+        Assert.Empty(SnapshotValidator.validate snapshot)
+
+    [<Fact>]
+    let ``operation deletion refuses live invocations missing targets and invalid batch order`` () =
+        let initial = fixture ()
+        let reject operations expected =
+            match AgentWorkflow.simulate (workspace initial) operations with
+            | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) -> Assert.Equal(expected, diagnostic.Code)
+            | other -> failwithf "Expected %s, got %A" expected other
+        reject [ AgentOperationIntent.DeleteCapabilityOperation operationId ] "CapabilityOperationStillReferenced"
+        reject [ AgentOperationIntent.DeleteCapabilityOperation operationId; AgentOperationIntent.DeleteFunction functionId ]
+            "CapabilityOperationStillReferenced"
+        reject [ AgentOperationIntent.DeleteCapabilityOperation(id<CapabilityOperationTag> "missing") ] "TargetNotFound"
+        reject [ AgentOperationIntent.DeleteFunction functionId
+                 AgentOperationIntent.DeleteCapabilityOperation operationId
+                 AgentOperationIntent.DeleteCapabilityOperation operationId ] "TargetNotFound"
+        Assert.Equal<SemanticCapability list>((fixture ()).Capabilities, initial.Capabilities)
+
+    [<Fact>]
+    let ``operation deletion finds invocations inside nested branches`` () =
+        let initial = fixture ()
+        let fn = List.exactlyOne initial.Functions
+        let conditionId = id<GraphNodeTag> "condition"
+        let branchId = id<GraphNodeTag> "branch"
+        let unitId = id<GraphNodeTag> "else-unit"
+        let body: ValueGraph =
+            { Nodes =
+                [ { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral true }
+                  { Id = branchId
+                    Kind = SemanticNodeKind.Conditional(conditionId, fn.Body,
+                        { Nodes = [ { Id = unitId; Kind = SemanticNodeKind.UnitLiteral } ]; ResultNodeId = unitId }) } ]
+              ResultNodeId = branchId }
+        let nested = { initial with Functions = [ { fn with Body = body } ] }
+        match AgentWorkflow.simulate (workspace nested) [ AgentOperationIntent.DeleteCapabilityOperation operationId ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("CapabilityOperationStillReferenced", diagnostic.Code)
+        | other -> failwithf "Nested invocation was not protected: %A" other
+
+    [<Fact>]
+    let ``JSONL operation deletion retains an empty capability and allows effect cleanup`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-operation-cleanup-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            File.WriteAllText(path, SnapshotCodec.serialize (fixture ()) |> function
+                | Ok text -> text
+                | Error error -> failwithf "Fixture encoding failed: %A" error)
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let command =
+                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{StableId.value functionId}"}},{{"kind":"deleteCapabilityOperation","operationId":"{StableId.value operationId}"}},{{"kind":"deleteEffect","effectId":"{StableId.value effectId}"}}]}}"""
+            use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
+            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+            let result = response.RootElement.GetProperty("result")
+            let diff = result.GetProperty("review").GetProperty("diff")
+            let removed = diff.GetProperty("capabilityOperationsRemoved").EnumerateArray() |> Seq.exactlyOne
+            Assert.Equal(StableId.value operationId, removed.GetProperty("operationId").GetString())
+            Assert.Equal(StableId.value capabilityId, removed.GetProperty("ownerCapabilityId").GetString())
+            Assert.Equal(StableId.value operationParameterId, (removed.GetProperty("removedParameterIds")[0]).GetString())
+            let proposalId = result.GetProperty("proposalId").GetString()
+            use commit =
+                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{proposalId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(commit.RootElement.GetProperty("ok").GetBoolean(), commit.RootElement.ToString())
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Reopen failed: %A" error
+            let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> function
+                | Ok value -> value
+                | Error error -> failwithf "Stored graph invalid: %A" error
+            Assert.Empty(snapshot.Functions)
+            Assert.Empty(snapshot.Effects)
+            Assert.Equal(capabilityId, (List.exactlyOne snapshot.Capabilities).Id)
+            Assert.Empty((List.exactlyOne snapshot.Capabilities).Operations)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL commits full declaration cleanup and resumes an empty workspace`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-declaration-cleanup-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

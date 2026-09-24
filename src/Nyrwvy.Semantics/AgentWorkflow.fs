@@ -40,6 +40,7 @@ type AgentOperationIntent =
     | DeleteType of TypeId
     | DeleteEffect of EffectId
     | DeleteCapability of CapabilityId
+    | DeleteCapabilityOperation of CapabilityOperationId
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
@@ -219,6 +220,8 @@ module AgentWorkflow =
             SemanticOperation.DeleteEffect effectId
         | AgentOperationIntent.DeleteCapability capabilityId ->
             SemanticOperation.DeleteCapability capabilityId
+        | AgentOperationIntent.DeleteCapabilityOperation operationId ->
+            SemanticOperation.DeleteCapabilityOperation operationId
         | AgentOperationIntent.ResolveMissingArgument request ->
             SemanticOperation.ResolveMissingArgument
                 { TargetObligationId = request.TargetObligationId

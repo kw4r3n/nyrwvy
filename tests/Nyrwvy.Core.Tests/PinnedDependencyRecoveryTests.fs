@@ -101,6 +101,7 @@ module PinnedDependencyRecoveryTests =
                 [ [ AgentOperationIntent.DeleteFunction functionId ]
                   [ AgentOperationIntent.DeleteType typeId ]
                   [ AgentOperationIntent.DeleteCapability capabilityId ]
+                  [ AgentOperationIntent.DeleteCapabilityOperation imported.Capabilities.Head.Operations.Head.Id ]
                   [ AgentOperationIntent.DeleteCapability capabilityId; AgentOperationIntent.DeleteEffect effectId ] ] do
                 match session.SimulateOperations operations with
                 | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->
