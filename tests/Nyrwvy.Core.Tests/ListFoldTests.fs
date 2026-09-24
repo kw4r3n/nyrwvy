@@ -152,6 +152,68 @@ module ListFoldTests =
                 [ parameter "items" listType; parameter "index" intType ] optionType lookup
         AgentWorkspace.snapshotForStructuralEditing ws, folder, at
 
+    let private findFixture () =
+        let entryId = id<TypeTag> "find-entry"
+        let stateId = id<TypeTag> "find-state"
+        let entryKeyId = id<FieldTag> "find-entry-key"
+        let entryValueId = id<FieldTag> "find-entry-value"
+        let stateKeyId = id<FieldTag> "find-state-key"
+        let stateFoundId = id<FieldTag> "find-state-found"
+        let stateValueId = id<FieldTag> "find-state-value"
+        let entryType = TypeRef.Named entryId
+        let stateType = TypeRef.Named stateId
+        let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])
+        let entry: SemanticType =
+            { Id = entryId
+              DisplayName = "Entry"
+              Kind = SemanticTypeKind.Product
+                [ { Id = entryKeyId; DisplayName = "key"; Type = stringType }
+                  { Id = entryValueId; DisplayName = "value"; Type = stringType } ] }
+        let state: SemanticType =
+            { Id = stateId
+              DisplayName = "FindState"
+              Kind = SemanticTypeKind.Product
+                [ { Id = stateKeyId; DisplayName = "key"; Type = stringType }
+                  { Id = stateFoundId; DisplayName = "found"; Type = boolType }
+                  { Id = stateValueId; DisplayName = "value"; Type = optionType } ] }
+        let ws =
+            { Snapshot.empty (id<SnapshotTag> "find-initial") with Types = [ entry; state ] }
+            |> AgentWorkspace.create
+            |> function
+                | Ok value -> value
+                | Error errors -> failwithf "Invalid find fixture: %A" errors
+        let current = ExpressionRecipe.ParameterSlot 0
+        let item = ExpressionRecipe.ParameterSlot 1
+        let field source fieldId = ExpressionRecipe.FieldAccess(source, fieldId)
+        let folderBody =
+            ExpressionRecipe.Conditional(
+                field current stateFoundId,
+                current,
+                ExpressionRecipe.Conditional(
+                    ExpressionRecipe.StringEqual(field item entryKeyId, field current stateKeyId),
+                    ExpressionRecipe.ProductConstruct(stateId,
+                        [ stateKeyId, field current stateKeyId
+                          stateFoundId, ExpressionRecipe.BoolLiteral true
+                          stateValueId, ExpressionRecipe.OptionSome(field item entryValueId) ]),
+                    current))
+        let ws, folder =
+            create ws "find_step"
+                [ parameter "state" stateType; parameter "item" entryType ] stateType folderBody
+        let seed =
+            ExpressionRecipe.ProductConstruct(stateId,
+                [ stateKeyId, ExpressionRecipe.ParameterSlot 1
+                  stateFoundId, ExpressionRecipe.BoolLiteral false
+                  stateValueId, ExpressionRecipe.OptionNone stringType ])
+        let body =
+            ExpressionRecipe.FieldAccess(
+                ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id),
+                stateValueId)
+        let ws, find =
+            create ws "first_value_for_key"
+                [ parameter "entries" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ entryType ]))
+                  parameter "key" stringType ] optionType body
+        AgentWorkspace.snapshotForStructuralEditing ws, folder, find, entryId, entryKeyId, entryValueId
+
     [<Fact>]
     let ``fold with runtime context authors publishes persists and lowers with stable callback identity`` () =
         let snapshot, folder, search, _ = fixture ()
@@ -276,6 +338,55 @@ module ListFoldTests =
             Assert.Equal("<none>\n<none>\nfirst\nsecond\nthird\n<none>", output.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists(tempRoot) then Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``generated fold returns first typed matching value with an absent and empty result`` () =
+        let snapshot, folder, find, entryId, entryKeyId, entryValueId = findFixture ()
+        let json = SnapshotCodec.serialize snapshot |> unwrap "serialize find"
+        let restored = SnapshotCodec.deserialize json |> unwrap "reopen find"
+        let nyason = NyasonCodec.serialize restored |> unwrap "nyason find"
+        let reopened = NyasonCodec.deserialize nyason |> unwrap "reopen nyason find"
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
+        let focus = SemanticQuery.focusFunction reopened find.Id |> unwrap "find focus"
+        Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)
+        let execution = TypedSemanticIr.project reopened |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
+        let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
+        let tempRoot = Path.Combine(Path.GetTempPath(), "nyrwvy-find-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tempRoot) |> ignore
+        try
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.csproj"),
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
+            File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
+            let functionName = "NyFunctions." + CSharpBackendNames.functionName find.Id
+            let entryName = CSharpBackendNames.typeName entryId
+            let keyName = CSharpBackendNames.fieldName entryKeyId
+            let valueName = CSharpBackendNames.fieldName entryValueId
+            let program =
+                [ "using System; using Nyrwvy.Generated;"
+                  $"var entries = NyList<{entryName}>.Create(new {entryName}({keyName}: \"k\", {valueName}: \"first\"), new {entryName}({keyName}: \"k\", {valueName}: \"second\"), new {entryName}({keyName}: \"ka\", {valueName}: \"other\"));"
+                  $"var match = {functionName}(entries, \"k\"); Console.WriteLine(match.HasValue ? match.Value : \"<none>\");"
+                  $"var absent = {functionName}(entries, \"a\"); Console.WriteLine(absent.HasValue ? absent.Value : \"<none>\");"
+                  $"var empty = {functionName}(NyList<{entryName}>.Empty(), \"k\"); Console.WriteLine(empty.HasValue ? empty.Value : \"<none>\");"
+                  $"var other = {functionName}(entries, \"ka\"); Console.WriteLine(other.HasValue ? other.Value : \"<none>\");" ]
+                |> String.concat "\n"
+            File.WriteAllText(Path.Combine(tempRoot, "Program.cs"), program)
+            let start args =
+                let info = ProcessStartInfo("dotnet")
+                info.WorkingDirectory <- tempRoot
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                for arg in args do info.ArgumentList.Add(arg)
+                use child = Process.Start(info)
+                let stdout = child.StandardOutput.ReadToEndAsync()
+                let stderr = child.StandardError.ReadToEndAsync()
+                child.WaitForExit()
+                if child.ExitCode <> 0 then failwithf "dotnet failed: %s\n%s\n%s" (String.concat " " args) stdout.Result stderr.Result
+                stdout.Result
+            start [ "build"; "Generated.csproj"; "--nologo"; "-v:q" ] |> ignore
+            let output = start [ Path.Combine(tempRoot, "bin", "Debug", "net10.0", "Generated.dll") ]
+            Assert.Equal("first\n<none>\n<none>\nother", output.Replace("\r\n", "\n").Trim())
+        finally
+            if Directory.Exists tempRoot then Directory.Delete(tempRoot, true)
 
     [<Fact>]
     let ``StringEqual rejects a mistyped operand before publication and during snapshot validation`` () =
