@@ -40,14 +40,17 @@ module AuthoringProtocol =
             | PureRunScalar.String text -> PureRunValue.String text
             | PureRunScalar.Bool value -> PureRunValue.Bool value
             | PureRunScalar.Int64 value -> PureRunValue.Int64 value
-        | "product" ->
-            ensureFields "Product run value" [ "kind"; "typeId"; "fields" ] [ "kind"; "typeId"; "fields" ] item
+        | "product" | "union" as kind ->
+            let properties = [ "kind"; "typeId"; "fields" ] @ (if kind = "union" then [ "variantId" ] else [])
+            ensureFields "Named run value" properties properties item
             let fields = array "fields" item
-            if fields.Length > 256 then fail "Product run values may contain at most 256 fields."
-            PureRunValue.Product(id<TypeTag> "typeId" item,
-                fields |> List.map (fun field ->
-                    ensureFields "Product run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
-                    id<FieldTag> "fieldId" field, pureScalar (property "value" field)))
+            if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
+            let fields = fields |> List.map (fun field ->
+                ensureFields "Named run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
+                id<FieldTag> "fieldId" field, pureScalar (property "value" field))
+            let typeId = id<TypeTag> "typeId" item
+            if kind = "union" then PureRunValue.Union(typeId, id<VariantTag> "variantId" item, fields)
+            else PureRunValue.Product(typeId, fields)
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -133,6 +136,13 @@ module AuthoringProtocol =
                   "isOk", box isOk
                   "value", payload ]
         match value with
+        | PureRunValue.Union(typeId, variantId, fields) ->
+            objectValue
+                [ "kind", box "union"
+                  "typeId", box (StableId.value typeId)
+                  "variantId", box (StableId.value variantId)
+                  "fields", fields |> List.map (fun (fieldId, value) ->
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
         | PureRunValue.Product(typeId, fields) ->
             objectValue
                 [ "kind", box "product"
