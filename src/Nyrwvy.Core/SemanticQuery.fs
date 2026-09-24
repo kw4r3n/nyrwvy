@@ -54,6 +54,7 @@ module SemanticQuery =
                 let calleeId =
                     match node.Kind with
                     | SemanticNodeKind.DirectCall(functionId, _)
+                    | SemanticNodeKind.ListFold(_, _, functionId)
                     | SemanticNodeKind.ListMap(_, functionId)
                     | SemanticNodeKind.ListFilter(_, functionId)
                     | SemanticNodeKind.ListAny(_, functionId)

@@ -538,6 +538,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListLength"
               "ListAppendItem"
               "ListConcat"
+              "ListFold"
               "ListMap"
               "ListFilter"
               "ListAny"

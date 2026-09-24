@@ -104,6 +104,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
@@ -282,6 +283,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
+                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+                        Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId))
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->

@@ -463,6 +463,38 @@ module AuthoringSessionTests =
             if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
+    let ``JSONL name-resolved fold recipe publishes and reopens with callback identity`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let send text =
+                let document = AuthoringProtocol.executeLine session text |> JsonDocument.Parse
+                if not (document.RootElement.GetProperty("ok").GetBoolean()) then
+                    failwithf "Fold request failed: %s" (document.RootElement.ToString())
+                document
+            let commitProposal proposalId =
+                use _response = send (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+                ()
+            let proposalId =
+                use response = send """{"id":"folder","op":"simulateCreateFunctionByName","displayName":"sum_step","parameters":[{"displayName":"acc","type":{"kind":"primitive","primitive":"int64"}},{"displayName":"item","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64WrappingAdd","left":{"kind":"parameter","name":"acc"},"right":{"kind":"parameter","name":"item"}}}"""
+                response.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            commitProposal proposalId
+            let proposalId =
+                use response = send """{"id":"fold","op":"simulateCreateFunctionByName","displayName":"sum","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listFold","source":{"kind":"listConstruct","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64Literal","value":1},{"kind":"int64Literal","value":2}]},"seed":{"kind":"int64Literal","value":0},"function":"sum_step"}}"""
+                response.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            commitProposal proposalId
+            session.Close()
+            use reopened = openSession path
+            let snapshot = reopened.Declarations()
+            Assert.Contains(snapshot.Functions, fun functionEntity -> functionEntity.DisplayName = "sum")
+            match reopened.ProjectExecution() with
+            | Ok program -> Assert.Equal(2, program.Functions.Length)
+            | Error error -> failwithf "Fold did not lower after reopen: %A" error
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL name-resolved authoring creates and replaces without caller-managed semantic IDs`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

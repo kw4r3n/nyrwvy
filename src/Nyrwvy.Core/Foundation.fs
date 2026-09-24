@@ -188,6 +188,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
@@ -294,6 +295,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -367,6 +369,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

@@ -71,6 +71,7 @@ module internal WireGraph =
         | SemanticNodeKind.ListLength value -> unary "listLength" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
+        | SemanticNodeKind.ListFold(source, seed, folder) -> tagged "listFold" [ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ]
         | SemanticNodeKind.ListMap(source, callback) -> traversal "listMap" source callback
         | SemanticNodeKind.ListFilter(source, callback) -> traversal "listFilter" source callback
         | SemanticNodeKind.ListAny(source, callback) -> traversal "listAny" source callback

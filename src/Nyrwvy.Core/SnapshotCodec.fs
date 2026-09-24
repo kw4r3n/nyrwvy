@@ -419,6 +419,11 @@ module SnapshotCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+        | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+            writer.WriteString("kind", "listFold")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
@@ -930,6 +935,9 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "leftListNodeId" element,
                     readId<GraphNodeTag> "rightListNodeId" element
                 )
+            | "listFold" ->
+                ensureProperties "ListFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) element
+                SemanticNodeKind.ListFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element)
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback ->
                     SemanticNodeKind.ListMap(source, callback))

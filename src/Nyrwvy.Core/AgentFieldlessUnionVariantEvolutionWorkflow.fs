@@ -222,6 +222,8 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     mapNodeId leftListNodeId,
                     mapNodeId rightListNodeId
                 )
+            | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+                SemanticNodeKind.ListFold(mapNodeId sourceListNodeId, mapNodeId seedNodeId, folderFunctionId)
             | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
                 SemanticNodeKind.ListMap(
                     mapNodeId sourceListNodeId,

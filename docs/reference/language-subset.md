@@ -55,7 +55,7 @@ Wrapping arithmetic uses two's-complement modulo-`2^64` behavior. Checked arithm
 
 ## Immutable ordered `List<T>`
 
-`List<T>` is immutable and ordered; element order is semantic state.
+`List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures.
 
 The current collection surface includes:
 
@@ -65,6 +65,7 @@ ListConstruct
 ListLength
 ListAppendItem
 ListConcat
+ListFold
 ListMap
 ListFilter
 ListAny
@@ -134,6 +135,7 @@ ListConstruct
 ListLength
 ListAppendItem
 ListConcat
+ListFold
 ListMap
 ListFilter
 ListAny
@@ -158,7 +160,7 @@ Before materialization the workflow checks target/base guards, the established 3
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 

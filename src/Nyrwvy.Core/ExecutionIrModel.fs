@@ -106,6 +106,7 @@ type ExecutionInstructionKind =
     | ListLength of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
+    | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId

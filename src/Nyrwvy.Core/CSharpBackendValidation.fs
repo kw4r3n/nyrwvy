@@ -41,6 +41,7 @@ module internal CSharpBackendValidation =
                 |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
                     | ExecutionInstructionKind.DirectCall(functionId, _)
+                    | ExecutionInstructionKind.ListFold(_, _, functionId)
                     | ExecutionInstructionKind.ListMap(_, functionId)
                     | ExecutionInstructionKind.ListFilter(_, functionId)
                     | ExecutionInstructionKind.ListAny(_, functionId)

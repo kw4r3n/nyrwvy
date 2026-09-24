@@ -63,6 +63,7 @@ ExpressionRecipe =
   | ListLength(list)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
+  | ListFold(source, seed, folderFunctionId)
   | ListMap(source, mapperFunctionId)
   | ListFilter(source, predicateFunctionId)
   | ListAny(source, predicateFunctionId)
@@ -107,7 +108,7 @@ The complete construction tree uses the same practical bounds already establishe
 - every recipe occurrence materializes one semantic node;
 - repeated equal subexpressions remain distinct occurrences.
 
-Unary operands materialize before their parent. Binary operands materialize left then right, followed by the parent. `ListConstruct` materializes its item recipes in list order and then the construction node. Higher-order List recipes materialize the source expression first and then the traversal node referencing the existing callback `FunctionId`.
+Unary operands materialize before their parent. Binary operands materialize left then right, followed by the parent. `ListConstruct` materializes its item recipes in list order and then the construction node. Higher-order List recipes materialize the source expression first (and for `ListFold`, the seed second) and then the traversal node referencing the existing callback `FunctionId`.
 
 Product and union field bindings are caller-supplied by stable `FieldId`, but their list order is not semantic. After preflight verifies the exact binding set, materialization constructs field recipes in declaration order and stores persistent bindings in that same order.
 
@@ -134,7 +135,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 7. every scalar operation receives operands of its required primitive type;
 8. every explicit `TypeRef` is valid in the current snapshot and has valid builtin-generic arity;
 9. List construction/query operands have exact compatible List/item types;
-10. higher-order List callbacks satisfy the existing pure unary callback contract;
+10. higher-order List callbacks satisfy the applicable pure callback contract (unary for Map/Filter/Any/All, binary for Fold);
 11. `ProductConstruct` names an existing product type and binds every declared field exactly once with an exact-compatible value type;
 12. `FieldAccess` names a product field and its source produces the exact owning named type;
 13. `UnionConstruct` names an existing variant and binds every variant field exactly once with an exact-compatible value type;
@@ -203,10 +204,11 @@ The supplied types are construction intent, not raw graph payloads. Before mater
 
 ## Higher-order List callbacks
 
-`ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
+- `ListFold(source, seed, f)` requires a pure binary `f : (S, T) -> S` where `seed : S`; it returns `S`, traverses left to right, and returns the seed for an empty source;
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;

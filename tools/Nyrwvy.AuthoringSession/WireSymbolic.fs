@@ -242,6 +242,13 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "item" element)
             )
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
+        | "listFold" ->
+            ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function" ] [ "kind"; "source"; "seed"; "function" ] element
+            ExpressionRecipe.ListFold(
+                recipe declarations parameterContext (property "source" element),
+                recipe declarations parameterContext (property "seed" element),
+                (resolveFunction declarations (requiredString "function" element)).Id
+            )
         | "listMap"
         | "listFilter"
         | "listAny"

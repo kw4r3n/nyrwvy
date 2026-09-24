@@ -38,6 +38,7 @@ module SemanticFacts =
         | SemanticNodeKind.ListAny(listNodeId, _)
         | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -115,6 +116,7 @@ module SemanticFacts =
             | SemanticNodeKind.ListLength _
             | SemanticNodeKind.ListAppendItem _
             | SemanticNodeKind.ListConcat _
+            | SemanticNodeKind.ListFold _
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -257,6 +259,8 @@ module SemanticFacts =
                             when leftItemType = rightItemType ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
                         | _ -> None
+                    | SemanticNodeKind.ListFold(_, seedNodeId, _) ->
+                        tryNodeType nextVisiting seedNodeId
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId functionsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->

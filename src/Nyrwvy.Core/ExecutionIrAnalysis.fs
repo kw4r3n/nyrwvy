@@ -57,6 +57,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListFilter(listNodeId, _)
         | TypedSemanticNodeKind.ListAny(listNodeId, _)
         | TypedSemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -116,6 +117,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListLength _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
+            | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -198,6 +200,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListLength _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
+        | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.ListAny _
@@ -315,6 +318,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListLength _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
+            | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

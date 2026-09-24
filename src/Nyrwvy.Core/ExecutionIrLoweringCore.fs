@@ -311,6 +311,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+                            lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                ExecutionInstructionKind.ListFold(source, seed, folderFunctionId))
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId (fun source callback ->
                                 ExecutionInstructionKind.ListMap(source, callback))
@@ -569,6 +572,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListLength _
                         | TypedSemanticNodeKind.ListAppendItem _
                         | TypedSemanticNodeKind.ListConcat _
+                        | TypedSemanticNodeKind.ListFold _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

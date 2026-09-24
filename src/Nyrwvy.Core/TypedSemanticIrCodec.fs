@@ -337,6 +337,11 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+            writer.WriteString("kind", "listFold")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->

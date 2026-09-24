@@ -119,6 +119,14 @@ module CSharpBackend =
         writer.Line("return new NyList<T>(next);")
         writer.Pop()
         writer.Line("}")
+        writer.Line("public S Fold<S>(S seed, Func<S, T, S> folder)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var state = seed;")
+        writer.Line("for (var i = 0; i < _items.Length; i++) state = folder(state, _items[i]);")
+        writer.Line("return state;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyList<U> Map<U>(Func<T, U> mapper)")
         writer.Line("{")
         writer.Push()
@@ -373,6 +381,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
+        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callbackName folderFunctionId + ");")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callbackName mapperFunctionId + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->

@@ -494,6 +494,8 @@ module NyasonCodec =
                 [ nodeId
                   "left", encodeId "node" leftListNodeId
                   "right", encodeId "node" rightListNodeId ]
+        | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+            record "list-fold" [ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
@@ -747,6 +749,10 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "left" fields),
                     decodeId<GraphNodeTag> "node" (require "right" fields)
                 ) }
+        | NyasonValue.Record("list-fold", _) ->
+            let fields = recordFields "list-fold" [ "id"; "source"; "seed"; "folder" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListFold(decodeId<GraphNodeTag> "node" (require "source" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields)) }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback -> SemanticNodeKind.ListMap(source, callback))
         | NyasonValue.Record("list-filter", _) ->

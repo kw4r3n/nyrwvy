@@ -271,6 +271,11 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listConcat")
               property "leftListValueId" (executionValueIdValue leftListValueId)
               property "rightListValueId" (executionValueIdValue rightListValueId) ]
+        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId) ->
+            [ property "kind" (quote "listFold")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->

@@ -53,6 +53,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListLength _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _
+                | TypedSemanticNodeKind.ListFold _
                 | TypedSemanticNodeKind.ListMap _
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.ListAny _

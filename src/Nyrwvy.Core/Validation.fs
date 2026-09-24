@@ -49,6 +49,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _)
         | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -112,6 +113,7 @@ module SnapshotValidator =
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -684,6 +686,23 @@ module SnapshotValidator =
                                 $"ListConcat node '{StableId.value node.Id}' requires List<T> as its right input."
                         | None, _
                         | _, None -> ()
+                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+                        match nodeType sourceListNodeId, nodeType seedNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> add "UnknownListCallbackFunction" $"ListFold node '{StableId.value node.Id}' references an unknown folder."
+                            | Some folder ->
+                                if folder.Parameters.Length <> 2 then
+                                    add "ListCallbackArityMismatch" "ListFold folder must have exactly two parameters (accumulator, item)."
+                                else
+                                    if folder.Parameters.Head.Type <> seedType || folder.Parameters.Tail.Head.Type <> itemType then
+                                        add "ListCallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
+                                if folder.ResultType <> seedType then
+                                    add "ListCallbackResultTypeMismatch" "ListFold folder must return the seed type."
+                                if not (List.isEmpty folder.RequiredEffects) then
+                                    add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure."
+                        | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
+                        | _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId false
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId)
@@ -1106,6 +1125,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
+                | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

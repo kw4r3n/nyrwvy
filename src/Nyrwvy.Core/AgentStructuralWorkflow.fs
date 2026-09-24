@@ -88,6 +88,9 @@ module ValueDependency =
         | SemanticNodeKind.ListAll(sourceNodeId, _)
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
+        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Value seedNodeId ]
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
@@ -245,6 +248,7 @@ module internal StructuralTransactionInternals =
         | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
         | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
         | SemanticNodeKind.DirectCall(functionId, _)
+        | SemanticNodeKind.ListFold(_, _, functionId)
         | SemanticNodeKind.ListMap(_, functionId)
         | SemanticNodeKind.ListFilter(_, functionId)
         | SemanticNodeKind.ListAny(_, functionId)
