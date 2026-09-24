@@ -27,6 +27,7 @@ module ViewerTests =
                   ProductFieldsBound = []
                   ProductFieldsRemoved = []
                   FunctionsRemoved = []
+                  TypesRemoved = []
                   ArgumentsAttached = []
                   ObligationsCreated = []
                   ObligationsResolved = []

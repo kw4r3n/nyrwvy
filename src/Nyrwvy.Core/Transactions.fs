@@ -43,6 +43,7 @@ type SemanticOperation =
     | AddProductField of AddProductFieldRequest
     | RemoveProductField of FieldId
     | DeleteFunction of FunctionId
+    | DeleteType of TypeId
     | ResolveMissingArgument of ResolveMissingArgumentRequest
     | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
@@ -68,6 +69,12 @@ type ProductFieldRemoved =
       RemovedFieldId: FieldId
       DisplayName: string
       AffectedConstructNodeIds: GraphNodeId list }
+
+type TypeRemoved =
+    { TypeId: TypeId
+      DisplayName: string
+      RemovedVariantIds: VariantId list
+      RemovedFieldIds: FieldId list }
 
 type FunctionRemoved =
     { FunctionId: FunctionId
@@ -114,6 +121,7 @@ type SemanticDiff =
       ProductFieldsBound: ProductFieldBound list
       ProductFieldsRemoved: ProductFieldRemoved list
       FunctionsRemoved: FunctionRemoved list
+      TypesRemoved: TypeRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -140,6 +148,7 @@ type private ChangeAccumulator =
       ProductFieldsBound: ProductFieldBound list
       ProductFieldsRemoved: ProductFieldRemoved list
       FunctionsRemoved: FunctionRemoved list
+      TypesRemoved: TypeRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -156,6 +165,7 @@ module Transaction =
           ProductFieldsBound = []
           ProductFieldsRemoved = []
           FunctionsRemoved = []
+          TypesRemoved = []
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = []
@@ -510,6 +520,36 @@ module Transaction =
                 Ok({ snapshot with Types = updatedTypes; Functions = updatedFunctions },
                     { changes with ProductFieldsRemoved = removed :: changes.ProductFieldsRemoved })
 
+    let private deleteType
+        (typeId: TypeId)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        match snapshot.Types |> List.tryFind (fun item -> item.Id = typeId) with
+        | None -> Error("TargetNotFound", "The type to delete was not found.")
+        | Some target ->
+            if changes.ProductFieldsAdded |> List.exists (fun item -> item.OwnerTypeId = typeId)
+               || changes.ProductFieldsRemoved |> List.exists (fun item -> item.OwnerTypeId = typeId) then
+                Error("TypeModifiedInTransaction", "Delete a type in a separate reviewed change from its field edits.")
+            else
+                let candidate = { snapshot with Types = snapshot.Types |> List.filter (fun item -> item.Id <> typeId) }
+                match SnapshotValidator.validate candidate with
+                | issue :: _ ->
+                    Error("TypeStillReferenced", $"Repair all references before deleting this type: {issue.Code}: {issue.Message}")
+                | [] ->
+                    let variantIds, fieldIds =
+                        match target.Kind with
+                        | SemanticTypeKind.Product fields -> [], fields |> List.map (fun item -> item.Id)
+                        | SemanticTypeKind.Union variants ->
+                            variants |> List.map (fun item -> item.Id),
+                            variants |> List.collect (fun variant -> variant.Fields |> List.map (fun field -> field.Id))
+                    let removed: TypeRemoved =
+                        { TypeId = typeId
+                          DisplayName = target.DisplayName
+                          RemovedVariantIds = variantIds |> List.sortBy StableId.value
+                          RemovedFieldIds = fieldIds |> List.sortBy StableId.value }
+                    Ok(candidate, { changes with TypesRemoved = removed :: changes.TypesRemoved })
+
     let private deleteFunction
         (functionId: FunctionId)
         (snapshot: Snapshot)
@@ -716,6 +756,7 @@ module Transaction =
         | AddProductField request -> addProductField request snapshot changes
         | RemoveProductField fieldId -> removeProductField fieldId snapshot changes
         | DeleteFunction functionId -> deleteFunction functionId snapshot changes
+        | DeleteType typeId -> deleteType typeId snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
@@ -760,6 +801,7 @@ module Transaction =
                 changes.ProductFieldsRemoved |> List.sortBy (fun item -> StableId.value item.OwnerTypeId, StableId.value item.RemovedFieldId)
             FunctionsRemoved =
                 changes.FunctionsRemoved |> List.sortBy (fun item -> StableId.value item.FunctionId)
+            TypesRemoved = changes.TypesRemoved |> List.sortBy (fun item -> StableId.value item.TypeId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
@@ -829,7 +871,10 @@ module Transaction =
                     let renames = netRenames baseSnapshot proposed
                     let diff: SemanticDiff =
                         { Renames = renames
-                          ParametersAdded = changes.ParametersAdded
+                          ParametersAdded =
+                              changes.ParametersAdded
+                              |> List.filter (fun item ->
+                                  proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
                           ProductFieldsAdded = changes.ProductFieldsAdded
                           ProductFieldsBound =
                               changes.ProductFieldsBound
@@ -837,6 +882,7 @@ module Transaction =
                                   proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
                           ProductFieldsRemoved = changes.ProductFieldsRemoved
                           FunctionsRemoved = changes.FunctionsRemoved
+                          TypesRemoved = changes.TypesRemoved
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
@@ -849,6 +895,7 @@ module Transaction =
                         || not (List.isEmpty diff.ProductFieldsBound)
                         || not (List.isEmpty diff.ProductFieldsRemoved)
                         || not (List.isEmpty diff.FunctionsRemoved)
+                        || not (List.isEmpty diff.TypesRemoved)
                         || not (List.isEmpty diff.ArgumentsAttached)
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)

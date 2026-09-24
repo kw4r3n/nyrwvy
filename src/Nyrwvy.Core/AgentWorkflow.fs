@@ -37,6 +37,7 @@ type AgentOperationIntent =
     | AddProductField of AgentAddProductFieldIntent
     | RemoveProductField of FieldId
     | DeleteFunction of FunctionId
+    | DeleteType of TypeId
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
@@ -210,6 +211,8 @@ module AgentWorkflow =
             SemanticOperation.RemoveProductField fieldId
         | AgentOperationIntent.DeleteFunction functionId ->
             SemanticOperation.DeleteFunction functionId
+        | AgentOperationIntent.DeleteType typeId ->
+            SemanticOperation.DeleteType typeId
         | AgentOperationIntent.ResolveMissingArgument request ->
             SemanticOperation.ResolveMissingArgument
                 { TargetObligationId = request.TargetObligationId

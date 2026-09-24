@@ -83,6 +83,7 @@ module ChangeReviewQuery =
         @ (simulation.Diff.ProductFieldsAdded |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.ProductFieldsRemoved |> List.map (fun item -> item.OwnerTypeId))
         |> List.distinct
+        |> List.filter (fun id -> simulation.ProposedSnapshot.Types |> List.exists (fun item -> item.Id = id))
         |> List.sortBy StableId.value
 
     let private readiness snapshot =

@@ -45,6 +45,15 @@ module internal WireEncode =
                           "displayName", box item.DisplayName
                           "affectedConstructNodeIds", item.AffectedConstructNodeIds |> List.map (StableId.value >> box) |> arrayValue ])
                 |> arrayValue
+              "typesRemoved",
+                value.TypesRemoved
+                |> List.map (fun item ->
+                    objectValue
+                        [ "typeId", box (StableId.value item.TypeId)
+                          "displayName", box item.DisplayName
+                          "removedVariantIds", item.RemovedVariantIds |> List.map (StableId.value >> box) |> arrayValue
+                          "removedFieldIds", item.RemovedFieldIds |> List.map (StableId.value >> box) |> arrayValue ])
+                |> arrayValue
               "functionsRemoved",
                 value.FunctionsRemoved
                 |> List.map (fun item ->
