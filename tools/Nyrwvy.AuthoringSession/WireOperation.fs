@@ -45,6 +45,26 @@ module internal WireOperation =
                   NewParameterDisplayName = requiredString "displayName" element
                   NewParameterType = typeRef (property "type" element)
                   CallSitePlans = plans }
+        | "addProductField" ->
+            ensureFields
+                "add-product-field operation"
+                [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
+                [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
+                element
+            let plans: ProductFieldConstructionPlan list =
+                array "constructions" element
+                |> List.map (fun plan ->
+                    ensureFields "product construction plan" [ "constructNodeId"; "valueNodeId" ] [ "constructNodeId"; "valueNodeId" ] plan
+                    { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
+                      ValueNodeId = id<GraphNodeTag> "valueNodeId" plan })
+            AgentOperationIntent.AddProductField
+                { TargetTypeId = id<TypeTag> "typeId" element
+                  NewFieldDisplayName = requiredString "displayName" element
+                  NewFieldType = typeRef (property "type" element)
+                  ConstructionPlans = plans }
+        | "deleteFunction" ->
+            ensureFields "delete-function operation" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
+            AgentOperationIntent.DeleteFunction(id<FunctionTag> "functionId" element)
         | "resolveMissingArgument" ->
             ensureFields "resolve-missing-argument operation" [ "kind"; "obligationId"; "valueNodeId" ] [ "kind"; "obligationId"; "valueNodeId" ] element
             AgentOperationIntent.ResolveMissingArgument

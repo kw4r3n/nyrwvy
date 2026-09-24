@@ -18,6 +18,32 @@ module internal WireEncode =
                           "displayName", box item.AddedDisplayName
                           "type", typeRef item.AddedType ])
                 |> arrayValue
+              "productFieldsAdded",
+                value.ProductFieldsAdded
+                |> List.map (fun item ->
+                    objectValue
+                        [ "ownerTypeId", box (StableId.value item.OwnerTypeId)
+                          "fieldId", box (StableId.value item.AddedFieldId)
+                          "displayName", box item.AddedDisplayName
+                          "type", typeRef item.AddedType ])
+                |> arrayValue
+              "productFieldsBound",
+                value.ProductFieldsBound
+                |> List.map (fun item ->
+                    objectValue
+                        [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                          "constructNodeId", box (StableId.value item.ConstructNodeId)
+                          "fieldId", box (StableId.value item.TargetFieldId)
+                          "valueNodeId", box (StableId.value item.ValueNodeId) ])
+                |> arrayValue
+              "functionsRemoved",
+                value.FunctionsRemoved
+                |> List.map (fun item ->
+                    objectValue
+                        [ "functionId", box (StableId.value item.FunctionId)
+                          "displayName", box item.DisplayName
+                          "removedNodeIds", item.RemovedNodeIds |> List.map (StableId.value >> box) |> arrayValue ])
+                |> arrayValue
               "argumentsAttached",
                 value.ArgumentsAttached
                 |> List.map (fun item ->

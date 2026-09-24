@@ -87,7 +87,7 @@ Read projection may expose semantic facts and stable IDs, but it grants no raw s
 
 The session is an adapter over existing authoring contracts:
 
-- ordinary `AgentWorkflow` operations: display-name rename, add function parameter, resolve missing argument, and add/remove required effects;
+- ordinary `AgentWorkflow` operations: display-name rename, add function parameter, add Product field with exhaustive constructor plans, delete an unreferenced function, resolve missing argument, and add/remove required effects;
 - whole-body `ExpressionRecipe` replacement;
 - targeted `ExpressionRecipe` replacement from issue #148;
 - atomic function creation with ordered `ParameterSlot` references from issue #149;
@@ -154,6 +154,8 @@ The maintained operation set is:
 | `reject` | Reject and forget one ephemeral `proposalId`. |
 | `executionReadiness` | Project and lower the current committed snapshot without running it. |
 | `emitCSharp` | Emit through the existing C# backend using an explicit existing profile. |
+
+`simulateOperations` also accepts `{ "kind": "addProductField", "typeId": "<existing>", "displayName": "<new>", "type": <TypeRef>, "constructions": [{ "constructNodeId": "<existing>", "valueNodeId": "<existing>" }] }`. Every affected Product construction (including nested branches) needs exactly one plan. The field ID is system-owned; plans must select existing values with the exact new field type and valid lexical scope. The review diff reports `productFieldsAdded` and `productFieldsBound`. `{ "kind": "deleteFunction", "functionId": "<existing>" }` deletes only an unreferenced function with no obligations targeting its body; its removed node IDs appear in `functionsRemoved`. Both operations use the same reviewed transaction and stale-base protection as the existing operations.
 
 `proposalId` is the proposal transaction ID rendered as a stable-ID string. It is only a handle inside the live process and is not resumable across restart.
 

@@ -59,15 +59,22 @@ module ChangeReviewQuery =
                |> List.map (fun item -> item.CallNodeId))
             |> List.choose (fun nodeId -> Map.tryFind nodeId ownersByNode)
 
-        renamed @ parameterOwners @ effectOwners @ changedCallOwners
+        let changedProductOwners =
+            simulation.Diff.ProductFieldsBound
+            |> List.map (fun item -> item.OwnerFunctionId)
+
+        let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners
         |> List.distinct
+        |> List.filter (fun id -> Set.contains id present)
         |> List.sortBy StableId.value
 
     let private affectedTypeIds (simulation: TransactionSimulation): TypeId list =
-        simulation.Diff.Renames
-        |> List.choose (function
-            | TypeRenamed(typeId, _, _) -> Some typeId
-            | FunctionRenamed _ -> None)
+        (simulation.Diff.Renames
+         |> List.choose (function
+             | TypeRenamed(typeId, _, _) -> Some typeId
+             | FunctionRenamed _ -> None))
+        @ (simulation.Diff.ProductFieldsAdded |> List.map (fun item -> item.OwnerTypeId))
         |> List.distinct
         |> List.sortBy StableId.value
 

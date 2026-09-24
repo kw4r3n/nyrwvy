@@ -18,6 +18,17 @@ type AddFunctionParameterRequest =
       NewParameterType: TypeRef
       CallSitePlans: CallPlan list }
 
+type ProductFieldConstructionPlan =
+    { ConstructNodeId: GraphNodeId
+      ValueNodeId: GraphNodeId }
+
+type AddProductFieldRequest =
+    { TargetTypeId: TypeId
+      NewFieldId: FieldId
+      NewFieldDisplayName: string
+      NewFieldType: TypeRef
+      ConstructionPlans: ProductFieldConstructionPlan list }
+
 type ResolveMissingArgumentRequest =
     { TargetObligationId: ObligationId
       ResolutionValueNodeId: GraphNodeId }
@@ -29,6 +40,8 @@ type FunctionRequiredEffectRequest =
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
     | AddFunctionParameter of AddFunctionParameterRequest
+    | AddProductField of AddProductFieldRequest
+    | DeleteFunction of FunctionId
     | ResolveMissingArgument of ResolveMissingArgumentRequest
     | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
@@ -48,6 +61,23 @@ type ParameterAdded =
       AddedParameterId: ParameterId
       AddedDisplayName: string
       AddedType: TypeRef }
+
+type FunctionRemoved =
+    { FunctionId: FunctionId
+      DisplayName: string
+      RemovedNodeIds: GraphNodeId list }
+
+type ProductFieldAdded =
+    { OwnerTypeId: TypeId
+      AddedFieldId: FieldId
+      AddedDisplayName: string
+      AddedType: TypeRef }
+
+type ProductFieldBound =
+    { OwnerFunctionId: FunctionId
+      ConstructNodeId: GraphNodeId
+      TargetFieldId: FieldId
+      ValueNodeId: GraphNodeId }
 
 type ArgumentAttached =
     { CallNodeId: GraphNodeId
@@ -73,6 +103,9 @@ type FunctionRequiredEffectChange =
 type SemanticDiff =
     { Renames: SymbolRename list
       ParametersAdded: ParameterAdded list
+      ProductFieldsAdded: ProductFieldAdded list
+      ProductFieldsBound: ProductFieldBound list
+      FunctionsRemoved: FunctionRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -95,6 +128,9 @@ type SimulationResult =
 
 type private ChangeAccumulator =
     { ParametersAdded: ParameterAdded list
+      ProductFieldsAdded: ProductFieldAdded list
+      ProductFieldsBound: ProductFieldBound list
+      FunctionsRemoved: FunctionRemoved list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -107,6 +143,9 @@ module Transaction =
 
     let private emptyChanges: ChangeAccumulator =
         { ParametersAdded = []
+          ProductFieldsAdded = []
+          ProductFieldsBound = []
+          FunctionsRemoved = []
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = []
@@ -313,6 +352,123 @@ module Transaction =
 
                         Ok(updatedSnapshot, updatedChanges)
 
+    let private addProductField
+        (request: AddProductFieldRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        match snapshot.Types |> List.tryFind (fun item -> item.Id = request.TargetTypeId) with
+        | None -> Error("TargetNotFound", "The target product type was not found.")
+        | Some { Kind = SemanticTypeKind.Union _ } ->
+            Error("ProductFieldTargetNotProduct", "The target type must be a Product.")
+        | Some ({ Kind = SemanticTypeKind.Product fields } as target) ->
+            let existingFieldIds =
+                snapshot.Types
+                |> List.collect (fun item ->
+                    match item.Kind with
+                    | SemanticTypeKind.Product fields -> fields
+                    | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
+                |> List.map (fun field -> field.Id)
+                |> Set.ofList
+            let affected =
+                snapshot.Functions
+                |> List.collect (fun owner ->
+                    ValueGraph.collectNodes owner.Body
+                    |> List.choose (fun node ->
+                        match node.Kind with
+                        | SemanticNodeKind.ProductConstruct(typeId, _) when typeId = target.Id -> Some(owner, node.Id)
+                        | _ -> None))
+            let affectedIds = affected |> List.map snd |> Set.ofList
+            let plannedIds = request.ConstructionPlans |> List.map (fun plan -> plan.ConstructNodeId)
+            let plansById =
+                request.ConstructionPlans
+                |> List.map (fun plan -> plan.ConstructNodeId, plan.ValueNodeId)
+                |> Map.ofList
+            if String.IsNullOrWhiteSpace request.NewFieldDisplayName then
+                Error("InvalidDisplayName", "The new field display name cannot be blank.")
+            elif fields |> List.exists (fun field -> field.DisplayName = request.NewFieldDisplayName) then
+                Error("DuplicateFieldDisplayName", "The product already has a field with this display name.")
+            elif Set.contains request.NewFieldId existingFieldIds then
+                Error("DuplicateFieldId", "The new field ID already exists.")
+            elif plannedIds.Length <> affectedIds.Count || Set.ofList plannedIds <> affectedIds then
+                Error("ProductFieldPlanMismatch", "Every affected ProductConstruct requires exactly one field-value plan.")
+            else
+                let invalidValue =
+                    affected
+                    |> List.tryFind (fun (owner, constructNodeId) ->
+                        let candidate = Map.find constructNodeId plansById
+                        SemanticFacts.createNodeTypeResolver snapshot owner candidate <> Some request.NewFieldType)
+                match invalidValue with
+                | Some _ ->
+                    Error("ProductFieldValueTypeMismatch", "The planned field value must exist in its owning function and have the new field type.")
+                | None ->
+                    let newField: SemanticField =
+                        { Id = request.NewFieldId
+                          DisplayName = request.NewFieldDisplayName
+                          Type = request.NewFieldType }
+                    let updatedTypes =
+                        snapshot.Types
+                        |> List.map (fun item ->
+                            if item.Id = target.Id then
+                                { item with Kind = SemanticTypeKind.Product(fields @ [ newField ]) }
+                            else item)
+                    let updatedFunctions =
+                        snapshot.Functions
+                        |> List.map (fun owner ->
+                            let mapNode (node: SemanticNode) =
+                                match node.Kind, Map.tryFind node.Id plansById with
+                                | SemanticNodeKind.ProductConstruct(typeId, bindings), Some valueNodeId ->
+                                    { node with
+                                        Kind = SemanticNodeKind.ProductConstruct(typeId, bindings @
+                                            [ { TargetFieldId = newField.Id; ValueNodeId = valueNodeId } ]) }
+                                | _ -> node
+                            { owner with Body = ValueGraph.mapNodes mapNode owner.Body })
+                    let bound =
+                        affected
+                        |> List.map (fun (owner, constructNodeId) ->
+                            { OwnerFunctionId = owner.Id
+                              ConstructNodeId = constructNodeId
+                              TargetFieldId = newField.Id
+                              ValueNodeId = Map.find constructNodeId plansById })
+                    let added: ProductFieldAdded =
+                        { OwnerTypeId = target.Id
+                          AddedFieldId = newField.Id
+                          AddedDisplayName = newField.DisplayName
+                          AddedType = newField.Type }
+                    Ok(
+                        { snapshot with Types = updatedTypes; Functions = updatedFunctions },
+                        { changes with
+                            ProductFieldsAdded = added :: changes.ProductFieldsAdded
+                            ProductFieldsBound = bound @ changes.ProductFieldsBound }
+                    )
+
+    let private deleteFunction
+        (functionId: FunctionId)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        match snapshot.Functions |> List.tryFind (fun fn -> fn.Id = functionId) with
+        | None -> Error("TargetNotFound", "The function to delete was not found.")
+        | Some target ->
+            let callers = SemanticQuery.getCallers snapshot functionId
+            let bodyNodeIds =
+                ValueGraph.collectNodes target.Body |> List.map (fun node -> node.Id) |> Set.ofList
+            match callers with
+            | Error _ -> Error("FunctionCallSiteInspectionFailed", "The function's callers could not be inspected.")
+            | Ok (_ :: _) ->
+                Error("FunctionStillReferenced", "Repair all direct calls and List callbacks before deleting this function.")
+            | Ok [] when snapshot.Obligations |> List.exists (fun item -> Set.contains item.CallNodeId bodyNodeIds) ->
+                Error("FunctionHasObligations", "Resolve or remove obligations attached to this function before deletion.")
+            | Ok [] ->
+                let removed: FunctionRemoved =
+                    { FunctionId = target.Id
+                      DisplayName = target.DisplayName
+                      RemovedNodeIds = bodyNodeIds |> Set.toList |> List.sortBy StableId.value }
+                Ok(
+                    { snapshot with Functions = snapshot.Functions |> List.filter (fun fn -> fn.Id <> functionId) },
+                    { changes with FunctionsRemoved = removed :: changes.FunctionsRemoved }
+                )
+
     let private resolveMissingArgument
         (transactionId: TransactionId)
         (request: ResolveMissingArgumentRequest)
@@ -487,6 +643,8 @@ module Transaction =
         | RenameDisplayName(RenameTarget.FunctionTarget id, newDisplayName) ->
             renameFunction id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
+        | AddProductField request -> addProductField request snapshot changes
+        | DeleteFunction functionId -> deleteFunction functionId snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
@@ -521,6 +679,14 @@ module Transaction =
             ParametersAdded =
                 changes.ParametersAdded
                 |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.AddedParameterId)
+            ProductFieldsAdded =
+                changes.ProductFieldsAdded
+                |> List.sortBy (fun item -> StableId.value item.OwnerTypeId, StableId.value item.AddedFieldId)
+            ProductFieldsBound =
+                changes.ProductFieldsBound
+                |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.ConstructNodeId)
+            FunctionsRemoved =
+                changes.FunctionsRemoved |> List.sortBy (fun item -> StableId.value item.FunctionId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
@@ -591,6 +757,12 @@ module Transaction =
                     let diff: SemanticDiff =
                         { Renames = renames
                           ParametersAdded = changes.ParametersAdded
+                          ProductFieldsAdded = changes.ProductFieldsAdded
+                          ProductFieldsBound =
+                              changes.ProductFieldsBound
+                              |> List.filter (fun item ->
+                                  proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
+                          FunctionsRemoved = changes.FunctionsRemoved
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
@@ -599,6 +771,9 @@ module Transaction =
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
                         || not (List.isEmpty diff.ParametersAdded)
+                        || not (List.isEmpty diff.ProductFieldsAdded)
+                        || not (List.isEmpty diff.ProductFieldsBound)
+                        || not (List.isEmpty diff.FunctionsRemoved)
                         || not (List.isEmpty diff.ArgumentsAttached)
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)

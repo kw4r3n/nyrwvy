@@ -16,6 +16,12 @@ type AgentAddFunctionParameterIntent =
       NewParameterType: TypeRef
       CallSitePlans: AgentCallPlan list }
 
+type AgentAddProductFieldIntent =
+    { TargetTypeId: TypeId
+      NewFieldDisplayName: string
+      NewFieldType: TypeRef
+      ConstructionPlans: ProductFieldConstructionPlan list }
+
 type AgentResolveMissingArgumentIntent =
     { TargetObligationId: ObligationId
       ResolutionValueNodeId: GraphNodeId }
@@ -28,6 +34,8 @@ type AgentFunctionRequiredEffectIntent =
 type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
     | AddFunctionParameter of AgentAddFunctionParameterIntent
+    | AddProductField of AgentAddProductFieldIntent
+    | DeleteFunction of FunctionId
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
@@ -190,6 +198,15 @@ module AgentWorkflow =
                   NewParameterDisplayName = request.NewParameterDisplayName
                   NewParameterType = request.NewParameterType
                   CallSitePlans = request.CallSitePlans |> List.map materializeCallPlan }
+        | AgentOperationIntent.AddProductField request ->
+            SemanticOperation.AddProductField
+                { TargetTypeId = request.TargetTypeId
+                  NewFieldId = StableIdAllocator.newFieldId ()
+                  NewFieldDisplayName = request.NewFieldDisplayName
+                  NewFieldType = request.NewFieldType
+                  ConstructionPlans = request.ConstructionPlans }
+        | AgentOperationIntent.DeleteFunction functionId ->
+            SemanticOperation.DeleteFunction functionId
         | AgentOperationIntent.ResolveMissingArgument request ->
             SemanticOperation.ResolveMissingArgument
                 { TargetObligationId = request.TargetObligationId

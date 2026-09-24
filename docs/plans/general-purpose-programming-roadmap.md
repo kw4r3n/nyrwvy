@@ -46,6 +46,8 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 `feat/g1-data-operations` の後続ではG3の最初の境界として、既存のCapability interfaceに外部実装を注入する明示的なC# profileを追加した。型付きProduct入力と`Result`による正常な失敗をfake hostで往復し、NyrwvyのMatchResultで分岐することを確認した。`FailureType`やhost例外をResultへ暗黙変換しない。新しい外部オブジェクト表現、実装の自動ロード、リソース寿命・T3の共通実行入口は未着手であり、G3全体の完了宣言ではない。
 
+T1の最初の段階では既存のreviewed transactionへ`addProductField`と`deleteFunction`を追加した。Product field追加はすべての構築箇所に型付き既存値を明示して一括修正し、未指定や型不正は公開しない。不要関数はDirectCall/List callback参照・obligationがなくなった後だけ削除できる。既存identityの保持、review、JSONL経由のcommitと再オープンを確認した。ただし新しい値の作成を伴うfield移行、既存fieldの変更・削除、参照元の同時書き換えはまだ扱わず、T1全体の達成ではない。
+
 ## 3. 実装目標一覧
 
 P0は最初に着手する候補、P1はその後のまとまった実装目標を表す。全項目を一括実装する指示ではない。

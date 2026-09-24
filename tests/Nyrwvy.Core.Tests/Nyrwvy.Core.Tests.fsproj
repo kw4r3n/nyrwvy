@@ -62,6 +62,7 @@
     <Compile Include="ListTests.fs" />
     <Compile Include="ListHigherOrderTests.fs" />
     <Compile Include="ListFoldTests.fs" />
+    <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="MilestoneOneGraph.fs" />
     <Compile Include="AgentExecutionTests.fs" />
     <Compile Include="Float64Tests.fs" />
