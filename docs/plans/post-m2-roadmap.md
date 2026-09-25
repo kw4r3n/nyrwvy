@@ -138,7 +138,7 @@ The real-host MCP probe and the [general-purpose programming roadmap](general-pu
 
 The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
-**The order is provisional.** Item 2 was taken first as the smallest certain step and is now implemented; item 1, the first blocker, is next; its [design note](../decisions/concurrency-control.md) is accepted, so implementation starts at its phase 1. Revise the order with the reason recorded when a choice is made or new evidence appears.
+**The order is provisional.** Item 2 was taken first as the smallest certain step and is now implemented; item 1, the first blocker, is next; its [design note](../decisions/concurrency-control.md) is accepted and phase 1 (scope, start, wait, cancel) is implemented; phase 2 (time limits with a virtual clock) is next. Revise the order with the reason recorded when a choice is made or new evidence appears.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |

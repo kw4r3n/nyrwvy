@@ -11,6 +11,7 @@ type ValueDependencyRole =
     | RightOperand
     | Source
     | Item
+    | TaskScope
     | ListItem of int
     | CallArgument of ParameterId
     | CapabilityValue
@@ -97,6 +98,14 @@ module ValueDependency =
             create ValueDependencyRole.Source sourceNodeId
             :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.TaskScope(_, context) ->
+            context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId)
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            [ create ValueDependencyRole.TaskScope scopeNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ create ValueDependencyRole.Source tasksNodeId ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ create ValueDependencyRole.Value taskNodeId ]
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]

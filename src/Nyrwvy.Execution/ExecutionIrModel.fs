@@ -116,6 +116,10 @@ type ExecutionInstructionKind =
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
+    | TaskScope of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
+    | TaskStart of scopeValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list * itemValueId: ExecutionValueId
+    | TaskWait of tasksValueId: ExecutionValueId * mode: TaskWaitMode
+    | TaskCancel of taskValueId: ExecutionValueId
     | UseResource of acquireValueId: ExecutionValueId * releaseCapabilityValueId: ExecutionValueId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list

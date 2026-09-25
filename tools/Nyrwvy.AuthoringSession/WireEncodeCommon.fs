@@ -32,6 +32,8 @@ module internal WireEncodeCommon =
                 | BuiltinGenericType.Option -> "option"
                 | BuiltinGenericType.Result -> "result"
                 | BuiltinGenericType.List -> "list"
+                | BuiltinGenericType.Task -> "task"
+                | BuiltinGenericType.TaskScope -> "taskScope"
             objectValue
                 [ "kind", box "builtinGeneric"
                   "generic", box name

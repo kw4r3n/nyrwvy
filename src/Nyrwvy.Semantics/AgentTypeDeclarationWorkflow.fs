@@ -96,8 +96,10 @@ module AgentTypeDeclarationWorkflow =
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with
+                    | BuiltinGenericType.TaskScope -> 0
                     | BuiltinGenericType.Option
-                    | BuiltinGenericType.List -> 1
+                    | BuiltinGenericType.List
+                    | BuiltinGenericType.Task -> 1
                     | BuiltinGenericType.Result -> 2
 
                 if List.length arguments <> expectedArity then

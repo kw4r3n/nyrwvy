@@ -362,6 +362,22 @@ module ExecutionIr =
                                 ExecutionInstructionKind.ParallelAll(source, worker, lowered))
                         | TypedSemanticNodeKind.CancellationRequested ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.CancellationRequested)
+                        | TypedSemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+                            lowerCallArguments context
+                            |> Result.map (fun lowered -> addInstruction currentBlock node (ExecutionInstructionKind.TaskScope(bodyFunctionId, lowered)))
+                        | TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                            match requireNodeValue environment scopeNodeId, requireNodeValue environment itemNodeId, lowerCallArguments context with
+                            | Ok scope, Ok item, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.TaskStart(scope, workerFunctionId, lowered, item)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+                            requireNodeValue environment tasksNodeId
+                            |> Result.map (fun tasks -> addInstruction currentBlock node (ExecutionInstructionKind.TaskWait(tasks, mode)))
+                        | TypedSemanticNodeKind.TaskCancel taskNodeId ->
+                            requireNodeValue environment taskNodeId
+                            |> Result.map (fun task -> addInstruction currentBlock node (ExecutionInstructionKind.TaskCancel task))
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
@@ -631,6 +647,10 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.UseResource _
                         | TypedSemanticNodeKind.ParallelAll _
                         | TypedSemanticNodeKind.CancellationRequested
+                        | TypedSemanticNodeKind.TaskScope _
+                        | TypedSemanticNodeKind.TaskStart _
+                        | TypedSemanticNodeKind.TaskWait _
+                        | TypedSemanticNodeKind.TaskCancel _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

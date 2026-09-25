@@ -1,6 +1,6 @@
 # Concurrency control beyond `ParallelAll`
 
-- **Status:** Accepted (direction; not yet implemented)
+- **Status:** Accepted; phase 1 implemented (no time limit)
 - **Date:** 2026-09-25
 - **Queue item:** [post-M2 roadmap, immediate execution queue, item 1](../plans/post-m2-roadmap.md#immediate-execution-queue)
 - **Related gaps:** [Semantic independence](../concepts/semantic-independence.md#current-gaps): "no abort" and "shared capability under `ParallelAll`"; [Q-010](open-questions.md), [Q-012](open-questions.md)
@@ -125,6 +125,16 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 1. **Scope, start, wait (no limit), cancel.** Builtin `Task<T>` and `TaskScope`. `runPure` without a clock. Acceptance: the sketch's loop, with `Wait` limited to `All`/`Any` without a limit, runs through `runPure` with fakes, including stop-one and scope-exit cleanup.
 2. **Time limits.** `TaskWait` `limit`, the virtual clock, and `delayMillis` fakes. Acceptance: the per-member limit (N4) and an Any-wait whose outcome depends only on scripted delays, both stable across repeated runs.
 3. **Revisit.** Q-010 (declared concurrency safety) and the sequential abort gap, only if a probe shows need.
+
+### Phase 1 as implemented
+
+Phase 1 is specified in [expression authoring](../specs/expression-authoring.md) (task scopes) and passes its acceptance test (`TaskScopeTests`): the sketch's loop starts three members, waits for all of one, waits for any, stops one, and finishes while one still runs, all through `runPure` with fakes. It settles details the sections above left open:
+
+- `TaskWait`'s mode is a fixed part of the node, not a value. The limit operand arrives in phase 2.
+- `Task<T>` and `TaskScope` may not appear in declared types or capability operations. This keeps handles out of `runPure` values and the host boundary. Storing a handle with a name, as in a `Member { name, task }` Product, is deferred until a probe needs it; the acceptance loop keeps handles in a `List` and selects one by index with `ListEffectFold`.
+- `TaskWait` rethrows a host exception from a task it reports as finished, so an `All` wait cannot hang on a faulted task.
+- `TaskStart` on a scope that has already completed runs the worker at once, already cancelled.
+- A helper function that uses task constructs without declaring an effect is not checked for effect order at its call sites, the same limitation `CancellationRequested` has.
 
 ## Accepted choices
 
