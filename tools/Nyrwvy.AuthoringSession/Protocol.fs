@@ -34,9 +34,10 @@ module AuthoringProtocol =
         | _ -> fail "Scalar run values must be string, bool or int64."
 
     let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
-        if depth > 8 then fail "Run values may have at most eight outer List/Option layers."
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
+        if depth > 8 && kind <> "string" && kind <> "bool" && kind <> "int64" then
+            fail "Run values may have at most eight nested composite layers."
         let children =
             match kind with
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
@@ -70,10 +71,18 @@ module AuthoringProtocol =
             if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
             let fields = fields |> List.map (fun field ->
                 ensureFields "Named run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
-                id<FieldTag> "fieldId" field, pureScalar (property "value" field))
+                id<FieldTag> "fieldId" field, pureValueAt remaining (depth + 1) (property "value" field))
             let typeId = id<TypeTag> "typeId" item
             if kind = "union" then PureRunValue.Union(typeId, id<VariantTag> "variantId" item, fields)
             else PureRunValue.Product(typeId, fields)
+        | "result" when tryProperty "okType" item |> Option.isSome ->
+            let fields = [ "kind"; "okType"; "errorType"; "isOk"; "value" ]
+            ensureFields "Nested Result run value" fields fields item
+            PureRunValue.ResultValue(
+                typeRef (property "okType" item),
+                typeRef (property "errorType" item),
+                requiredBool "isOk" item,
+                pureValueAt remaining (depth + 1) (property "value" item))
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -174,13 +183,20 @@ module AuthoringProtocol =
                   "typeId", box (StableId.value typeId)
                   "variantId", box (StableId.value variantId)
                   "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
         | PureRunValue.Product(typeId, fields) ->
             objectValue
                 [ "kind", box "product"
                   "typeId", box (StableId.value typeId)
                   "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
+        | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
+            objectValue
+                [ "kind", box "result"
+                  "okType", WireEncodeCommon.typeRef okType
+                  "errorType", WireEncodeCommon.typeRef errorType
+                  "isOk", box isOk
+                  "value", encodePureValue payload ]
         | PureRunValue.ResultOk(errorKind, item) -> resultValue true errorKind item
         | PureRunValue.ResultErr(okKind, item) -> resultValue false okKind item
         | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)

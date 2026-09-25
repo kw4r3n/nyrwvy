@@ -132,10 +132,10 @@ module PureRunNestedTests =
             roundtrip "optionLists" optional |> ignore
             roundtrip "optionLists" (PureRunValue.OptionValue(listType (optionType stringType), None)) |> ignore
             let products = PureRunValue.ListValue(TypeRef.Named productId,
-                [ PureRunValue.Product(productId, [ textId, PureRunScalar.String "entry"; numberId, PureRunScalar.Int64 Int64.MaxValue ]) ])
+                [ PureRunValue.Product(productId, [ textId, PureRunValue.String "entry"; numberId, PureRunValue.Int64 Int64.MaxValue ]) ])
             let actual = roundtrip "products" products
             Assert.Equal(PureRunValue.ListValue(TypeRef.Named productId,
-                [ PureRunValue.Product(productId, [ numberId, PureRunScalar.Int64 Int64.MaxValue; textId, PureRunScalar.String "entry" ]) ]), actual.Actual)
+                [ PureRunValue.Product(productId, [ numberId, PureRunValue.Int64 Int64.MaxValue; textId, PureRunValue.String "entry" ]) ]), actual.Actual)
             roundtrip "union" (PureRunValue.OptionValue(TypeRef.Named unionId, Some(PureRunValue.Union(unionId, variantId, [])))) |> ignore
             roundtrip "results" (PureRunValue.ListValue(resultType,
                 [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 7L)

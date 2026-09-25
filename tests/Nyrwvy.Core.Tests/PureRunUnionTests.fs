@@ -24,10 +24,10 @@ module PureRunUnionTests =
         | Ok value -> value
         | Error error -> failwithf "Unexpected error: %A" error
     let private fields =
-        [ textId, PureRunScalar.String "雪\n\"\\"
-          extraId, PureRunScalar.String ""
-          numberId, PureRunScalar.Int64 Int64.MinValue
-          flagId, PureRunScalar.Bool false ]
+        [ textId, PureRunValue.String "雪\n\"\\"
+          extraId, PureRunValue.String ""
+          numberId, PureRunValue.Int64 Int64.MinValue
+          flagId, PureRunValue.Bool false ]
 
     let private withSession run =
         let types: SemanticType list =
@@ -100,21 +100,23 @@ module PureRunUnionTests =
                   payloadId, [ fields[0]; fields[0]; fields[2]; fields[3] ]
                   emptyId, [ List.head fields ]
                   payloadId, fields |> List.map (fun (fieldId, value) -> (if fieldId = textId then id<FieldTag> "foreign" else fieldId), value)
-                  payloadId, fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = flagId then PureRunScalar.Int64 0L else value)) ] do
+                  payloadId, fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = flagId then PureRunValue.Int64 0L else value)) ] do
                 reject (PureRunValue.Union(unionId, variant, values)) "RunUnionShapeMismatch"
             let valid = PureRunValue.Union(unionId, payloadId, fields)
             match PureRun.run session (functionId "identity") [ valid ] (Some(PureRunValue.Union(unionId, foreignVariantId, []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunUnionShapeMismatch", code)
             | other -> failwithf "Foreign expectation accepted: %A" other
             for text, expected in [ String('x', 65537), "RunArgumentTooLarge"; String([| char 0xD800 |]), "RunInvalidString" ] do
-                let values = fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = textId then PureRunScalar.String text else value))
+                let values = fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = textId then PureRunValue.String text else value))
                 reject (PureRunValue.Union(unionId, payloadId, values)) expected
             let large = fields |> List.map (fun (fieldId, value) ->
-                fieldId, (if fieldId = textId || fieldId = extraId then PureRunScalar.String(String('x', 32769)) else value))
+                fieldId, (if fieldId = textId || fieldId = extraId then PureRunValue.String(String('x', 32769)) else value))
             reject (PureRunValue.Union(unionId, payloadId, large)) "RunArgumentTooLarge"
-            match PureRun.run session (functionId "nested") [] None with
-            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunResultTypeUnsupported", code)
-            | other -> failwithf "Union with nested field accepted: %A" other
+            let nestedData = PureRunValue.Union(nestedId, id<VariantTag> "nested-data",
+                                [ id<FieldTag> "nested-data", PureRunValue.Union(unionId, payloadId, []) ])
+            match PureRun.run session (functionId "nested") [] (Some nestedData) with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunUnionShapeMismatch", code)
+            | other -> failwithf "Invalid inner Union expectation accepted: %A" other
             Assert.Equal(before, File.ReadAllText path))
 
     [<Fact>]
