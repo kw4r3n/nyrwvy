@@ -100,13 +100,15 @@ module private SessionStorage =
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
     // SnapshotCodec establishes validity; pinning additionally requires completeness.
+    let ensureCompleteDependency (imported: Snapshot): Result<Snapshot, AuthoringSessionError> =
+        if imported.Obligations |> List.exists (fun obligation -> obligation.Status = ObligationStatus.Open) then
+            Error(AuthoringSessionError.DependencyFailure "The selected dependency has open obligations; complete it before pinning.")
+        else Ok imported
+
     let decodeCompleteDependency (source: string): Result<Snapshot, AuthoringSessionError> =
         SnapshotCodec.deserialize source
         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
-        |> Result.bind (fun imported ->
-            if imported.Obligations |> List.exists (fun obligation -> obligation.Status = ObligationStatus.Open) then
-                Error(AuthoringSessionError.DependencyFailure "The selected dependency has open obligations; complete it before pinning.")
-            else Ok imported)
+        |> Result.bind ensureCompleteDependency
 
     let readCompleteDependency path = readText path |> Result.bind decodeCompleteDependency
 
@@ -775,7 +777,19 @@ module AuthoringSession =
                             if sourcePath = path || not (File.Exists sourcePath) then
                                 Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
                             elif File.Exists(sourcePath + ".dependency.json") then
-                                Error(AuthoringSessionError.DependencyFailure "Nested dependencies are not supported.")
+                                // A dependency with its own pinned dependencies is flattened into its
+                                // complete graph; its sidecar already retains exact, flattened content.
+                                PinnedDependency.load sourcePath None
+                                |> Result.bind (function
+                                    | None -> Error(AuthoringSessionError.DependencyFailure "The dependency's own dependency selection is unavailable.")
+                                    | Some nested ->
+                                        SessionStorage.readText sourcePath
+                                        |> Result.bind (fun text ->
+                                            SnapshotCodec.deserializeResolved nested.Imported text
+                                            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure)
+                                        |> Result.map (SnapshotCodec.resolveDependency nested.Imported)
+                                        |> Result.bind SessionStorage.ensureCompleteDependency)
+                                |> Result.bind (PinnedDependency.embed sourcePath)
                             else
                                 SessionStorage.readCompleteDependency sourcePath
                                 |> Result.bind (PinnedDependency.embed sourcePath)

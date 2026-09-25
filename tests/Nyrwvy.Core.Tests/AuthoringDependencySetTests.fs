@@ -123,3 +123,43 @@ module AuthoringDependencySetTests =
             use session = AuthoringSession.createNewWithDependencies path [ b ] |> unwrap "single"
             use single = JsonDocument.Parse(session.DependencySelection |> Option.get)
             Assert.False(fst (single.RootElement.TryGetProperty "dependencies")))
+
+    [<Fact>]
+    let ``a dependency with its own dependencies is flattened and shared content imports once`` () =
+        withLibraries (fun root a b _ ->
+            let basePath = Path.Combine(root, "base.json")
+            File.WriteAllText(basePath, SnapshotCodec.serialize (library "base" [ money "Money" ] []) |> unwrap "base")
+            // `mid` is itself a workspace that imports `base` and adds `grow`.
+            let midPath = Path.Combine(root, "mid.json")
+            let mid = AuthoringSession.createNewWithDependencies midPath [ basePath ] |> unwrap "mid"
+            let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                { ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
+                  DisplayName = "grow"
+                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
+                  ResultType = TypeRef.Named moneyId
+                  RequiredEffects = []
+                  Body =
+                    ExpressionRecipe.ProductConstruct(moneyId,
+                        [ amountId, ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, amountId), ExpressionRecipe.Int64Literal 1L) ]) }
+            let proposal = mid.SimulateCreateFunction request |> unwrap "grow"
+            mid.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
+            mid.Close()
+            let appPath = Path.Combine(root, "app.json")
+            let app = AuthoringSession.createNewWithDependencies appPath [ midPath ] |> unwrap "app"
+            Assert.Equal<string list>([ "grow" ], app.Declarations().Functions |> List.map (fun fn -> fn.DisplayName))
+            Assert.Equal<TypeId list>([ moneyId ], app.Declarations().Types |> List.map (fun item -> item.Id))
+            app.Close()
+            // The flattened content is retained: removing both upstream files does not affect the app.
+            File.Delete basePath
+            File.Delete midPath
+            File.Delete(midPath + ".dependency.json")
+            use reopened = AuthoringSession.openExisting appPath |> unwrap "reopen"
+            Assert.Equal(1, reopened.Declarations().Functions.Length)
+            reopened.Close()
+            // A diamond: `a` and `b` share Money with the flattened `mid`, which is imported once.
+            let midAgain = Path.Combine(root, "mid2.json")
+            File.WriteAllText(Path.Combine(root, "base.json"), SnapshotCodec.serialize (library "base" [ money "Money" ] []) |> unwrap "base again")
+            (AuthoringSession.createNewWithDependencies midAgain [ Path.Combine(root, "base.json") ] |> unwrap "mid again").Close()
+            use diamond = AuthoringSession.createNewWithDependencies (Path.Combine(root, "diamond.json")) [ midAgain; a; b ] |> unwrap "diamond"
+            Assert.Equal<TypeId list>([ moneyId ], diamond.Declarations().Types |> List.map (fun item -> item.Id))
+            Assert.Equal<Set<string>>(set [ "keep"; "pass" ], diamond.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList))
