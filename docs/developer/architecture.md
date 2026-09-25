@@ -194,7 +194,7 @@ semantic graph
 
 Typed Semantic IR preserves validated language meaning without editing-only authority. Execution IR makes operational behavior such as evaluation order and control transfer explicit before target-specific emission.
 
-C#/.NET is the first backend. Its representation choices are downstream implementation details and may not redefine numeric, collection, effect, failure, or identity semantics. See the [C# backend specification](../specs/csharp-backend.md).
+C#/.NET is the first backend. Its representation choices are downstream implementation details and may not redefine numeric, collection, effect, failure, or identity semantics. See the [C# backend specification](../specs/csharp-backend.md). The proposed [semantic independence](../concepts/semantic-independence.md) direction lists the observable behavior backends must preserve and the current gaps.
 
 ## Persistence and schema evolution
 
