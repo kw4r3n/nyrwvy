@@ -6,7 +6,7 @@ This directory contains the maintained documentation for the current Nyrwvy desi
 
 ## Start here
 
-- **Why does Nyrwvy exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md).
+- **Why does Nyrwvy exist?** Read [Vision](concepts/vision.md) and the [AI-first semantic design principles](concepts/ai-first-design-principles.md). [Semantic independence](concepts/semantic-independence.md) (proposed) separates Nyrwvy's meaning from backend choices.
 - **How is the system organized?** Read [Architecture](developer/architecture.md).
 - **How much verification does a change need?** Read [Verification philosophy](developer/verification.md).
 - **What does the implemented language and agent surface support now?** Read the [current language subset](reference/language-subset.md) and [stable-ID reference](reference/stable-ids.md).

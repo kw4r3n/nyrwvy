@@ -68,7 +68,7 @@ Human-facing views emphasize relationships, flow, effects, change impact, and ob
 
 ### Backend independence
 
-Core semantics are defined independently of C#, Rust, Kotlin, or another backend language. Backend limitations are surfaced downstream instead of silently becoming language rules.
+Core semantics are defined independently of C#, Rust, Kotlin, or another backend language. Backend limitations are surfaced downstream instead of silently becoming language rules. [Semantic independence](semantic-independence.md) lists what each concept must preserve and what a backend may choose.
 
 ### No invented semantics
 
