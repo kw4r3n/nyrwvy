@@ -63,6 +63,9 @@ module AuthoringProtocol =
         | "unit" ->
             ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
             PureRunValue.Unit
+        | "hostCapability" ->
+            ensureFields "Host capability" [ "kind"; "capabilityId"; "implementation" ] [ "kind"; "capabilityId"; "implementation" ] item
+            PureRunValue.HostCapability(id<CapabilityTag> "capabilityId" item, requiredString "implementation" item)
         | "fakeCapability" ->
             ensureFields "Fake capability" [ "kind"; "capabilityId"; "operations" ] [ "kind"; "capabilityId"; "operations" ] item
             let operations = array "operations" item
@@ -196,6 +199,8 @@ module AuthoringProtocol =
                   "value", payload ]
         match value with
         | PureRunValue.Unit -> objectValue [ "kind", box "unit" ]
+        | PureRunValue.HostCapability(capabilityId, implementation) ->
+            objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation ]
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let response = function
                 | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
@@ -670,13 +675,20 @@ module AuthoringProtocol =
             | "runPure" ->
                 ensureFields
                     "runPure request"
-                    [ "id"; "op"; "functionId"; "arguments"; "expected" ]
+                    [ "id"; "op"; "functionId"; "arguments"; "expected"; "hostSources" ]
                     [ "id"; "op"; "functionId"; "arguments" ]
                     root
                 let functionId = id<FunctionTag> "functionId" root
                 let arguments = array "arguments" root |> List.map pureValue
                 let expected = tryProperty "expected" root |> Option.map pureValue
-                match PureRun.run session functionId arguments expected with
+                let hostSources =
+                    tryProperty "hostSources" root
+                    |> Option.map (fun _ ->
+                        array "hostSources" root |> List.map (fun path ->
+                            if path.ValueKind <> JsonValueKind.String then fail "hostSources must contain file paths."
+                            path.GetString()))
+                    |> Option.defaultValue []
+                match PureRun.runWithHost session functionId arguments expected hostSources with
                 | Ok result ->
                     success requestId
                         (objectValue

@@ -217,3 +217,83 @@ module PureRunBindingTests =
             let innermost = error.GetProperty("frames").[0]
             Assert.Equal(StableId.value fixture.Write.Id, innermost.GetProperty("operationId").GetString())
             Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    /// A host implementation module, written against the generated interface as a host author would.
+    let private hostSource (fixture: Fixture) =
+        let capability = CSharpBackendNames.capabilityName fixture.Provider.Id
+        let request = CSharpBackendNames.typeName fixture.Request.Id
+        let response = CSharpBackendNames.typeName fixture.Response.Id
+        let lookup = CSharpBackendNames.capabilityOperationName fixture.Lookup.Id
+        let fallback = CSharpBackendNames.capabilityOperationName fixture.Fallback.Id
+        let argument = CSharpBackendNames.capabilityParameterName (List.exactlyOne fixture.Lookup.Parameters).Id
+        let key = CSharpBackendNames.fieldName fixture.Key.Id
+        $"""using System;
+using Nyrwvy.Generated;
+
+namespace Example.Hosts;
+
+public sealed class Directory : {capability}
+{{
+    public NyResult<{response}, string> {lookup}({request} {argument}) =>
+        {argument}.{key} == "yes"
+            ? NyResult<{response}, string>.Ok(new {response}("found"))
+            : NyResult<{response}, string>.Err("missing");
+    public NyResult<{response}, string> {fallback}() => NyResult<{response}, string>.Err("fallback");
+}}
+
+public sealed class Broken : {capability}
+{{
+    public NyResult<{response}, string> {lookup}({request} {argument}) => throw new InvalidOperationException("directory offline");
+    public NyResult<{response}, string> {fallback}() => throw new InvalidOperationException("directory offline");
+}}
+"""
+
+    [<Fact>]
+    let ``host bindings require explicit readable sources and a plain type name before building`` () =
+        withFixture (fun fixture ->
+            let before = File.ReadAllText fixture.Path
+            let query = (fixture.Function "query").Id
+            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name)
+            let reject arguments sources code =
+                match PureRun.runWithHost fixture.Session query arguments None sources with
+                | Error(PureRunError.Unsupported(actual, _)) -> Assert.Equal(code, actual)
+                | other -> failwithf "Invalid host binding accepted: %A" other
+            let source = Path.Combine(Path.GetDirectoryName fixture.Path, "Hosts.cs")
+            File.WriteAllText(source, hostSource fixture)
+            reject [ request fixture "k"; host "Example.Hosts.Directory" ] [] "RunHostSourceInvalid"
+            reject [ request fixture "k"; provider fixture [] ] [ "Hosts.cs" ] "RunHostSourceInvalid"
+            reject [ request fixture "k"; host "Example.Hosts.Directory" ] [ "Missing.cs" ] "RunHostSourceInvalid"
+            reject [ request fixture "k"; host "Example.Hosts.Directory" ] [ fixture.Path ] "RunHostSourceInvalid"
+            reject [ request fixture "k"; host "Example.Hosts.Directory(); System.Environment.Exit(0" ] [ "Hosts.cs" ] "RunBindingShapeMismatch"
+            reject [ request fixture "k"; PureRunValue.HostCapability(fixture.Log.Id, "Example.Hosts.Directory") ] [ "Hosts.cs" ] "RunArgumentTypeMismatch"
+            Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``runPure runs an explicitly registered host implementation and records its calls`` () =
+        withFixture (fun fixture ->
+            let before = File.ReadAllText fixture.Path
+            let query = fixture.Function "query"
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Hosts.cs"), hostSource fixture)
+            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name)
+            let found = PureRun.runWithHost fixture.Session query.Id [ request fixture "yes"; host "Example.Hosts.Directory" ] (Some(PureRunValue.String "found")) [ "Hosts.cs" ] |> unwrap "found"
+            Assert.Equal(Some true, found.Matches)
+            Assert.Equal<PureRunCall list>(
+                [ { ParameterId = (query.Parameters |> List.item 1).Id; OperationId = fixture.Lookup.Id
+                    Arguments = [ (List.exactlyOne fixture.Lookup.Parameters).Id, request fixture "yes" ] } ],
+                found.Calls)
+            let missing = PureRun.runWithHost fixture.Session query.Id [ request fixture "no"; host "Example.Hosts.Directory" ] None [ "Hosts.cs" ] |> unwrap "missing"
+            Assert.Equal(PureRunValue.String "missing", missing.Actual)
+            match PureRun.runWithHost fixture.Session query.Id [ request fixture "k"; host "Example.Hosts.Broken" ] None [ "Hosts.cs" ] with
+            | Error(PureRunError.RuntimeFailure failure) ->
+                Assert.Equal("System.InvalidOperationException", failure.ExceptionType)
+                Assert.Equal("directory offline", failure.Message)
+                Assert.Equal<PureRunFrame list>([ PureRunFrame.CapabilityOperation fixture.Lookup.Id; PureRunFrame.CapabilityOperation fixture.Lookup.Id; PureRunFrame.Function query.Id ], failure.Frames)
+                Assert.Equal(1, failure.Calls.Length)
+            | other -> failwithf "Host exception was not a runtime failure: %A" other
+            let line =
+                $"""{{"id":"host","op":"runPure","functionId":"{StableId.value query.Id}","hostSources":["Hosts.cs"],"arguments":[{{"kind":"product","typeId":"{StableId.value fixture.Request.Id}","fields":[{{"fieldId":"{StableId.value fixture.Key.Id}","value":{{"kind":"string","value":"yes"}}}}]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Provider.Id}","implementation":"Example.Hosts.Directory"}}],"expected":{{"kind":"string","value":"found"}}}}"""
+            use response = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+            Assert.True(response.RootElement.GetProperty("result").GetProperty("matches").GetBoolean())
+            Assert.Equal(1, response.RootElement.GetProperty("result").GetProperty("calls").GetArrayLength())
+            Assert.Equal(before, File.ReadAllText fixture.Path))

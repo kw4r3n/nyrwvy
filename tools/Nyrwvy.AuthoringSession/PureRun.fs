@@ -44,6 +44,9 @@ type PureRunValue =
     /// A scripted stand-in for a capability, accepted only as a top-level argument. Each operation
     /// answers its calls with its responses in order; operations without responses fail when called.
     | FakeCapability of capabilityId: CapabilityId * operations: PureRunFakeOperation list
+    /// An explicitly registered host implementation of the capability interface, compiled from the
+    /// request's host sources. `implementation` is a C# type name with a parameterless constructor.
+    | HostCapability of capabilityId: CapabilityId * implementation: string
 
 and PureRunFakeOperation =
     { OperationId: CapabilityOperationId
@@ -139,7 +142,8 @@ module PureRun =
 
     let private valueType = function
         | PureRunValue.Unit -> TypeRef.Primitive PrimitiveType.Unit
-        | PureRunValue.FakeCapability(capabilityId, _) -> TypeRef.Capability capabilityId
+        | PureRunValue.FakeCapability(capabilityId, _)
+        | PureRunValue.HostCapability(capabilityId, _) -> TypeRef.Capability capabilityId
         | PureRunValue.ResultValue(okType, errorType, _, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
         | PureRunValue.ListValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
         | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
@@ -180,7 +184,8 @@ module PureRun =
             | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
         match value with
         | PureRunValue.Unit -> "NyUnit.Value"
-        | PureRunValue.FakeCapability _ -> invalidOp "Fake capabilities are rendered by argument position."
+        | PureRunValue.FakeCapability _
+        | PureRunValue.HostCapability _ -> invalidOp "Capability bindings are rendered by argument position."
         | PureRunValue.ListValue(itemType, items) -> listSource (sourceType itemType) items
         | PureRunValue.OptionValue(itemType, item) -> optionSource (sourceType itemType) item
         | PureRunValue.Product(_, fields)
@@ -704,20 +709,35 @@ module PureRun =
     let rec private containsFake value =
         children value |> List.exists (fun child ->
             match child with
-            | PureRunValue.FakeCapability _ -> true
+            | PureRunValue.FakeCapability _
+            | PureRunValue.HostCapability _ -> true
             | _ -> containsFake child)
 
-    /// Checks one fake against its capability declaration. Every operation of a faked capability must
-    /// have runner-supported parameter and result types, because the program may call any of them.
+    let private hostTypeName =
+        System.Text.RegularExpressions.Regex(@"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+
+    /// Checks one binding against its capability declaration. Every operation of a bound capability must
+    /// have runner-supported parameter and result types, because the program may call any of them and
+    /// the runner records each call.
     let private fakeProblem (declarations: AuthoringDeclarations) (supported: int -> TypeRef -> bool) value =
-        match value with
-        | PureRunValue.FakeCapability(capabilityId, operations) ->
+        let capabilityProblem capabilityId =
             match declarations.Capabilities |> List.tryFind (fun item -> item.Id = capabilityId) with
-            | None -> Some("RunBindingShapeMismatch", "The fake names an unknown capability.")
+            | None -> Error("RunBindingShapeMismatch", "The binding names an unknown capability.")
             | Some capability when capability.Operations |> List.exists (fun operation ->
                 not (supported 0 operation.ResultType) || operation.Parameters |> List.exists (fun parameter -> not (supported 0 parameter.Type))) ->
-                Some("RunBindingTypeUnsupported", "Every operation of a faked capability needs parameter and result types that runPure values support.")
-            | Some capability ->
+                Error("RunBindingTypeUnsupported", "Every operation of a bound capability needs parameter and result types that runPure values support.")
+            | Some capability -> Ok capability
+        match value with
+        | PureRunValue.HostCapability(capabilityId, implementation) ->
+            match capabilityProblem capabilityId with
+            | Error problem -> Some problem
+            | Ok _ when isNull implementation || implementation.Length > 512 || not (hostTypeName.IsMatch implementation) ->
+                Some("RunBindingShapeMismatch", "A host implementation must be a dotted C# type name.")
+            | Ok _ -> None
+        | PureRunValue.FakeCapability(capabilityId, operations) ->
+            match capabilityProblem capabilityId with
+            | Error problem -> Some problem
+            | Ok capability ->
                 let declared = capability.Operations |> List.map (fun operation -> operation.Id, operation) |> Map.ofList
                 let ids = operations |> List.map (fun operation -> operation.OperationId)
                 if List.distinct ids <> ids || ids |> List.exists (fun operationId -> not (Map.containsKey operationId declared)) then
@@ -735,6 +755,7 @@ module PureRun =
         (functionId: FunctionId)
         (arguments: PureRunValue list)
         (expected: PureRunValue option)
+        (hostSources: (string * string) list)
         : Result<PureRunResult, PureRunError> =
         let declarations = session.Declarations()
         let supported = typeSupport declarations.Types
@@ -746,6 +767,8 @@ module PureRun =
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->
             Error(diagnostic "RunArgumentTypeMismatch" "An argument has the wrong type; capability parameters take a fakeCapability binding.")
+        | Some fn when (arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) <> not (List.isEmpty hostSources) ->
+            Error(diagnostic "RunHostSourceInvalid" "hostSources are required exactly when an argument is a hostCapability binding.")
         | Some fn when arguments @ Option.toList expected |> List.exists containsFake ->
             Error(diagnostic "RunBindingPlacement" "Fake capabilities are accepted only as top-level arguments for capability parameters.")
         | Some fn when arguments |> List.exists (fakeProblem declarations supported >> Option.isSome) ->
@@ -795,18 +818,22 @@ module PureRun =
                         File.WriteAllText(Path.Combine(root, "Generated.csproj"),
                             "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
                         File.WriteAllText(Path.Combine(root, "Generated.cs"), artifact.Source)
+                        hostSources |> List.iteri (fun index (_, text) -> File.WriteAllText(Path.Combine(root, $"HostSource{index}.cs"), text))
                         let args =
                             arguments |> List.mapi (fun index value ->
                                 match value with
                                 | PureRunValue.FakeCapability _ -> $"new Fake{index}()"
+                                | PureRunValue.HostCapability _ -> $"new Host{index}()"
                                 | value -> sourceArgument value)
                             |> String.concat ", "
                         let fakes =
                             List.zip fn.Parameters arguments |> List.indexed |> List.choose (fun (index, (parameter, value)) ->
+                                let capability capabilityId = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
                                 match value with
                                 | PureRunValue.FakeCapability(capabilityId, operations) ->
-                                    let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
-                                    Some(index, parameter.Id, capability, operations)
+                                    Some(index, parameter.Id, capability capabilityId, Choice1Of2 operations)
+                                | PureRunValue.HostCapability(capabilityId, implementation) ->
+                                    Some(index, parameter.Id, capability capabilityId, Choice2Of2 implementation)
                                 | _ -> None)
                         let sites =
                             fakes |> List.collect (fun (_, parameterId, capability, _) ->
@@ -876,7 +903,8 @@ module PureRun =
                             |> String.concat ""
                         let fakeClasses =
                             let mutable site = 0
-                            fakes |> List.map (fun (index, _, capability, scripted) ->
+                            fakes |> List.map (fun (index, _, capability, binding) ->
+                                let interfaceName = CSharpBackendNames.capabilityName capability.Id
                                 let methods =
                                     capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
                                     |> List.map (fun operation ->
@@ -887,24 +915,39 @@ module PureRun =
                                         let values =
                                             operation.Parameters |> List.map (fun parameter -> "(object)" + CSharpBackendNames.capabilityParameterName parameter.Id)
                                             |> String.concat ", "
+                                        let names =
+                                            operation.Parameters |> List.map (fun parameter -> CSharpBackendNames.capabilityParameterName parameter.Id)
+                                            |> String.concat ", "
                                         let responses =
-                                            scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
-                                            |> Option.map (fun item -> item.Responses) |> Option.defaultValue []
+                                            match binding with
+                                            | Choice1Of2 scripted ->
+                                                scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
+                                                |> Option.map (fun item -> item.Responses) |> Option.defaultValue []
+                                            | Choice2Of2 _ -> []
                                         let cases =
                                             responses |> List.mapi (fun position response ->
                                                 match response with
                                                 | PureRunFakeResponse.Return value -> $"            case {position}: return {sourceArgument value};\n"
                                                 | PureRunFakeResponse.Throw message -> $"            case {position}: throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});\n")
                                             |> String.concat ""
+                                        let answer =
+                                            match binding with
+                                            | Choice1Of2 _ ->
+                                                $"        switch ({name}Next++)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
+                                            | Choice2Of2 _ -> $"        return inner.{name}({names});\n"
                                         let text =
-                                            $"    int {name}Next;\n"
+                                            (match binding with Choice1Of2 _ -> $"    int {name}Next;\n" | Choice2Of2 _ -> "")
                                             + $"    public {sourceType operation.ResultType} {name}({parameters})\n    {{\n"
                                             + $"        FakeLog.Record({site}, new object[] {{ {values} }});\n"
-                                            + $"        switch ({name}Next++)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n    }}\n"
+                                            + answer + "    }\n"
                                         site <- site + 1
                                         text)
                                     |> String.concat ""
-                                $"sealed class Fake{index} : {CSharpBackendNames.capabilityName capability.Id}\n{{\n{methods}}}\n")
+                                match binding with
+                                | Choice1Of2 _ -> $"sealed class Fake{index} : {interfaceName}\n{{\n{methods}}}\n"
+                                | Choice2Of2 implementation ->
+                                    // Records each call, then forwards it to the registered host implementation.
+                                    $"sealed class Host{index} : {interfaceName}\n{{\n    readonly {interfaceName} inner = new {implementation}();\n{methods}}}\n")
                             |> String.concat ""
                         let namedEncoders = StringBuilder()
                         while pending.Count > 0 do
@@ -994,14 +1037,40 @@ module PureRun =
                         | :? IOException
                         | :? UnauthorizedAccessException -> ()
 
-    let run
+    /// Reads explicitly registered host C# sources. Relative paths resolve against the workspace
+    /// directory; at most 16 existing `.cs` files of at most 1 MiB each are accepted.
+    let private readHostSources (session: AuthoringSession) (paths: string list) =
+        let baseDirectory = Path.GetDirectoryName(Path.GetFullPath session.Path)
+        if paths.Length > 16 then Error(diagnostic "RunHostSourceInvalid" "At most 16 host source files are accepted.") else
+            paths |> List.fold (fun state path ->
+                state |> Result.bind (fun loaded ->
+                    try
+                        let full = Path.GetFullPath(path, baseDirectory)
+                        let info = FileInfo(full)
+                        if not (String.Equals(info.Extension, ".cs", StringComparison.OrdinalIgnoreCase)) || not info.Exists then
+                            Error(diagnostic "RunHostSourceInvalid" $"Host source '{path}' is not an existing .cs file.")
+                        elif info.Length > 1048576L then
+                            Error(diagnostic "RunHostSourceInvalid" $"Host source '{path}' exceeds 1 MiB.")
+                        else Ok(loaded @ [ full, File.ReadAllText full ])
+                    with
+                    | :? ArgumentException
+                    | :? IOException
+                    | :? UnauthorizedAccessException
+                    | :? NotSupportedException -> Error(diagnostic "RunHostSourceInvalid" $"Host source '{path}' cannot be read."))) (Ok [])
+
+    /// Runs a function whose capability parameters may be bound to host implementations compiled from
+    /// the given C# sources, alongside scripted fakes and ordinary values.
+    let runWithHost
         (session: AuthoringSession)
         (functionId: FunctionId)
         (arguments: PureRunValue list)
         (expected: PureRunValue option)
+        (hostSources: string list)
         : Result<PureRunResult, PureRunError> =
         match session.VerifyPersistedSource() with
         | Error error -> Error(PureRunError.SessionFailure error)
         | Ok() when arguments @ Option.toList expected |> List.exists (boundedValue >> not) ->
             Error(diagnostic "RunArgumentTooLarge" $"Values are limited to {maxValueLayers} nested composite layers and 8192 total value nodes.")
-        | Ok() -> runVerified session functionId arguments expected
+        | Ok() -> readHostSources session hostSources |> Result.bind (runVerified session functionId arguments expected)
+
+    let run session functionId arguments expected = runWithHost session functionId arguments expected []
