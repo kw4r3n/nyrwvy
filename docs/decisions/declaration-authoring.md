@@ -1,6 +1,6 @@
 # Staged declaration authoring
 
-- **Status:** Accepted design; implementation pending
+- **Status:** Accepted; implemented. The current contracts are the [product/union](../specs/type-declaration-authoring.md), [effect](../specs/effect-declaration-authoring.md), and [capability/operation](../specs/capability-declaration-authoring.md) declaration authoring specifications.
 - **Date:** 2026-09-08
 - **Issue:** [#146](https://github.com/kw4r3n/nyrwvy-lang/issues/146)
 

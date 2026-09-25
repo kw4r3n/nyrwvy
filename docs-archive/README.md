@@ -2,7 +2,7 @@
 
 **Status:** Historical
 
-This directory contains frozen or superseded NyamNyam documentation kept for design history, implementation evidence, and auditability.
+This directory contains frozen or superseded Nyrwvy documentation (written while the project was named NyamNyam) kept for design history, implementation evidence, and auditability.
 
 Archive material is **not authoritative for current behavior**. Start from the maintained [documentation portal](../docs/README.md) for current concepts, reference, specifications, decisions, plans, and verification records.
 
