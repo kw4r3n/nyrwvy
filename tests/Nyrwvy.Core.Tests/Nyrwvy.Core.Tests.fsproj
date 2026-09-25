@@ -71,6 +71,7 @@
     <Compile Include="UnionVariantWithFieldsTests.fs" />
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
     <Compile Include="ListCallbackContextTests.fs" />
+    <Compile Include="ListEffectFoldTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

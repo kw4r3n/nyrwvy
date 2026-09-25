@@ -55,6 +55,8 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -123,6 +125,8 @@ module SnapshotValidator =
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
@@ -764,6 +768,30 @@ module SnapshotValidator =
                                     add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
                         | _ -> ()
+                    | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        match nodeType sourceListNodeId, nodeType seedNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> add "UnknownListCallbackFunction" $"ListEffectFold node '{StableId.value node.Id}' references an unknown folder."
+                            | Some folder ->
+                                let unbound = validateCallbackContext node.Id folder context
+                                if unbound.Length <> 2 then
+                                    add "ListCallbackArityMismatch" "ListEffectFold folder must have exactly two parameters not bound by context (accumulator, item)."
+                                else
+                                    if unbound.Head.Type <> seedType || unbound.Tail.Head.Type <> itemType then
+                                        add "ListCallbackParameterTypeMismatch" "ListEffectFold folder input types must match seed and list item types."
+                                match folder.ResultType with
+                                | resultType when resultType = seedType -> ()
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> ()
+                                | _ ->
+                                    add "ListCallbackResultTypeMismatch" "ListEffectFold folder must return the seed type S or Result<S, E>."
+                                for effectId in folder.RequiredEffects do
+                                    if not (Set.contains effectId requiredEffects) then
+                                        add
+                                            "MissingEffectRequirement"
+                                            $"Function '{StableId.value functionEntity.Id}' folds with '{StableId.value folder.Id}' but does not declare required effect '{StableId.value effectId}'."
+                        | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListEffectFold requires List<T> input."
+                        | _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
@@ -1191,6 +1219,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

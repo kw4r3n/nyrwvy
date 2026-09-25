@@ -67,6 +67,7 @@ type ViewerNodeRole =
     | ListAppendItem
     | ListConcat
     | ListFold
+    | ListEffectFold
     | ListMap
     | ListFilter
     | ListAny
@@ -204,6 +205,8 @@ module ViewerProjection =
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold(_, _, folderFunctionId, _) ->
             ViewerNodeRole.ListFold, callbackRelation folderFunctionId
+        | SemanticNodeKind.ListEffectFold(_, _, folderFunctionId, _) ->
+            ViewerNodeRole.ListEffectFold, callbackRelation folderFunctionId
         | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
         | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
@@ -348,6 +351,7 @@ module ViewerProjection =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

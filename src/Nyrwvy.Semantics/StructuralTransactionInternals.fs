@@ -53,6 +53,7 @@ module internal StructuralTransactionInternals =
         | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
         | SemanticNodeKind.DirectCall(functionId, _)
         | SemanticNodeKind.ListFold(_, _, functionId, _)
+        | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
         | SemanticNodeKind.ListMap(_, functionId, _)
         | SemanticNodeKind.ListFilter(_, functionId, _)
         | SemanticNodeKind.ListAny(_, functionId, _)

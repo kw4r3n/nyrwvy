@@ -126,6 +126,7 @@ module ViewerHtml =
         | ViewerNodeRole.ListAppendItem -> "List append item"
         | ViewerNodeRole.ListConcat -> "List concat"
         | ViewerNodeRole.ListFold -> "List fold"
+        | ViewerNodeRole.ListEffectFold -> "List effect fold"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"

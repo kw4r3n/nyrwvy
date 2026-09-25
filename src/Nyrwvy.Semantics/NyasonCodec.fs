@@ -509,6 +509,8 @@ module NyasonCodec =
                   "right", encodeId "node" rightListNodeId ]
         | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             record "list-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+            record "list-effect-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -787,6 +789,10 @@ module NyasonCodec =
             let fields = recordFields "list-fold" [ "id"; "source"; "seed"; "folder" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListFold(decodeId<GraphNodeTag> "node" (require "source" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("list-effect-fold", _) ->
+            let fields = recordFields "list-effect-fold" [ "id"; "source"; "seed"; "folder" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListEffectFold(decodeId<GraphNodeTag> "node" (require "source" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->

@@ -68,6 +68,7 @@ ListLength
 ListAppendItem
 ListConcat
 ListFold
+ListEffectFold
 ListMap
 ListFilter
 ListAny

@@ -44,6 +44,8 @@ module SemanticFacts =
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -126,6 +128,7 @@ module SemanticFacts =
             | SemanticNodeKind.ListAppendItem _
             | SemanticNodeKind.ListConcat _
             | SemanticNodeKind.ListFold _
+            | SemanticNodeKind.ListEffectFold _
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -298,6 +301,14 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
+                    | SemanticNodeKind.ListEffectFold(_, seedNodeId, folderFunctionId, _) ->
+                        // A folder returning Result<S, E> for seed S stops at the first Err.
+                        match tryNodeType nextVisiting seedNodeId, Map.tryFind folderFunctionId index.Functions with
+                        | Some seedType, Some folder ->
+                            match folder.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> Some folder.ResultType
+                            | _ -> Some seedType
+                        | seedType, _ -> seedType
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, _) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->

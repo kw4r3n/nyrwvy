@@ -53,6 +53,7 @@ type ExpressionRecipe =
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -186,6 +187,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
@@ -636,6 +638,42 @@ module AgentExpressionStructuralWorkflow =
                                 | Ok _ when not (List.isEmpty folder.RequiredEffects) ->
                                     Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" "ListFold folder must be pure.")
                                 | Ok _ -> Ok seedType
+            | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListEffectFold" "source" sourceType)
+                    | Some itemType ->
+                        match infer frames seed with
+                        | Error error -> Error error
+                        | Ok seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ListEffectFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | Some folder ->
+                                match validateCallbackContext "ListEffectFold" folder context (infer frames) with
+                                | Error error -> Error error
+                                | Ok unbound when unbound.Length <> 2 ->
+                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" "ListEffectFold folder must have exactly two parameters not bound by context (accumulator, item).")
+                                | Ok unbound when unbound.Head.Type <> seedType || unbound.Tail.Head.Type <> itemType ->
+                                    Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListEffectFold folder must take (accumulator, item).")
+                                | Ok _ ->
+                                    match
+                                        folder.RequiredEffects
+                                        |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
+                                    with
+                                    | Some effectId ->
+                                        Error(
+                                            diagnostic
+                                                "ExpressionCallMissingEffectRequirement"
+                                                $"ListEffectFold folder '{StableId.value folder.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                                        )
+                                    | None ->
+                                        match folder.ResultType with
+                                        | resultType when resultType = seedType -> Ok seedType
+                                        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Ok resultType
+                                        | _ ->
+                                            Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListEffectFold folder must return the accumulator type S or Result<S, E>.")
             | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1041,6 +1079,12 @@ module AgentExpressionStructuralWorkflow =
             let contextNodes, contextBindings = materializeContext folderFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
+            let sourceNodes, sourceResult = materializeRecipe source
+            let seedNodes, seedResult = materializeRecipe seed
+            let contextNodes, contextBindings = materializeContext folderFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListEffectFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context

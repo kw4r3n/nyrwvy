@@ -60,6 +60,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

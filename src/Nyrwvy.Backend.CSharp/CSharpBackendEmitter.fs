@@ -325,21 +325,27 @@ module CSharpBackend =
 
     /// A callback with context becomes a lambda that passes context values and the iteration values
     /// by parameter name; without context the method group is emitted unchanged.
+    /// Calls a callback with its context values and the given iteration values, all by parameter name.
+    let private renderInvocation (parametersOf: FunctionId -> ParameterId list) (functionId: FunctionId) (context: ExecutionCallArgument list) (iterationValues: string list) =
+        let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
+        let iteration = parametersOf functionId |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
+        let arguments =
+            (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
+            @ (List.map2 (fun parameterId value -> CSharpBackendNames.parameterName parameterId + ": " + value) iteration iterationValues)
+        callbackName functionId + "(" + String.concat ", " arguments + ")"
+
     let private renderCallback (parametersOf: FunctionId -> ParameterId list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
         if List.isEmpty context then callbackName functionId
         else
-            let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
-            let iteration =
-                parametersOf functionId
-                |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
-                |> List.mapi (fun index parameterId -> parameterId, target + "_it" + string index)
-            let arguments =
-                (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
-                @ (iteration |> List.map (fun (parameterId, name) -> CSharpBackendNames.parameterName parameterId + ": " + name))
-            let names = iteration |> List.map snd |> String.concat ", "
-            "(" + names + ") => " + callbackName functionId + "(" + String.concat ", " arguments + ")"
+            let unbound = (parametersOf functionId).Length - context.Length
+            let names = List.init unbound (fun index -> target + "_it" + string index)
+            "(" + String.concat ", " names + ") => " + renderInvocation parametersOf functionId context names
 
-    let private emitInstruction (writer: SourceWriter) (parametersOf: FunctionId -> ParameterId list) (instruction: ExecutionInstruction) =
+    let private emitInstruction
+        (writer: SourceWriter)
+        (parametersOf: FunctionId -> ParameterId list)
+        (valueTypeOf: ExecutionValueId -> TypeRef)
+        (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
         let callback = renderCallback parametersOf target
         match instruction.Kind with
@@ -423,6 +429,15 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
         | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            if instruction.Result.Type = valueTypeOf seedValueId then
+                writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+            else
+                // Result accumulator: after the first Err the folder, and so its effects, are not called again.
+                let state, item = target + "_state", target + "_item"
+                let resultType = formatType instruction.Result.Type
+                let step = renderInvocation parametersOf folderFunctionId context [ state + ".OkValue"; item ]
+                writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + resultType + ".Ok(" + valueName seedValueId + "), (" + state + ", " + item + ") => " + state + ".IsOk ? " + step + " : " + state + ");")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
@@ -565,7 +580,7 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer parametersOf instruction
+                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) instruction
             emitTerminator writer block block.Terminator
             writer.Line("")
 

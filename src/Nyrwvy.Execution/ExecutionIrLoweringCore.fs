@@ -331,6 +331,12 @@ module ExecutionIr =
                             | Ok lowered ->
                                 lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
                                     ExecutionInstructionKind.ListFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.ListEffectFold(source, seed, folderFunctionId, lowered))
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
@@ -594,6 +600,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListAppendItem _
                         | TypedSemanticNodeKind.ListConcat _
                         | TypedSemanticNodeKind.ListFold _
+                        | TypedSemanticNodeKind.ListEffectFold _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

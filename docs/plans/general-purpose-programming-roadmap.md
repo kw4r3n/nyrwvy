@@ -42,7 +42,7 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 ### G2 文脈引数による関数の再利用
 
-G2の最初の方式として、closureや型パラメーターではなく明示的な文脈引数を採用した。`ListFold`/`ListMap`/`ListFilter`/`ListAny`/`ListAll`は任意の`context`を持ち、callbackの一部の引数をParameterIdで反復前に評価した値へ束縛する。残りの未束縛引数が宣言順に反復値（foldでは蓄積値と要素）を受け取る。これにより、同じ述語・変換・畳み込み関数を実行時の閾値や係数など異なる文脈に本体を複製せず適用できる。検証（束縛先の存在・重複・型、未束縛引数のarity）、JSON/Nyason/typed IR/Execution IRの保存（空のcontextは書かず既存グラフのバイト列とfingerprintを維持）、lowering、C#のlambda生成、ID指定・表示名指定のrecipeを追加し、通常のauthoringから共通runnerでfilter/map/fold/any/allを実行した。callbackは引き続き純粋に限り、効果付き反復は別の構成として扱う。ユーザー定義の型パラメーター、関数値・closureは未導入で、要素型の異なるデータへの同一関数の適用はまだできない。
+G2の最初の方式として、closureや型パラメーターではなく明示的な文脈引数を採用した。`ListFold`/`ListMap`/`ListFilter`/`ListAny`/`ListAll`は任意の`context`を持ち、callbackの一部の引数をParameterIdで反復前に評価した値へ束縛する。残りの未束縛引数が宣言順に反復値（foldでは蓄積値と要素）を受け取る。これにより、同じ述語・変換・畳み込み関数を実行時の閾値や係数など異なる文脈に本体を複製せず適用できる。検証（束縛先の存在・重複・型、未束縛引数のarity）、JSON/Nyason/typed IR/Execution IRの保存（空のcontextは書かず既存グラフのバイト列とfingerprintを維持）、lowering、C#のlambda生成、ID指定・表示名指定のrecipeを追加し、通常のauthoringから共通runnerでfilter/map/fold/any/allを実行した。callbackは引き続き純粋に限る。効果付き反復は別の構成として`ListEffectFold`を追加した。folderは囲む関数が宣言した効果だけを使え、Capabilityを文脈引数として受け取り、要素ごとに1回ずつ左から順に実行する。folderが`Result<S, E>`を返す場合は最初の`Err`で停止してそれを返し、以降の効果を実行しない。fake Capabilityを使った共通runnerで、呼び出し順序・1回実行・`Err`での停止（4要素中3回で停止）を確認した。ユーザー定義の型パラメーター、関数値・closureは未導入で、要素型の異なるデータへの同一関数の適用はまだできない。
 
 ### T2 複数依存と衝突方針
 

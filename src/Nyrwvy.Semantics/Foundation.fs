@@ -200,6 +200,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// declaration order, receive the iteration values (accumulator and item for ListFold, the
     /// item otherwise). An empty context is the plain callback.
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
@@ -311,6 +312,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -389,6 +391,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

@@ -207,7 +207,7 @@ For M1 pure specialized list operations:
 - empty list for `ListAny`/`ListAll` follows explicitly documented total Boolean semantics, not an error;
 - list element runtime domain failures belong to the mapper/predicate's own return type, not to hidden List machinery.
 
-If later effectful traversal is introduced, sequencing/cancellation/failure behavior requires a separate semantic construct rather than retroactively changing pure `ListMap` semantics.
+Effectful traversal is the separate construct `ListEffectFold`, leaving pure `ListMap` semantics unchanged. Its sequencing is left to right, each item exactly once. Expected failure is the folder's own `Result`: the first `Err` stops the traversal and is the node's value, a runtime-domain failure rather than a host exception. Cancellation is not part of this construct (see G4).
 
 ## Backend errors are not semantic type errors
 

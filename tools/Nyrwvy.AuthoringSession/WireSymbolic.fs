@@ -270,6 +270,15 @@ module internal WireSymbolic =
                 callback.Id,
                 callbackContext callback
             )
+        | "listEffectFold" ->
+            ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
+            let callback = resolveFunction declarations (requiredString "function" element)
+            ExpressionRecipe.ListEffectFold(
+                recipe declarations parameterContext (property "source" element),
+                recipe declarations parameterContext (property "seed" element),
+                callback.Id,
+                callbackContext callback
+            )
         | "listMap"
         | "listFilter"
         | "listAny"

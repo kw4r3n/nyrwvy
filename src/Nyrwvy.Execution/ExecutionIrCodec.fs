@@ -299,6 +299,12 @@ module ExecutionIrCodec =
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            [ property "kind" (quote "listEffectFold")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->

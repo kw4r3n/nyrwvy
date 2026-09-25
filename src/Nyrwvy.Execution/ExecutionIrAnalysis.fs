@@ -63,6 +63,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -127,6 +129,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
+            | TypedSemanticNodeKind.ListEffectFold _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -165,6 +168,10 @@ module internal ExecutionIrAnalysis =
         : bool =
         match node.Kind with
         | TypedSemanticNodeKind.CapabilityInvoke _ -> true
+        | TypedSemanticNodeKind.ListEffectFold(_, _, functionId, _) ->
+            match Map.tryFind functionId functionsById with
+            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
+            | None -> false
         | TypedSemanticNodeKind.DirectCall(functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -336,6 +343,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
+            | TypedSemanticNodeKind.ListEffectFold _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
