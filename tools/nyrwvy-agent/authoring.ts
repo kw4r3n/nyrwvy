@@ -159,9 +159,13 @@ function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0
 
 export async function openAuthoring(
   mode: "create" | "open" | "pin", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
+  dependencies?: string[],
 ): Promise<string> {
   if (dependency !== undefined && (mode === "open" || dependency.trim() === "")) {
     throw new Error("dependency requires mode=create or mode=pin and a non-blank source snapshot path.")
+  }
+  if (dependencies !== undefined && (mode !== "create" || dependencies.length === 0 || dependencies.some((item) => item.trim() === ""))) {
+    throw new Error("dependencies requires mode=create and one or more non-blank source snapshot paths.")
   }
   if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
   const sessionKey = key(context)
@@ -170,7 +174,9 @@ export async function openAuthoring(
   const workspace = resolve(worktree, snapshot)
   const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
   const args = [assembly, mode, "--snapshot", workspace]
-  if (dependency !== undefined) args.push("--dependency", resolve(worktree, dependency))
+  for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
+    args.push("--dependency", resolve(worktree, source))
+  }
   const client = new AuthoringClient(spawn("dotnet", args, {
     cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
   }))

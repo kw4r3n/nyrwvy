@@ -40,6 +40,10 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 本計画の調査は仕様・ソース・PR差分の照合であり、新しいビルド、実行プローブ、全体移植を行った証拠ではない。
 
+### T2 複数依存と衝突方針
+
+Q-002の取り込み方針を「型付きIDを保持し、複数依存で同一IDは内容が完全一致する場合だけ1回取り込み、それ以外の衝突は拒否（統合しない）」と決定した。`create`で`--dependency`を複数指定でき、各依存の正確な内容を埋め込んだ`{ "dependencies": [...] }`のsidecarを保存する。結合後の依存グラフは構成要素のfingerprintから順序に依存しない決定的なSnapshotIdを持つ。共通の型を含む2つのライブラリを同時に参照する関数を作成・保存・再オープンし、異なる内容の同一ID・同一依存の重複指定・埋め込み内容の改ざんを拒否することを確認した。多段依存と明示的な新版への更新は後続の段階で扱う。
+
 ### T1のCapability operation削除
 
 `DeleteCapabilityOperation`を追加した。Capability全体や兄弟operationを保持し、未参照のoperationとそのparameterだけを削除できる。既存のsnapshot検証を再利用して生存する呼び出しを拒否し、削除IDをreview／JSONL／HTMLに残す。関数削除→operation削除→不要Effect削除を同じtransactionに合成できる。空Capabilityを許容し、依存先のoperation編集は拒否する。Capability signature変更や参照元一括移行を完了したものではない。

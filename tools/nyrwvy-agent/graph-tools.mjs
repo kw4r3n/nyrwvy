@@ -59,10 +59,11 @@ export function createGraphTools(schema) {
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   return {
     open: defineTool({
-      description: "Create or reopen a persistent graph. Create with dependency stores its exact complete content. Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
-      args: { mode: schema.enum(["create", "open", "pin"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional() },
-      /** @param {{ mode: "create" | "open" | "pin"; snapshot: string; workspace?: string; dependency?: string }} args */
-      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency),
+      description: "Create or reopen a persistent graph. Create with dependency (or several dependencies) stores each exact complete content; identical shared declarations are imported once and any other identity collision is rejected. Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
+      args: { mode: schema.enum(["create", "open", "pin"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional(),
+        dependencies: schema.array(schema.string()).optional() },
+      /** @param {{ mode: "create" | "open" | "pin"; snapshot: string; workspace?: string; dependency?: string; dependencies?: string[] }} args */
+      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies),
     }),
     inspect: defineTool({
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",

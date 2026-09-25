@@ -52,7 +52,9 @@ How should stable semantic identity behave when independently developed graphs a
 
 ### Current position
 
-Local production allocation uses typed UUIDv7 IDs. Rename, movement, clone, branch, and history-preserving fork preserve IDs. Semantic duplication and template instantiation allocate new IDs. Ordinary agents do not manufacture IDs. General import/merge collision policy remains open.
+Local production allocation uses typed UUIDv7 IDs. Rename, movement, clone, branch, and history-preserving fork preserve IDs. Semantic duplication and template instantiation allocate new IDs. Ordinary agents do not manufacture IDs.
+
+**Import policy (decided 2026-09-25 for pinned dependencies):** imported declarations keep their typed identities; there is no package-qualified identity layer. When several pinned dependencies are combined, a declaration reached through more than one of them is imported once only when its content is identical (for example a shared transitive library). Any other identity collision between imports, or between an import and a local declaration, is rejected with an explicit diagnostic and never merged. General semantic merge of independently edited histories (Q-005, Q-014) remains open.
 
 ### Resolution target
 

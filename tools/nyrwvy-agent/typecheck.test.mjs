@@ -55,7 +55,7 @@ test("the compiler diagnoses implementation mistakes and schema/handler mismatch
   const replacements = new Map([
     [join(root, "tools/nyrwvy-agent/graph-tools.mjs"), [
       ["snapshot: schema.string()", "snapshot: schema.array(schema.string())"],
-      ["openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency)", "openAuthoring(args.mode, 42, context, args.workspace, args.dependency)"],
+      ["openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies)", "openAuthoring(args.mode, 42, context, args.workspace, args.dependency, args.dependencies)"],
     ]],
     [join(root, "tools/nyrwvy-agent/recipe-reference.mjs"), [['binary("int64WrappingAdd")', "binary(42)"]]],
     [join(root, "tools/nyrwvy-mcp/server.mjs"), [['content: [{ type: "text", text }]', 'content: [{ type: "invalid-content-kind", text }]']]],
