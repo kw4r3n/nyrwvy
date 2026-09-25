@@ -69,6 +69,8 @@ type ViewerNodeRole =
     | ListFold
     | ListEffectFold
     | UseResource
+    | ParallelAll
+    | CancellationRequested
     | ListMap
     | ListFilter
     | ListAny
@@ -210,6 +212,9 @@ module ViewerProjection =
             ViewerNodeRole.ListEffectFold, callbackRelation folderFunctionId
         | SemanticNodeKind.UseResource(_, _, _, bodyFunctionId, _) ->
             ViewerNodeRole.UseResource, callbackRelation bodyFunctionId
+        | SemanticNodeKind.ParallelAll(_, workerFunctionId, _) ->
+            ViewerNodeRole.ParallelAll, callbackRelation workerFunctionId
+        | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
         | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
         | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
@@ -356,6 +361,8 @@ module ViewerProjection =
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

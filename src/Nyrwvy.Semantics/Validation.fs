@@ -59,6 +59,9 @@ module SnapshotValidator =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -132,6 +135,9 @@ module SnapshotValidator =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -896,6 +902,27 @@ module SnapshotValidator =
                             add "UnknownCapabilityOperation" $"UseResource node '{StableId.value node.Id}' references an unknown release operation."
                         | Some _, _, _ -> add "UseResourceAcquireTypeMismatch" $"UseResource node '{StableId.value node.Id}' acquisition must produce Result<R, E>."
                         | None, _, _ -> ()
+                    | SemanticNodeKind.CancellationRequested -> ()
+                    | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        match nodeType sourceListNodeId, Map.tryFind workerFunctionId functionsById with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
+                            let unbound, contextSubstitution = validateCallbackContext node.Id worker context
+                            let substitution =
+                                match unbound with
+                                | [ item ] -> TypeParameters.matchType contextSubstitution item.Type itemType
+                                | _ -> None
+                            match substitution with
+                            | None -> add "ListCallbackParameterTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' worker must take exactly one unbound parameter of the item type."
+                            | Some current ->
+                                match TypeParameters.substitute current worker.ResultType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
+                                | _ -> add "ListCallbackResultTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' worker must return Result<U, E>."
+                            for effectId in worker.RequiredEffects do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' runs '{StableId.value worker.Id}' in parallel but does not declare required effect '{StableId.value effectId}'."
+                        | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ParallelAll requires List<T> input."
+                        | _, None -> add "UnknownListCallbackFunction" $"ParallelAll node '{StableId.value node.Id}' references an unknown worker."
+                        | None, _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
@@ -1328,6 +1355,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

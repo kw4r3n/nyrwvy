@@ -183,6 +183,31 @@ module CSharpBackend =
     let private fieldParameter (field: ExecutionField) =
         formatType field.Type + " " + CSharpBackendNames.fieldName field.Id
 
+    /// Ambient cancellation for ParallelAll workers, emitted only for programs that use concurrency so
+    /// other generated programs are unchanged. External implementations read the same token.
+    let private emitConcurrencyRuntime (writer: SourceWriter) (program: ExecutionProgram) =
+        let usesConcurrency =
+            program.Functions
+            |> List.exists (fun functionEntity ->
+                functionEntity.Blocks
+                |> List.exists (fun block ->
+                    block.Instructions
+                    |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.ParallelAll _
+                        | ExecutionInstructionKind.CancellationRequested -> true
+                        | _ -> false)))
+        if usesConcurrency then
+            writer.Line("public static class NyRuntime")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("public static readonly System.Threading.AsyncLocal<System.Threading.CancellationToken> Cancellation = new();")
+            writer.Line("public static bool CancellationRequested => Cancellation.Value.IsCancellationRequested;")
+            writer.Line("public static void WaitForCancellation() => Cancellation.Value.WaitHandle.WaitOne();")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("")
+
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
             let typeName = CSharpBackendNames.typeName typeEntity.Id
@@ -470,6 +495,56 @@ module CSharpBackend =
             writer.Line("}")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.CancellationRequested ->
+            writer.Line(target + " = NyRuntime.CancellationRequested;")
+        | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
+            // Structured: every worker is awaited before the node completes. The first Err or host
+            // exception cancels the shared token; faults win, then the lowest-index Err, else all Ok.
+            let itemType =
+                match valueTypeOf sourceListValueId with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> formatType item
+                | other -> invalidOp $"ParallelAll source must be a List, got {other}."
+            let workerResult, okType =
+                match instruction.Result.Type with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ ok ]); error ]) ->
+                    "NyResult<" + formatType ok + ", " + formatType error + ">", formatType ok
+                | other -> invalidOp $"ParallelAll result must be Result<List<U>, E>, got {other}."
+            let resultType = formatType instruction.Result.Type
+            let name suffix = target + "_" + suffix
+            let items, cts, tasks, index, item, result, task = name "items", name "cts", name "tasks", name "i", name "item", name "result", name "task"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
+            writer.Line("using var " + cts + " = new System.Threading.CancellationTokenSource();")
+            writer.Line("var " + tasks + " = new System.Threading.Tasks.Task<" + workerResult + ">[" + items + ".Count];")
+            writer.Line("for (var " + index + " = 0; " + index + " < " + items + ".Count; " + index + "++)")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + item + " = " + items + "[" + index + "];")
+            writer.Line(tasks + "[" + index + "] = System.Threading.Tasks.Task.Run(() =>")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("NyRuntime.Cancellation.Value = " + cts + ".Token;")
+            writer.Line("try")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + result + " = " + renderInvocation parametersOf workerFunctionId context [ item ] + ";")
+            writer.Line("if (!" + result + ".IsOk) " + cts + ".Cancel();")
+            writer.Line("return " + result + ";")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("catch { " + cts + ".Cancel(); throw; }")
+            writer.Pop()
+            writer.Line("});")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("foreach (var " + task + " in " + tasks + ") { try { " + task + ".Wait(); } catch (System.AggregateException) { } }")
+            writer.Line("var " + name "faulted" + " = System.Array.Find(" + tasks + ", " + name "t" + " => " + name "t" + ".IsFaulted);")
+            writer.Line("if (" + name "faulted" + " != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + name "faulted" + ".Exception!.InnerException!).Throw();")
+            writer.Line("var " + name "failed" + " = System.Array.Find(" + tasks + ", " + name "t" + " => !" + name "t" + ".Result.IsOk);")
+            writer.Line(target + " = " + name "failed" + " != null ? " + resultType + ".Err(" + name "failed" + ".Result.ErrorValue) : " + resultType + ".Ok(NyList<" + okType + ">.Create(System.Array.ConvertAll(" + tasks + ", " + name "t" + " => " + name "t" + ".Result.OkValue)));")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
@@ -727,6 +802,7 @@ module CSharpBackend =
             writer.Line("namespace " + CSharpBackendNames.generatedNamespace + ";")
             writer.Line("")
             emitRuntime writer
+            emitConcurrencyRuntime writer program
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program

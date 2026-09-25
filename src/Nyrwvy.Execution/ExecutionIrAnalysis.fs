@@ -67,6 +67,9 @@ module internal ExecutionIrAnalysis =
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.CancellationRequested -> []
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -133,6 +136,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListEffectFold _
             | TypedSemanticNodeKind.UseResource _
+            | TypedSemanticNodeKind.ParallelAll _
+            | TypedSemanticNodeKind.CancellationRequested
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -176,6 +181,11 @@ module internal ExecutionIrAnalysis =
             | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
             | None -> false
         | TypedSemanticNodeKind.UseResource _ -> true
+        | TypedSemanticNodeKind.CancellationRequested -> true
+        | TypedSemanticNodeKind.ParallelAll(_, functionId, _) ->
+            match Map.tryFind functionId functionsById with
+            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
+            | None -> false
         | TypedSemanticNodeKind.DirectCall(functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -349,6 +359,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListEffectFold _
             | TypedSemanticNodeKind.UseResource _
+            | TypedSemanticNodeKind.ParallelAll _
+            | TypedSemanticNodeKind.CancellationRequested
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

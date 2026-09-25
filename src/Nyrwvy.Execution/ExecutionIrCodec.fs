@@ -317,6 +317,12 @@ module ExecutionIrCodec =
               property "releaseOperationId" (stableIdValue releaseOperationId)
               property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
+            [ property "kind" (quote "parallelAll")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "workerFunctionId" (stableIdValue workerFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.CancellationRequested -> [ property "kind" (quote "cancellationRequested") ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->

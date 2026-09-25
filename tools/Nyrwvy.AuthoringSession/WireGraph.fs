@@ -93,6 +93,9 @@ module internal WireGraph =
                    "releaseOperationId", identity releaseOperation
                    "bodyFunctionId", identity body ]
                  @ context bindings)
+        | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
+            tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
+        | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

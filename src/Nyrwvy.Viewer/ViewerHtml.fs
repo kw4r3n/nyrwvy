@@ -129,6 +129,8 @@ module ViewerHtml =
         | ViewerNodeRole.ListFold -> "List fold"
         | ViewerNodeRole.ListEffectFold -> "List effect fold"
         | ViewerNodeRole.UseResource -> "use resource"
+        | ViewerNodeRole.ParallelAll -> "parallel all"
+        | ViewerNodeRole.CancellationRequested -> "cancellation requested"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"

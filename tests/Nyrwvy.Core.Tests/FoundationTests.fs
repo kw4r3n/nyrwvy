@@ -62,6 +62,8 @@ module FoundationTests =
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

@@ -57,10 +57,12 @@ module SemanticQuery =
                     | SemanticNodeKind.ListFold(_, _, functionId, _)
                     | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
                     | SemanticNodeKind.UseResource(_, _, _, functionId, _)
+                    | SemanticNodeKind.ParallelAll(_, functionId, _)
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
                     | SemanticNodeKind.ListAll(_, functionId, _) -> Some functionId
+                    | SemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ParameterReference _
                     | SemanticNodeKind.PatternReference _
                     | SemanticNodeKind.StringLiteral _

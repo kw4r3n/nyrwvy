@@ -109,6 +109,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
+    | CancellationRequested
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -306,6 +308,9 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, projectContext context))
+                    | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, projectContext context))
+                    | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

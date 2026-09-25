@@ -525,6 +525,9 @@ module NyasonCodec =
                    "release-operation", encodeId "capability-operation" releaseOperationId
                    "body", encodeId "function" bodyFunctionId ]
                  @ encodeCallbackContext context)
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+            record "parallel-all" ([ nodeId; "source", encodeId "node" sourceListNodeId; "worker", encodeId "function" workerFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.CancellationRequested -> record "cancellation-requested" [ nodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -817,6 +820,13 @@ module NyasonCodec =
                     decodeId<CapabilityOperationTag> "capability-operation" (require "release-operation" fields),
                     decodeId<FunctionTag> "function" (require "body" fields),
                     decodeCallbackContext fields) }
+        | NyasonValue.Record("parallel-all", _) ->
+            let fields = recordFields "parallel-all" [ "id"; "source"; "worker" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ParallelAll(decodeId<GraphNodeTag> "node" (require "source" fields), decodeId<FunctionTag> "function" (require "worker" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("cancellation-requested", _) ->
+            let fields = recordFields "cancellation-requested" [ "id" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.CancellationRequested }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->

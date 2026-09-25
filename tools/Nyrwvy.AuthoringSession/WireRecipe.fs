@@ -122,6 +122,12 @@ module internal WireRecipe =
                 id<CapabilityOperationTag> "releaseOperationId" element,
                 id<FunctionTag> "bodyFunctionId" element,
                 callbackContext ())
+        | "parallelAll" ->
+            ensureFields "parallel-all recipe" [ "kind"; "source"; "workerFunctionId"; "context" ] [ "kind"; "source"; "workerFunctionId" ] element
+            ExpressionRecipe.ParallelAll(recipe (property "source" element), id<FunctionTag> "workerFunctionId" element, callbackContext ())
+        | "cancellationRequested" ->
+            ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
+            ExpressionRecipe.CancellationRequested
         | "listMap"
         | "listFilter"
         | "listAny"

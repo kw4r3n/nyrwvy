@@ -464,6 +464,13 @@ module SnapshotCodec =
             writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
             writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+            writer.WriteString("kind", "parallelAll")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.CancellationRequested ->
+            writer.WriteString("kind", "cancellationRequested")
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -1015,6 +1022,12 @@ module SnapshotCodec =
                     readId<CapabilityOperationTag> "releaseOperationId" element,
                     readId<FunctionTag> "bodyFunctionId" element,
                     readCallbackContext element)
+            | "parallelAll" ->
+                ensureProperties "ParallelAll node" (set [ "id"; "kind"; "sourceListNodeId"; "workerFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "workerFunctionId"; "context" ]) element
+                SemanticNodeKind.ParallelAll(readId<GraphNodeTag> "sourceListNodeId" element, readId<FunctionTag> "workerFunctionId" element, readCallbackContext element)
+            | "cancellationRequested" ->
+                ensureProperties "CancellationRequested node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
+                SemanticNodeKind.CancellationRequested
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))

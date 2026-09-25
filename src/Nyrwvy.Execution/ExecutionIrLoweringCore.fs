@@ -344,6 +344,11 @@ module ExecutionIr =
                             | Error error, _, _
                             | _, Error error, _
                             | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId workerFunctionId context (fun source worker lowered ->
+                                ExecutionInstructionKind.ParallelAll(source, worker, lowered))
+                        | TypedSemanticNodeKind.CancellationRequested ->
+                            Ok(addInstruction currentBlock node ExecutionInstructionKind.CancellationRequested)
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
@@ -609,6 +614,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListFold _
                         | TypedSemanticNodeKind.ListEffectFold _
                         | TypedSemanticNodeKind.UseResource _
+                        | TypedSemanticNodeKind.ParallelAll _
+                        | TypedSemanticNodeKind.CancellationRequested
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

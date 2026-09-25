@@ -300,6 +300,13 @@ module internal WireSymbolic =
                 operation.Id,
                 body.Id,
                 callbackContext body)
+        | "parallelAll" ->
+            ensureFields "parallel-all recipe" [ "kind"; "source"; "worker"; "context" ] [ "kind"; "source"; "worker" ] element
+            let worker = resolveFunction declarations (requiredString "worker" element)
+            ExpressionRecipe.ParallelAll(recipe declarations parameterContext (property "source" element), worker.Id, callbackContext worker)
+        | "cancellationRequested" ->
+            ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
+            ExpressionRecipe.CancellationRequested
         | "listMap"
         | "listFilter"
         | "listAny"

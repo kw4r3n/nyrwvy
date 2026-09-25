@@ -48,6 +48,9 @@ module SemanticFacts =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -132,6 +135,8 @@ module SemanticFacts =
             | SemanticNodeKind.ListFold _
             | SemanticNodeKind.ListEffectFold _
             | SemanticNodeKind.UseResource _
+            | SemanticNodeKind.ParallelAll _
+            | SemanticNodeKind.CancellationRequested
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -341,6 +346,15 @@ module SemanticFacts =
                                 | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; _ ])) -> [ resourceType ]
                                 | _ -> []
                             Some(callbackResult nextVisiting body context resource)
+                    | SemanticNodeKind.CancellationRequested -> Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind workerFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
+                            match callbackResult nextVisiting worker context [ itemType ] with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ okType ]); errorType ]))
+                            | _ -> None
+                        | _ -> None
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->

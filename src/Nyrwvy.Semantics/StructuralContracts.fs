@@ -86,6 +86,10 @@ module ValueDependency =
             [ create ValueDependencyRole.Value acquireNodeId
               create ValueDependencyRole.CapabilityValue releaseCapabilityNodeId ]
             @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+        | SemanticNodeKind.ParallelAll(sourceNodeId, _, context) ->
+            create ValueDependencyRole.Source sourceNodeId
+            :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+        | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]

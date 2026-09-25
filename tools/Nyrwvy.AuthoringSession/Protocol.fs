@@ -86,6 +86,9 @@ module AuthoringProtocol =
                             | "throw" ->
                                 ensureFields "Fake throw" [ "kind"; "message" ] [ "kind"; "message" ] response
                                 PureRunFakeResponse.Throw(requiredString "message" response)
+                            | "awaitCancellation" ->
+                                ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
+                                PureRunFakeResponse.AwaitCancellation(pureValueAt remaining (depth + 1) (property "value" response))
                             | other -> fail $"Unsupported fake response kind '{other}'.") }))
         | "string" | "bool" | "int64" ->
             match pureScalar item with
@@ -205,6 +208,7 @@ module AuthoringProtocol =
             let response = function
                 | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
                 | PureRunFakeResponse.Throw message -> objectValue [ "kind", box "throw"; "message", box message ]
+                | PureRunFakeResponse.AwaitCancellation value -> objectValue [ "kind", box "awaitCancellation"; "value", encodePureValue value ]
             objectValue
                 [ "kind", box "fakeCapability"
                   "capabilityId", box (StableId.value capabilityId)

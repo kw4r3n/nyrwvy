@@ -53,6 +53,8 @@ type ExpressionRecipe =
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | CancellationRequested
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -150,6 +152,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
             ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
+        | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
+        | ExpressionRecipe.CancellationRequested -> recipe
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
@@ -264,6 +268,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.UseResource(acquire, releaseCapability, _, _, context) ->
             seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
+        | ExpressionRecipe.CancellationRequested -> Seq.empty
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
@@ -807,6 +813,29 @@ module AgentExpressionStructuralWorkflow =
                                     fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
                             | _ -> fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
                 | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {actual}."
+            | ExpressionRecipe.CancellationRequested -> Ok boolType
+            | ExpressionRecipe.ParallelAll(source, workerFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType, Map.tryFind workerFunctionId functionsById with
+                    | None, _ -> Error(listMismatch "ParallelAll" "source" sourceType)
+                    | _, None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ParallelAll worker '{StableId.value workerFunctionId}' does not exist.")
+                    | Some itemType, Some worker ->
+                        match validateCallbackContext "ParallelAll" worker context (infer frames) with
+                        | Error error -> Error error
+                        | Ok(unbound, substitution) ->
+                            let matched = match unbound with [ item ] -> TypeParameters.matchType substitution item.Type itemType | _ -> None
+                            match matched, worker.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                            | None, _ ->
+                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ParallelAll worker must have exactly one parameter not bound by context, of the item type.")
+                            | _, Some effectId ->
+                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"ParallelAll worker '{StableId.value worker.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                            | Some current, None ->
+                                match TypeParameters.substitute current worker.ResultType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                    Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ listType okType; errorType ]))
+                                | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ParallelAll worker must return Result<U, E>.")
             | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1225,6 +1254,10 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             acquireNodes @ capabilityNodes @ contextNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.UseResource(acquireResult, capabilityResult, releaseOperationId, bodyFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.ParallelAll(source, workerFunctionId, context) -> listCallback SemanticNodeKind.ParallelAll source workerFunctionId context
+        | ExpressionRecipe.CancellationRequested ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.CancellationRequested } ], nodeId
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context

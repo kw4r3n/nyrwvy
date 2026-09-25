@@ -56,6 +56,9 @@ and [<RequireQualifiedAccess>] PureRunFakeResponse =
     | Return of PureRunValue
     /// Raises a host exception from the operation, as a failing external implementation would.
     | Throw of message: string
+    /// Blocks like a long-running external process until the calling ParallelAll worker's
+    /// cancellation is requested, then returns the value.
+    | AwaitCancellation of PureRunValue
 
 /// One call the program made to a fake capability, with its arguments in canonical ID order.
 type PureRunCall =
@@ -245,7 +248,10 @@ module PureRun =
         | PureRunValue.ResultValue(_, _, _, payload) -> [ payload ]
         | PureRunValue.FakeCapability(_, operations) ->
             operations |> List.collect (fun operation ->
-                operation.Responses |> List.choose (function PureRunFakeResponse.Return value -> Some value | PureRunFakeResponse.Throw _ -> None))
+                operation.Responses |> List.choose (function
+                    | PureRunFakeResponse.Return value
+                    | PureRunFakeResponse.AwaitCancellation value -> Some value
+                    | PureRunFakeResponse.Throw _ -> None))
         | _ -> []
 
     let rec private strings value =
@@ -257,7 +263,7 @@ module PureRun =
         | PureRunValue.StringOption item -> Option.toList item
         | PureRunValue.FakeCapability(_, operations) ->
             (operations |> List.collect (fun operation ->
-                operation.Responses |> List.choose (function PureRunFakeResponse.Throw message -> Some message | PureRunFakeResponse.Return _ -> None)))
+                operation.Responses |> List.choose (function PureRunFakeResponse.Throw message -> Some message | _ -> None)))
             @ (children value |> List.collect strings)
         | _ -> children value |> List.collect strings
 
@@ -493,6 +499,7 @@ module PureRun =
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let response = function
                 | PureRunFakeResponse.Return value -> PureRunFakeResponse.Return(canonicalValue value)
+                | PureRunFakeResponse.AwaitCancellation value -> PureRunFakeResponse.AwaitCancellation(canonicalValue value)
                 | throw -> throw
             PureRunValue.FakeCapability(capabilityId,
                 operations |> List.map (fun operation -> { operation with Responses = List.map response operation.Responses })
@@ -744,7 +751,8 @@ module PureRun =
                     Some("RunBindingShapeMismatch", "Fake operations must be distinct operations of the faked capability.")
                 elif operations |> List.exists (fun operation ->
                     operation.Responses |> List.exists (function
-                        | PureRunFakeResponse.Return response -> valueType response <> declared[operation.OperationId].ResultType
+                        | PureRunFakeResponse.Return response
+                        | PureRunFakeResponse.AwaitCancellation response -> valueType response <> declared[operation.OperationId].ResultType
                         | PureRunFakeResponse.Throw _ -> false)) then
                     Some("RunBindingShapeMismatch", "Each fake return value must have the operation's declared result type.")
                 else None
@@ -812,6 +820,14 @@ module PureRun =
             match emitted, session.Status() with
             | Error error, _
             | _, Error error -> Error(PureRunError.SessionFailure error)
+            | Ok(_, artifact), Ok _ when
+                not (artifact.Source.Contains("public static class NyRuntime"))
+                && arguments |> List.exists (function
+                    | PureRunValue.FakeCapability(_, operations) ->
+                        operations |> List.exists (fun operation ->
+                            operation.Responses |> List.exists (function PureRunFakeResponse.AwaitCancellation _ -> true | _ -> false))
+                    | _ -> false) ->
+                Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation responses need a program that uses ParallelAll or CancellationRequested.")
             | Ok(program, artifact), Ok status ->
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
@@ -930,12 +946,13 @@ module PureRun =
                                             responses |> List.mapi (fun position response ->
                                                 match response with
                                                 | PureRunFakeResponse.Return value -> $"            case {position}: return {sourceArgument value};\n"
-                                                | PureRunFakeResponse.Throw message -> $"            case {position}: throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});\n")
+                                                | PureRunFakeResponse.Throw message -> $"            case {position}: throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});\n"
+                                                | PureRunFakeResponse.AwaitCancellation value -> $"            case {position}: NyRuntime.WaitForCancellation(); return {sourceArgument value};\n")
                                             |> String.concat ""
                                         let answer =
                                             match binding with
                                             | Choice1Of2 _ ->
-                                                $"        switch ({name}Next++)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
+                                                $"        switch (System.Threading.Interlocked.Increment(ref {name}Next) - 1)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
                                             | Choice2Of2 _ -> $"        return inner.{name}({names});\n"
                                         let text =
                                             (match binding with Choice1Of2 _ -> $"    int {name}Next;\n" | Choice2Of2 _ -> "")
@@ -991,8 +1008,10 @@ module PureRun =
                             + "static class FakeLog\n{\n"
                             + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"
                             + "    public static void Record(int site, object[] arguments)\n    {\n"
-                            + "        if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
-                            + "        Calls.Add((site, arguments));\n    }\n}\n"
+                            // Workers of ParallelAll may call fakes concurrently.
+                            + "        lock (Calls)\n        {\n"
+                            + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
+                            + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"
                             + fakeClasses
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         let frames = frameResolver artifact.Symbols

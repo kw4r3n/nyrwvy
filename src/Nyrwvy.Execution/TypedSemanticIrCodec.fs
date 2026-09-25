@@ -381,6 +381,12 @@ module TypedSemanticIrCodec =
             writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
             writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+            writer.WriteString("kind", "parallelAll")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.CancellationRequested -> writer.WriteString("kind", "cancellationRequested")
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

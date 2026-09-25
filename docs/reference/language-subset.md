@@ -70,6 +70,8 @@ ListConcat
 ListFold
 ListEffectFold
 UseResource
+ParallelAll
+CancellationRequested
 ListMap
 ListFilter
 ListAny

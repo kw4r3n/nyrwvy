@@ -205,6 +205,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     /// Acquires a resource with `acquire : Result<R, E>`; on Ok runs the body function with R (other
     /// parameters bound by `context`) and then always releases R through a capability operation.
+    /// Runs the worker for every source item concurrently and waits for all of them. The first Err
+    /// (or host exception) requests cancellation of the others; the result is the Err of the lowest
+    /// failing index, or Ok of every worker's value in source order.
+    | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: ArgumentBinding list
+    /// Whether cancellation was requested for the ParallelAll worker evaluating it; false elsewhere.
+    | CancellationRequested
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
@@ -320,6 +326,8 @@ module ValueGraph =
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -400,6 +408,8 @@ module ValueGraph =
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
