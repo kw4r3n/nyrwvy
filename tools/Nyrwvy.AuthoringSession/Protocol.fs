@@ -33,8 +33,31 @@ module AuthoringProtocol =
         | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
         | _ -> fail "Scalar run values must be string, bool or int64."
 
-    let private pureValue (item: JsonElement): PureRunValue =
-        match requiredString "kind" item with
+    let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
+        if depth > 8 then fail "Run values may have at most eight outer List/Option layers."
+        if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
+        let kind = requiredString "kind" item
+        let children =
+            match kind with
+            | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
+            | "product" | "union" -> (array "fields" item).Length
+            | "result" -> 1
+            | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
+            | _ -> 0
+        remaining.Value <- remaining.Value - 1 - children
+        if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
+        match kind with
+        | "list" when tryProperty "itemType" item |> Option.isSome ->
+            ensureFields "Nested List run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
+            let items = array "items" item
+            if items.Length > 4096 then fail "Lists may contain at most 4096 items."
+            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt remaining (depth + 1)))
+        | "option" when tryProperty "itemType" item |> Option.isSome ->
+            let hasValue = requiredBool "hasValue" item
+            let fields = [ "kind"; "itemType"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
+            ensureFields "Nested Option run value" fields fields item
+            PureRunValue.OptionValue(typeRef (property "itemType" item),
+                if hasValue then Some(pureValueAt remaining (depth + 1) (property "value" item)) else None)
         | "string" | "bool" | "int64" ->
             match pureScalar item with
             | PureRunScalar.String text -> PureRunValue.String text
@@ -104,6 +127,8 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
+    let private pureValue item = pureValueAt (ref 8192) 0 item
+
     let private encodePureScalar value =
         let kind, payload =
             match value with
@@ -112,7 +137,7 @@ module AuthoringProtocol =
             | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
         objectValue [ "kind", box kind; "value", payload ]
 
-    let private encodePureValue value =
+    let rec private encodePureValue value =
         let listValue kind items =
             objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
         let optionValue kind item =
@@ -136,6 +161,13 @@ module AuthoringProtocol =
                   "isOk", box isOk
                   "value", payload ]
         match value with
+        | PureRunValue.ListValue(itemType, items) ->
+            objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
+                          "items", items |> List.map encodePureValue |> arrayValue ]
+        | PureRunValue.OptionValue(itemType, item) ->
+            objectValue
+                ([ "kind", box "option"; "itemType", WireEncodeCommon.typeRef itemType; "hasValue", box (Option.isSome item) ]
+                 @ (item |> Option.map (fun value -> [ "value", encodePureValue value ]) |> Option.defaultValue []))
         | PureRunValue.Union(typeId, variantId, fields) ->
             objectValue
                 [ "kind", box "union"

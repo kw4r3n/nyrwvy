@@ -35,6 +35,8 @@ type PureRunValue =
     | ResultErr of okKind: PureRunScalarKind * error: PureRunScalar
     | Product of typeId: TypeId * fields: (FieldId * PureRunScalar) list
     | Union of typeId: TypeId * variantId: VariantId * fields: (FieldId * PureRunScalar) list
+    | ListValue of itemType: TypeRef * items: PureRunValue list
+    | OptionValue of itemType: TypeRef * item: PureRunValue option
 
 [<RequireQualifiedAccess>]
 type PureRunError =
@@ -48,7 +50,7 @@ type PureRunResult =
       Expected: PureRunValue option
       Matches: bool option }
 
-/// Bounded T3 execution path: pure scalar/flat-container entrypoints, no host bindings or
+/// Bounded T3 execution path: pure typed values and outer List/Option nesting, no host bindings or
 /// caller-authored C# source. Runs in a separate, bounded child process.
 [<RequireQualifiedAccess>]
 module PureRun =
@@ -77,6 +79,8 @@ module PureRun =
         | PureRunScalar.Int64 _ -> PureRunScalarKind.Int64
 
     let private valueType = function
+        | PureRunValue.ListValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
+        | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
         | PureRunValue.Product(typeId, _)
         | PureRunValue.Union(typeId, _, _) -> TypeRef.Named typeId
         | PureRunValue.ResultOk(errorKind, value) ->
@@ -93,6 +97,16 @@ module PureRun =
         | PureRunValue.BoolOption _ -> optionType PrimitiveType.Bool
         | PureRunValue.Int64Option _ -> optionType PrimitiveType.Int64
 
+    let rec private sourceType = function
+        | TypeRef.Primitive PrimitiveType.String -> "string"
+        | TypeRef.Primitive PrimitiveType.Bool -> "bool"
+        | TypeRef.Primitive PrimitiveType.Int64 -> "long"
+        | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
+        | TypeRef.BuiltinGeneric(kind, arguments) ->
+            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult"
+            name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
+        | _ -> invalidOp "Unsupported runner type passed validation."
+
     let rec private sourceArgument value =
         let listSource name items =
             let arguments = items |> List.map sourceArgument |> String.concat ", "
@@ -102,6 +116,8 @@ module PureRun =
             | None -> $"NyOption<{name}>.None()"
             | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
         match value with
+        | PureRunValue.ListValue(itemType, items) -> listSource (sourceType itemType) items
+        | PureRunValue.OptionValue(itemType, item) -> optionSource (sourceType itemType) item
         | PureRunValue.Product(_, fields)
         | PureRunValue.Union(_, _, fields) ->
             let name =
@@ -148,7 +164,9 @@ module PureRun =
                 else index <- index + 1
             valid
 
-    let private strings = function
+    let rec private strings = function
+        | PureRunValue.ListValue(_, items) -> items |> List.collect strings
+        | PureRunValue.OptionValue(_, item) -> item |> Option.toList |> List.collect strings
         | PureRunValue.Product(_, fields)
         | PureRunValue.Union(_, _, fields) ->
             fields |> List.choose (fun (_, value) -> match value with PureRunScalar.String text -> Some text | _ -> None)
@@ -159,7 +177,9 @@ module PureRun =
         | PureRunValue.StringOption item -> Option.toList item
         | _ -> []
 
-    let private oversized = function
+    let rec private oversized = function
+        | PureRunValue.ListValue(_, items) -> items.Length > 4096 || (items |> List.exists oversized)
+        | PureRunValue.OptionValue(_, item) -> item |> Option.exists oversized
         | PureRunValue.Product(_, fields)
         | PureRunValue.Union(_, _, fields) ->
             fields.Length > 256 || (fields |> List.sumBy (fun (_, value) ->
@@ -252,11 +272,15 @@ module PureRun =
             && List.forall2 (fun (field: SemanticField) (fieldId, value) ->
                 field.Id = fieldId && field.Type = scalarType (scalarKind value)) declared sorted
 
-    let private validProduct types = function
+    let rec private validProduct types = function
+        | PureRunValue.ListValue(_, items) -> items |> List.forall (validProduct types)
+        | PureRunValue.OptionValue(_, item) -> item |> Option.forall (validProduct types)
         | PureRunValue.Product(typeId, fields) -> validFields (productFields types typeId) fields
         | _ -> true
 
-    let private validUnion types = function
+    let rec private validUnion types = function
+        | PureRunValue.ListValue(_, items) -> items |> List.forall (validUnion types)
+        | PureRunValue.OptionValue(_, item) -> item |> Option.forall (validUnion types)
         | PureRunValue.Union(typeId, variantId, fields) ->
             let declared = unionVariants types typeId
                            |> Option.bind (List.tryFind (fun variant -> variant.Id = variantId))
@@ -264,7 +288,9 @@ module PureRun =
             validFields declared fields
         | _ -> true
 
-    let private canonicalValue = function
+    let rec private canonicalValue = function
+        | PureRunValue.ListValue(itemType, items) -> PureRunValue.ListValue(itemType, List.map canonicalValue items)
+        | PureRunValue.OptionValue(itemType, item) -> PureRunValue.OptionValue(itemType, Option.map canonicalValue item)
         | PureRunValue.Union(typeId, variantId, fields) ->
             PureRunValue.Union(typeId, variantId, fields |> List.sortBy (fst >> StableId.value))
         | PureRunValue.Product(typeId, fields) ->
@@ -292,11 +318,23 @@ module PureRun =
                 Error(diagnostic "RunInvalidResult" "A result field has the wrong type or invalid UTF-16.")
             else Ok(parsed |> List.choose id)
 
-    let private parseResult types resultType (output: string) =
+    let rec private parseResult types resultType (output: string) =
         try
             use document = JsonDocument.Parse(output)
             let value = document.RootElement
             match resultType, value.ValueKind with
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.List | BuiltinGenericType.Option) as kind, [ itemType ]), JsonValueKind.Array
+                when not (supportedScalar itemType) ->
+                let items = value.EnumerateArray() |> Seq.toList
+                if (kind = BuiltinGenericType.Option && items.Length > 1) || items.Length > 4096 then
+                    Error(diagnostic "RunInvalidResult" "Invalid container result size.")
+                else
+                    let parsed = items |> List.fold (fun state item ->
+                        state |> Result.bind (fun acc -> parseResult types itemType (item.GetRawText()) |> Result.map (fun value -> value :: acc))) (Ok [])
+                    parsed |> Result.map (fun items ->
+                        let items = List.rev items
+                        if kind = BuiltinGenericType.List then PureRunValue.ListValue(itemType, items)
+                        else PureRunValue.OptionValue(itemType, List.tryHead items))
             | TypeRef.Named typeId, JsonValueKind.Array ->
                 match productFields types typeId with
                 | Some fields -> parseFields fields value |> Result.map (fun parsed -> PureRunValue.Product(typeId, parsed))
@@ -369,6 +407,46 @@ module PureRun =
         with :? JsonException ->
             Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
 
+    let rec private supportedType types depth itemType =
+        if depth > 8 then false else
+            match itemType with
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.List | BuiltinGenericType.Option), [ item ]) ->
+                supportedType types (depth + 1) item
+            | TypeRef.Named typeId ->
+                Option.isSome (productFields types typeId) || Option.isSome (unionVariants types typeId)
+            | _ -> supportedScalar itemType || supportedResult itemType
+
+    let rec private validContainers types = function
+        | PureRunValue.ListValue(itemType, items) ->
+            not (supportedScalar itemType) && supportedType types 1 itemType
+            && (items |> List.forall (fun item -> valueType item = itemType && validContainers types item))
+        | PureRunValue.OptionValue(itemType, item) ->
+            not (supportedScalar itemType) && supportedType types 1 itemType
+            && (item |> Option.forall (fun value -> valueType value = itemType && validContainers types value))
+        | _ -> true
+
+    let private boundedValue value =
+        let mutable remaining = 8192
+        let rec visit depth value =
+            remaining <- remaining - 1
+            if depth > 8 || remaining < 0 then false else
+                let count size = remaining <- remaining - size; remaining >= 0
+                match value with
+                | PureRunValue.ListValue(_, items) -> items |> List.forall (visit (depth + 1))
+                | PureRunValue.OptionValue(_, item) -> item |> Option.forall (visit (depth + 1))
+                | PureRunValue.StringList items -> count items.Length
+                | PureRunValue.BoolList items -> count items.Length
+                | PureRunValue.Int64List items -> count items.Length
+                | PureRunValue.StringOption item -> count (if Option.isSome item then 1 else 0)
+                | PureRunValue.BoolOption item -> count (if Option.isSome item then 1 else 0)
+                | PureRunValue.Int64Option item -> count (if Option.isSome item then 1 else 0)
+                | PureRunValue.ResultOk _
+                | PureRunValue.ResultErr _ -> count 1
+                | PureRunValue.Product(_, fields)
+                | PureRunValue.Union(_, _, fields) -> count fields.Length
+                | _ -> true
+        visit 0 value
+
     let private runVerified
         (session: AuthoringSession)
         (functionId: FunctionId)
@@ -378,11 +456,6 @@ module PureRun =
         let declarations = session.Declarations()
         let arguments = arguments |> List.map canonicalValue
         let expected = expected |> Option.map canonicalValue
-        let supportedNamed = function
-            | TypeRef.Named typeId ->
-                (productFields declarations.Types typeId |> Option.isSome)
-                || (unionVariants declarations.Types typeId |> Option.isSome)
-            | _ -> false
         match declarations.Functions |> List.tryFind (fun item -> item.Id = functionId) with
         | None -> Error(diagnostic "RunFunctionNotFound" "The entry function does not exist.")
         | Some fn when not (List.isEmpty fn.RequiredEffects) ->
@@ -395,27 +468,25 @@ module PureRun =
             Error(diagnostic "RunProductShapeMismatch" "Product arguments must supply each declared scalar field exactly once with its exact type (at most 256 fields).")
         | Some fn when arguments |> List.exists (validUnion declarations.Types >> not) ->
             Error(diagnostic "RunUnionShapeMismatch" "Union arguments must name a variant of the declared scalar-field Union and supply each field exactly once with its exact type.")
-        | Some fn when not (supportedNamed fn.ResultType) && not (supportedResult fn.ResultType) && not (List.contains fn.ResultType
-            [ TypeRef.Primitive PrimitiveType.String
-              TypeRef.Primitive PrimitiveType.Bool
-              TypeRef.Primitive PrimitiveType.Int64
-              listType PrimitiveType.String
-              listType PrimitiveType.Bool
-              listType PrimitiveType.Int64
-              optionType PrimitiveType.String
-              optionType PrimitiveType.Bool
-              optionType PrimitiveType.Int64 ]) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Only String, Bool, Int64, flat Lists/Options/Results, and scalar-field Products/Unions are supported (at most 256 fields per constructor and 256 variants per Union).")
+        | Some fn when arguments |> List.exists (validContainers declarations.Types >> not) ->
+            Error(diagnostic "RunContainerTypeMismatch" "Nested container item types must be supported and match every payload; scalar items use the flat value representation.")
+        | Some fn when not (supportedType declarations.Types 0 fn.ResultType) ->
+            Error(diagnostic "RunResultTypeUnsupported" "Supported values are scalars, scalar Results/Products/Unions and up to eight outer List/Option layers.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
         | Some fn when expected |> Option.exists (validProduct declarations.Types >> not) ->
             Error(diagnostic "RunProductShapeMismatch" "A Product expectation must supply each declared scalar field exactly once with its exact type.")
         | Some fn when expected |> Option.exists (validUnion declarations.Types >> not) ->
             Error(diagnostic "RunUnionShapeMismatch" "A Union expectation must name a variant of the declared scalar-field Union and supply each field exactly once with its exact type.")
+        | Some fn when expected |> Option.exists (validContainers declarations.Types >> not) ->
+            Error(diagnostic "RunContainerTypeMismatch" "A nested expectation has an unsupported or mismatched item type.")
         | Some fn when arguments @ Option.toList expected |> List.exists oversized ->
             Error(diagnostic "RunArgumentTooLarge" "Lists are limited to 4096 items; Product/Union constructors to 256 fields; each value to 65536 total String UTF-16 code units.")
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (fun text -> isNull text || text.Length > 65536) ->
             Error(diagnostic "RunArgumentTooLarge" "A String argument or expectation is null or exceeds 65536 UTF-16 code units.")
+        | Some fn when arguments @ Option.toList expected |> List.exists (fun value ->
+            strings value |> List.sumBy (fun text -> int64 text.Length) |> fun length -> length > 65536L) ->
+            Error(diagnostic "RunArgumentTooLarge" "Each value is limited to 65536 aggregate String UTF-16 code units.")
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (wellFormedUtf16 >> not) ->
             Error(diagnostic "RunInvalidString" "String arguments and expectations must contain well-formed UTF-16.")
         | Some fn ->
@@ -432,75 +503,54 @@ module PureRun =
                         File.WriteAllText(Path.Combine(root, "Generated.cs"), artifact.Source)
                         let args = arguments |> List.map sourceArgument |> String.concat ", "
                         let entry = CSharpBackendNames.functionName fn.Id
+                        let mutable nextName = 0
+                        let fresh () =
+                            nextName <- nextName + 1
+                            "v" + string nextName
+                        let rec encode itemType access =
+                            let array items = "new object[] { " + String.concat ", " items + " }"
+                            let fields owner (fields: SemanticField list) =
+                                fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> array
+                            let expression =
+                                match itemType with
+                                | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
+                                | TypeRef.Primitive _ -> "(object)" + access
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                    let name, accumulator = fresh (), fresh ()
+                                    let child = encode item name
+                                    $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new InvalidOperationException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                    let child = encode item (access + ".Value")
+                                    $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                    let ok = array [ "true"; encode okType (access + ".OkValue") ]
+                                    let error = array [ "false"; encode errorType (access + ".ErrorValue") ]
+                                    $"({access}.IsOk ? {ok} : {error})"
+                                | TypeRef.Named typeId ->
+                                    match productFields declarations.Types typeId with
+                                    | Some declared -> fields access declared
+                                    | None ->
+                                        let cases = unionVariants declarations.Types typeId |> Option.get
+                                        let fallback = "throw new InvalidOperationException(\"Unknown or null Union variant.\")"
+                                        List.foldBack (fun (variant: SemanticVariant) rest ->
+                                            let name = fresh ()
+                                            let variantName = CSharpBackendNames.variantName variant.Id
+                                            let tag = JsonSerializer.Serialize(StableId.value variant.Id)
+                                            let payload = array [ tag; fields name variant.Fields ]
+                                            $"({access} is {variantName} {name} ? {payload} : {rest})") cases fallback
+                                | _ -> invalidOp "Unsupported output type passed validation."
+                            "Count(" + expression + ")"
+                        let encoded = encode fn.ResultType "result"
                         let program =
-                            let prefix =
-                                "using System; using System.Globalization; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
-                                + $"var result = NyFunctions.{entry}({args});\n"
-                            match fn.ResultType with
-                            | TypeRef.Named typeId ->
-                                let outputFields owner (fields: SemanticField list) =
-                                    let guards = fields |> List.choose (fun field ->
-                                        if field.Type = TypeRef.Primitive PrimitiveType.String then
-                                            let access = owner + "." + CSharpBackendNames.fieldName field.Id
-                                            Some($"if ({access} == null) throw new InvalidOperationException(\"Null String field.\"); new UTF8Encoding(false, true).GetByteCount({access});\n")
-                                        else None) |> String.concat ""
-                                    let values = fields |> List.map (fun field -> owner + "." + CSharpBackendNames.fieldName field.Id) |> String.concat ", "
-                                    guards, $"new object[] {{ {values} }}"
-                                match productFields declarations.Types typeId with
-                                | Some fields ->
-                                    let guards, values = outputFields "result" fields
-                                    prefix + guards + $"Console.WriteLine(JsonSerializer.Serialize({values}));\n"
-                                | None ->
-                                    let cases = unionVariants declarations.Types typeId |> Option.get
-                                                |> List.mapi (fun index variant ->
-                                                    let owner = "selected" + string index
-                                                    let name = CSharpBackendNames.variantName variant.Id
-                                                    let tag = JsonSerializer.Serialize(StableId.value variant.Id)
-                                                    let guards, values = outputFields owner variant.Fields
-                                                    $"if (result is {name} {owner}) {{ {guards}Console.WriteLine(JsonSerializer.Serialize(new object[] {{ {tag}, {values} }})); }}\n")
-                                                |> String.concat "else "
-                                    prefix + cases + "else throw new InvalidOperationException(\"Unknown or null Union variant.\");\n"
-                            | TypeRef.Primitive PrimitiveType.String ->
-                                prefix
-                                + "if (!WellFormed(result)) { Console.Error.WriteLine(\"Invalid UTF-16 result.\"); Environment.ExitCode = 1; }\n"
-                                + "else Console.WriteLine(JsonSerializer.Serialize(result));\n"
-                                + "static bool WellFormed(string value) { if (value == null) return false; for (int i = 0; i < value.Length; i++) { if (char.IsHighSurrogate(value[i])) { if (++i == value.Length || !char.IsLowSurrogate(value[i])) return false; } else if (char.IsLowSurrogate(value[i])) return false; } return true; }\n"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                let guard field itemType =
-                                    if itemType = TypeRef.Primitive PrimitiveType.String then
-                                        $"if (result.{field} == null) throw new InvalidOperationException(\"Null String payload.\"); new UTF8Encoding(false, true).GetByteCount(result.{field}); "
-                                    else ""
-                                prefix
-                                + "if (result.IsOk) { " + guard "OkValue" okType
-                                + "Console.WriteLine(JsonSerializer.Serialize(new object[] { true, result.OkValue })); }\n"
-                                + "else { " + guard "ErrorValue" errorType
-                                + "Console.WriteLine(JsonSerializer.Serialize(new object[] { false, result.ErrorValue })); }\n"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive primitive ]) ->
-                                let itemType =
-                                    match primitive with
-                                    | PrimitiveType.String -> "string"
-                                    | PrimitiveType.Bool -> "bool"
-                                    | _ -> "long"
-                                let guard =
-                                    if primitive = PrimitiveType.String then
-                                        "if (result.HasValue) { if (result.Value == null) throw new InvalidOperationException(\"Null String value.\"); new UTF8Encoding(false, true).GetByteCount(result.Value); }\n"
-                                    else ""
-                                prefix + guard
-                                + $"Console.WriteLine(JsonSerializer.Serialize(result.HasValue ? new {itemType}[] {{ result.Value }} : Array.Empty<{itemType}>()));\n"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive primitive ]) ->
-                                let itemType =
-                                    match primitive with
-                                    | PrimitiveType.String -> "string"
-                                    | PrimitiveType.Bool -> "bool"
-                                    | _ -> "long"
-                                let guard =
-                                    if primitive = PrimitiveType.String then
-                                        "if (item == null) throw new InvalidOperationException(\"Null String item.\"); new UTF8Encoding(false, true).GetByteCount(item); "
-                                    else ""
-                                prefix
-                                + $"var values = result.Fold(new System.Collections.Generic.List<{itemType}>(), (items, item) => {{ if (items.Count >= 4096) throw new InvalidOperationException(\"List result exceeds 4096 items.\"); {guard}items.Add(item); return items; }});\n"
-                                + "Console.WriteLine(JsonSerializer.Serialize(values));\n"
-                            | _ -> prefix + "Console.WriteLine(JsonSerializer.Serialize(result));\n"
+                            "using System; using System.Globalization; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
+                            + $"var result = NyFunctions.{entry}({args});\n"
+                            + "int remaining = 8192;\n"
+                            + (if encoded.Contains("CheckedString(") then "long textRemaining = 65536;\n" else "")
+                            + $"Console.WriteLine(JsonSerializer.Serialize({encoded}));\n"
+                            + "object Count(object value) { if (--remaining < 0) throw new InvalidOperationException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
+                            + (if encoded.Contains("CheckedString(") then
+                                "string CheckedString(string value) { if (value == null) throw new InvalidOperationException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new InvalidOperationException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
+                               else "")
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
@@ -530,4 +580,6 @@ module PureRun =
         : Result<PureRunResult, PureRunError> =
         match session.VerifyPersistedSource() with
         | Error error -> Error(PureRunError.SessionFailure error)
+        | Ok() when arguments @ Option.toList expected |> List.exists (boundedValue >> not) ->
+            Error(diagnostic "RunArgumentTooLarge" "Values are limited to eight nested container layers and 8192 total value nodes.")
         | Ok() -> runVerified session functionId arguments expected
