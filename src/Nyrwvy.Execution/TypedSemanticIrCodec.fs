@@ -370,6 +370,13 @@ module TypedSemanticIrCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+            writer.WriteString("kind", "useResource")
+            writer.WriteString("acquireNodeId", StableId.value acquireNodeId)
+            writer.WriteString("releaseCapabilityNodeId", StableId.value releaseCapabilityNodeId)
+            writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

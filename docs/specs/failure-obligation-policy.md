@@ -209,6 +209,8 @@ For M1 pure specialized list operations:
 
 Effectful traversal is the separate construct `ListEffectFold`, leaving pure `ListMap` semantics unchanged. Its sequencing is left to right, each item exactly once. Expected failure is the folder's own `Result`: the first `Err` stops the traversal and is the node's value, a runtime-domain failure rather than a host exception. Cancellation is not part of this construct (see G4).
 
+Scoped resource release (`UseResource`) keeps expected failures in `Result`: acquisition `Err` short-circuits, a body `Err` takes precedence over a release `Err`, and a release `Err` surfaces only after a successful body. Host exceptions remain host failures: release is attempted before the original exception propagates, and a second host failure during that release is suppressed so it cannot mask the first.
+
 ## Backend errors are not semantic type errors
 
 If a semantically valid snapshot lowers to backend-neutral Execution IR but a backend does not yet support it, report backend readiness/emission failure.

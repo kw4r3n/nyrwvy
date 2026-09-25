@@ -86,6 +86,13 @@ module internal WireGraph =
             tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.ListEffectFold(source, seed, folder, bindings) ->
             tagged "listEffectFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+        | SemanticNodeKind.UseResource(acquire, releaseCapability, releaseOperation, body, bindings) ->
+            tagged "useResource"
+                ([ "acquireNodeId", identity acquire
+                   "releaseCapabilityNodeId", identity releaseCapability
+                   "releaseOperationId", identity releaseOperation
+                   "bodyFunctionId", identity body ]
+                 @ context bindings)
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

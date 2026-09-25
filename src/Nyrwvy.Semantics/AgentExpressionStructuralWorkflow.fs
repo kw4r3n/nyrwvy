@@ -53,6 +53,7 @@ type ExpressionRecipe =
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -188,6 +189,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.UseResource(acquire, releaseCapability, _, _, context) ->
+            seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
@@ -674,6 +677,40 @@ module AgentExpressionStructuralWorkflow =
                                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Ok resultType
                                         | _ ->
                                             Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListEffectFold folder must return the accumulator type S or Result<S, E>.")
+            | ExpressionRecipe.UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context) ->
+                let fail code message = Error(diagnostic code message)
+                match infer frames acquire with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])) ->
+                    match Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
+                    | None, _ -> fail "PureExpressionListCallbackNotFound" $"UseResource body '{StableId.value bodyFunctionId}' does not exist."
+                    | _, None -> fail "ExpressionCapabilityOperationNotFound" $"UseResource references unknown release operation '{StableId.value releaseOperationId}'."
+                    | Some body, Some(ownerCapabilityId, operation) ->
+                        match validateCallbackContext "UseResource" body context (infer frames), infer frames releaseCapability with
+                        | Error error, _
+                        | _, Error error -> Error error
+                        | Ok unbound, Ok _ when (match unbound with [ resource ] -> resource.Type <> resourceType | _ -> true) ->
+                            fail "UseResourceBodyMismatch" "UseResource body must have exactly one parameter not bound by context, of the acquired resource type."
+                        | Ok _, Ok receiverType when receiverType <> TypeRef.Capability ownerCapabilityId ->
+                            fail "UseResourceReleaseReceiverMismatch" "UseResource release capability value does not own the release operation."
+                        | Ok _, Ok _ ->
+                            let releaseReturnsResult = operation.ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ unitType; errorType ])
+                            let missing =
+                                body.RequiredEffects @ [ operation.EffectId ]
+                                |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
+                            match body.ResultType, missing with
+                            | _, Some effectId ->
+                                fail "ExpressionCallMissingEffectRequirement" $"UseResource requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]), None when bodyError <> errorType ->
+                                fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]), None ->
+                                match operation.Parameters with
+                                | [ parameter ] when parameter.Type = resourceType && (operation.ResultType = unitType || releaseReturnsResult) ->
+                                    Ok body.ResultType
+                                | _ ->
+                                    fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
+                            | _ -> fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
+                | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {actual}."
             | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1085,6 +1122,13 @@ module AgentExpressionStructuralWorkflow =
             let contextNodes, contextBindings = materializeContext folderFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListEffectFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context) ->
+            let acquireNodes, acquireResult = materializeRecipe acquire
+            let capabilityNodes, capabilityResult = materializeRecipe releaseCapability
+            let contextNodes, contextBindings = materializeContext bodyFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            acquireNodes @ capabilityNodes @ contextNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.UseResource(acquireResult, capabilityResult, releaseOperationId, bodyFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context

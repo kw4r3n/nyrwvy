@@ -68,6 +68,7 @@ type ViewerNodeRole =
     | ListConcat
     | ListFold
     | ListEffectFold
+    | UseResource
     | ListMap
     | ListFilter
     | ListAny
@@ -207,6 +208,8 @@ module ViewerProjection =
             ViewerNodeRole.ListFold, callbackRelation folderFunctionId
         | SemanticNodeKind.ListEffectFold(_, _, folderFunctionId, _) ->
             ViewerNodeRole.ListEffectFold, callbackRelation folderFunctionId
+        | SemanticNodeKind.UseResource(_, _, _, bodyFunctionId, _) ->
+            ViewerNodeRole.UseResource, callbackRelation bodyFunctionId
         | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
         | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
@@ -352,6 +355,7 @@ module ViewerProjection =
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

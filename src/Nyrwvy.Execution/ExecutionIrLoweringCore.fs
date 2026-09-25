@@ -337,6 +337,13 @@ module ExecutionIr =
                             | Ok lowered ->
                                 lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
                                     ExecutionInstructionKind.ListEffectFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+                            match requireNodeValue environment acquireNodeId, requireNodeValue environment releaseCapabilityNodeId, lowerCallArguments context with
+                            | Ok acquire, Ok capability, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.UseResource(acquire, capability, releaseOperationId, bodyFunctionId, lowered)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
@@ -601,6 +608,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListConcat _
                         | TypedSemanticNodeKind.ListFold _
                         | TypedSemanticNodeKind.ListEffectFold _
+                        | TypedSemanticNodeKind.UseResource _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

@@ -114,6 +114,14 @@ module internal WireRecipe =
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListEffectFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "useResource" ->
+            ensureFields "use-resource recipe" [ "kind"; "acquire"; "releaseCapability"; "releaseOperationId"; "bodyFunctionId"; "context" ] [ "kind"; "acquire"; "releaseCapability"; "releaseOperationId"; "bodyFunctionId" ] element
+            ExpressionRecipe.UseResource(
+                recipe (property "acquire" element),
+                recipe (property "releaseCapability" element),
+                id<CapabilityOperationTag> "releaseOperationId" element,
+                id<FunctionTag> "bodyFunctionId" element,
+                callbackContext ())
         | "listMap"
         | "listFilter"
         | "listAny"

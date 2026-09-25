@@ -56,6 +56,7 @@ module SemanticQuery =
                     | SemanticNodeKind.DirectCall(functionId, _)
                     | SemanticNodeKind.ListFold(_, _, functionId, _)
                     | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
+                    | SemanticNodeKind.UseResource(_, _, _, functionId, _)
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)

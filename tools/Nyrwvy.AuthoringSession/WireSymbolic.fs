@@ -279,6 +279,21 @@ module internal WireSymbolic =
                 callback.Id,
                 callbackContext callback
             )
+        | "useResource" ->
+            ensureFields
+                "use-resource recipe"
+                [ "kind"; "acquire"; "releaseCapability"; "capability"; "releaseOperation"; "body"; "context" ]
+                [ "kind"; "acquire"; "releaseCapability"; "capability"; "releaseOperation"; "body" ]
+                element
+            let capability = resolveCapability declarations (requiredString "capability" element)
+            let operation = capabilityOperation capability (requiredString "releaseOperation" element)
+            let body = resolveFunction declarations (requiredString "body" element)
+            ExpressionRecipe.UseResource(
+                recipe declarations parameterContext (property "acquire" element),
+                recipe declarations parameterContext (property "releaseCapability" element),
+                operation.Id,
+                body.Id,
+                callbackContext body)
         | "listMap"
         | "listFilter"
         | "listAny"

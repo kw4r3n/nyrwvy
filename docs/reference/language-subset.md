@@ -69,6 +69,7 @@ ListAppendItem
 ListConcat
 ListFold
 ListEffectFold
+UseResource
 ListMap
 ListFilter
 ListAny

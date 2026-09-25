@@ -46,6 +46,8 @@ module SemanticFacts =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -129,6 +131,7 @@ module SemanticFacts =
             | SemanticNodeKind.ListConcat _
             | SemanticNodeKind.ListFold _
             | SemanticNodeKind.ListEffectFold _
+            | SemanticNodeKind.UseResource _
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -309,6 +312,8 @@ module SemanticFacts =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> Some folder.ResultType
                             | _ -> Some seedType
                         | seedType, _ -> seedType
+                    | SemanticNodeKind.UseResource(_, _, _, bodyFunctionId, _) ->
+                        Map.tryFind bodyFunctionId index.Functions |> Option.map (fun body -> body.ResultType)
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, _) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->

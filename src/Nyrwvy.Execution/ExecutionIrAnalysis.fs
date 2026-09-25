@@ -65,6 +65,8 @@ module internal ExecutionIrAnalysis =
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -130,6 +132,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListEffectFold _
+            | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -172,6 +175,7 @@ module internal ExecutionIrAnalysis =
             match Map.tryFind functionId functionsById with
             | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
             | None -> false
+        | TypedSemanticNodeKind.UseResource _ -> true
         | TypedSemanticNodeKind.DirectCall(functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -344,6 +348,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
             | TypedSemanticNodeKind.ListEffectFold _
+            | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

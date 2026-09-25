@@ -345,6 +345,7 @@ module CSharpBackend =
         (writer: SourceWriter)
         (parametersOf: FunctionId -> ParameterId list)
         (valueTypeOf: ExecutionValueId -> TypeRef)
+        (operationResultOf: CapabilityOperationId -> TypeRef)
         (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
         let callback = renderCallback parametersOf target
@@ -438,6 +439,34 @@ module CSharpBackend =
                 let resultType = formatType instruction.Result.Type
                 let step = renderInvocation parametersOf folderFunctionId context [ state + ".OkValue"; item ]
                 writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + resultType + ".Ok(" + valueName seedValueId + "), (" + state + ", " + item + ") => " + state + ".IsOk ? " + step + " : " + state + ");")
+        | ExecutionInstructionKind.UseResource(acquireValueId, releaseCapabilityValueId, releaseOperationId, bodyFunctionId, context) ->
+            // Release always runs after acquisition succeeded: on Ok and Err exits, and before a host
+            // exception from the body propagates. A body Err takes precedence over a release Err.
+            let resultType = formatType instruction.Result.Type
+            let acquired, resource, body, released = target + "_acquired", target + "_resource", target + "_body", target + "_released"
+            let release = valueName releaseCapabilityValueId + "." + CSharpBackendNames.capabilityOperationName releaseOperationId + "(" + resource + ")"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + acquired + " = " + valueName acquireValueId + ";")
+            writer.Line("if (!" + acquired + ".IsOk) " + target + " = " + resultType + ".Err(" + acquired + ".ErrorValue);")
+            writer.Line("else")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + resource + " = " + acquired + ".OkValue;")
+            writer.Line(resultType + " " + body + ";")
+            writer.Line("try { " + body + " = " + renderInvocation parametersOf bodyFunctionId context [ resource ] + "; }")
+            writer.Line("catch { try { " + release + "; } catch { } throw; }")
+            match operationResultOf releaseOperationId with
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, _) ->
+                writer.Line("var " + released + " = " + release + ";")
+                writer.Line(target + " = " + body + ".IsOk && !" + released + ".IsOk ? " + resultType + ".Err(" + released + ".ErrorValue) : " + body + ";")
+            | _ ->
+                writer.Line(release + ";")
+                writer.Line(target + " = " + body + ";")
+            writer.Pop()
+            writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
@@ -511,7 +540,11 @@ module CSharpBackend =
             writer.Line("if (" + valueName inputValueId + ".IsOk) goto " + CSharpBackendNames.executionBlockLabel okBlock + ";")
             writer.Line("goto " + CSharpBackendNames.executionBlockLabel errBlock + ";")
 
-    let private emitFunction (writer: SourceWriter) (parametersOf: FunctionId -> ParameterId list) (functionEntity: ExecutionFunction) =
+    let private emitFunction
+        (writer: SourceWriter)
+        (parametersOf: FunctionId -> ParameterId list)
+        (operationResultOf: CapabilityOperationId -> TypeRef)
+        (functionEntity: ExecutionFunction) =
         let parameters =
             functionEntity.Parameters
             |> List.map (fun parameter ->
@@ -580,7 +613,7 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) instruction
+                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
             emitTerminator writer block block.Terminator
             writer.Line("")
 
@@ -596,8 +629,12 @@ module CSharpBackend =
             program.Functions
             |> List.map (fun item -> item.SemanticFunctionId, item.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId))
             |> Map.ofList
+        let operationResults =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.ResultType))
+            |> Map.ofList
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
-            emitFunction writer (fun functionId -> Map.find functionId parameters) functionEntity
+            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) functionEntity
         writer.Pop()
         writer.Line("}")
 

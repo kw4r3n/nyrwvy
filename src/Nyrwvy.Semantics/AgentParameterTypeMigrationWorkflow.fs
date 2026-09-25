@@ -244,6 +244,11 @@ module internal SignatureMigrationCore =
                 two (fun (source, seed) -> source, seed) source seed
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListEffectFold(source, seed, folder, context)))
+            | ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context) ->
+                two (fun (acquire, releaseCapability) -> acquire, releaseCapability) acquire releaseCapability
+                |> Result.bind (fun (acquire, releaseCapability) ->
+                    rewritePairs context
+                    |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context

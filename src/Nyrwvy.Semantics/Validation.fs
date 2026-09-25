@@ -57,6 +57,8 @@ module SnapshotValidator =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -128,6 +130,8 @@ module SnapshotValidator =
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -792,6 +796,32 @@ module SnapshotValidator =
                                             $"Function '{StableId.value functionEntity.Id}' folds with '{StableId.value folder.Id}' but does not declare required effect '{StableId.value effectId}'."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListEffectFold requires List<T> input."
                         | _ -> ()
+                    | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+                        match nodeType acquireNodeId, Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])), Some body, Some(ownerCapabilityId, operation) ->
+                            match validateCallbackContext node.Id body context with
+                            | [ resource ] when resource.Type = resourceType -> ()
+                            | _ -> add "UseResourceBodyMismatch" $"UseResource node '{StableId.value node.Id}' body must have exactly one unbound parameter of the resource type."
+                            match body.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]) when bodyError = errorType -> ()
+                            | _ -> add "UseResourceResultMismatch" $"UseResource node '{StableId.value node.Id}' body must return Result<T, E> with the acquisition error type."
+                            if nodeType releaseCapabilityNodeId <> Some(TypeRef.Capability ownerCapabilityId) then
+                                add "UseResourceReleaseReceiverMismatch" $"UseResource node '{StableId.value node.Id}' release capability does not own the release operation."
+                            let releaseResult = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Primitive PrimitiveType.Unit; errorType ])
+                            match operation.Parameters with
+                            | [ parameter ] when parameter.Type = resourceType && (operation.ResultType = TypeRef.Primitive PrimitiveType.Unit || operation.ResultType = releaseResult) -> ()
+                            | _ -> add "UseResourceReleaseSignatureMismatch" $"UseResource node '{StableId.value node.Id}' release must take the resource and return Unit or Result<Unit, E>."
+                            for effectId in body.RequiredEffects @ [ operation.EffectId ] do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add
+                                        "MissingEffectRequirement"
+                                        $"Function '{StableId.value functionEntity.Id}' uses a resource requiring effect '{StableId.value effectId}' that it does not declare."
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])), None, _ ->
+                            add "UnknownCallTarget" $"UseResource node '{StableId.value node.Id}' references an unknown body function."
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])), _, None ->
+                            add "UnknownCapabilityOperation" $"UseResource node '{StableId.value node.Id}' references an unknown release operation."
+                        | Some _, _, _ -> add "UseResourceAcquireTypeMismatch" $"UseResource node '{StableId.value node.Id}' acquisition must produce Result<R, E>."
+                        | None, _, _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
@@ -1220,6 +1250,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

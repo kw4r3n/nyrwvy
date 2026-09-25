@@ -200,6 +200,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// declaration order, receive the iteration values (accumulator and item for ListFold, the
     /// item otherwise). An empty context is the plain callback.
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    /// Acquires a resource with `acquire : Result<R, E>`; on Ok runs the body function with R (other
+    /// parameters bound by `context`) and then always releases R through a capability operation.
+    | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
@@ -313,6 +316,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -392,6 +396,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

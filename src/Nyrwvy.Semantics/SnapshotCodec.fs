@@ -453,6 +453,13 @@ module SnapshotCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+            writer.WriteString("kind", "useResource")
+            writer.WriteString("acquireNodeId", StableId.value acquireNodeId)
+            writer.WriteString("releaseCapabilityNodeId", StableId.value releaseCapabilityNodeId)
+            writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -992,6 +999,15 @@ module SnapshotCodec =
             | "listEffectFold" ->
                 ensureProperties "ListEffectFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.ListEffectFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "useResource" ->
+                let required = set [ "id"; "kind"; "acquireNodeId"; "releaseCapabilityNodeId"; "releaseOperationId"; "bodyFunctionId" ]
+                ensureProperties "UseResource node" required (Set.add "context" required) element
+                SemanticNodeKind.UseResource(
+                    readId<GraphNodeTag> "acquireNodeId" element,
+                    readId<GraphNodeTag> "releaseCapabilityNodeId" element,
+                    readId<CapabilityOperationTag> "releaseOperationId" element,
+                    readId<FunctionTag> "bodyFunctionId" element,
+                    readCallbackContext element)
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))

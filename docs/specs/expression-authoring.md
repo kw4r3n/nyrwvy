@@ -222,6 +222,14 @@ For a source `List<T>`:
 
 Effectful callbacks remain rejected by these pure traversals, even when the target declares their effects.
 
+**Scoped resources.** `UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)` has these parts:
+- `acquire : Result<R, E>` is an ordinary expression, usually a capability invocation.
+- The body function has exactly one parameter not bound by `context`, of type `R`, and returns `Result<T, E>` with the same `E`.
+- The release operation belongs to `releaseCapability`'s capability, takes exactly `R`, and returns `Unit` or `Result<Unit, E>`.
+- The body's and release operation's effects must be declared by the enclosing function.
+
+The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the body and release do not run. Otherwise the body runs with the resource, and release **always** runs afterwards, on the body's Ok and Err exits alike and also before a host exception from the body propagates. A release failure during host-exception unwinding never replaces the original exception. Failure combination: a body `Err` wins; a release `Err` is the result only when the body succeeded. Values stay managed (Q-012 is unchanged): the resource is an ordinary value such as a handle string or Product, and nothing prevents it from being copied into the result. The construct guarantees release, not uniqueness. Diagnostics are `UseResourceAcquireTypeMismatch`, `UseResourceBodyMismatch`, `UseResourceResultMismatch`, `UseResourceReleaseReceiverMismatch` and `UseResourceReleaseSignatureMismatch`, plus the ordinary effect and reference errors. Wire recipes use `{ "kind": "useResource", "acquire", "releaseCapability", "releaseOperationId", "bodyFunctionId", "context"? }`; name-resolved recipes use `capability`, `releaseOperation` and `body` names.
+
 **Effectful iteration.** `ListEffectFold(source, seed, folderFunctionId, context)` is the separate construct for effectful traversal. The folder takes `(accumulator, item)` over its parameters not bound by context, may use effects, and every effect it requires must already be declared by the enclosing function (`ExpressionCallMissingEffectRequirement` / `MissingEffectRequirement`). Capabilities reach it as context arguments. It runs the folder exactly once per item, left to right, in the enclosing effect order. It has two modes, chosen by types: a folder returning the seed type `S` yields `S`; a folder returning `Result<S, E>` for seed `S` yields `Result<S, E>`, stops at the first `Err`, returns it, and calls the folder (and so performs its effects) for no later item. An empty source yields the seed (or `Ok seed`). The node is effectful for execution effect-ordering exactly when its folder declares effects. This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
 
 ## Structured declaration bindings

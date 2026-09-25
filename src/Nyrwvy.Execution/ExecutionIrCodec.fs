@@ -305,6 +305,13 @@ module ExecutionIrCodec =
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.UseResource(acquireValueId, releaseCapabilityValueId, releaseOperationId, bodyFunctionId, context) ->
+            [ property "kind" (quote "useResource")
+              property "acquireValueId" (executionValueIdValue acquireValueId)
+              property "releaseCapabilityValueId" (executionValueIdValue releaseCapabilityValueId)
+              property "releaseOperationId" (stableIdValue releaseOperationId)
+              property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
