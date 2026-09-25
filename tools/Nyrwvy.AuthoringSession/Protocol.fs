@@ -559,6 +559,24 @@ module AuthoringProtocol =
                 match session.SimulateAddFieldlessUnionVariantLike request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateAddUnionVariantLike" ->
+                ensureFields
+                    "simulateAddUnionVariantLike request"
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
+                    root
+                let request: AgentAddFieldlessUnionVariantLikeRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetTypeId = id<TypeTag> "typeId" root
+                      SourceVariantId = id<VariantTag> "sourceVariantId" root
+                      NewVariantDisplayName = requiredString "displayName" root }
+                let additionalFields =
+                    tryProperty "additionalFields" root
+                    |> Option.map (fun _ -> array "additionalFields" root |> List.map typeFieldIntent)
+                    |> Option.defaultValue []
+                match session.SimulateAddUnionVariantLike(request, additionalFields) with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"

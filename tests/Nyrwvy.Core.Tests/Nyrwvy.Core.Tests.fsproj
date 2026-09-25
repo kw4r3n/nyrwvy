@@ -67,6 +67,7 @@
     <Compile Include="StringConcatTests.fs" />
     <Compile Include="Int64TextTests.fs" />
     <Compile Include="ResultTypeMigrationTests.fs" />
+    <Compile Include="UnionVariantWithFieldsTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

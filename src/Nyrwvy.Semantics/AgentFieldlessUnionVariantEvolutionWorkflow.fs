@@ -58,15 +58,17 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
         |> List.map (fun issue ->
             diagnostic ("Validation." + issue.Code) issue.Message)
 
-    let private cloneGraph (graph: ValueGraph): ValueGraph =
+    /// Clones a graph with fresh node and pattern-binding IDs. `outerBindings` are bindings owned
+    /// by the enclosing arm (its field bindings); references to them are remapped as well, and the
+    /// returned map gives their fresh IDs.
+    let private cloneGraph (outerBindings: PatternBindingId list) (graph: ValueGraph): ValueGraph * Map<PatternBindingId, PatternBindingId> =
         let nodeIds =
             ValueGraph.collectNodes graph
             |> List.map (fun node -> node.Id)
             |> List.distinct
 
         let patternIds =
-            SemanticFacts.collectPatternBindings graph
-            |> List.map (fun binding -> binding.Id)
+            outerBindings @ (SemanticFacts.collectPatternBindings graph |> List.map (fun binding -> binding.Id))
             |> List.distinct
 
         let nodeIdMap =
@@ -317,11 +319,13 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     mapErrorArm errArm
                 )
 
-        mapGraph graph
+        mapGraph graph, patternIdMap
 
     let private repairMatches
         (sourceVariantId: VariantId)
         (addedVariantId: VariantId)
+        (fieldMap: Map<FieldId, FieldId>)
+        (extraFields: SemanticField list)
         (graph: ValueGraph)
         : ValueGraph * int =
         let rec repairGraph (current: ValueGraph): ValueGraph * int =
@@ -359,10 +363,24 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                         SemanticNodeKind.MatchUnion(inputNodeId, repairedArms)
                     | Some sourceArm ->
                         repairedMatchCount <- repairedMatchCount + 1
+                        let body, bindingMap =
+                            cloneGraph (sourceArm.FieldBindings |> List.map (fun item -> item.Binding.Id)) sourceArm.Body
                         let addedArm: UnionMatchArm =
                             { VariantId = addedVariantId
-                              FieldBindings = []
-                              Body = cloneGraph sourceArm.Body }
+                              FieldBindings =
+                                (sourceArm.FieldBindings
+                                 |> List.map (fun item ->
+                                     { SourceFieldId = Map.find item.SourceFieldId fieldMap
+                                       Binding = { item.Binding with Id = Map.find item.Binding.Id bindingMap } }))
+                                // Additional fields are bound but unused until the arm body is refined.
+                                @ (extraFields
+                                   |> List.map (fun field ->
+                                       { SourceFieldId = field.Id
+                                         Binding =
+                                           { Id = StableIdAllocator.newPatternBindingId ()
+                                             DisplayName = Some field.DisplayName
+                                             Type = field.Type } }))
+                              Body = body }
                         SemanticNodeKind.MatchUnion(
                             inputNodeId,
                             repairedArms @ [ addedArm ]
@@ -392,9 +410,11 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
         repairGraph graph
 
-    let simulate
+    let private simulateLike
         (workspace: AgentWorkspace)
         (request: AgentAddFieldlessUnionVariantLikeRequest)
+        (copySourceFields: bool)
+        (additionalFields: AgentTypeFieldIntent list)
         : Result<AgentFieldlessUnionVariantEvolutionProposal, AgentStructuralWorkflowError> =
         let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
 
@@ -429,6 +449,11 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                         "UnionVariantEvolutionTargetNotUnion"
                         "The target type must be a Union."
                 | SemanticTypeKind.Union variants ->
+                    let invalidFieldNames (sourceVariant: SemanticVariant) =
+                        let names =
+                            (sourceVariant.Fields |> List.map (fun field -> field.DisplayName))
+                            @ (additionalFields |> List.map (fun field -> field.DisplayName))
+                        List.distinct names <> names || names |> List.exists String.IsNullOrWhiteSpace
                     match
                         variants
                         |> List.tryFind (fun variant ->
@@ -438,15 +463,30 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                         rejected
                             "UnionVariantEvolutionSourceVariantNotFound"
                             "The source variant does not belong to the target Union."
-                    | Some sourceVariant when not (List.isEmpty sourceVariant.Fields) ->
+                    | Some sourceVariant when not copySourceFields && not (List.isEmpty sourceVariant.Fields) ->
                         rejected
                             "UnionVariantEvolutionSourceVariantHasFields"
                             "This bounded evolution operation supports only fieldless source variants."
-                    | Some _ ->
+                    | Some sourceVariant when invalidFieldNames sourceVariant ->
+                        rejected
+                            "UnionVariantEvolutionFieldDisplayNameInvalid"
+                            "New variant field display names must be non-blank and distinct, including copied source fields."
+                    | Some sourceVariant when variants |> List.exists (fun variant -> variant.DisplayName = request.NewVariantDisplayName) ->
+                        rejected
+                            "UnionVariantEvolutionDuplicateVariantDisplayName"
+                            "The Union already has a variant with this display name."
+                    | Some sourceVariant ->
+                        // Copied source fields keep names and types under fresh identities.
+                        let copied =
+                            sourceVariant.Fields |> List.map (fun (field: SemanticField) -> field, { field with Id = StableIdAllocator.newFieldId () })
+                        let fieldMap = copied |> List.map (fun (source, added) -> source.Id, added.Id) |> Map.ofList
+                        let added =
+                            additionalFields |> List.map (fun field ->
+                                ({ Id = StableIdAllocator.newFieldId (); DisplayName = field.DisplayName; Type = field.Type }: SemanticField))
                         let addedVariant: SemanticVariant =
                             { Id = StableIdAllocator.newVariantId ()
                               DisplayName = request.NewVariantDisplayName
-                              Fields = [] }
+                              Fields = (copied |> List.map snd) @ added }
 
                         let updatedType =
                             { targetType with
@@ -462,6 +502,8 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                                     repairMatches
                                         request.SourceVariantId
                                         addedVariant.Id
+                                        fieldMap
+                                        added
                                         functionEntity.Body
                                 functionEntity, body, repairedMatchCount)
 
@@ -530,6 +572,17 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                                               ProposedSnapshot = proposedSnapshot
                                               Review = review }
                                     )
+
+    /// Adds a fieldless variant whose match arms copy those of a fieldless source variant.
+    let simulate workspace (request: AgentAddFieldlessUnionVariantLikeRequest) =
+        simulateLike workspace request false []
+
+    /// Adds a variant that copies the source variant's fields (fresh identities, same names and
+    /// types) plus `additionalFields`. Every match arm for the source is cloned for the new variant
+    /// with its field bindings remapped, so no intermediate program is non-exhaustive; arm bodies
+    /// can then be refined with targeted replacement.
+    let simulateWithFields workspace (request: AgentAddFieldlessUnionVariantLikeRequest) (additionalFields: AgentTypeFieldIntent list) =
+        simulateLike workspace request true additionalFields
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)

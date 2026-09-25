@@ -502,6 +502,21 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                         AgentFieldlessUnionVariantEvolutionProposal.review proposal
                     ))
 
+    member _.SimulateAddUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields workspace request additionalFields with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register
+                    (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
+                    (PendingProposal.FieldlessUnionVariantEvolution proposal)
+                    (AuthoringProposalReview.FieldlessUnionVariantEvolution(
+                        AgentFieldlessUnionVariantEvolutionProposal.review proposal
+                    ))
+
     member _.SimulateCreateEffect(request: AgentCreateEffectDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
