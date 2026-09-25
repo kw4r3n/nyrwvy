@@ -138,12 +138,12 @@ The real-host MCP probe and the [general-purpose programming roadmap](general-pu
 
 The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
-**The order is provisional.** Items 1 and 2 are the two candidates for the next step, and neither has been chosen. Item 1 is the first blocker; item 2 is the smallest certain step. Revise the order with the reason recorded when a choice is made or new evidence appears.
+**The order is provisional.** Item 2 was taken first as the smallest certain step and is now implemented; item 1, the first blocker, is next and starts with its design note. Revise the order with the reason recorded when a choice is made or new evidence appears.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
 | 1 | Concurrency control beyond `ParallelAll` | The rrawrlet leader waits for whichever member finishes first with a time limit, and stops one member from outside. `ParallelAll` only waits for all or cancels all on the first `Err`. Same area as the semantic-independence "no abort" and "shared capability under `ParallelAll`" gaps. | A design note first (structured races or task handles, time limits, per-worker cancellation, how abort and `UseResource` release interact), before any construct. |
-| 2 | No String length or substring | `preview(text, limit)` cannot be written; only empty/contains/equal/concat and Int64 conversion exist. | A small G1-style addition with UTF-16 or code-point semantics stated. |
+| 2 | ~~No String length or substring~~ **Done** | `preview(text, limit)` could not be written; only empty/contains/equal/concat and Int64 conversion existed. | `StringLength` and clamped `StringSlice`, both counted in code points (see the [language subset](../reference/language-subset.md)). |
 | 3 | Fakes cannot target one call | Fake responses are consumed in call order across all workers, so "only member 2 fails" cannot be pinned down. | Responses keyed by argument, or a separate fake per worker, in `runPure`. |
 | 4 | Stable IDs still required | Effect/Capability creation has no name-resolved form, and `runPure` values take only TypeId/FieldId; the probe needed a 30-line name→ID helper. | Name-resolved forms with the same ambiguity rejection as other graph tools. |
 | 5 | No Bool and/or/not, no Map | Expressible (nested conditionals; `List` of entries with a fold upsert), but verbose: 2 extra types and 2 extra functions in the probe. | Decide whether the review and authoring cost justifies dedicated constructs. |

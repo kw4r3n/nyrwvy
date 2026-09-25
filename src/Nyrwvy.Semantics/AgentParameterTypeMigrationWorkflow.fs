@@ -209,6 +209,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
             | ExpressionRecipe.Int64ToString value -> one ExpressionRecipe.Int64ToString value
             | ExpressionRecipe.StringParseInt64 value -> one ExpressionRecipe.StringParseInt64 value
+            | ExpressionRecipe.StringLength value -> one ExpressionRecipe.StringLength value
+            | ExpressionRecipe.StringSlice(value, start, stop) -> three ExpressionRecipe.StringSlice value start stop
             | ExpressionRecipe.Float64IsNaN value -> one ExpressionRecipe.Float64IsNaN value
             | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value

@@ -45,6 +45,8 @@ ExpressionRecipe =
   | StringConcat(left, right)
   | Int64ToString(expr)
   | StringParseInt64(expr)
+  | StringLength(expr)
+  | StringSlice(expr, expr, expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)

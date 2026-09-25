@@ -379,6 +379,14 @@ module SnapshotCodec =
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringLength valueNodeId ->
+            writer.WriteString("kind", "stringLength")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringSlice")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -926,6 +934,20 @@ module SnapshotCodec =
             | "stringParseInt64" ->
                 ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringLength" ->
+                ensureProperties "StringLength node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringLength(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringSlice" ->
+                ensureProperties
+                    "StringSlice node"
+                    (set [ "id"; "kind"; "valueNodeId"; "startNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "startNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.StringSlice(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "startNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
+                )
             | "stringContains" ->
                 ensureProperties
                     "StringContains node"

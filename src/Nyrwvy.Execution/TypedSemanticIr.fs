@@ -83,6 +83,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringIsEmpty of valueNodeId: GraphNodeId
     | Int64ToString of valueNodeId: GraphNodeId
     | StringParseInt64 of valueNodeId: GraphNodeId
+    | StringLength of valueNodeId: GraphNodeId
+    | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -252,6 +254,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
                     | SemanticNodeKind.StringParseInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
+                    | SemanticNodeKind.StringLength valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringLength valueNodeId)
+                    | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId))
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->

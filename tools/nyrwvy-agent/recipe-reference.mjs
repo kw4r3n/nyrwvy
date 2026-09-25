@@ -10,7 +10,7 @@ const categories = {
   references: ["parameter", "patternReference"],
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
-    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat", "int64ToString", "stringParseInt64",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -61,6 +61,8 @@ const references = {
   stringParseInt64: { ...unary("stringParseInt64"), notes: "String to Option<Int64>: Some only for an optional '-' followed by ASCII digits within range; '+', whitespace, empty text or overflow give None." },
   stringContains: { shape: { kind: "stringContains", value: recipe, substring: recipe } },
   stringEqual: { ...binary("stringEqual"), notes: "Ordinal, case-sensitive exact equality; both operands must be String." },
+  stringLength: { ...unary("stringLength"), notes: "Int64 count of code points: a surrogate pair counts once, an unpaired surrogate once." },
+  stringSlice: { shape: { kind: "stringSlice", value: recipe, start: recipe, end: recipe }, notes: "Code points at Int64 positions [start, end). Both bounds clamp to [0, length]; end <= start gives \"\". Never fails; never splits a surrogate pair." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
   int64WrappingAdd: binary("int64WrappingAdd"),
   int64WrappingSubtract: binary("int64WrappingSubtract"),

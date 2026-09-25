@@ -13,7 +13,9 @@ module SemanticFacts =
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringLength valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
@@ -107,6 +109,8 @@ module SemanticFacts =
             | SemanticNodeKind.StringIsEmpty _
             | SemanticNodeKind.Int64ToString _
             | SemanticNodeKind.StringParseInt64 _
+            | SemanticNodeKind.StringLength _
+            | SemanticNodeKind.StringSlice _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
             | SemanticNodeKind.StringConcat _
@@ -266,7 +270,8 @@ module SemanticFacts =
                         Map.tryFind bindingId patternBindingsById
                         |> Option.map (fun binding -> binding.Type)
                     | SemanticNodeKind.StringLiteral _
-                    | SemanticNodeKind.StringConcat _ ->
+                    | SemanticNodeKind.StringConcat _
+                    | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.BoolLiteral _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
@@ -276,6 +281,7 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64WrappingAdd _
                     | SemanticNodeKind.Int64WrappingSubtract _
                     | SemanticNodeKind.Int64WrappingMultiply _
+                    | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _
