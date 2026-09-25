@@ -5,6 +5,8 @@ type ValueDependencyRole =
     | Value
     | Error
     | Substring
+    | SliceStart
+    | SliceEnd
     | LeftOperand
     | RightOperand
     | Source
@@ -34,8 +36,13 @@ module ValueDependency =
         match node.Kind with
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
-        | SemanticNodeKind.StringParseInt64 sourceNodeId ->
+        | SemanticNodeKind.StringParseInt64 sourceNodeId
+        | SemanticNodeKind.StringLength sourceNodeId ->
             [ create ValueDependencyRole.Source sourceNodeId ]
+        | SemanticNodeKind.StringSlice(sourceNodeId, startNodeId, endNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.SliceStart startNodeId
+              create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.StringContains(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]

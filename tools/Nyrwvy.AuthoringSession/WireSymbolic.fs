@@ -225,6 +225,14 @@ module internal WireSymbolic =
         | "stringIsEmpty" -> unary "string-is-empty recipe" ExpressionRecipe.StringIsEmpty
         | "int64ToString" -> unary "int64-to-string recipe" ExpressionRecipe.Int64ToString
         | "stringParseInt64" -> unary "string-parse-int64 recipe" ExpressionRecipe.StringParseInt64
+        | "stringLength" -> unary "string-length recipe" ExpressionRecipe.StringLength
+        | "stringSlice" ->
+            ensureFields "string-slice recipe" [ "kind"; "value"; "start"; "end" ] [ "kind"; "value"; "start"; "end" ] element
+            ExpressionRecipe.StringSlice(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "start" element),
+                recipe declarations parameterContext (property "end" element)
+            )
         | "stringContains" ->
             ensureFields "string-contains recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringContains(

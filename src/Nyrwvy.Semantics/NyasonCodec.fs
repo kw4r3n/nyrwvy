@@ -445,6 +445,15 @@ module NyasonCodec =
             record "int64-to-string" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             record "string-parse-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringLength valueNodeId ->
+            record "string-length" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+            record
+                "string-slice"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "start", encodeId "node" startNodeId
+                  "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             record
                 "string-contains"
@@ -724,6 +733,19 @@ module NyasonCodec =
             let fields = recordFields "string-parse-int64" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringParseInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-length", _) ->
+            let fields = recordFields "string-length" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringLength(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-slice", _) ->
+            let fields = recordFields "string-slice" [ "id"; "value"; "start"; "end" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.StringSlice(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "start" fields),
+                    decodeId<GraphNodeTag> "node" (require "end" fields)
+                ) }
         | NyasonValue.Record("string-contains", _) ->
             let fields = recordFields "string-contains" [ "id"; "value"; "substring" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

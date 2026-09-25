@@ -32,7 +32,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.Int64ToString valueNodeId
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId
+        | TypedSemanticNodeKind.StringLength valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
@@ -110,6 +112,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringLength _
+            | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -209,6 +213,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.Int64ToString _
         | TypedSemanticNodeKind.StringParseInt64 _
+        | TypedSemanticNodeKind.StringLength _
+        | TypedSemanticNodeKind.StringSlice _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringConcat _
@@ -333,6 +339,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringLength _
+            | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _

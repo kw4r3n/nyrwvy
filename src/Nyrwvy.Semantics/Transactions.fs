@@ -241,6 +241,8 @@ module Transaction =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _
@@ -717,6 +719,8 @@ module Transaction =
                         | SemanticNodeKind.StringIsEmpty _
                         | SemanticNodeKind.Int64ToString _
                         | SemanticNodeKind.StringParseInt64 _
+                        | SemanticNodeKind.StringLength _
+                        | SemanticNodeKind.StringSlice _
                         | SemanticNodeKind.StringContains _
                         | SemanticNodeKind.StringEqual _
                         | SemanticNodeKind.StringConcat _

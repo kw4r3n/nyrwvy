@@ -26,6 +26,8 @@ type ExpressionRecipe =
     | StringIsEmpty of ExpressionRecipe
     | Int64ToString of ExpressionRecipe
     | StringParseInt64 of ExpressionRecipe
+    | StringLength of ExpressionRecipe
+    | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
@@ -124,6 +126,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringIsEmpty value -> ExpressionRecipe.StringIsEmpty(go value)
         | ExpressionRecipe.Int64ToString value -> ExpressionRecipe.Int64ToString(go value)
         | ExpressionRecipe.StringParseInt64 value -> ExpressionRecipe.StringParseInt64(go value)
+        | ExpressionRecipe.StringLength value -> ExpressionRecipe.StringLength(go value)
+        | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringConcat(left, right) -> ExpressionRecipe.StringConcat(go left, go right)
@@ -236,6 +240,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringIsEmpty child
         | ExpressionRecipe.Int64ToString child
         | ExpressionRecipe.StringParseInt64 child
+        | ExpressionRecipe.StringLength child
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
@@ -244,6 +249,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.OptionSome child
         | ExpressionRecipe.ResultOk(_, child)
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
+        | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.StringConcat(left, right)
@@ -645,6 +651,19 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
             | ExpressionRecipe.StringParseInt64 value ->
                 unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+            | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
+            | ExpressionRecipe.StringSlice(value, start, stop) ->
+                match unary "StringSlice" stringType stringType value with
+                | Error error -> Error error
+                | Ok _ ->
+                    match infer frames start with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "start" int64Type actual)
+                    | Ok _ ->
+                        match infer frames stop with
+                        | Error error -> Error error
+                        | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "end" int64Type actual)
+                        | Ok _ -> Ok stringType
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
@@ -1205,6 +1224,15 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringIsEmpty value -> unary SemanticNodeKind.StringIsEmpty value
         | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
         | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
+        | ExpressionRecipe.StringLength value -> unary SemanticNodeKind.StringLength value
+        | ExpressionRecipe.StringSlice(value, start, stop) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let startNodes, startResult = materializeRecipe start
+            let stopNodes, stopResult = materializeRecipe stop
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ startNodes @ stopNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringSlice(valueResult, startResult, stopResult) } ],
+            nodeId
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right

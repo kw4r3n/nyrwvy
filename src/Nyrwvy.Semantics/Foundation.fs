@@ -173,6 +173,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
     /// range; any other text, including '+', whitespace or an empty String, is None.
     | StringParseInt64 of valueNodeId: GraphNodeId
+    /// Number of code points in the String, as an Int64. A surrogate pair counts once; an unpaired
+    /// surrogate code unit counts as one code point.
+    | StringLength of valueNodeId: GraphNodeId
+    /// The code points at positions [start, end) of the String. Both bounds are clamped to
+    /// [0, StringLength], and end <= start yields the empty String, so slicing never fails.
+    | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -300,6 +306,8 @@ module ValueGraph =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -382,6 +390,8 @@ module ValueGraph =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _

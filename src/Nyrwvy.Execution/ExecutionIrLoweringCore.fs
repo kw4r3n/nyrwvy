@@ -265,6 +265,19 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
+                        | TypedSemanticNodeKind.StringLength valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringLength
+                        | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                            match
+                                requireNodeValue environment valueNodeId,
+                                requireNodeValue environment startNodeId,
+                                requireNodeValue environment endNodeId
+                            with
+                            | Ok valueId, Ok startId, Ok endId ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringSlice(valueId, startId, endId)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->
@@ -586,6 +599,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.Int64ToString _
                         | TypedSemanticNodeKind.StringParseInt64 _
+                        | TypedSemanticNodeKind.StringLength _
+                        | TypedSemanticNodeKind.StringSlice _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringConcat _
