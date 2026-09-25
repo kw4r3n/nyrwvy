@@ -227,6 +227,22 @@ module SemanticFacts =
                 resolvedTypes[nodeId] <- result
                 result
 
+        /// A callback's result type with the type arguments its context and iteration values determine.
+        and callbackResult (visiting: Set<GraphNodeId>) (callback: SemanticFunction) (context: ArgumentBinding list) (iteration: TypeRef list) =
+            let contextPairs =
+                context |> List.choose (fun binding ->
+                    match callback.Parameters |> List.tryFind (fun parameter -> parameter.Id = binding.TargetParameterId), tryNodeType visiting binding.ValueNodeId with
+                    | Some parameter, Some actual -> Some(parameter.Type, actual)
+                    | _ -> None)
+            let unbound =
+                callback.Parameters
+                |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id)))
+                |> List.map (fun parameter -> parameter.Type)
+            let iterationPairs = List.zip (List.truncate iteration.Length unbound) (List.truncate unbound.Length iteration)
+            match TypeParameters.matchAll (contextPairs @ iterationPairs) with
+            | Some substitution -> TypeParameters.substitute substitution callback.ResultType
+            | None -> callback.ResultType
+
         and inferNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
             if Set.contains nodeId visiting then
                 None
@@ -304,24 +320,43 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
-                    | SemanticNodeKind.ListEffectFold(_, seedNodeId, folderFunctionId, _) ->
+                    | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         // A folder returning Result<S, E> for seed S stops at the first Err.
                         match tryNodeType nextVisiting seedNodeId, Map.tryFind folderFunctionId index.Functions with
                         | Some seedType, Some folder ->
-                            match folder.ResultType with
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> Some folder.ResultType
+                            let iteration =
+                                match tryNodeType nextVisiting sourceListNodeId with
+                                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) -> [ seedType; itemType ]
+                                | _ -> [ seedType ]
+                            match callbackResult nextVisiting folder context iteration with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Some resultType
                             | _ -> Some seedType
                         | seedType, _ -> seedType
-                    | SemanticNodeKind.UseResource(_, _, _, bodyFunctionId, _) ->
-                        Map.tryFind bodyFunctionId index.Functions |> Option.map (fun body -> body.ResultType)
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, _) ->
+                    | SemanticNodeKind.UseResource(acquireNodeId, _, _, bodyFunctionId, context) ->
+                        match Map.tryFind bodyFunctionId index.Functions with
+                        | None -> None
+                        | Some body ->
+                            let resource =
+                                match tryNodeType nextVisiting acquireNodeId with
+                                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; _ ])) -> [ resourceType ]
+                                | _ -> []
+                            Some(callbackResult nextVisiting body context resource)
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->
-                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ mapper.ResultType ]))
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting mapper context [ itemType ] ]))
                         | _ -> None
-                    | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
+                    | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         Map.tryFind targetFunctionId index.Functions
-                        |> Option.map (fun target -> target.ResultType)
+                        |> Option.map (fun target ->
+                            let pairs =
+                                arguments |> List.choose (fun argument ->
+                                    match target.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId), tryNodeType nextVisiting argument.ValueNodeId with
+                                    | Some parameter, Some actual -> Some(parameter.Type, actual)
+                                    | _ -> None)
+                            match TypeParameters.matchAll pairs with
+                            | Some substitution -> TypeParameters.substitute substitution target.ResultType
+                            | None -> target.ResultType)
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                         Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)

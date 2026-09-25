@@ -24,6 +24,7 @@ type CapabilityParameterTag = class end
 type ObligationTag = class end
 type SnapshotTag = class end
 type TransactionTag = class end
+type TypeParameterTag = class end
 
 type TypeId = StableId<TypeTag>
 type FieldId = StableId<FieldTag>
@@ -39,6 +40,7 @@ type CapabilityParameterId = StableId<CapabilityParameterTag>
 type ObligationId = StableId<ObligationTag>
 type SnapshotId = StableId<SnapshotTag>
 type TransactionId = StableId<TransactionTag>
+type TypeParameterId = StableId<TypeParameterTag>
 
 [<RequireQualifiedAccess>]
 module StableId =

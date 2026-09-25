@@ -55,7 +55,7 @@ function defineTool(definition) { return definition }
  */
 export function createGraphTools(schema) {
   const object = schema.record(schema.string(), schema.unknown())
-  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, or builtinGeneric with generic option/result/list and arguments.')
+  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, builtinGeneric with generic option/result/list and arguments, or {kind:"typeParameter",name:"T"} in the parameter types of a new function (makes it generic; the same name means the same parameter, and callers get type arguments by argument matching).')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   return {
     open: defineTool({

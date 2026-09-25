@@ -70,6 +70,9 @@ type TypeRef =
     | Named of TypeId
     | Capability of CapabilityId
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
+    /// A type parameter of the function whose parameter types mention it. Its identity is
+    /// system-owned; the display name is fixed with it and carried for presentation only.
+    | TypeParameter of id: TypeParameterId * displayName: string
 
 type SemanticField =
     { Id: FieldId
@@ -425,3 +428,53 @@ module Snapshot =
           Capabilities = []
           Functions = []
           Obligations = [] }
+
+/// Function type parameters. A function's type parameters are those occurring in its parameter
+/// types; at a call or callback, type arguments are derived by matching each parameter type
+/// against the concrete argument type, so no inference beyond structural matching is involved.
+[<RequireQualifiedAccess>]
+module TypeParameters =
+    /// Type parameters occurring in a type, in first-occurrence order.
+    let occurring (typeRef: TypeRef): (TypeParameterId * string) list =
+        let rec collect (collected: (TypeParameterId * string) list) current =
+            match current with
+            | TypeRef.TypeParameter(id, name) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
+            | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.fold collect collected
+            | TypeRef.Primitive _
+            | TypeRef.Named _
+            | TypeRef.Capability _ -> collected
+        collect [] typeRef
+
+    /// Type parameters declared by a function's parameter types, in first-occurrence order.
+    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list =
+        functionEntity.Parameters
+        |> List.collect (fun parameter -> occurring parameter.Type)
+        |> List.distinctBy fst
+
+    let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
+        match typeRef with
+        | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
+        | TypeRef.Primitive _
+        | TypeRef.Named _
+        | TypeRef.Capability _ -> typeRef
+
+    /// Extends `substitution` so that `declared` becomes `actual`, or returns None on a conflict.
+    let rec matchType (substitution: Map<TypeParameterId, TypeRef>) (declared: TypeRef) (actual: TypeRef) =
+        match declared, actual with
+        | TypeRef.TypeParameter(id, _), _ ->
+            match Map.tryFind id substitution with
+            | Some bound when bound = actual -> Some substitution
+            | Some _ -> None
+            | None -> Some(Map.add id actual substitution)
+        | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
+            when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
+            List.zip declaredArguments actualArguments
+            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
+        | _ when declared = actual -> Some substitution
+        | _ -> None
+
+    /// Matches declared parameter types against actual types in order; None when any pair conflicts.
+    let matchAll (pairs: (TypeRef * TypeRef) list) =
+        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some Map.empty)

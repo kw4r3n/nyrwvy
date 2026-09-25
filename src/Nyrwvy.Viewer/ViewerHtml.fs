@@ -31,6 +31,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
+        | TypeRef.TypeParameter(_, displayName) -> displayName
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
             "Option<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->

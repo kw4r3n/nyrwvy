@@ -73,6 +73,12 @@ module internal WireSymbolic =
                 | "list" -> BuiltinGenericType.List
                 | value -> fail $"Unsupported builtin generic '{value}'."
             TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map (typeRef declarations))
+        | "typeParameter" ->
+            // A request-local type parameter name; function creation allocates its identity.
+            ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
+            let name = requiredString "name" element
+            if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
+            TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
         | value -> fail $"Unsupported symbolic type kind '{value}'."
 
     let private typeFieldIntent declarations (item: JsonElement): AgentTypeFieldIntent =

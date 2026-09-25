@@ -349,6 +349,10 @@ module SnapshotValidator =
         let rec validateTypeRef (context: string) (typeRef: TypeRef) =
             match typeRef with
             | TypeRef.Primitive _ -> ()
+            | TypeRef.TypeParameter(_, displayName) ->
+                // Function scope is checked per function; declarations reject type parameters.
+                if String.IsNullOrWhiteSpace displayName then
+                    add "TypeParameterDisplayNameBlank" $"{context} uses a type parameter with a blank display name."
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then
                     add "UnknownNamedType" $"{context} references unknown type '{StableId.value typeId}'."
@@ -402,6 +406,51 @@ module SnapshotValidator =
             validateTypeRef $"Capability operation '{StableId.value operation.Id}' result" operation.ResultType
             operation.FailureType
             |> Option.iter (validateTypeRef $"Capability operation '{StableId.value operation.Id}' failure")
+
+        let rec mentionsTypeParameter typeRef = not (List.isEmpty (TypeParameters.occurring typeRef))
+        for typeEntity in snapshot.Types do
+            let fields =
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields -> fields
+                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
+            for field in fields do
+                if mentionsTypeParameter field.Type then
+                    add "TypeParameterOutsideFunction" $"Field '{StableId.value field.Id}' uses a function type parameter; declared types are monomorphic."
+        for _, operation in capabilityOperationEntries do
+            let types = operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)) @ Option.toList operation.FailureType
+            if types |> List.exists mentionsTypeParameter then
+                add "TypeParameterOutsideFunction" $"Capability operation '{StableId.value operation.Id}' uses a function type parameter."
+        // Each type parameter belongs to one function, keeps one display name, and is introduced by
+        // that function's parameter types before its result or body can use it.
+        let typeParameterOwners =
+            snapshot.Functions
+            |> List.collect (fun functionEntity -> TypeParameters.ofFunction functionEntity |> List.map (fun (id, name) -> id, (functionEntity.Id, name)))
+        typeParameterOwners
+        |> List.groupBy fst
+        |> List.iter (fun (id, owners) ->
+            if (owners |> List.map (snd >> fst) |> List.distinct).Length > 1 then
+                add "TypeParameterSharedAcrossFunctions" $"Type parameter '{StableId.value id}' is declared by more than one function."
+            if (owners |> List.map (snd >> snd) |> List.distinct).Length > 1 then
+                add "TypeParameterDisplayNameConflict" $"Type parameter '{StableId.value id}' has more than one display name.")
+        for functionEntity in snapshot.Functions do
+            let declared = TypeParameters.ofFunction functionEntity |> List.map fst |> Set.ofList
+            let bodyTypes =
+                (SemanticFacts.collectPatternBindings functionEntity.Body |> List.map (fun binding -> binding.Type))
+                @ (ValueGraph.collectNodes functionEntity.Body
+                   |> List.collect (fun node ->
+                       match node.Kind with
+                       | SemanticNodeKind.ListEmpty itemType
+                       | SemanticNodeKind.ListConstruct(itemType, _)
+                       | SemanticNodeKind.OptionNone itemType
+                       | SemanticNodeKind.ResultOk(itemType, _)
+                       | SemanticNodeKind.ResultErr(itemType, _) -> [ itemType ]
+                       | _ -> []))
+            for typeRef in functionEntity.ResultType :: bodyTypes do
+                for id, name in TypeParameters.occurring typeRef do
+                    if not (Set.contains id declared) then
+                        add
+                            "TypeParameterNotDeclared"
+                            $"Function '{StableId.value functionEntity.Id}' uses type parameter '{name}' that none of its parameter types introduces."
 
         for functionEntity in snapshot.Functions do
             functionEntity.RequiredEffects
@@ -505,15 +554,23 @@ module SnapshotValidator =
                         add
                             "UnknownCallbackContextParameter"
                             $"Higher-order List node '{StableId.value nodeId}' binds '{StableId.value binding.TargetParameterId}', which is not a parameter of callback '{StableId.value callback.Id}'."
-                    | Some parameter ->
-                        match nodeType binding.ValueNodeId with
-                        | Some actual when actual <> parameter.Type ->
-                            add
-                                "ListCallbackContextTypeMismatch"
-                                $"Higher-order List node '{StableId.value nodeId}' binds callback parameter '{StableId.value parameter.Id}' to a value of another type."
-                        | _ -> ()
+                    | Some _ -> ()
+                let pairs =
+                    context |> List.choose (fun binding ->
+                        match callback.Parameters |> List.tryFind (fun parameter -> parameter.Id = binding.TargetParameterId), nodeType binding.ValueNodeId with
+                        | Some parameter, Some actual -> Some(parameter.Type, actual)
+                        | _ -> None)
+                let substitution =
+                    match TypeParameters.matchAll pairs with
+                    | Some substitution -> substitution
+                    | None ->
+                        add
+                            "ListCallbackContextTypeMismatch"
+                            $"Higher-order List node '{StableId.value nodeId}' binds a callback parameter to a value of another type."
+                        Map.empty
                 callback.Parameters
-                |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id)))
+                |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id))),
+                substitution
 
             let validateListCallback
                 (nodeId: GraphNodeId)
@@ -538,18 +595,21 @@ module SnapshotValidator =
                         "UnknownListCallbackFunction"
                         $"Higher-order List node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
                 | Some callback ->
-                    let unbound = validateCallbackContext nodeId callback context
+                    let unbound, contextSubstitution = validateCallbackContext nodeId callback context
+                    let mutable substitution = contextSubstitution
                     if unbound.Length <> 1 then
                         add
                             "ListCallbackArityMismatch"
                             $"Higher-order List node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
                     else
                         match sourceItemType with
-                        | Some itemType when unbound.Head.Type <> itemType ->
-                            add
-                                "ListCallbackParameterTypeMismatch"
-                                $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
-                        | Some _
+                        | Some itemType ->
+                            match TypeParameters.matchType substitution unbound.Head.Type itemType with
+                            | Some extended -> substitution <- extended
+                            | None ->
+                                add
+                                    "ListCallbackParameterTypeMismatch"
+                                    $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
                         | None -> ()
 
                     if not (List.isEmpty callback.RequiredEffects) then
@@ -558,7 +618,7 @@ module SnapshotValidator =
                             $"Higher-order List node '{StableId.value nodeId}' requires a pure callback with no required effects."
 
                     if predicateResultRequired
-                       && callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
+                       && TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
                         add
                             "ListPredicateResultTypeMismatch"
                             $"Higher-order List node '{StableId.value nodeId}' predicate callback must return Bool."
@@ -760,13 +820,18 @@ module SnapshotValidator =
                             match Map.tryFind folderFunctionId functionsById with
                             | None -> add "UnknownListCallbackFunction" $"ListFold node '{StableId.value node.Id}' references an unknown folder."
                             | Some folder ->
-                                let unbound = validateCallbackContext node.Id folder context
+                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
+                                let mutable substitution = contextSubstitution
                                 if unbound.Length <> 2 then
                                     add "ListCallbackArityMismatch" "ListFold folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
-                                    if unbound.Head.Type <> seedType || unbound.Tail.Head.Type <> itemType then
-                                        add "ListCallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
-                                if folder.ResultType <> seedType then
+                                    match
+                                        TypeParameters.matchType substitution unbound.Head.Type seedType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                    with
+                                    | Some extended -> substitution <- extended
+                                    | None -> add "ListCallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
+                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
                                     add "ListCallbackResultTypeMismatch" "ListFold folder must return the seed type."
                                 if not (List.isEmpty folder.RequiredEffects) then
                                     add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure."
@@ -778,13 +843,18 @@ module SnapshotValidator =
                             match Map.tryFind folderFunctionId functionsById with
                             | None -> add "UnknownListCallbackFunction" $"ListEffectFold node '{StableId.value node.Id}' references an unknown folder."
                             | Some folder ->
-                                let unbound = validateCallbackContext node.Id folder context
+                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
+                                let mutable substitution = contextSubstitution
                                 if unbound.Length <> 2 then
                                     add "ListCallbackArityMismatch" "ListEffectFold folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
-                                    if unbound.Head.Type <> seedType || unbound.Tail.Head.Type <> itemType then
-                                        add "ListCallbackParameterTypeMismatch" "ListEffectFold folder input types must match seed and list item types."
-                                match folder.ResultType with
+                                    match
+                                        TypeParameters.matchType substitution unbound.Head.Type seedType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                    with
+                                    | Some extended -> substitution <- extended
+                                    | None -> add "ListCallbackParameterTypeMismatch" "ListEffectFold folder input types must match seed and list item types."
+                                match TypeParameters.substitute substitution folder.ResultType with
                                 | resultType when resultType = seedType -> ()
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> ()
                                 | _ ->
@@ -799,10 +869,14 @@ module SnapshotValidator =
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
                         match nodeType acquireNodeId, Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])), Some body, Some(ownerCapabilityId, operation) ->
-                            match validateCallbackContext node.Id body context with
-                            | [ resource ] when resource.Type = resourceType -> ()
-                            | _ -> add "UseResourceBodyMismatch" $"UseResource node '{StableId.value node.Id}' body must have exactly one unbound parameter of the resource type."
-                            match body.ResultType with
+                            let unbound, contextSubstitution = validateCallbackContext node.Id body context
+                            let bodySubstitution =
+                                match unbound with
+                                | [ resource ] -> TypeParameters.matchType contextSubstitution resource.Type resourceType
+                                | _ -> None
+                            if Option.isNone bodySubstitution then
+                                add "UseResourceBodyMismatch" $"UseResource node '{StableId.value node.Id}' body must have exactly one unbound parameter of the resource type."
+                            match TypeParameters.substitute (bodySubstitution |> Option.defaultValue contextSubstitution) body.ResultType with
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]) when bodyError = errorType -> ()
                             | _ -> add "UseResourceResultMismatch" $"UseResource node '{StableId.value node.Id}' body must return Result<T, E> with the acquisition error type."
                             if nodeType releaseCapabilityNodeId <> Some(TypeRef.Capability ownerCapabilityId) then
@@ -853,14 +927,17 @@ module SnapshotValidator =
                                         "UnknownArgumentTargetParameter"
                                         $"Call node '{StableId.value node.Id}' targets parameter '{StableId.value argument.TargetParameterId}' not owned by its callee."
 
-                                match targetParameter, nodeType argument.ValueNodeId with
-                                | Some parameter, Some valueType when parameter.Type <> valueType ->
-                                    add
-                                        "ArgumentTypeMismatch"
-                                        $"Call node '{StableId.value node.Id}' binds a value with the wrong type to parameter '{StableId.value parameter.Id}'."
-                                | Some _, Some _
-                                | Some _, None
-                                | None, _ -> ()
+
+                            // A generic callee's type arguments follow from matching every bound argument.
+                            let pairs =
+                                arguments |> List.choose (fun argument ->
+                                    match targetFunction.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId), nodeType argument.ValueNodeId with
+                                    | Some parameter, Some valueType -> Some(parameter.Type, valueType)
+                                    | _ -> None)
+                            if Option.isNone (TypeParameters.matchAll pairs) then
+                                add
+                                    "ArgumentTypeMismatch"
+                                    $"Call node '{StableId.value node.Id}' binds a value whose type does not match its callee parameter."
 
                             for parameter in targetFunction.Parameters do
                                 let hasBinding =

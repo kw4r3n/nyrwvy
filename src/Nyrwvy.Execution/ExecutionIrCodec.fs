@@ -43,6 +43,11 @@ module ExecutionIrCodec =
             objectValue [ property "kind" (quote "primitiveInt64") ]
         | TypeRef.Primitive PrimitiveType.Float64 ->
             objectValue [ property "kind" (quote "primitiveFloat64") ]
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            objectValue
+                [ property "kind" (quote "typeParameter")
+                  property "typeParameterId" (quote (StableId.value typeParameterId))
+                  property "displayName" (quote displayName) ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")

@@ -24,6 +24,8 @@ module internal WireEncodeCommon =
             objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId) ]
         | TypeRef.Capability capabilityId ->
             objectValue [ "kind", box "capability"; "capabilityId", box (StableId.value capabilityId) ]
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            objectValue [ "kind", box "typeParameter"; "typeParameterId", box (StableId.value typeParameterId); "displayName", box displayName ]
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             let name =
                 match generic with

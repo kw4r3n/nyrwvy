@@ -55,6 +55,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
+        | TypeRef.TypeParameter(typeParameterId, _) -> CSharpBackendNames.typeParameterName typeParameterId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
             "NyOption<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -326,16 +327,18 @@ module CSharpBackend =
     /// A callback with context becomes a lambda that passes context values and the iteration values
     /// by parameter name; without context the method group is emitted unchanged.
     /// Calls a callback with its context values and the given iteration values, all by parameter name.
-    let private renderInvocation (parametersOf: FunctionId -> ParameterId list) (functionId: FunctionId) (context: ExecutionCallArgument list) (iterationValues: string list) =
+    let private renderInvocation (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (functionId: FunctionId) (context: ExecutionCallArgument list) (iterationValues: string list) =
         let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
-        let iteration = parametersOf functionId |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
+        let iteration = parametersOf functionId |> List.map fst |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
         let arguments =
             (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
             @ (List.map2 (fun parameterId value -> CSharpBackendNames.parameterName parameterId + ": " + value) iteration iterationValues)
         callbackName functionId + "(" + String.concat ", " arguments + ")"
 
-    let private renderCallback (parametersOf: FunctionId -> ParameterId list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
-        if List.isEmpty context then callbackName functionId
+    let private renderCallback (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
+        let generic = parametersOf functionId |> List.exists (fun (_, parameterType) -> not (List.isEmpty (TypeParameters.occurring parameterType)))
+        // A generic method group cannot be inferred by C#; a lambda lets the call infer its type arguments.
+        if List.isEmpty context && not generic then callbackName functionId
         else
             let unbound = (parametersOf functionId).Length - context.Length
             let names = List.init unbound (fun index -> target + "_it" + string index)
@@ -343,7 +346,7 @@ module CSharpBackend =
 
     let private emitInstruction
         (writer: SourceWriter)
-        (parametersOf: FunctionId -> ParameterId list)
+        (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
         (valueTypeOf: ExecutionValueId -> TypeRef)
         (operationResultOf: CapabilityOperationId -> TypeRef)
         (instruction: ExecutionInstruction) =
@@ -542,7 +545,7 @@ module CSharpBackend =
 
     let private emitFunction
         (writer: SourceWriter)
-        (parametersOf: FunctionId -> ParameterId list)
+        (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
         (operationResultOf: CapabilityOperationId -> TypeRef)
         (functionEntity: ExecutionFunction) =
         let parameters =
@@ -553,7 +556,13 @@ module CSharpBackend =
                 + CSharpBackendNames.parameterName parameter.SemanticParameterId)
             |> String.concat ", "
 
-        writer.Line("public static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + "(" + parameters + ")")
+        let typeParameters =
+            functionEntity.Parameters
+            |> List.collect (fun parameter -> TypeParameters.occurring parameter.Value.Type)
+            |> List.distinctBy fst
+            |> List.map (fst >> CSharpBackendNames.typeParameterName)
+        let generic = if List.isEmpty typeParameters then "" else "<" + String.concat ", " typeParameters + ">"
+        writer.Line("public static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + generic + "(" + parameters + ")")
         writer.Line("{")
         writer.Push()
 
@@ -627,7 +636,7 @@ module CSharpBackend =
         writer.Push()
         let parameters =
             program.Functions
-            |> List.map (fun item -> item.SemanticFunctionId, item.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId))
+            |> List.map (fun item -> item.SemanticFunctionId, item.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId, parameter.Value.Type))
             |> Map.ofList
         let operationResults =
             program.Capabilities

@@ -107,6 +107,15 @@ module internal WireInput =
         | "capability" ->
             ensureFields "capability type" [ "kind"; "capabilityId" ] [ "kind"; "capabilityId" ] element
             TypeRef.Capability(id<CapabilityTag> "capabilityId" element)
+        | "typeParameter" when (tryProperty "name" element).IsSome ->
+            // A request-local name; function creation replaces it with a fresh system-owned identity.
+            ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
+            let name = requiredString "name" element
+            if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
+            TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
+        | "typeParameter" ->
+            ensureFields "type parameter" [ "kind"; "typeParameterId"; "displayName" ] [ "kind"; "typeParameterId"; "displayName" ] element
+            TypeRef.TypeParameter(id<TypeParameterTag> "typeParameterId" element, requiredString "displayName" element)
         | "builtinGeneric" ->
             ensureFields "builtin generic type" [ "kind"; "generic"; "arguments" ] [ "kind"; "generic"; "arguments" ] element
             let generic =

@@ -84,6 +84,7 @@ module CSharpBackendNames =
     let typeName (id: TypeId) = stable "NyT_" id
     let fieldName (id: FieldId) = stable "f_" id
     let variantName (id: VariantId) = stable "NyV_" id
+    let typeParameterName (id: TypeParameterId) = stable "T_" id
     let functionName (id: FunctionId) = stable "NyF_" id
     let parameterName (id: ParameterId) = stable "p_" id
     let capabilityName (id: CapabilityId) = stable "NyC_" id

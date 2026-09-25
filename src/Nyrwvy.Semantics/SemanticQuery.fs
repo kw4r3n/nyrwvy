@@ -237,7 +237,8 @@ module SemanticQuery =
 
         let rec visitTypeRef (typeRef: TypeRef) =
             match typeRef with
-            | TypeRef.Primitive _ -> ()
+            | TypeRef.Primitive _
+            | TypeRef.TypeParameter _ -> ()
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then

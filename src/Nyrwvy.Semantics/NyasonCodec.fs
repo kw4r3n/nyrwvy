@@ -117,6 +117,8 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.Int64 -> record "primitive-int64" []
         | TypeRef.Primitive PrimitiveType.Float64 -> record "primitive-float64" []
         | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ]
         | TypeRef.Capability capabilityId ->
             record "capability-type" [ "capability", encodeId "capability" capabilityId ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
@@ -149,6 +151,9 @@ module NyasonCodec =
         | NyasonValue.Record("primitive-float64", _) ->
             recordFields "primitive-float64" [] [] value |> ignore
             TypeRef.Primitive PrimitiveType.Float64
+        | NyasonValue.Record("type-parameter", _) ->
+            let fields = recordFields "type-parameter" [ "id"; "name" ] [] value
+            TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields), decodeText (require "name" fields))
         | NyasonValue.Record("named-type", _) ->
             let fields = recordFields "named-type" [ "id" ] [] value
             TypeRef.Named(decodeId<TypeTag> "type" (require "id" fields))

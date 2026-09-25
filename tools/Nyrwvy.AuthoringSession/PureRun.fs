@@ -763,6 +763,8 @@ module PureRun =
         let expected = expected |> Option.map canonicalValue
         match declarations.Functions |> List.tryFind (fun item -> item.Id = functionId) with
         | None -> Error(diagnostic "RunFunctionNotFound" "The entry function does not exist.")
+        | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
+            Error(diagnostic "RunGenericEntryUnsupported" "A generic function cannot be an entry point; run a concrete function that calls it.")
         | Some fn when fn.Parameters.Length <> arguments.Length ->
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->

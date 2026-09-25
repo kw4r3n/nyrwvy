@@ -31,8 +31,8 @@ const type = "<typeRef>"
 const unary = kind => ({ shape: { kind, value: recipe } })
 /** @param {string} kind */
 const binary = kind => ({ shape: { kind, left: recipe, right: recipe } })
-/** @param {string} kind */
 const callbackContext = [{ parameter: "<callback parameter display name>", value: recipe }]
+/** @param {string} kind */
 const listCallback = kind => ({
   shape: { kind, source: recipe, function: "<function display name>", context: callbackContext },
   notes: "Optional context binds callback parameters to values computed once before iteration; the remaining unbound parameter receives each item. Callbacks stay pure.",

@@ -77,6 +77,8 @@ module AgentTypeDeclarationWorkflow =
         let rec validate current =
             match current with
             | TypeRef.Primitive _ -> Ok()
+            | TypeRef.TypeParameter _ ->
+                Error(diagnostic "TypeDeclarationTypeParameterNotAllowed" $"{context} cannot use a function type parameter; declared types are monomorphic.")
             | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
             | TypeRef.Named typeId ->
                 Error(

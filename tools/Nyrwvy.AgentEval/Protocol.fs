@@ -287,6 +287,8 @@ module private Encode =
             objectValue [ "kind", box "named"; "id", box (StableId.value typeId) ]
         | TypeRef.Capability capabilityId ->
             objectValue [ "kind", box "capability"; "id", box (StableId.value capabilityId) ]
+        | TypeRef.TypeParameter(id, name) ->
+            objectValue [ "kind", box "typeParameter"; "id", box (StableId.value id); "name", box name ]
         | TypeRef.BuiltinGeneric(kind, arguments) ->
             objectValue
                 [ "kind", box "builtinGeneric"

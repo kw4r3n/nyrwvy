@@ -26,6 +26,10 @@ module TypedSemanticIrCodec =
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            writer.WriteString("kind", "typeParameter")
+            writer.WriteString("typeParameterId", StableId.value typeParameterId)
+            writer.WriteString("displayName", displayName)
         | TypeRef.Capability capabilityId ->
             writer.WriteString("kind", "capability")
             writer.WriteString("capabilityId", StableId.value capabilityId)
