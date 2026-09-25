@@ -134,19 +134,21 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) are complete. The next implementation targets are the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps). That document is still **Proposed**, so each item below starts by settling the listed open decisions in a spec or decision record, then implements the smallest change.
+The real-host MCP probe and the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) are complete. The next implementation targets come from two sources: a 2026-09-25 rrawrlet slice probe, and the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps).
 
-**The order is provisional.** A parallel investigation is authoring part of rrawrlet to find the next concrete blocker. If it finds one, that blocker comes first and this order is revised with the reason recorded.
+The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
-| Order | Gap | Why here | Smallest change |
+**The order is provisional.** Items 1 and 2 are the two candidates for the next step, and neither has been chosen. Item 1 is the first blocker; item 2 is the smallest certain step. Revise the order with the reason recorded when a choice is made or new evidence appears.
+
+| Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
-| 1 | No function values | The acceptance question fails for computations that need them; a `find<T>(list, predicate)` cannot take its predicate. G2 stopped at context arguments and type parameters. | A function type and function-reference values, reusing callback context binding. |
-| 2 | No scoped interpretation | A program cannot choose a fake or alternate capability implementation; only host binding can. | A declaration implementing each operation of a capability with a Nyrwvy function, producing a capability value. |
-| 3 | No abort | Only fallback exists; `Result` propagation needs an explicit match at each step. | Define abort's meaning (never continues, runs `UseResource` release) before any construct. |
-| 4 | Shared capability under `ParallelAll` | Ordering and visibility for one capability used by several workers are inherited from the backend. | State the guarantees; decide with [Q-010](../decisions/open-questions.md) whether capabilities declare concurrency safety. |
-| 5 | Inferred requirements are not reported | Authoring limitation only; small and independent, so it may be taken earlier. | Expose computed requirements as a derived, non-authoritative review fact. |
+| 1 | Concurrency control beyond `ParallelAll` | The rrawrlet leader waits for whichever member finishes first with a time limit, and stops one member from outside. `ParallelAll` only waits for all or cancels all on the first `Err`. Same area as the semantic-independence "no abort" and "shared capability under `ParallelAll`" gaps. | A design note first (structured races or task handles, time limits, per-worker cancellation, how abort and `UseResource` release interact), before any construct. |
+| 2 | No String length or substring | `preview(text, limit)` cannot be written; only empty/contains/equal/concat and Int64 conversion exist. | A small G1-style addition with UTF-16 or code-point semantics stated. |
+| 3 | Fakes cannot target one call | Fake responses are consumed in call order across all workers, so "only member 2 fails" cannot be pinned down. | Responses keyed by argument, or a separate fake per worker, in `runPure`. |
+| 4 | Stable IDs still required | Effect/Capability creation has no name-resolved form, and `runPure` values take only TypeId/FieldId; the probe needed a 30-line name→ID helper. | Name-resolved forms with the same ambiguity rejection as other graph tools. |
+| 5 | No Bool and/or/not, no Map | Expressible (nested conditionals; `List` of entries with a fold upsert), but verbose: 2 extra types and 2 extra functions in the probe. | Decide whether the review and authoring cost justifies dedicated constructs. |
 
-Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
+The remaining semantic-independence gaps follow without a fixed order: scoped interpretation (program-chosen capability implementation), function values, and reporting inferred requirements (small and independent, so it may be taken earlier). Abort and the shared-capability contract are covered by item 1. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
 
 Preserve these constraints:
 

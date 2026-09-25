@@ -186,7 +186,7 @@ rrawrletの`team.py`には、文字列IDの比較、usage項目のキーごと�
 | 4 | T2と必要なG2のライブラリ再利用 | 複数・多段依存と明示更新を扱い、必要な型抽象化を追加する。 |
 | 5 | G4の非同期・寿命管理と残る反復表現 | 外部fake処理を組み合わせ、待機・停止・後始末を記述する。 |
 
-**2026-09-25時点で上表の1–5はすべて完了した。** 以降の実装キューは本計画ではなく[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)で管理し、[Semantic independence](../concepts/semantic-independence.md#current-gaps)のギャップを対象にする。
+**2026-09-25時点で上表の1–5はすべて完了した。** 以降の実装キューは本計画ではなく[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)で管理し、2026-09-25のrrawrlet sliceの調査結果と[Semantic independence](../concepts/semantic-independence.md#current-gaps)のギャップを対象にする。
 
 T3は各段階で必要な細い実行・診断経路を先に整え、共通化の必要が具体化したところでまとめる。上表は依存関係を踏まえた推奨順であり、別の具体的なblockerが先に出た場合は理由を記録して入れ替える。全目標を達成するまでrrawrletの全面移植を始められない、という意味ではない。移植の可否と範囲は別途判断する。
 
