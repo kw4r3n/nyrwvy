@@ -518,6 +518,25 @@ module AuthoringProtocol =
                 match session.SimulateResultTypeMigration request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateProductFieldTypeMigration" ->
+                ensureFields
+                    "simulateProductFieldTypeMigration request"
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites" ]
+                    root
+                let request: AgentProductFieldTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      FieldId = id<FieldTag> "fieldId" root
+                      NewFieldType = typeRef (property "newFieldType" root)
+                      FunctionRewrites =
+                        array "functionRewrites" root
+                        |> List.map (fun item ->
+                            ensureFields "function rewrite" [ "functionId"; "replacement" ] [ "functionId"; "replacement" ] item
+                            { FunctionId = id<FunctionTag> "functionId" item
+                              Replacement = recipe (property "replacement" item) }) }
+                match session.SimulateProductFieldTypeMigration request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"

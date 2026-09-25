@@ -122,31 +122,30 @@ module internal StructuralTransactionInternals =
                 "StructuralBodyReferencedByObligation"
                 $"Obligation '{StableId.value obligation.Id}' targets the body being replaced.")
 
-    let publishReviewedWithPolicy
+    /// Publishes a reviewed candidate after stale-base, fingerprint and readiness checks.
+    let publishCandidateWithPolicy
         (workspace: AgentWorkspace)
-        (transactionId: TransactionId)
         (proposedSnapshot: Snapshot)
-        (diff: FunctionBodyReplacementDiff)
         (readiness: TransactionReadiness)
         (receipt: TransactionPreviewReceipt)
         (policy: CommitPolicy)
-        : AgentStructuralCommitResult =
+        : Result<AgentWorkspace, TransactionDiagnostic list> =
         let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
 
         if currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentStructuralCommitResult.Rejected
+            Error
                 [ diagnostic
                       "StaleBaseSnapshot"
                       "The workspace advanced beyond the reviewed structural proposal." ]
         else
             match SnapshotFingerprint.compute currentSnapshot with
             | Error _ ->
-                AgentStructuralCommitResult.Rejected
+                Error
                     [ diagnostic
                           "FingerprintFailure"
                           "The base fingerprint could not be recomputed." ]
             | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentStructuralCommitResult.Rejected
+                Error
                     [ diagnostic
                           "PreviewReceiptBaseMismatch"
                           "The current base content differs from the reviewed base." ]
@@ -158,31 +157,41 @@ module internal StructuralTransactionInternals =
                     match readiness, policy with
                     | TransactionReadiness.Incomplete ids, CommitPolicy.RejectBlockingObligations ->
                         let rendered = ids |> List.map StableId.value |> String.concat ", "
-                        AgentStructuralCommitResult.Rejected
+                        Error
                             [ diagnostic
                                   "BlockingObligations"
                                   $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match AgentWorkspace.publishValidatedSnapshot workspace proposedSnapshot with
-                        | Error diagnostics -> AgentStructuralCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentStructuralCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = transactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposedSnapshot.Id
-                                  Diff = diff
-                                  Readiness = readiness
-                                  Receipt = receipt }
-                            )
+                    | _ -> AgentWorkspace.publishValidatedSnapshot workspace proposedSnapshot
                 | Ok _, Ok _ ->
-                    AgentStructuralCommitResult.Rejected
+                    Error
                         [ diagnostic
                               "PreviewReceiptResultMismatch"
                               "The proposed state differs from the reviewed receipt." ]
                 | Error _, _
                 | _, Error _ ->
-                    AgentStructuralCommitResult.Rejected
+                    Error
                         [ diagnostic
                               "FingerprintFailure"
                               "The proposed fingerprint could not be recomputed." ]
+
+    let publishReviewedWithPolicy
+        (workspace: AgentWorkspace)
+        (transactionId: TransactionId)
+        (proposedSnapshot: Snapshot)
+        (diff: FunctionBodyReplacementDiff)
+        (readiness: TransactionReadiness)
+        (receipt: TransactionPreviewReceipt)
+        (policy: CommitPolicy)
+        : AgentStructuralCommitResult =
+        match publishCandidateWithPolicy workspace proposedSnapshot readiness receipt policy with
+        | Error diagnostics -> AgentStructuralCommitResult.Rejected diagnostics
+        | Ok nextWorkspace ->
+            AgentStructuralCommitResult.Committed(
+                nextWorkspace,
+                { TransactionId = transactionId
+                  BaseSnapshotId = receipt.BaseSnapshotId
+                  PublishedSnapshotId = proposedSnapshot.Id
+                  Diff = diff
+                  Readiness = readiness
+                  Receipt = receipt }
+            )

@@ -1137,6 +1137,26 @@ module AgentExpressionStructuralWorkflow =
     let private materialize snapshot target frames recipe =
         materializeWithContext snapshot (ownerForExistingFunction target) frames recipe
 
+    /// Materializes a complete replacement body for an existing function against a candidate
+    /// snapshot that a multi-function migration is still completing. The recipe is bound and
+    /// type-checked against the candidate; the caller validates the final snapshot as a whole.
+    let internal materializeReplacementBody (snapshot: Snapshot) (target: SemanticFunction) recipe
+        : Result<ValueGraph, TransactionDiagnostic> =
+        match validateRecipeBounds recipeChildren recipe with
+        | Error error -> Error error
+        | Ok() ->
+            match inferType snapshot target recipe with
+            | Error error -> Error error
+            | Ok replacementType when replacementType <> target.ResultType ->
+                Error(
+                    diagnostic
+                        "PureExpressionResultTypeMismatch"
+                        $"The replacement recipe produces {replacementType}, but the target function returns {target.ResultType}."
+                )
+            | Ok _ ->
+                let nodes, resultNodeId = materialize snapshot target [] recipe
+                Ok { Nodes = nodes; ResultNodeId = resultNodeId }
+
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentReplaceFunctionBodyWithExpressionRecipe)

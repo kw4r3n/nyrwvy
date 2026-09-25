@@ -31,6 +31,7 @@
     <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
+    <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflow.fs" />
   </ItemGroup>
 </Project>

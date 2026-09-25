@@ -186,6 +186,16 @@ module internal WireEncode =
                 |> arrayValue
               "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
 
+    let private productFieldTypeMigrationDiff (value: AgentProductFieldTypeMigrationDiff) =
+        objectValue
+            [ "fieldChange",
+                objectValue
+                    [ "typeId", box (StableId.value value.FieldChange.TypeId)
+                      "fieldId", box (StableId.value value.FieldChange.FieldId)
+                      "oldType", typeRef value.FieldChange.OldType
+                      "newType", typeRef value.FieldChange.NewType ]
+              "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
+
     let private capabilityEntity (value: SemanticCapability) =
         let operations =
             value.Operations
@@ -258,6 +268,12 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", resultTypeMigrationDiff item.ResultingChange ]
+            | AuthoringProposalReview.ProductFieldTypeMigration item ->
+                objectValue
+                    [ "kind", box "productFieldTypeMigration"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "diff", productFieldTypeMigrationDiff item.ResultingChange ]
             | AuthoringProposalReview.CreateType item ->
                 objectValue
                     [ "kind", box "createType"
