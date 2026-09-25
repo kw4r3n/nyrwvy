@@ -385,6 +385,25 @@ module AuthoringProtocol =
                 | Some manifest ->
                     let selected = JsonSerializer.Deserialize<JsonElement>(manifest)
                     success requestId (objectValue [ "selection", box selected ])
+            | "previewDependencyUpgrade" ->
+                ensureFields "previewDependencyUpgrade request" [ "id"; "op"; "source"; "replaces" ] [ "id"; "op"; "source" ] root
+                let replaces = tryProperty "replaces" root |> Option.map (fun _ -> requiredString "replaces" root)
+                match session.PreviewDependencyUpgrade(requiredString "source" root, replaces) with
+                | Error error -> sessionFailure requestId error
+                | Ok preview ->
+                    let changes (items: AuthoringDependencyChange list) =
+                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id ]) |> arrayValue
+                    success requestId
+                        (objectValue
+                            [ "replacedSnapshotId", box preview.ReplacedSnapshotId
+                              "replacedFingerprint", box preview.ReplacedFingerprint
+                              "newSnapshotId", box preview.NewSnapshotId
+                              "newFingerprint", box preview.NewFingerprint
+                              "compatible", box (List.isEmpty preview.Issues)
+                              "added", changes preview.Added
+                              "removed", changes preview.Removed
+                              "changed", changes preview.Changed
+                              "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))

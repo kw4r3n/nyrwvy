@@ -163,3 +163,80 @@ module AuthoringDependencySetTests =
             use diamond = AuthoringSession.createNewWithDependencies (Path.Combine(root, "diamond.json")) [ midAgain; a; b ] |> unwrap "diamond"
             Assert.Equal<TypeId list>([ moneyId ], diamond.Declarations().Types |> List.map (fun item -> item.Id))
             Assert.Equal<Set<string>>(set [ "keep"; "pass" ], diamond.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList))
+
+    /// A local workspace on library A whose own function `wrap` calls A's `keep`.
+    let private localOnA root a =
+        let path = Path.Combine(root, "local.json")
+        let session = AuthoringSession.createNewWithDependencies path [ a ] |> unwrap "create"
+        let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+            { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+              DisplayName = "wrap"
+              Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
+              ResultType = TypeRef.Named moneyId
+              RequiredEffects = []
+              Body = ExpressionRecipe.DirectCall(id<FunctionTag> "keep", [ id<ParameterTag> "keep-input", ExpressionRecipe.ParameterSlot 0 ]) }
+        let proposal = session.SimulateCreateFunction request |> unwrap "wrap"
+        session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
+        let wrap = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "wrap")).Id
+        session.Close()
+        path, wrap
+
+    [<Fact>]
+    let ``a dependency upgrade is previewed and applied only for the reviewed compatible version`` () =
+        withLibraries (fun root a b _ ->
+            let path, wrap = localOnA root a
+            let write name snapshot =
+                let file = Path.Combine(root, name + ".json")
+                File.WriteAllText(file, SnapshotCodec.serialize snapshot |> unwrap name)
+                file
+            let compatible = write "a-v2" (library "a-v2" [ money "Money" ] [ identity "keep"; identity "extra" ])
+            let incompatible = write "a-v3" (library "a-v3" [ money "Money" ] [ identity "other" ])
+            let session = AuthoringSession.openExisting path |> unwrap "open"
+            let preview = session.PreviewDependencyUpgrade(compatible, None) |> unwrap "preview"
+            Assert.Empty(preview.Issues)
+            Assert.Equal<AuthoringDependencyChange list>([ { Kind = "function"; Id = StableId.value (id<FunctionTag> "extra") } ], preview.Added)
+            Assert.Empty(preview.Removed)
+            let breaking = session.PreviewDependencyUpgrade(incompatible, None) |> unwrap "breaking preview"
+            Assert.NotEmpty(breaking.Issues)
+            Assert.Contains({ Kind = "function"; Id = StableId.value (id<FunctionTag> "keep") }, breaking.Removed)
+            match session.PreviewDependencyUpgrade(a, None) with
+            | Error(AuthoringSessionError.DependencyFailure _) -> ()
+            | other -> failwithf "Same-version upgrade was previewed: %A" other
+            let wire = sprintf """{"id":"preview","op":"previewDependencyUpgrade","source":"%s"}""" (compatible.Replace("\\", "\\\\"))
+            use response = AuthoringProtocol.executeLine session wire |> JsonDocument.Parse
+            Assert.True(response.RootElement.GetProperty("result").GetProperty("compatible").GetBoolean(), response.RootElement.ToString())
+            session.Close()
+            let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            match AuthoringSession.upgradeDependency path incompatible None breaking.NewFingerprint with
+            | Error(AuthoringSessionError.WorkspaceValidationFailure _) -> ()
+            | other -> failwithf "Incompatible upgrade applied: %A" other
+            match AuthoringSession.upgradeDependency path compatible None breaking.NewFingerprint with
+            | Error(AuthoringSessionError.DependencyFailure _) -> ()
+            | other -> failwithf "Unreviewed version applied: %A" other
+            Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json")))
+            let upgraded = AuthoringSession.upgradeDependency path compatible None preview.NewFingerprint |> unwrap "upgrade"
+            Assert.Contains("extra", upgraded.Declarations().Functions |> List.map (fun fn -> fn.DisplayName))
+            upgraded.Close()
+            File.Delete compatible
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
+            Assert.Contains(wrap, reopened.Declarations().Functions |> List.map (fun fn -> fn.Id))
+            Assert.Equal(3, reopened.Declarations().Functions.Length)
+            ignore b)
+
+    [<Fact>]
+    let ``upgrading one member of a dependency set requires naming it`` () =
+        withLibraries (fun root a b _ ->
+            let path = Path.Combine(root, "set.json")
+            (AuthoringSession.createNewWithDependencies path [ a; b ] |> unwrap "create").Close()
+            let next = Path.Combine(root, "b-v2.json")
+            File.WriteAllText(next, SnapshotCodec.serialize (library "b-v2" [ money "Money" ] [ identity "pass"; identity "more" ]) |> unwrap "b-v2")
+            use session = AuthoringSession.openExisting path |> unwrap "open"
+            match session.PreviewDependencyUpgrade(next, None) with
+            | Error(AuthoringSessionError.DependencyFailure _) -> ()
+            | other -> failwithf "Ambiguous upgrade was previewed: %A" other
+            let preview = session.PreviewDependencyUpgrade(next, Some(StableId.value libraryB.Id)) |> unwrap "preview"
+            Assert.Equal(StableId.value libraryB.Id, preview.ReplacedSnapshotId)
+            Assert.Empty(preview.Issues)
+            session.Close()
+            use upgraded = AuthoringSession.upgradeDependency path next (Some(StableId.value libraryB.Id)) preview.NewFingerprint |> unwrap "upgrade"
+            Assert.Equal<Set<string>>(set [ "keep"; "pass"; "more" ], upgraded.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList))

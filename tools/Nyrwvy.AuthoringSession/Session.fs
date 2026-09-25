@@ -174,6 +174,24 @@ module private SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+/// One imported declaration that an upgrade adds, removes or changes.
+type AuthoringDependencyChange =
+    { Kind: string
+      Id: string }
+
+/// The reviewed impact of replacing one pinned dependency with a new version.
+type AuthoringDependencyUpgradePreview =
+    { ReplacedSnapshotId: string
+      ReplacedFingerprint: string
+      NewSnapshotId: string
+      /// Confirms the exact reviewed version when the upgrade is applied.
+      NewFingerprint: string
+      Added: AuthoringDependencyChange list
+      Removed: AuthoringDependencyChange list
+      Changed: AuthoringDependencyChange list
+      /// Validation issues of the local graph against the upgraded imports; empty when compatible.
+      Issues: ValidationIssue list }
+
 type internal PinnedDependencySelection =
     { Imported: Snapshot
       Manifest: string
@@ -316,6 +334,93 @@ module private PinnedDependency =
             | _, Error error -> Error error
             | _ -> Error AuthoringSessionError.ExternalModification)
 
+    /// Pins one source for the workspace at `localPath`. A source that has its own pinned
+    /// dependencies is flattened into its complete graph; its sidecar already retains exact,
+    /// flattened content, so no further recursion is needed.
+    let pinSource (localPath: string) (sourcePath: string) =
+        try
+            let sourcePath = SessionStorage.fullPath sourcePath
+            if sourcePath = localPath || not (File.Exists sourcePath) then
+                Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
+            elif File.Exists(sourcePath + ".dependency.json") then
+                load sourcePath None
+                |> Result.bind (function
+                    | None -> Error(AuthoringSessionError.DependencyFailure "The dependency's own dependency selection is unavailable.")
+                    | Some nested ->
+                        SessionStorage.readText sourcePath
+                        |> Result.bind (fun text ->
+                            SnapshotCodec.deserializeResolved nested.Imported text
+                            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure)
+                        |> Result.map (SnapshotCodec.resolveDependency nested.Imported)
+                        |> Result.bind SessionStorage.ensureCompleteDependency)
+                |> Result.bind (embed sourcePath)
+            else
+                SessionStorage.readCompleteDependency sourcePath
+                |> Result.bind (embed sourcePath)
+        with
+        | :? ArgumentException
+        | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency path.")
+
+    type UpgradePlan =
+        { Selection: PinnedDependencySelection
+          Local: Snapshot
+          Preview: AuthoringDependencyUpgradePreview }
+
+    let private declarationChanges (before: Snapshot) (after: Snapshot) =
+        let entries (snapshot: Snapshot) =
+            (snapshot.Types |> List.map (fun item -> ("type", StableId.value item.Id), box item))
+            @ (snapshot.Effects |> List.map (fun item -> ("effect", StableId.value item.Id), box item))
+            @ (snapshot.Capabilities |> List.map (fun item -> ("capability", StableId.value item.Id), box item))
+            @ (snapshot.Functions |> List.map (fun item -> ("function", StableId.value item.Id), box item))
+            |> Map.ofList
+        let oldEntries, newEntries = entries before, entries after
+        let change ((kind, id), _) = { Kind = kind; Id = id }
+        let added = newEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key oldEntries)) |> List.map change
+        let removed = oldEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key newEntries)) |> List.map change
+        let changed =
+            newEntries |> Map.toList
+            |> List.filter (fun (key, item) -> Map.tryFind key oldEntries |> Option.exists (fun old -> old <> item))
+            |> List.map change
+        added, removed, changed
+
+    /// Plans replacing one pinned dependency (the only one, or the member whose SnapshotId is
+    /// `replaces`) with the exact content of `sourcePath`, and validates the local graph against it.
+    let planUpgrade (localPath: string) (localSource: string) (current: PinnedDependencySelection) (sourcePath: string) (replaces: string option) =
+        let members = match current.Members with [] -> [ current ] | members -> members
+        let target =
+            match replaces, members with
+            | None, [ single ] -> Ok single
+            | None, _ -> Error(AuthoringSessionError.DependencyFailure "Name the dependency to replace by its SnapshotId when the workspace has several.")
+            | Some snapshotId, _ ->
+                members |> List.tryFind (fun item -> StableId.value item.Imported.Id = snapshotId)
+                |> Option.map Ok
+                |> Option.defaultValue (Error(AuthoringSessionError.DependencyFailure $"No selected dependency has SnapshotId '{snapshotId}'."))
+        target
+        |> Result.bind (fun target ->
+            pinSource localPath sourcePath
+            |> Result.bind (fun replacement ->
+                if replacement.Fingerprint = target.Fingerprint then
+                    Error(AuthoringSessionError.DependencyFailure "The source is the version already selected; use pin to retain or relocate it.")
+                else
+                    let upgraded = members |> List.map (fun item -> if item = target then replacement else item)
+                    combine upgraded
+                    |> Result.bind (fun selection ->
+                        SnapshotCodec.deserializeResolved current.Imported localSource
+                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                        |> Result.map (fun local ->
+                            let added, removed, changed = declarationChanges target.Imported replacement.Imported
+                            { Selection = selection
+                              Local = local
+                              Preview =
+                                { ReplacedSnapshotId = StableId.value target.Imported.Id
+                                  ReplacedFingerprint = target.Fingerprint
+                                  NewSnapshotId = StableId.value replacement.Imported.Id
+                                  NewFingerprint = replacement.Fingerprint
+                                  Added = added
+                                  Removed = removed
+                                  Changed = changed
+                                  Issues = SnapshotValidator.validate (SnapshotCodec.resolveDependency selection.Imported local) } }))))
+
 type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream, selection: PinnedDependencySelection option) =
     let dependency = selection |> Option.map (fun item -> item.Imported)
     let dependencyManifest = selection |> Option.map (fun item -> item.Manifest)
@@ -442,6 +547,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     member _.Path = path
     member _.DependencySelection = selection |> Option.map PinnedDependency.describe
+
+    /// Reviews replacing a pinned dependency with a new version without changing anything.
+    member _.PreviewDependencyUpgrade(sourcePath: string, replaces: string option): Result<AuthoringDependencyUpgradePreview, AuthoringSessionError> =
+        match selection with
+        | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+        | Some current ->
+            PinnedDependency.planUpgrade path persistedSource current sourcePath replaces
+            |> Result.map (fun plan -> plan.Preview)
 
     /// Read-only execution must not run a stale in-memory graph after the selected
     /// snapshot or its pinned dependency was changed outside the session.
@@ -752,6 +865,44 @@ module AuthoringSession =
 
     let openExisting path = openUsing path false None
 
+    /// Explicitly replaces one pinned dependency with the reviewed version `expectedFingerprint`,
+    /// only when the local graph is valid against it, then opens the upgraded workspace.
+    /// The sidecar and the local snapshot's dependency binding are rewritten; local declarations
+    /// and identities are unchanged. Like creation, the two files are replaced separately.
+    let upgradeDependency (path: string) (sourcePath: string) (replaces: string option) (expectedFingerprint: string): Result<AuthoringSession, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        let path = SessionStorage.fullPath path
+        if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
+        else
+            match SessionStorage.acquireLock path with
+            | Error error -> Error error
+            | Ok lockHandle ->
+                let result =
+                    SessionStorage.readText path
+                    |> Result.bind (fun source ->
+                        PinnedDependency.load path None
+                        |> Result.bind (function
+                            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+                            | Some current -> PinnedDependency.planUpgrade path source current sourcePath replaces)
+                        |> Result.bind (fun plan ->
+                            if plan.Preview.NewFingerprint <> expectedFingerprint then
+                                Error(AuthoringSessionError.DependencyFailure "The source differs from the reviewed upgrade version.")
+                            elif not (List.isEmpty plan.Preview.Issues) then
+                                Error(AuthoringSessionError.WorkspaceValidationFailure plan.Preview.Issues)
+                            else
+                                SnapshotCodec.serializeResolved plan.Selection.Imported plan.Local
+                                |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                |> Result.bind (fun upgradedSource ->
+                                    SessionStorage.replaceAtomically (path + ".dependency.json") plan.Selection.Manifest
+                                    |> Result.bind (fun () -> SessionStorage.replaceAtomically path upgradedSource)
+                                    |> Result.bind (fun () -> workspaceFromSource (Some plan.Selection.Imported) upgradedSource)
+                                    |> Result.map (fun workspace -> upgradedSource, workspace, plan.Selection))))
+                match result with
+                | Error error ->
+                    lockHandle.Dispose()
+                    Error error
+                | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, lockHandle, Some selected))
+
     /// Storage-only recovery: retain exactly the selected ID/fingerprint/digest.
     /// Supplying another semantic version never authorizes an upgrade.
     let pinExistingDependency path sourceOverride = openUsing path true sourceOverride
@@ -771,31 +922,7 @@ module AuthoringSession =
                     lockHandle.Dispose()
                     Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
                 else
-                    let pinOne sourcePath =
-                        try
-                            let sourcePath = SessionStorage.fullPath sourcePath
-                            if sourcePath = path || not (File.Exists sourcePath) then
-                                Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
-                            elif File.Exists(sourcePath + ".dependency.json") then
-                                // A dependency with its own pinned dependencies is flattened into its
-                                // complete graph; its sidecar already retains exact, flattened content.
-                                PinnedDependency.load sourcePath None
-                                |> Result.bind (function
-                                    | None -> Error(AuthoringSessionError.DependencyFailure "The dependency's own dependency selection is unavailable.")
-                                    | Some nested ->
-                                        SessionStorage.readText sourcePath
-                                        |> Result.bind (fun text ->
-                                            SnapshotCodec.deserializeResolved nested.Imported text
-                                            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure)
-                                        |> Result.map (SnapshotCodec.resolveDependency nested.Imported)
-                                        |> Result.bind SessionStorage.ensureCompleteDependency)
-                                |> Result.bind (PinnedDependency.embed sourcePath)
-                            else
-                                SessionStorage.readCompleteDependency sourcePath
-                                |> Result.bind (PinnedDependency.embed sourcePath)
-                        with
-                        | :? ArgumentException
-                        | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency path.")
+                    let pinOne = PinnedDependency.pinSource path
                     let selection =
                         match dependencyPaths with
                         | [] -> Ok None

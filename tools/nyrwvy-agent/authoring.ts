@@ -158,11 +158,14 @@ const sessions = new Map<string, AuthoringClient>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
-  mode: "create" | "open" | "pin", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
-  dependencies?: string[],
+  mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
+  dependencies?: string[], upgrade?: { expectedFingerprint: string; replaces?: string },
 ): Promise<string> {
   if (dependency !== undefined && (mode === "open" || dependency.trim() === "")) {
-    throw new Error("dependency requires mode=create or mode=pin and a non-blank source snapshot path.")
+    throw new Error("dependency requires mode=create, pin or upgrade and a non-blank source snapshot path.")
+  }
+  if ((mode === "upgrade") !== (upgrade !== undefined) || (mode === "upgrade" && (dependency === undefined || upgrade?.expectedFingerprint.trim() === ""))) {
+    throw new Error("mode=upgrade requires dependency (the new version) and the expectedFingerprint from previewDependencyUpgrade.")
   }
   if (dependencies !== undefined && (mode !== "create" || dependencies.length === 0 || dependencies.some((item) => item.trim() === ""))) {
     throw new Error("dependencies requires mode=create and one or more non-blank source snapshot paths.")
@@ -176,6 +179,10 @@ export async function openAuthoring(
   const args = [assembly, mode, "--snapshot", workspace]
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
     args.push("--dependency", resolve(worktree, source))
+  }
+  if (upgrade !== undefined) {
+    args.push("--expect", upgrade.expectedFingerprint)
+    if (upgrade.replaces !== undefined) args.push("--replaces", upgrade.replaces)
   }
   const client = new AuthoringClient(spawn("dotnet", args, {
     cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
