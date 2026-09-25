@@ -47,14 +47,14 @@ module PureRunTests =
         let ws, plus =
             create ws "plus" intType intType
                 (ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
-        let ws, unitFunction =
-            create ws "unit" stringType (TypeRef.Primitive PrimitiveType.Unit) ExpressionRecipe.UnitLiteral
+        let ws, floatFunction =
+            create ws "float" stringType (TypeRef.Primitive PrimitiveType.Float64) (ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.5))
         let listType item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
         let ws, _ =
             create ws "sumLists" (listType intType) intType
                 (ExpressionRecipe.ListFold(
                     ExpressionRecipe.ListConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1),
-                    ExpressionRecipe.Int64Literal 0L, plus))
+                    ExpressionRecipe.Int64Literal 0L, plus, []))
         let ws =
             [ "intList", intType; "stringList", stringType; "boolList", TypeRef.Primitive PrimitiveType.Bool ]
             |> List.fold (fun current (name, itemType) ->
@@ -89,19 +89,19 @@ module PureRunTests =
                     ExpressionRecipe.Int64Equal(ExpressionRecipe.ListLength(ExpressionRecipe.ParameterSlot 0), ExpressionRecipe.Int64Literal 0L),
                     ExpressionRecipe.OptionNone intType,
                     ExpressionRecipe.OptionSome(ExpressionRecipe.ListFold(
-                        ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, plus))))
+                        ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, plus, []))))
         let json = AgentWorkspace.serializeCurrentSnapshot ws |> function
             | Ok text -> text
             | Error error -> failwithf "Fixture serialization failed: %A" error
-        json, concat, equal, plus, unitFunction
+        json, concat, equal, plus, floatFunction
 
     let private tempSession () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-run-tests-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore
         let path = Path.Combine(root, "workspace.json")
-        let json, concat, equal, plus, unitFunction = fixture ()
+        let json, concat, equal, plus, floatFunction = fixture ()
         File.WriteAllText(path, json)
-        root, path, concat, equal, plus, unitFunction
+        root, path, concat, equal, plus, floatFunction
 
     [<Fact>]
     let ``runPure rejects malformed Results and mismatched inactive kinds before execution`` () =
@@ -187,7 +187,7 @@ module PureRunTests =
 
     [<Fact>]
     let ``runPure rejects wrong types missing targets and unsupported results without publication`` () =
-        let root, path, concat, _, _, unitFunction = tempSession ()
+        let root, path, concat, _, _, floatFunction = tempSession ()
         try
             use session = AuthoringSession.openExisting path |> function
                 | Ok result -> result
@@ -211,7 +211,7 @@ module PureRunTests =
                 ($"""{{"id":"mismatch","op":"runPure","functionId":"{StableId.value concat}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}],"expected":{{"kind":"bool","value":true}}}}""")
                 "RunExpectedTypeMismatch"
             reject
-                ($"""{{"id":"unsupported","op":"runPure","functionId":"{StableId.value unitFunction}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}]}}""")
+                ($"""{{"id":"unsupported","op":"runPure","functionId":"{StableId.value floatFunction}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}]}}""")
                 "RunResultTypeUnsupported"
             reject
                 ($"""{{"id":"bad-wire","op":"runPure","functionId":"{StableId.value concat}","arguments":[{{"kind":"string","value":"x","extra":0}},{{"kind":"string","value":"y"}}]}}""")
@@ -342,33 +342,6 @@ module PureRunTests =
             let boolean = """{"kind":"option","itemKind":"bool","hasValue":true,"value":false}"""
             run "boolOption" boolean boolean boolean true |> ignore
             Assert.Equal(original, File.ReadAllText(path))
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)
-
-    [<Fact>]
-    let ``runPure refuses an effectful entrypoint before compiling`` () =
-        let root, sourcePath, concat, _, _, _ = tempSession ()
-        try
-            let source = SnapshotCodec.deserialize (File.ReadAllText sourcePath) |> function
-                | Ok value -> value
-                | Error error -> failwithf "Fixture decoding failed: %A" error
-            let effectId = id<EffectTag> "test-effect"
-            let effectful =
-                { source with
-                    Effects = [ { Id = effectId; DisplayName = "test" } ]
-                    Functions =
-                        source.Functions |> List.map (fun fn ->
-                            if fn.Id = concat then { fn with RequiredEffects = [ effectId ] } else fn) }
-            let path = Path.Combine(root, "effectful.json")
-            File.WriteAllText(path, SnapshotCodec.serialize effectful |> function
-                | Ok value -> value
-                | Error error -> failwithf "Fixture encoding failed: %A" error)
-            use session = AuthoringSession.openExisting path |> function
-                | Ok value -> value
-                | Error error -> failwithf "Cannot open fixture: %A" error
-            match PureRun.run session concat [ PureRunValue.String "a"; PureRunValue.String "b" ] None with
-            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunEffectsUnsupported", code)
-            | other -> failwithf "Effectful entrypoint was executed: %A" other
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 

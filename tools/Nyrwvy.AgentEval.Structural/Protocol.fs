@@ -116,6 +116,8 @@ module private Encode =
         | TypeRef.Primitive primitive -> objectValue [ "kind", box "primitive"; "name", box (primitiveName primitive) ]
         | TypeRef.Named id -> objectValue [ "kind", box "named"; "id", box (StableId.value id) ]
         | TypeRef.Capability id -> objectValue [ "kind", box "capability"; "id", box (StableId.value id) ]
+        | TypeRef.TypeParameter(id, name) ->
+            objectValue [ "kind", box "typeParameter"; "id", box (StableId.value id); "name", box name ]
         | TypeRef.BuiltinGeneric(kind, arguments) ->
             objectValue
                 [ "kind", box "builtinGeneric"

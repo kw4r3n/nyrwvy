@@ -190,7 +190,7 @@ module PinnedDependencyRecoveryTests =
             | other -> failwithf "Changed selection did not invalidate the session: %A" other)
 
     [<Fact>]
-    let ``pin cannot attach a dependency to a standalone workspace or select a nested graph`` () =
+    let ``pin cannot attach a dependency to a standalone workspace and a nested graph is flattened`` () =
         withDirectory (fun root ->
             let source, local = Path.Combine(root, "source.json"), Path.Combine(root, "local.json")
             save source (sourceSnapshot ())
@@ -201,7 +201,9 @@ module PinnedDependencyRecoveryTests =
             Assert.False(File.Exists(manifestPath local))
             File.Delete local
             (AuthoringSession.createNewWithDependency local (Some source) |> unwrap).Close()
-            AuthoringSession.createNewWithDependency (Path.Combine(root, "nested.json")) (Some local) |> expectFailure)
+            // Selecting a workspace that has its own dependency pins its complete, flattened graph.
+            use nested = AuthoringSession.createNewWithDependency (Path.Combine(root, "nested.json")) (Some local) |> unwrap
+            Assert.Equal(sourceSnapshot().Functions.Length, nested.Declarations().Functions.Length))
 
     [<Fact>]
     let ``failed legacy pin replacement preserves both files and releases the lock`` () =

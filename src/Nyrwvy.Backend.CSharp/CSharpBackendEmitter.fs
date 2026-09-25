@@ -55,6 +55,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
+        | TypeRef.TypeParameter(typeParameterId, _) -> CSharpBackendNames.typeParameterName typeParameterId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
             "NyOption<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -181,6 +182,31 @@ module CSharpBackend =
 
     let private fieldParameter (field: ExecutionField) =
         formatType field.Type + " " + CSharpBackendNames.fieldName field.Id
+
+    /// Ambient cancellation for ParallelAll workers, emitted only for programs that use concurrency so
+    /// other generated programs are unchanged. External implementations read the same token.
+    let private emitConcurrencyRuntime (writer: SourceWriter) (program: ExecutionProgram) =
+        let usesConcurrency =
+            program.Functions
+            |> List.exists (fun functionEntity ->
+                functionEntity.Blocks
+                |> List.exists (fun block ->
+                    block.Instructions
+                    |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.ParallelAll _
+                        | ExecutionInstructionKind.CancellationRequested -> true
+                        | _ -> false)))
+        if usesConcurrency then
+            writer.Line("public static class NyRuntime")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("public static readonly System.Threading.AsyncLocal<System.Threading.CancellationToken> Cancellation = new();")
+            writer.Line("public static bool CancellationRequested => Cancellation.Value.IsCancellationRequested;")
+            writer.Line("public static void WaitForCancellation() => Cancellation.Value.WaitHandle.WaitOne();")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("")
 
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
@@ -323,8 +349,34 @@ module CSharpBackend =
         else
             writer.Line(target + " = " + expression + ";")
 
-    let private emitInstruction (writer: SourceWriter) (instruction: ExecutionInstruction) =
+    /// A callback with context becomes a lambda that passes context values and the iteration values
+    /// by parameter name; without context the method group is emitted unchanged.
+    /// Calls a callback with its context values and the given iteration values, all by parameter name.
+    let private renderInvocation (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (functionId: FunctionId) (context: ExecutionCallArgument list) (iterationValues: string list) =
+        let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
+        let iteration = parametersOf functionId |> List.map fst |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
+        let arguments =
+            (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
+            @ (List.map2 (fun parameterId value -> CSharpBackendNames.parameterName parameterId + ": " + value) iteration iterationValues)
+        callbackName functionId + "(" + String.concat ", " arguments + ")"
+
+    let private renderCallback (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
+        let generic = parametersOf functionId |> List.exists (fun (_, parameterType) -> not (List.isEmpty (TypeParameters.occurring parameterType)))
+        // A generic method group cannot be inferred by C#; a lambda lets the call infer its type arguments.
+        if List.isEmpty context && not generic then callbackName functionId
+        else
+            let unbound = (parametersOf functionId).Length - context.Length
+            let names = List.init unbound (fun index -> target + "_it" + string index)
+            "(" + String.concat ", " names + ") => " + renderInvocation parametersOf functionId context names
+
+    let private emitInstruction
+        (writer: SourceWriter)
+        (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
+        (valueTypeOf: ExecutionValueId -> TypeRef)
+        (operationResultOf: CapabilityOperationId -> TypeRef)
+        (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
+        let callback = renderCallback parametersOf target
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter sourceValueId
         | ExecutionInstructionKind.ReadPatternBinding sourceValueId ->
@@ -341,6 +393,19 @@ module CSharpBackend =
             writer.Line(target + " = " + renderFloat64Literal bits + ";")
         | ExecutionInstructionKind.StringIsEmpty sourceValueId ->
             writer.Line(target + " = " + valueName sourceValueId + ".Length == 0;")
+        | ExecutionInstructionKind.Int64ToString sourceValueId ->
+            writer.Line(target + " = " + valueName sourceValueId + ".ToString(System.Globalization.CultureInfo.InvariantCulture);")
+        | ExecutionInstructionKind.StringParseInt64 sourceValueId ->
+            // Only '-'? ASCII digits are accepted; TryParse then enforces the Int64 range.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var text = " + valueName sourceValueId + ";")
+            writer.Line("var start = text.Length > 0 && text[0] == '-' ? 1 : 0;")
+            writer.Line("var digits = text.Length > start;")
+            writer.Line("for (var index = start; digits && index < text.Length; index++) digits = text[index] >= '0' && text[index] <= '9';")
+            writer.Line(target + " = digits && long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? NyOption<long>.Some(parsed) : NyOption<long>.None();")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
@@ -391,16 +456,103 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
-        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callbackName folderFunctionId + ");")
-        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callbackName mapperFunctionId + ");")
-        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callbackName predicateFunctionId + ");")
-        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callbackName predicateFunctionId + ");")
-        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callbackName predicateFunctionId + ");")
+        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            if instruction.Result.Type = valueTypeOf seedValueId then
+                writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+            else
+                // Result accumulator: after the first Err the folder, and so its effects, are not called again.
+                let state, item = target + "_state", target + "_item"
+                let resultType = formatType instruction.Result.Type
+                let step = renderInvocation parametersOf folderFunctionId context [ state + ".OkValue"; item ]
+                writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + resultType + ".Ok(" + valueName seedValueId + "), (" + state + ", " + item + ") => " + state + ".IsOk ? " + step + " : " + state + ");")
+        | ExecutionInstructionKind.UseResource(acquireValueId, releaseCapabilityValueId, releaseOperationId, bodyFunctionId, context) ->
+            // Release always runs after acquisition succeeded: on Ok and Err exits, and before a host
+            // exception from the body propagates. A body Err takes precedence over a release Err.
+            let resultType = formatType instruction.Result.Type
+            let acquired, resource, body, released = target + "_acquired", target + "_resource", target + "_body", target + "_released"
+            let release = valueName releaseCapabilityValueId + "." + CSharpBackendNames.capabilityOperationName releaseOperationId + "(" + resource + ")"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + acquired + " = " + valueName acquireValueId + ";")
+            writer.Line("if (!" + acquired + ".IsOk) " + target + " = " + resultType + ".Err(" + acquired + ".ErrorValue);")
+            writer.Line("else")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + resource + " = " + acquired + ".OkValue;")
+            writer.Line(resultType + " " + body + ";")
+            writer.Line("try { " + body + " = " + renderInvocation parametersOf bodyFunctionId context [ resource ] + "; }")
+            writer.Line("catch { try { " + release + "; } catch { } throw; }")
+            match operationResultOf releaseOperationId with
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, _) ->
+                writer.Line("var " + released + " = " + release + ";")
+                writer.Line(target + " = " + body + ".IsOk && !" + released + ".IsOk ? " + resultType + ".Err(" + released + ".ErrorValue) : " + body + ";")
+            | _ ->
+                writer.Line(release + ";")
+                writer.Line(target + " = " + body + ";")
+            writer.Pop()
+            writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.CancellationRequested ->
+            writer.Line(target + " = NyRuntime.CancellationRequested;")
+        | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
+            // Structured: every worker is awaited before the node completes. The first Err or host
+            // exception cancels the shared token; faults win, then the lowest-index Err, else all Ok.
+            let itemType =
+                match valueTypeOf sourceListValueId with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> formatType item
+                | other -> invalidOp $"ParallelAll source must be a List, got {other}."
+            let workerResult, okType =
+                match instruction.Result.Type with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ ok ]); error ]) ->
+                    "NyResult<" + formatType ok + ", " + formatType error + ">", formatType ok
+                | other -> invalidOp $"ParallelAll result must be Result<List<U>, E>, got {other}."
+            let resultType = formatType instruction.Result.Type
+            let name suffix = target + "_" + suffix
+            let items, cts, tasks, index, item, result, task = name "items", name "cts", name "tasks", name "i", name "item", name "result", name "task"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
+            writer.Line("using var " + cts + " = new System.Threading.CancellationTokenSource();")
+            writer.Line("var " + tasks + " = new System.Threading.Tasks.Task<" + workerResult + ">[" + items + ".Count];")
+            writer.Line("for (var " + index + " = 0; " + index + " < " + items + ".Count; " + index + "++)")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + item + " = " + items + "[" + index + "];")
+            writer.Line(tasks + "[" + index + "] = System.Threading.Tasks.Task.Run(() =>")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("NyRuntime.Cancellation.Value = " + cts + ".Token;")
+            writer.Line("try")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + result + " = " + renderInvocation parametersOf workerFunctionId context [ item ] + ";")
+            writer.Line("if (!" + result + ".IsOk) " + cts + ".Cancel();")
+            writer.Line("return " + result + ";")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("catch { " + cts + ".Cancel(); throw; }")
+            writer.Pop()
+            writer.Line("});")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line("foreach (var " + task + " in " + tasks + ") { try { " + task + ".Wait(); } catch (System.AggregateException) { } }")
+            writer.Line("var " + name "faulted" + " = System.Array.Find(" + tasks + ", " + name "t" + " => " + name "t" + ".IsFaulted);")
+            writer.Line("if (" + name "faulted" + " != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + name "faulted" + ".Exception!.InnerException!).Throw();")
+            writer.Line("var " + name "failed" + " = System.Array.Find(" + tasks + ", " + name "t" + " => !" + name "t" + ".Result.IsOk);")
+            writer.Line(target + " = " + name "failed" + " != null ? " + resultType + ".Err(" + name "failed" + ".Result.ErrorValue) : " + resultType + ".Ok(NyList<" + okType + ">.Create(System.Array.ConvertAll(" + tasks + ", " + name "t" + " => " + name "t" + ".Result.OkValue)));")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
@@ -466,7 +618,11 @@ module CSharpBackend =
             writer.Line("if (" + valueName inputValueId + ".IsOk) goto " + CSharpBackendNames.executionBlockLabel okBlock + ";")
             writer.Line("goto " + CSharpBackendNames.executionBlockLabel errBlock + ";")
 
-    let private emitFunction (writer: SourceWriter) (functionEntity: ExecutionFunction) =
+    let private emitFunction
+        (writer: SourceWriter)
+        (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
+        (operationResultOf: CapabilityOperationId -> TypeRef)
+        (functionEntity: ExecutionFunction) =
         let parameters =
             functionEntity.Parameters
             |> List.map (fun parameter ->
@@ -475,7 +631,13 @@ module CSharpBackend =
                 + CSharpBackendNames.parameterName parameter.SemanticParameterId)
             |> String.concat ", "
 
-        writer.Line("public static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + "(" + parameters + ")")
+        let typeParameters =
+            functionEntity.Parameters
+            |> List.collect (fun parameter -> TypeParameters.occurring parameter.Value.Type)
+            |> List.distinctBy fst
+            |> List.map (fst >> CSharpBackendNames.typeParameterName)
+        let generic = if List.isEmpty typeParameters then "" else "<" + String.concat ", " typeParameters + ">"
+        writer.Line("public static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + generic + "(" + parameters + ")")
         writer.Line("{")
         writer.Push()
 
@@ -535,7 +697,7 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer instruction
+                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
             emitTerminator writer block block.Terminator
             writer.Line("")
 
@@ -547,8 +709,16 @@ module CSharpBackend =
         writer.Line("public static class " + CSharpBackendNames.functionContainerName)
         writer.Line("{")
         writer.Push()
+        let parameters =
+            program.Functions
+            |> List.map (fun item -> item.SemanticFunctionId, item.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId, parameter.Value.Type))
+            |> Map.ofList
+        let operationResults =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.ResultType))
+            |> Map.ofList
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
-            emitFunction writer functionEntity
+            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) functionEntity
         writer.Pop()
         writer.Line("}")
 
@@ -632,6 +802,7 @@ module CSharpBackend =
             writer.Line("namespace " + CSharpBackendNames.generatedNamespace + ";")
             writer.Line("")
             emitRuntime writer
+            emitConcurrencyRuntime writer program
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program

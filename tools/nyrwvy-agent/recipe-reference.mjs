@@ -10,13 +10,13 @@ const categories = {
   references: ["parameter", "patternReference"],
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
-    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat", "int64ToString", "stringParseInt64",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
     "float64IsNaN", "float64IsFinite", "float64IsInfinite",
   ],
-  list: ["listEmpty", "listConstruct", "listLength", "listAppendItem", "listConcat", "listFold", "listMap", "listFilter", "listAny", "listAll"],
+  list: ["listEmpty", "listConstruct", "listLength", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listAny", "listAll"],
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
   calls: ["directCall", "capabilityInvoke"],
@@ -31,8 +31,12 @@ const type = "<typeRef>"
 const unary = kind => ({ shape: { kind, value: recipe } })
 /** @param {string} kind */
 const binary = kind => ({ shape: { kind, left: recipe, right: recipe } })
+const callbackContext = [{ parameter: "<callback parameter display name>", value: recipe }]
 /** @param {string} kind */
-const listCallback = kind => ({ shape: { kind, source: recipe, function: "<function display name>" } })
+const listCallback = kind => ({
+  shape: { kind, source: recipe, function: "<function display name>", context: callbackContext },
+  notes: "Optional context binds callback parameters to values computed once before iteration; the remaining unbound parameter receives each item. Callbacks stay pure.",
+})
 
 const references = {
   parameter: {
@@ -53,6 +57,8 @@ const references = {
   int64Literal: { shape: { kind: "int64Literal", value: "<decimal string or JSON integer>" }, notes: "Use a decimal string when JavaScript safe-integer precision would be insufficient." },
   float64Literal: { shape: { kind: "float64Literal", bits: "<16 lowercase hexadecimal digits>" } },
   stringIsEmpty: unary("stringIsEmpty"),
+  int64ToString: { ...unary("int64ToString"), notes: "Int64 to canonical invariant decimal String; '-' only for negative values." },
+  stringParseInt64: { ...unary("stringParseInt64"), notes: "String to Option<Int64>: Some only for an optional '-' followed by ASCII digits within range; '+', whitespace, empty text or overflow give None." },
   stringContains: { shape: { kind: "stringContains", value: recipe, substring: recipe } },
   stringEqual: { ...binary("stringEqual"), notes: "Ordinal, case-sensitive exact equality; both operands must be String." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
@@ -78,7 +84,11 @@ const references = {
   listLength: unary("listLength"),
   listAppendItem: { shape: { kind: "listAppendItem", list: recipe, item: recipe } },
   listConcat: binary("listConcat"),
-  listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>" }, notes: "Pure folder: (accumulator, item) -> accumulator. Iterates left to right, returning the seed for an empty list. The seed type fixes the accumulator type and can carry runtime context." },
+  listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Pure folder: (accumulator, item) -> accumulator over its parameters not bound by the optional context. Iterates left to right, returning the seed for an empty list. Context binds further folder parameters to values computed once." },
+  parallelAll: { shape: { kind: "parallelAll", source: recipe, worker: "<function display name>", context: callbackContext }, notes: "Runs the worker (item -> Result<U, E>, effects allowed, capabilities via context) for every item concurrently and awaits all. The first Err or exception cancels the others. Result: the lowest-index Err, else Ok of all values in order." },
+  cancellationRequested: { shape: { kind: "cancellationRequested" }, notes: "Bool: whether the current ParallelAll worker was asked to stop; false outside workers. Check it between steps to stop cooperatively." },
+  useResource: { shape: { kind: "useResource", acquire: recipe, releaseCapability: recipe, capability: "<capability display name>", releaseOperation: "<operation display name>", body: "<function display name>", context: callbackContext }, notes: "acquire: Result<R, E>. The body gets R through its one unbound parameter and returns Result<T, E>. Release (R -> Unit or Result<Unit, E>) always runs after a successful acquire, on Ok, Err or a host exception; a body Err wins over a release Err." },
+  listEffectFold: { shape: { kind: "listEffectFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Effectful fold, left to right, each item exactly once. The folder may use effects the enclosing function declares and receives capabilities through context. If it returns Result<S, E> for seed S, the fold stops at the first Err and yields Result<S, E>; otherwise it returns S." },
   listMap: listCallback("listMap"),
   listFilter: listCallback("listFilter"),
   listAny: listCallback("listAny"),

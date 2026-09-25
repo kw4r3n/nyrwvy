@@ -26,6 +26,10 @@ module TypedSemanticIrCodec =
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            writer.WriteString("kind", "typeParameter")
+            writer.WriteString("typeParameterId", StableId.value typeParameterId)
+            writer.WriteString("displayName", displayName)
         | TypeRef.Capability capabilityId ->
             writer.WriteString("kind", "capability")
             writer.WriteString("capabilityId", StableId.value capabilityId)
@@ -238,16 +242,27 @@ module TypedSemanticIrCodec =
         writer.WriteString("kind", kind)
         writer.WriteString("valueNodeId", StableId.value valueNodeId)
 
+    and private writeCallbackContext (writer: Utf8JsonWriter) (context: TypedSemanticArgument list) =
+        if not (List.isEmpty context) then
+            writer.WritePropertyName("context")
+            writer.WriteStartArray()
+            context
+            |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
+            |> List.iter (writeArgument writer)
+            writer.WriteEndArray()
+
     and private writeListCallbackNode
         (writer: Utf8JsonWriter)
         (kind: string)
         (sourceListNodeId: GraphNodeId)
         (callbackFieldName: string)
         (callbackFunctionId: FunctionId)
+        (context: TypedSemanticArgument list)
         =
         writer.WriteString("kind", kind)
         writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
         writer.WriteString(callbackFieldName, StableId.value callbackFunctionId)
+        writeCallbackContext writer context
 
     and private writeNode (writer: Utf8JsonWriter) (node: TypedSemanticNode) =
         writer.WriteStartObject()
@@ -278,6 +293,12 @@ module TypedSemanticIrCodec =
             writer.WriteString("bits", Float64Bits.toHex bits)
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Int64ToString valueNodeId ->
+            writer.WriteString("kind", "int64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
@@ -341,19 +362,39 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
-        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
-        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
-        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId
-        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId
-        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "listEffectFold")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+            writer.WriteString("kind", "useResource")
+            writer.WriteString("acquireNodeId", StableId.value acquireNodeId)
+            writer.WriteString("releaseCapabilityNodeId", StableId.value releaseCapabilityNodeId)
+            writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+            writer.WriteString("kind", "parallelAll")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.CancellationRequested -> writer.WriteString("kind", "cancellationRequested")
+        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)

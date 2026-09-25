@@ -43,6 +43,11 @@ module ExecutionIrCodec =
             objectValue [ property "kind" (quote "primitiveInt64") ]
         | TypeRef.Primitive PrimitiveType.Float64 ->
             objectValue [ property "kind" (quote "primitiveFloat64") ]
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            objectValue
+                [ property "kind" (quote "typeParameter")
+                  property "typeParameterId" (quote (StableId.value typeParameterId))
+                  property "displayName" (quote displayName) ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")
@@ -186,10 +191,22 @@ module ExecutionIrCodec =
         [ property "kind" (quote kind)
           property "valueId" (executionValueIdValue valueId) ]
 
-    let private writeListCallbackInstruction kind sourceListValueId callbackFieldName callbackFunctionId =
+    /// Callback context is written only when present, so context-free programs keep their bytes.
+    let private writeCallbackContext (context: ExecutionCallArgument list) =
+        if List.isEmpty context then []
+        else
+            [ property
+                  "context"
+                  (context
+                   |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
+                   |> List.map writeCallArgument
+                   |> arrayValue) ]
+
+    let private writeListCallbackInstruction kind sourceListValueId callbackFieldName callbackFunctionId context =
         [ property "kind" (quote kind)
           property "sourceListValueId" (executionValueIdValue sourceListValueId)
           property callbackFieldName (stableIdValue callbackFunctionId) ]
+        @ writeCallbackContext context
 
     let private writeInstructionKind (kind: ExecutionInstructionKind): string list =
         match kind with
@@ -215,6 +232,12 @@ module ExecutionIrCodec =
               property "bits" (quote (Float64Bits.toHex bits)) ]
         | ExecutionInstructionKind.StringIsEmpty valueId ->
             [ property "kind" (quote "stringIsEmpty")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Int64ToString valueId ->
+            [ property "kind" (quote "int64ToString")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringParseInt64 valueId ->
+            [ property "kind" (quote "stringParseInt64")
               property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringContains(valueId, substringId) ->
             [ property "kind" (quote "stringContains")
@@ -275,19 +298,39 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listConcat")
               property "leftListValueId" (executionValueIdValue leftListValueId)
               property "rightListValueId" (executionValueIdValue rightListValueId) ]
-        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId) ->
+        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             [ property "kind" (quote "listFold")
               property "sourceListValueId" (executionValueIdValue sourceListValueId)
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
-        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
-            writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId
-        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->
-            writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId
-        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId) ->
-            writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId
-        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId) ->
-            writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            [ property "kind" (quote "listEffectFold")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.UseResource(acquireValueId, releaseCapabilityValueId, releaseOperationId, bodyFunctionId, context) ->
+            [ property "kind" (quote "useResource")
+              property "acquireValueId" (executionValueIdValue acquireValueId)
+              property "releaseCapabilityValueId" (executionValueIdValue releaseCapabilityValueId)
+              property "releaseOperationId" (stableIdValue releaseOperationId)
+              property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
+            [ property "kind" (quote "parallelAll")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "workerFunctionId" (stableIdValue workerFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.CancellationRequested -> [ property "kind" (quote "cancellationRequested") ]
+        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
+            writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
+        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
+            writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
+            writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
+            writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)

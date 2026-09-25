@@ -73,9 +73,9 @@ module PureRunProductTests =
         finally Directory.Delete(root, true)
 
     let private fields =
-        [ textId, PureRunScalar.String "雪\n\"\\"
-          numberId, PureRunScalar.Int64 Int64.MaxValue
-          flagId, PureRunScalar.Bool false ]
+        [ textId, PureRunValue.String "雪\n\"\\"
+          numberId, PureRunValue.Int64 Int64.MaxValue
+          flagId, PureRunValue.Bool false ]
 
     [<Fact>]
     let ``runPure rejects invalid Product shapes identities and nested results before execution`` () =
@@ -92,20 +92,23 @@ module PureRunProductTests =
             reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
                 (if fieldId = textId then id<FieldTag> "foreign" else fieldId), value))) "RunProductShapeMismatch"
             reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
-                fieldId, (if fieldId = numberId then PureRunScalar.Bool true else value)))) "RunProductShapeMismatch"
+                fieldId, (if fieldId = numberId then PureRunValue.Bool true else value)))) "RunProductShapeMismatch"
             for text, expected in [ String('x', 65537), "RunArgumentTooLarge"; String([| char 0xD800 |]), "RunInvalidString" ] do
                 reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
-                    fieldId, (if fieldId = textId then PureRunScalar.String text else value)))) expected
+                    fieldId, (if fieldId = textId then PureRunValue.String text else value)))) expected
             let value = PureRunValue.Product(productId, fields)
             match PureRun.run session (functionId "identity") [ value ] (Some(PureRunValue.Product(productId, []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
             | other -> failwithf "Invalid expectation accepted: %A" other
-            match PureRun.run session (functionId "nested") [] None with
-            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunResultTypeUnsupported", code)
-            | other -> failwithf "Nested result accepted: %A" other
+            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [ nestedFieldId, PureRunValue.Int64 1L ]))) with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
+            | other -> failwithf "Mistyped nested field expectation accepted: %A" other
+            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [ nestedFieldId, PureRunValue.Product(emptyId, [ numberId, PureRunValue.Int64 1L ]) ]))) with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
+            | other -> failwithf "Invalid inner Product expectation accepted: %A" other
             let large = PureRunValue.Product(otherId,
-                [ id<FieldTag> "other-left", PureRunScalar.String(String('x', 32768))
-                  id<FieldTag> "other-right", PureRunScalar.String(String('y', 32769)) ])
+                [ id<FieldTag> "other-left", PureRunValue.String(String('x', 32768))
+                  id<FieldTag> "other-right", PureRunValue.String(String('y', 32769)) ])
             match PureRun.run session (functionId "textPair") [ large ] None with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTooLarge", code)
             | other -> failwithf "Aggregate String limit ignored: %A" other
@@ -127,7 +130,6 @@ module PureRunProductTests =
                 [ """{"kind":"string","value":null}"""
                   """{"kind":"int64","value":"9223372036854775808"}"""
                   """{"kind":"bool","value":"false"}"""
-                  """{"kind":"option","itemKind":"string","hasValue":false}"""
                   """{"kind":"string","value":"x","extra":true}""" ] do
                 reject (product ($"""{{"fieldId":"{StableId.value textId}","value":{value}}}"""))
             reject (product """{"value":{"kind":"string","value":"x"}}""")
@@ -147,9 +149,9 @@ module PureRunProductTests =
             Assert.Equal(canonical, identity.Actual)
             Assert.Equal(Some canonical, identity.Expected)
             let expected = PureRunValue.Product(productId,
-                [ flagId, PureRunScalar.Bool false
-                  numberId, PureRunScalar.Int64 Int64.MinValue
-                  textId, PureRunScalar.String "雪\n\"\\!" ])
+                [ flagId, PureRunValue.Bool false
+                  numberId, PureRunValue.Int64 Int64.MinValue
+                  textId, PureRunValue.String "雪\n\"\\!" ])
             let updated = PureRun.run session (functionId "update") [ value ] (Some expected) |> unwrap
             Assert.Equal(Some true, updated.Matches)
             let mismatch = PureRun.run session (functionId "identity") [ value ] (Some expected) |> unwrap

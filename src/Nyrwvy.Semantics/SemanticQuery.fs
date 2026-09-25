@@ -54,11 +54,15 @@ module SemanticQuery =
                 let calleeId =
                     match node.Kind with
                     | SemanticNodeKind.DirectCall(functionId, _)
-                    | SemanticNodeKind.ListFold(_, _, functionId)
-                    | SemanticNodeKind.ListMap(_, functionId)
-                    | SemanticNodeKind.ListFilter(_, functionId)
-                    | SemanticNodeKind.ListAny(_, functionId)
-                    | SemanticNodeKind.ListAll(_, functionId) -> Some functionId
+                    | SemanticNodeKind.ListFold(_, _, functionId, _)
+                    | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
+                    | SemanticNodeKind.UseResource(_, _, _, functionId, _)
+                    | SemanticNodeKind.ParallelAll(_, functionId, _)
+                    | SemanticNodeKind.ListMap(_, functionId, _)
+                    | SemanticNodeKind.ListFilter(_, functionId, _)
+                    | SemanticNodeKind.ListAny(_, functionId, _)
+                    | SemanticNodeKind.ListAll(_, functionId, _) -> Some functionId
+                    | SemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ParameterReference _
                     | SemanticNodeKind.PatternReference _
                     | SemanticNodeKind.StringLiteral _
@@ -67,6 +71,8 @@ module SemanticQuery =
                     | SemanticNodeKind.Int64Literal _
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.StringIsEmpty _
+                    | SemanticNodeKind.Int64ToString _
+                    | SemanticNodeKind.StringParseInt64 _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.StringConcat _
@@ -233,7 +239,8 @@ module SemanticQuery =
 
         let rec visitTypeRef (typeRef: TypeRef) =
             match typeRef with
-            | TypeRef.Primitive _ -> ()
+            | TypeRef.Primitive _
+            | TypeRef.TypeParameter _ -> ()
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then

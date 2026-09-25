@@ -134,7 +134,7 @@ module MilestoneOneGraph =
                     [ { Id = validateUsersInputNodeId
                         Kind = SemanticNodeKind.ParameterReference validateUsersInputParameter.Id }
                       { Id = validateUsersMapNodeId
-                        Kind = SemanticNodeKind.ListMap(validateUsersInputNodeId, m0.ValidateFunctionId) } ]
+                        Kind = SemanticNodeKind.ListMap(validateUsersInputNodeId, m0.ValidateFunctionId, []) } ]
                   ResultNodeId = validateUsersMapNodeId } }
 
         let countResultsParameter: SemanticParameter =
@@ -178,7 +178,8 @@ module MilestoneOneGraph =
                         Kind =
                             SemanticNodeKind.ListFilter(
                                 countInvalidParameterNodeId,
-                                isValidationErrorFunction.Id
+                                isValidationErrorFunction.Id,
+                                []
                             ) }
                       { Id = countInvalidLengthNodeId
                         Kind = SemanticNodeKind.ListLength countInvalidFilterNodeId } ]

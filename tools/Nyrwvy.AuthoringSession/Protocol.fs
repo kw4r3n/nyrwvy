@@ -33,8 +33,63 @@ module AuthoringProtocol =
         | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
         | _ -> fail "Scalar run values must be string, bool or int64."
 
-    let private pureValue (item: JsonElement): PureRunValue =
-        match requiredString "kind" item with
+    let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
+        if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
+        let kind = requiredString "kind" item
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "unit" then
+            fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
+        let children =
+            match kind with
+            | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
+            | "product" | "union" -> (array "fields" item).Length
+            | "result" -> 1
+            | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
+            | "fakeCapability" -> array "operations" item |> List.sumBy (fun operation -> (array "responses" operation).Length)
+            | _ -> 0
+        remaining.Value <- remaining.Value - 1 - children
+        if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
+        match kind with
+        | "list" when tryProperty "itemType" item |> Option.isSome ->
+            ensureFields "Nested List run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
+            let items = array "items" item
+            if items.Length > 4096 then fail "Lists may contain at most 4096 items."
+            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt remaining (depth + 1)))
+        | "option" when tryProperty "itemType" item |> Option.isSome ->
+            let hasValue = requiredBool "hasValue" item
+            let fields = [ "kind"; "itemType"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
+            ensureFields "Nested Option run value" fields fields item
+            PureRunValue.OptionValue(typeRef (property "itemType" item),
+                if hasValue then Some(pureValueAt remaining (depth + 1) (property "value" item)) else None)
+        | "unit" ->
+            ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
+            PureRunValue.Unit
+        | "hostCapability" ->
+            ensureFields "Host capability" [ "kind"; "capabilityId"; "implementation" ] [ "kind"; "capabilityId"; "implementation" ] item
+            PureRunValue.HostCapability(id<CapabilityTag> "capabilityId" item, requiredString "implementation" item)
+        | "fakeCapability" ->
+            ensureFields "Fake capability" [ "kind"; "capabilityId"; "operations" ] [ "kind"; "capabilityId"; "operations" ] item
+            let operations = array "operations" item
+            if operations.Length > 256 then fail "A fake capability may script at most 256 operations."
+            PureRunValue.FakeCapability(
+                id<CapabilityTag> "capabilityId" item,
+                operations |> List.map (fun operation ->
+                    ensureFields "Fake operation" [ "operationId"; "responses" ] [ "operationId"; "responses" ] operation
+                    let responses = array "responses" operation
+                    if responses.Length > 256 then fail "A fake operation may script at most 256 responses."
+                    { OperationId = id<CapabilityOperationTag> "operationId" operation
+                      Responses =
+                        responses |> List.map (fun response ->
+                            match requiredString "kind" response with
+                            | "return" ->
+                                ensureFields "Fake return" [ "kind"; "value" ] [ "kind"; "value" ] response
+                                PureRunFakeResponse.Return(pureValueAt remaining (depth + 1) (property "value" response))
+                            | "throw" ->
+                                ensureFields "Fake throw" [ "kind"; "message" ] [ "kind"; "message" ] response
+                                PureRunFakeResponse.Throw(requiredString "message" response)
+                            | "awaitCancellation" ->
+                                ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
+                                PureRunFakeResponse.AwaitCancellation(pureValueAt remaining (depth + 1) (property "value" response))
+                            | other -> fail $"Unsupported fake response kind '{other}'.") }))
         | "string" | "bool" | "int64" ->
             match pureScalar item with
             | PureRunScalar.String text -> PureRunValue.String text
@@ -47,10 +102,18 @@ module AuthoringProtocol =
             if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
             let fields = fields |> List.map (fun field ->
                 ensureFields "Named run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
-                id<FieldTag> "fieldId" field, pureScalar (property "value" field))
+                id<FieldTag> "fieldId" field, pureValueAt remaining (depth + 1) (property "value" field))
             let typeId = id<TypeTag> "typeId" item
             if kind = "union" then PureRunValue.Union(typeId, id<VariantTag> "variantId" item, fields)
             else PureRunValue.Product(typeId, fields)
+        | "result" when tryProperty "okType" item |> Option.isSome ->
+            let fields = [ "kind"; "okType"; "errorType"; "isOk"; "value" ]
+            ensureFields "Nested Result run value" fields fields item
+            PureRunValue.ResultValue(
+                typeRef (property "okType" item),
+                typeRef (property "errorType" item),
+                requiredBool "isOk" item,
+                pureValueAt remaining (depth + 1) (property "value" item))
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -104,6 +167,8 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
+    let private pureValue item = pureValueAt (ref 8192) 0 item
+
     let private encodePureScalar value =
         let kind, payload =
             match value with
@@ -112,7 +177,7 @@ module AuthoringProtocol =
             | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
         objectValue [ "kind", box kind; "value", payload ]
 
-    let private encodePureValue value =
+    let rec private encodePureValue value =
         let listValue kind items =
             objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
         let optionValue kind item =
@@ -136,19 +201,48 @@ module AuthoringProtocol =
                   "isOk", box isOk
                   "value", payload ]
         match value with
+        | PureRunValue.Unit -> objectValue [ "kind", box "unit" ]
+        | PureRunValue.HostCapability(capabilityId, implementation) ->
+            objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation ]
+        | PureRunValue.FakeCapability(capabilityId, operations) ->
+            let response = function
+                | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
+                | PureRunFakeResponse.Throw message -> objectValue [ "kind", box "throw"; "message", box message ]
+                | PureRunFakeResponse.AwaitCancellation value -> objectValue [ "kind", box "awaitCancellation"; "value", encodePureValue value ]
+            objectValue
+                [ "kind", box "fakeCapability"
+                  "capabilityId", box (StableId.value capabilityId)
+                  "operations", operations |> List.map (fun operation ->
+                      objectValue
+                          [ "operationId", box (StableId.value operation.OperationId)
+                            "responses", operation.Responses |> List.map response |> arrayValue ]) |> arrayValue ]
+        | PureRunValue.ListValue(itemType, items) ->
+            objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
+                          "items", items |> List.map encodePureValue |> arrayValue ]
+        | PureRunValue.OptionValue(itemType, item) ->
+            objectValue
+                ([ "kind", box "option"; "itemType", WireEncodeCommon.typeRef itemType; "hasValue", box (Option.isSome item) ]
+                 @ (item |> Option.map (fun value -> [ "value", encodePureValue value ]) |> Option.defaultValue []))
         | PureRunValue.Union(typeId, variantId, fields) ->
             objectValue
                 [ "kind", box "union"
                   "typeId", box (StableId.value typeId)
                   "variantId", box (StableId.value variantId)
                   "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
         | PureRunValue.Product(typeId, fields) ->
             objectValue
                 [ "kind", box "product"
                   "typeId", box (StableId.value typeId)
                   "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureScalar value ]) |> arrayValue ]
+                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
+        | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
+            objectValue
+                [ "kind", box "result"
+                  "okType", WireEncodeCommon.typeRef okType
+                  "errorType", WireEncodeCommon.typeRef errorType
+                  "isOk", box isOk
+                  "value", encodePureValue payload ]
         | PureRunValue.ResultOk(errorKind, item) -> resultValue true errorKind item
         | PureRunValue.ResultErr(okKind, item) -> resultValue false okKind item
         | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)
@@ -160,6 +254,34 @@ module AuthoringProtocol =
         | PureRunValue.String value -> encodePureScalar (PureRunScalar.String value)
         | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
+
+    let private encodePathStep step =
+        match step with
+        | PureRunPathStep.Field(typeId, fieldId) ->
+            objectValue [ "kind", box "field"; "typeId", box (StableId.value typeId); "fieldId", box (StableId.value fieldId) ]
+        | PureRunPathStep.Item index -> objectValue [ "kind", box "item"; "index", box index ]
+        | PureRunPathStep.SomeValue -> objectValue [ "kind", box "some" ]
+        | PureRunPathStep.OkValue -> objectValue [ "kind", box "ok" ]
+        | PureRunPathStep.ErrValue -> objectValue [ "kind", box "err" ]
+
+    let private encodeMismatch (mismatch: PureRunMismatch) =
+        objectValue
+            [ "path", mismatch.Path |> List.map encodePathStep |> arrayValue
+              "expected", encodePureValue mismatch.Expected
+              "actual", encodePureValue mismatch.Actual ]
+
+    let private encodeCall (call: PureRunCall) =
+        objectValue
+            [ "parameterId", box (StableId.value call.ParameterId)
+              "operationId", box (StableId.value call.OperationId)
+              "arguments", call.Arguments |> List.map (fun (parameterId, value) ->
+                  objectValue [ "capabilityParameterId", box (StableId.value parameterId); "value", encodePureValue value ]) |> arrayValue ]
+
+    let private encodeFrame frame =
+        match frame with
+        | PureRunFrame.Function functionId -> objectValue [ "kind", box "function"; "functionId", box (StableId.value functionId) ]
+        | PureRunFrame.CapabilityOperation operationId ->
+            objectValue [ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ]
 
     let private currentSnapshotId (session: AuthoringSession) =
         match session.Status() with
@@ -267,6 +389,25 @@ module AuthoringProtocol =
                 | Some manifest ->
                     let selected = JsonSerializer.Deserialize<JsonElement>(manifest)
                     success requestId (objectValue [ "selection", box selected ])
+            | "previewDependencyUpgrade" ->
+                ensureFields "previewDependencyUpgrade request" [ "id"; "op"; "source"; "replaces" ] [ "id"; "op"; "source" ] root
+                let replaces = tryProperty "replaces" root |> Option.map (fun _ -> requiredString "replaces" root)
+                match session.PreviewDependencyUpgrade(requiredString "source" root, replaces) with
+                | Error error -> sessionFailure requestId error
+                | Ok preview ->
+                    let changes (items: AuthoringDependencyChange list) =
+                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id ]) |> arrayValue
+                    success requestId
+                        (objectValue
+                            [ "replacedSnapshotId", box preview.ReplacedSnapshotId
+                              "replacedFingerprint", box preview.ReplacedFingerprint
+                              "newSnapshotId", box preview.NewSnapshotId
+                              "newFingerprint", box preview.NewFingerprint
+                              "compatible", box (List.isEmpty preview.Issues)
+                              "added", changes preview.Added
+                              "removed", changes preview.Removed
+                              "changed", changes preview.Changed
+                              "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))
@@ -385,6 +526,40 @@ module AuthoringProtocol =
                 match session.SimulateParameterTypeMigration request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateResultTypeMigration" ->
+                ensureFields
+                    "simulateResultTypeMigration request"
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites" ]
+                    root
+                let request: AgentResultTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetFunctionId = id<FunctionTag> "targetFunctionId" root
+                      NewResultType = typeRef (property "newResultType" root)
+                      TargetReplacement = recipe (property "targetReplacement" root)
+                      CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
+                match session.SimulateResultTypeMigration request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateProductFieldTypeMigration" ->
+                ensureFields
+                    "simulateProductFieldTypeMigration request"
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites" ]
+                    root
+                let request: AgentProductFieldTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      FieldId = id<FieldTag> "fieldId" root
+                      NewFieldType = typeRef (property "newFieldType" root)
+                      FunctionRewrites =
+                        array "functionRewrites" root
+                        |> List.map (fun item ->
+                            ensureFields "function rewrite" [ "functionId"; "replacement" ] [ "functionId"; "replacement" ] item
+                            { FunctionId = id<FunctionTag> "functionId" item
+                              Replacement = recipe (property "replacement" item) }) }
+                match session.SimulateProductFieldTypeMigration request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
@@ -424,6 +599,24 @@ module AuthoringProtocol =
                       SourceVariantId = id<VariantTag> "sourceVariantId" root
                       NewVariantDisplayName = requiredString "displayName" root }
                 match session.SimulateAddFieldlessUnionVariantLike request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateAddUnionVariantLike" ->
+                ensureFields
+                    "simulateAddUnionVariantLike request"
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
+                    root
+                let request: AgentAddFieldlessUnionVariantLikeRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetTypeId = id<TypeTag> "typeId" root
+                      SourceVariantId = id<VariantTag> "sourceVariantId" root
+                      NewVariantDisplayName = requiredString "displayName" root }
+                let additionalFields =
+                    tryProperty "additionalFields" root
+                    |> Option.map (fun _ -> array "additionalFields" root |> List.map typeFieldIntent)
+                    |> Option.defaultValue []
+                match session.SimulateAddUnionVariantLike(request, additionalFields) with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateCreateEffect" ->
@@ -557,13 +750,20 @@ module AuthoringProtocol =
             | "runPure" ->
                 ensureFields
                     "runPure request"
-                    [ "id"; "op"; "functionId"; "arguments"; "expected" ]
+                    [ "id"; "op"; "functionId"; "arguments"; "expected"; "hostSources" ]
                     [ "id"; "op"; "functionId"; "arguments" ]
                     root
                 let functionId = id<FunctionTag> "functionId" root
                 let arguments = array "arguments" root |> List.map pureValue
                 let expected = tryProperty "expected" root |> Option.map pureValue
-                match PureRun.run session functionId arguments expected with
+                let hostSources =
+                    tryProperty "hostSources" root
+                    |> Option.map (fun _ ->
+                        array "hostSources" root |> List.map (fun path ->
+                            if path.ValueKind <> JsonValueKind.String then fail "hostSources must contain file paths."
+                            path.GetString()))
+                    |> Option.defaultValue []
+                match PureRun.runWithHost session functionId arguments expected hostSources with
                 | Ok result ->
                     success requestId
                         (objectValue
@@ -571,8 +771,20 @@ module AuthoringProtocol =
                               "functionId", box (StableId.value result.FunctionId)
                               "actual", encodePureValue result.Actual
                               "expected", result.Expected |> Option.map encodePureValue |> Option.defaultValue null
-                              "matches", result.Matches |> Option.map box |> Option.defaultValue null ])
+                              "matches", result.Matches |> Option.map box |> Option.defaultValue null
+                              "mismatch", result.Mismatch |> Option.map encodeMismatch |> Option.defaultValue null
+                              "calls", result.Calls |> List.map encodeCall |> arrayValue ])
                 | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
+                | Error(PureRunError.RuntimeFailure runtime) ->
+                    failure requestId
+                        (objectValue
+                            [ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" else "RunRuntimeFailure")
+                              "message", box runtime.Message
+                              "functionId", box (StableId.value runtime.FunctionId)
+                              "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                              "exceptionType", box runtime.ExceptionType
+                              "frames", runtime.Frames |> List.map encodeFrame |> arrayValue
+                              "calls", runtime.Calls |> List.map encodeCall |> arrayValue ])
                 | Error(PureRunError.Unsupported(code, message)) ->
                     failure requestId
                         (objectValue

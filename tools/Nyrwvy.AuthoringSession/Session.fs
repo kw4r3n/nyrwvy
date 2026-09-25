@@ -48,6 +48,8 @@ type AuthoringProposalReview =
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Review
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Review
     | ParameterTypeMigration of AgentParameterTypeMigrationReview
+    | ResultTypeMigration of AgentResultTypeMigrationReview
+    | ProductFieldTypeMigration of AgentProductFieldTypeMigrationReview
     | CreateType of AgentTypeDeclarationReview
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionReview
     | CreateEffect of AgentEffectDeclarationReview
@@ -73,6 +75,8 @@ type private PendingProposal =
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Proposal
     | CreateFunction of AgentExpressionStructuralWorkflow.FunctionCreation.Proposal
     | ParameterTypeMigration of AgentParameterTypeMigrationProposal
+    | ResultTypeMigration of AgentResultTypeMigrationProposal
+    | ProductFieldTypeMigration of AgentProductFieldTypeMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
@@ -96,13 +100,15 @@ module private SessionStorage =
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
     // SnapshotCodec establishes validity; pinning additionally requires completeness.
+    let ensureCompleteDependency (imported: Snapshot): Result<Snapshot, AuthoringSessionError> =
+        if imported.Obligations |> List.exists (fun obligation -> obligation.Status = ObligationStatus.Open) then
+            Error(AuthoringSessionError.DependencyFailure "The selected dependency has open obligations; complete it before pinning.")
+        else Ok imported
+
     let decodeCompleteDependency (source: string): Result<Snapshot, AuthoringSessionError> =
         SnapshotCodec.deserialize source
         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
-        |> Result.bind (fun imported ->
-            if imported.Obligations |> List.exists (fun obligation -> obligation.Status = ObligationStatus.Open) then
-                Error(AuthoringSessionError.DependencyFailure "The selected dependency has open obligations; complete it before pinning.")
-            else Ok imported)
+        |> Result.bind ensureCompleteDependency
 
     let readCompleteDependency path = readText path |> Result.bind decodeCompleteDependency
 
@@ -168,12 +174,33 @@ module private SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+/// One imported declaration that an upgrade adds, removes or changes.
+type AuthoringDependencyChange =
+    { Kind: string
+      Id: string }
+
+/// The reviewed impact of replacing one pinned dependency with a new version.
+type AuthoringDependencyUpgradePreview =
+    { ReplacedSnapshotId: string
+      ReplacedFingerprint: string
+      NewSnapshotId: string
+      /// Confirms the exact reviewed version when the upgrade is applied.
+      NewFingerprint: string
+      Added: AuthoringDependencyChange list
+      Removed: AuthoringDependencyChange list
+      Changed: AuthoringDependencyChange list
+      /// Validation issues of the local graph against the upgraded imports; empty when compatible.
+      Issues: ValidationIssue list }
+
 type internal PinnedDependencySelection =
     { Imported: Snapshot
       Manifest: string
       SourcePath: string
       Fingerprint: string
-      IsEmbedded: bool }
+      IsEmbedded: bool
+      /// The individually pinned dependencies of a combined selection; empty for one dependency,
+      /// whose `Imported` graph is then the dependency itself.
+      Members: PinnedDependencySelection list }
 
 module private PinnedDependency =
     let embed sourcePath imported =
@@ -186,17 +213,78 @@ module private PinnedDependency =
                    fingerprint = fingerprint
                    snapshotJson = source |})
             Ok { Imported = imported; Manifest = manifest; SourcePath = sourcePath
-                 Fingerprint = fingerprint; IsEmbedded = true }
+                 Fingerprint = fingerprint; IsEmbedded = true; Members = [] }
         | Error error, _
         | _, Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
 
+    let private describeMember selected =
+        {| path = selected.SourcePath
+           snapshotId = StableId.value selected.Imported.Id
+           fingerprint = selected.Fingerprint
+           storage = if selected.IsEmbedded then "embedded" else "legacySource" |}
+
     let describe selected =
         // Discovery must not repeat the potentially large stored snapshot.
-        JsonSerializer.Serialize(
-            {| path = selected.SourcePath
-               snapshotId = StableId.value selected.Imported.Id
-               fingerprint = selected.Fingerprint
-               storage = if selected.IsEmbedded then "embedded" else "legacySource" |})
+        match selected.Members with
+        | [] -> JsonSerializer.Serialize(describeMember selected)
+        | members -> JsonSerializer.Serialize({| dependencies = members |> List.map describeMember |})
+
+    let private combinationFailure = function
+        | DependencyCombinationError.NoDependencies -> AuthoringSessionError.DependencyFailure "A dependency set needs at least one dependency."
+        | DependencyCombinationError.ConflictingDeclaration(kind, id) ->
+            AuthoringSessionError.DependencyFailure $"Dependencies declare the {kind} '{id}' with different content; colliding imported identities are never merged."
+        | DependencyCombinationError.FingerprintFailure error -> AuthoringSessionError.SnapshotCodecFailure error
+
+    /// Combines individually pinned dependencies under the import collision policy.
+    let combine (members: PinnedDependencySelection list) =
+        match members with
+        | [ single ] -> Ok single
+        | _ ->
+            DependencyGraph.combine (members |> List.map (fun item -> item.Imported))
+            |> Result.mapError combinationFailure
+            |> Result.bind (fun combined ->
+                match SnapshotFingerprint.compute combined with
+                | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                | Ok fingerprint ->
+                    let manifest =
+                        members
+                        |> List.map (fun item -> JsonSerializer.Deserialize<JsonElement>(item.Manifest))
+                        |> fun items -> JsonSerializer.Serialize({| dependencies = items |})
+                    Ok { Imported = combined; Manifest = manifest; SourcePath = ""
+                         Fingerprint = SnapshotFingerprint.value fingerprint; IsEmbedded = true; Members = members })
+
+    let private loadMember (manifest: string) (root: JsonElement) sourceOverride: Result<PinnedDependencySelection, AuthoringSessionError> =
+        let fields = root.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.sort |> Seq.toList
+        let embedded = fields = [ "fingerprint"; "path"; "snapshotId"; "snapshotJson" ]
+        if not embedded && fields <> [ "fingerprint"; "path"; "snapshotId" ] then
+            Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+        else
+            let sourcePath = root.GetProperty("path").GetString()
+            let fingerprint = root.GetProperty("fingerprint").GetString()
+            let snapshotId = root.GetProperty("snapshotId").GetString()
+            if String.IsNullOrWhiteSpace sourcePath || String.IsNullOrWhiteSpace fingerprint
+               || String.IsNullOrWhiteSpace snapshotId then
+                Error(AuthoringSessionError.DependencyFailure "Dependency manifest fields must be non-blank strings.")
+            else
+                let selectedPath = sourceOverride |> Option.map SessionStorage.fullPath |> Option.defaultValue sourcePath
+                let imported =
+                    match sourceOverride with
+                    | None when embedded ->
+                        let source = root.GetProperty("snapshotJson").GetString()
+                        if String.IsNullOrWhiteSpace source then
+                            Error(AuthoringSessionError.DependencyFailure "The embedded dependency is missing.")
+                        else SessionStorage.decodeCompleteDependency source
+                    | _ when not (Path.IsPathFullyQualified selectedPath) || not (File.Exists selectedPath) ->
+                        Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.")
+                    | _ -> SessionStorage.readCompleteDependency selectedPath
+                imported |> Result.bind (fun imported ->
+                    match SnapshotFingerprint.compute imported with
+                    | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                    | Ok actual when SnapshotFingerprint.value actual = fingerprint
+                                     && StableId.value imported.Id = snapshotId ->
+                        Ok { Imported = imported; Manifest = manifest; SourcePath = selectedPath
+                             Fingerprint = fingerprint; IsEmbedded = embedded; Members = [] }
+                    | Ok _ -> Error(AuthoringSessionError.DependencyFailure "The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade."))
 
     let load path sourceOverride: Result<PinnedDependencySelection option, AuthoringSessionError> =
         // Read directly: File.Exists treats permission failures as absence.
@@ -204,37 +292,24 @@ module private PinnedDependency =
             let manifest = File.ReadAllText(path + ".dependency.json", Encoding.UTF8)
             use document = JsonDocument.Parse(manifest)
             let root = document.RootElement
-            let fields = root.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.sort |> Seq.toList
-            let embedded = fields = [ "fingerprint"; "path"; "snapshotId"; "snapshotJson" ]
-            if not embedded && fields <> [ "fingerprint"; "path"; "snapshotId" ] then
-                Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
-            else
-                let sourcePath = root.GetProperty("path").GetString()
-                let fingerprint = root.GetProperty("fingerprint").GetString()
-                let snapshotId = root.GetProperty("snapshotId").GetString()
-                if String.IsNullOrWhiteSpace sourcePath || String.IsNullOrWhiteSpace fingerprint
-                   || String.IsNullOrWhiteSpace snapshotId then
-                    Error(AuthoringSessionError.DependencyFailure "Dependency manifest fields must be non-blank strings.")
+            match root.TryGetProperty("dependencies") with
+            | true, members when root.EnumerateObject() |> Seq.length = 1 ->
+                // A dependency set stores every member's exact content; there is no legacy form.
+                if Option.isSome sourceOverride then
+                    Error(AuthoringSessionError.DependencyFailure "Pin with a source applies only to a single legacy dependency.")
+                elif members.ValueKind <> JsonValueKind.Array || members.GetArrayLength() < 2 then
+                    Error(AuthoringSessionError.DependencyFailure "A dependency set lists at least two dependencies.")
                 else
-                    let selectedPath = sourceOverride |> Option.map SessionStorage.fullPath |> Option.defaultValue sourcePath
-                    let imported =
-                        match sourceOverride with
-                        | None when embedded ->
-                            let source = root.GetProperty("snapshotJson").GetString()
-                            if String.IsNullOrWhiteSpace source then
-                                Error(AuthoringSessionError.DependencyFailure "The embedded dependency is missing.")
-                            else SessionStorage.decodeCompleteDependency source
-                        | _ when not (Path.IsPathFullyQualified selectedPath) || not (File.Exists selectedPath) ->
-                            Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.")
-                        | _ -> SessionStorage.readCompleteDependency selectedPath
-                    imported |> Result.bind (fun imported ->
-                        match SnapshotFingerprint.compute imported with
-                        | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
-                        | Ok actual when SnapshotFingerprint.value actual = fingerprint
-                                         && StableId.value imported.Id = snapshotId ->
-                            Ok(Some { Imported = imported; Manifest = manifest; SourcePath = selectedPath
-                                      Fingerprint = fingerprint; IsEmbedded = embedded })
-                        | Ok _ -> Error(AuthoringSessionError.DependencyFailure "The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade."))
+                    members.EnumerateArray()
+                    |> Seq.toList
+                    |> List.fold (fun state item ->
+                        state |> Result.bind (fun loaded ->
+                            if item.ValueKind <> JsonValueKind.Object || not (fst (item.TryGetProperty "snapshotJson")) then
+                                Error(AuthoringSessionError.DependencyFailure "Every member of a dependency set must embed its content.")
+                            else loadMember (item.GetRawText()) item None |> Result.map (fun selected -> loaded @ [ selected ]))) (Ok [])
+                    |> Result.bind combine
+                    |> Result.map (fun combined -> Some { combined with Manifest = manifest })
+            | _ -> loadMember manifest root sourceOverride |> Result.map Some
         with
         | :? FileNotFoundException
         | :? DirectoryNotFoundException -> Ok None
@@ -258,6 +333,93 @@ module private PinnedDependency =
             | Error error, _
             | _, Error error -> Error error
             | _ -> Error AuthoringSessionError.ExternalModification)
+
+    /// Pins one source for the workspace at `localPath`. A source that has its own pinned
+    /// dependencies is flattened into its complete graph; its sidecar already retains exact,
+    /// flattened content, so no further recursion is needed.
+    let pinSource (localPath: string) (sourcePath: string) =
+        try
+            let sourcePath = SessionStorage.fullPath sourcePath
+            if sourcePath = localPath || not (File.Exists sourcePath) then
+                Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
+            elif File.Exists(sourcePath + ".dependency.json") then
+                load sourcePath None
+                |> Result.bind (function
+                    | None -> Error(AuthoringSessionError.DependencyFailure "The dependency's own dependency selection is unavailable.")
+                    | Some nested ->
+                        SessionStorage.readText sourcePath
+                        |> Result.bind (fun text ->
+                            SnapshotCodec.deserializeResolved nested.Imported text
+                            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure)
+                        |> Result.map (SnapshotCodec.resolveDependency nested.Imported)
+                        |> Result.bind SessionStorage.ensureCompleteDependency)
+                |> Result.bind (embed sourcePath)
+            else
+                SessionStorage.readCompleteDependency sourcePath
+                |> Result.bind (embed sourcePath)
+        with
+        | :? ArgumentException
+        | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency path.")
+
+    type UpgradePlan =
+        { Selection: PinnedDependencySelection
+          Local: Snapshot
+          Preview: AuthoringDependencyUpgradePreview }
+
+    let private declarationChanges (before: Snapshot) (after: Snapshot) =
+        let entries (snapshot: Snapshot) =
+            (snapshot.Types |> List.map (fun item -> ("type", StableId.value item.Id), box item))
+            @ (snapshot.Effects |> List.map (fun item -> ("effect", StableId.value item.Id), box item))
+            @ (snapshot.Capabilities |> List.map (fun item -> ("capability", StableId.value item.Id), box item))
+            @ (snapshot.Functions |> List.map (fun item -> ("function", StableId.value item.Id), box item))
+            |> Map.ofList
+        let oldEntries, newEntries = entries before, entries after
+        let change ((kind, id), _) = { Kind = kind; Id = id }
+        let added = newEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key oldEntries)) |> List.map change
+        let removed = oldEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key newEntries)) |> List.map change
+        let changed =
+            newEntries |> Map.toList
+            |> List.filter (fun (key, item) -> Map.tryFind key oldEntries |> Option.exists (fun old -> old <> item))
+            |> List.map change
+        added, removed, changed
+
+    /// Plans replacing one pinned dependency (the only one, or the member whose SnapshotId is
+    /// `replaces`) with the exact content of `sourcePath`, and validates the local graph against it.
+    let planUpgrade (localPath: string) (localSource: string) (current: PinnedDependencySelection) (sourcePath: string) (replaces: string option) =
+        let members = match current.Members with [] -> [ current ] | members -> members
+        let target =
+            match replaces, members with
+            | None, [ single ] -> Ok single
+            | None, _ -> Error(AuthoringSessionError.DependencyFailure "Name the dependency to replace by its SnapshotId when the workspace has several.")
+            | Some snapshotId, _ ->
+                members |> List.tryFind (fun item -> StableId.value item.Imported.Id = snapshotId)
+                |> Option.map Ok
+                |> Option.defaultValue (Error(AuthoringSessionError.DependencyFailure $"No selected dependency has SnapshotId '{snapshotId}'."))
+        target
+        |> Result.bind (fun target ->
+            pinSource localPath sourcePath
+            |> Result.bind (fun replacement ->
+                if replacement.Fingerprint = target.Fingerprint then
+                    Error(AuthoringSessionError.DependencyFailure "The source is the version already selected; use pin to retain or relocate it.")
+                else
+                    let upgraded = members |> List.map (fun item -> if item = target then replacement else item)
+                    combine upgraded
+                    |> Result.bind (fun selection ->
+                        SnapshotCodec.deserializeResolved current.Imported localSource
+                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                        |> Result.map (fun local ->
+                            let added, removed, changed = declarationChanges target.Imported replacement.Imported
+                            { Selection = selection
+                              Local = local
+                              Preview =
+                                { ReplacedSnapshotId = StableId.value target.Imported.Id
+                                  ReplacedFingerprint = target.Fingerprint
+                                  NewSnapshotId = StableId.value replacement.Imported.Id
+                                  NewFingerprint = replacement.Fingerprint
+                                  Added = added
+                                  Removed = removed
+                                  Changed = changed
+                                  Issues = SnapshotValidator.validate (SnapshotCodec.resolveDependency selection.Imported local) } }))))
 
 type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream, selection: PinnedDependencySelection option) =
     let dependency = selection |> Option.map (fun item -> item.Imported)
@@ -292,6 +454,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | AuthoringProposalReview.ReplaceTarget item -> [ item.RequestedChange.TargetFunctionId ], []
             | AuthoringProposalReview.ParameterTypeMigration item ->
                 item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
+            | AuthoringProposalReview.ResultTypeMigration item ->
+                item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
+            | AuthoringProposalReview.ProductFieldTypeMigration item ->
+                item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
             | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
                 item.RepairedFunctionIds, [ item.UpdatedType.Id ]
             | AuthoringProposalReview.CreateFunction _
@@ -382,6 +548,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.Path = path
     member _.DependencySelection = selection |> Option.map PinnedDependency.describe
 
+    /// Reviews replacing a pinned dependency with a new version without changing anything.
+    member _.PreviewDependencyUpgrade(sourcePath: string, replaces: string option): Result<AuthoringDependencyUpgradePreview, AuthoringSessionError> =
+        match selection with
+        | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+        | Some current ->
+            PinnedDependency.planUpgrade path persistedSource current sourcePath replaces
+            |> Result.map (fun plan -> plan.Preview)
+
     /// Read-only execution must not run a stale in-memory graph after the selected
     /// snapshot or its pinned dependency was changed outside the session.
     member _.VerifyPersistedSource(): Result<unit, AuthoringSessionError> =
@@ -463,6 +637,26 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentParameterTypeMigrationProposal.transactionId proposal) (PendingProposal.ParameterTypeMigration proposal) (AuthoringProposalReview.ParameterTypeMigration(AgentParameterTypeMigrationProposal.review proposal))
 
+    member _.SimulateResultTypeMigration(request: AgentResultTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentResultTypeMigrationWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register (AgentResultTypeMigrationProposal.transactionId proposal) (PendingProposal.ResultTypeMigration proposal) (AuthoringProposalReview.ResultTypeMigration(AgentResultTypeMigrationProposal.review proposal))
+
+    member _.SimulateProductFieldTypeMigration(request: AgentProductFieldTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentProductFieldTypeMigrationWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register (AgentProductFieldTypeMigrationProposal.transactionId proposal) (PendingProposal.ProductFieldTypeMigration proposal) (AuthoringProposalReview.ProductFieldTypeMigration(AgentProductFieldTypeMigrationProposal.review proposal))
+
     member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
@@ -479,6 +673,21 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error error
         | Ok() ->
             match AgentFieldlessUnionVariantEvolutionWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register
+                    (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
+                    (PendingProposal.FieldlessUnionVariantEvolution proposal)
+                    (AuthoringProposalReview.FieldlessUnionVariantEvolution(
+                        AgentFieldlessUnionVariantEvolutionProposal.review proposal
+                    ))
+
+    member _.SimulateAddUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields workspace request additionalFields with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
                 register
@@ -539,6 +748,16 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 match AgentParameterTypeMigrationWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentParameterTypeMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentParameterTypeMigrationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, (_, PendingProposal.ResultTypeMigration proposal) ->
+                match AgentResultTypeMigrationWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentResultTypeMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentResultTypeMigrationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, (_, PendingProposal.ProductFieldTypeMigration proposal) ->
+                match AgentProductFieldTypeMigrationWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentProductFieldTypeMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentProductFieldTypeMigrationCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
             | true, (_, PendingProposal.CreateType proposal) ->
                 match AgentTypeDeclarationWorkflow.commitWithPolicy workspace proposal policy with
@@ -646,11 +865,50 @@ module AuthoringSession =
 
     let openExisting path = openUsing path false None
 
+    /// Explicitly replaces one pinned dependency with the reviewed version `expectedFingerprint`,
+    /// only when the local graph is valid against it, then opens the upgraded workspace.
+    /// The sidecar and the local snapshot's dependency binding are rewritten; local declarations
+    /// and identities are unchanged. Like creation, the two files are replaced separately.
+    let upgradeDependency (path: string) (sourcePath: string) (replaces: string option) (expectedFingerprint: string): Result<AuthoringSession, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        let path = SessionStorage.fullPath path
+        if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
+        else
+            match SessionStorage.acquireLock path with
+            | Error error -> Error error
+            | Ok lockHandle ->
+                let result =
+                    SessionStorage.readText path
+                    |> Result.bind (fun source ->
+                        PinnedDependency.load path None
+                        |> Result.bind (function
+                            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+                            | Some current -> PinnedDependency.planUpgrade path source current sourcePath replaces)
+                        |> Result.bind (fun plan ->
+                            if plan.Preview.NewFingerprint <> expectedFingerprint then
+                                Error(AuthoringSessionError.DependencyFailure "The source differs from the reviewed upgrade version.")
+                            elif not (List.isEmpty plan.Preview.Issues) then
+                                Error(AuthoringSessionError.WorkspaceValidationFailure plan.Preview.Issues)
+                            else
+                                SnapshotCodec.serializeResolved plan.Selection.Imported plan.Local
+                                |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                |> Result.bind (fun upgradedSource ->
+                                    SessionStorage.replaceAtomically (path + ".dependency.json") plan.Selection.Manifest
+                                    |> Result.bind (fun () -> SessionStorage.replaceAtomically path upgradedSource)
+                                    |> Result.bind (fun () -> workspaceFromSource (Some plan.Selection.Imported) upgradedSource)
+                                    |> Result.map (fun workspace -> upgradedSource, workspace, plan.Selection))))
+                match result with
+                | Error error ->
+                    lockHandle.Dispose()
+                    Error error
+                | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, lockHandle, Some selected))
+
     /// Storage-only recovery: retain exactly the selected ID/fingerprint/digest.
     /// Supplying another semantic version never authorizes an upgrade.
     let pinExistingDependency path sourceOverride = openUsing path true sourceOverride
 
-    let createNewWithDependency (path: string) (dependencyPath: string option): Result<AuthoringSession, AuthoringSessionError> =
+    /// Creates a workspace whose imported graph combines the exact content of each dependency.
+    let createNewWithDependencies (path: string) (dependencyPaths: string list): Result<AuthoringSession, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
         match SessionStorage.ensureParentDirectory path with
@@ -664,24 +922,19 @@ module AuthoringSession =
                     lockHandle.Dispose()
                     Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
                 else
+                    let pinOne = PinnedDependency.pinSource path
                     let selection =
-                        match dependencyPath with
-                        | None -> Ok None
-                        | Some sourcePath ->
-                            try
-                                let sourcePath = SessionStorage.fullPath sourcePath
-                                if sourcePath = path || not (File.Exists sourcePath) then
-                                    Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable.")
-                                elif File.Exists(sourcePath + ".dependency.json") then
-                                    Error(AuthoringSessionError.DependencyFailure "Nested dependencies are not supported.")
-                                else
-                                    match SessionStorage.readCompleteDependency sourcePath with
-                                    | Error error -> Error error
-                                    | Ok imported ->
-                                        PinnedDependency.embed sourcePath imported |> Result.map Some
-                            with
-                            | :? ArgumentException
-                            | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency path.")
+                        match dependencyPaths with
+                        | [] -> Ok None
+                        | paths ->
+                            paths
+                            |> List.fold (fun state sourcePath ->
+                                state |> Result.bind (fun pinned -> pinOne sourcePath |> Result.map (fun item -> pinned @ [ item ]))) (Ok [])
+                            |> Result.bind (fun pinned ->
+                                if (pinned |> List.map (fun item -> item.SourcePath) |> List.distinct).Length <> pinned.Length then
+                                    Error(AuthoringSessionError.DependencyFailure "Each dependency may be selected only once.")
+                                else PinnedDependency.combine pinned)
+                            |> Result.map Some
                     match selection with
                     | Error error ->
                         lockHandle.Dispose()
@@ -720,6 +973,9 @@ module AuthoringSession =
                                         lockHandle.Dispose()
                                         Error error
                                     | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
+
+    let createNewWithDependency (path: string) (dependencyPath: string option) =
+        createNewWithDependencies path (Option.toList dependencyPath)
 
     let createNew (path: string): Result<AuthoringSession, AuthoringSessionError> =
         createNewWithDependency path None

@@ -152,6 +152,10 @@ module SnapshotCodec =
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+            writer.WriteString("kind", "typeParameter")
+            writer.WriteString("typeParameterId", StableId.value typeParameterId)
+            writer.WriteString("displayName", displayName)
         | TypeRef.Capability capabilityId ->
             writer.WriteString("kind", "capability")
             writer.WriteString("capabilityId", StableId.value capabilityId)
@@ -318,16 +322,28 @@ module SnapshotCodec =
         writer.WriteString("kind", kind)
         writer.WriteString("valueNodeId", StableId.value valueNodeId)
 
+    /// Callback context is written only when present, so context-free graphs keep their bytes.
+    let private writeCallbackContext (writer: Utf8JsonWriter) (context: ArgumentBinding list) =
+        if not (List.isEmpty context) then
+            writer.WritePropertyName("context")
+            writer.WriteStartArray()
+            context
+            |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId, StableId.value argument.ValueNodeId)
+            |> List.iter (writeArgument writer)
+            writer.WriteEndArray()
+
     let private writeListCallbackNode
         (writer: Utf8JsonWriter)
         (kind: string)
         (sourceListNodeId: GraphNodeId)
         (callbackFieldName: string)
         (callbackFunctionId: FunctionId)
+        (context: ArgumentBinding list)
         =
         writer.WriteString("kind", kind)
         writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
         writer.WriteString(callbackFieldName, StableId.value callbackFunctionId)
+        writeCallbackContext writer context
 
     let rec private writeNode (writer: Utf8JsonWriter) (node: SemanticNode) =
         writer.WriteStartObject()
@@ -356,6 +372,12 @@ module SnapshotCodec =
             writer.WriteString("bits", Float64Bits.toHex bits)
         | SemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Int64ToString valueNodeId ->
+            writer.WriteString("kind", "int64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringParseInt64 valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
@@ -423,19 +445,40 @@ module SnapshotCodec =
             writer.WriteString("kind", "listConcat")
             writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
             writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
-        | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+        | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
-        | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId
-        | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId
-        | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId
-        | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId
+            writeCallbackContext writer context
+        | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "listEffectFold")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+            writer.WriteString("kind", "useResource")
+            writer.WriteString("acquireNodeId", StableId.value acquireNodeId)
+            writer.WriteString("releaseCapabilityNodeId", StableId.value releaseCapabilityNodeId)
+            writer.WriteString("releaseOperationId", StableId.value releaseOperationId)
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+            writer.WriteString("kind", "parallelAll")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.CancellationRequested ->
+            writer.WriteString("kind", "cancellationRequested")
+        | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+            writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -691,6 +734,9 @@ module SnapshotCodec =
         | "named" ->
             ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId" ]) element
             TypeRef.Named(readId<TypeTag> "typeId" element)
+        | "typeParameter" ->
+            ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId"; "displayName" ]) (set [ "kind"; "typeParameterId"; "displayName" ]) element
+            TypeRef.TypeParameter(readId<TypeParameterTag> "typeParameterId" element, readString "displayName" element)
         | "capability" ->
             ensureProperties "Capability type reference" (set [ "kind"; "capabilityId" ]) (set [ "kind"; "capabilityId" ]) element
             TypeRef.Capability(readId<CapabilityTag> "capabilityId" element)
@@ -821,6 +867,14 @@ module SnapshotCodec =
             element
         constructor (readId<GraphNodeTag> "valueNodeId" element)
 
+    let private readCallbackContext (element: JsonElement) =
+        match tryProperty "context" element with
+        | None -> []
+        | Some _ ->
+            match readArray "context" readArgument element with
+            | [] -> invalidShape "Callback context must be omitted rather than empty."
+            | context -> context
+
     let private readListCallbackNode
         context
         callbackFieldName
@@ -830,11 +884,12 @@ module SnapshotCodec =
         ensureProperties
             context
             (set [ "id"; "kind"; "sourceListNodeId"; callbackFieldName ])
-            (set [ "id"; "kind"; "sourceListNodeId"; callbackFieldName ])
+            (set [ "id"; "kind"; "sourceListNodeId"; callbackFieldName; "context" ])
             element
         constructor
             (readId<GraphNodeTag> "sourceListNodeId" element)
             (readId<FunctionTag> callbackFieldName element)
+            (readCallbackContext element)
 
     let rec private readNode (element: JsonElement): SemanticNode =
         let id = readId<GraphNodeTag> "id" element
@@ -865,6 +920,12 @@ module SnapshotCodec =
             | "stringIsEmpty" ->
                 ensureProperties "StringIsEmpty node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringIsEmpty(readId<GraphNodeTag> "valueNodeId" element)
+            | "int64ToString" ->
+                ensureProperties "Int64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Int64ToString(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringParseInt64" ->
+                ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringContains" ->
                 ensureProperties
                     "StringContains node"
@@ -947,20 +1008,38 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "rightListNodeId" element
                 )
             | "listFold" ->
-                ensureProperties "ListFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) element
-                SemanticNodeKind.ListFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element)
+                ensureProperties "ListFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
+                SemanticNodeKind.ListFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "listEffectFold" ->
+                ensureProperties "ListEffectFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
+                SemanticNodeKind.ListEffectFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "useResource" ->
+                let required = set [ "id"; "kind"; "acquireNodeId"; "releaseCapabilityNodeId"; "releaseOperationId"; "bodyFunctionId" ]
+                ensureProperties "UseResource node" required (Set.add "context" required) element
+                SemanticNodeKind.UseResource(
+                    readId<GraphNodeTag> "acquireNodeId" element,
+                    readId<GraphNodeTag> "releaseCapabilityNodeId" element,
+                    readId<CapabilityOperationTag> "releaseOperationId" element,
+                    readId<FunctionTag> "bodyFunctionId" element,
+                    readCallbackContext element)
+            | "parallelAll" ->
+                ensureProperties "ParallelAll node" (set [ "id"; "kind"; "sourceListNodeId"; "workerFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "workerFunctionId"; "context" ]) element
+                SemanticNodeKind.ParallelAll(readId<GraphNodeTag> "sourceListNodeId" element, readId<FunctionTag> "workerFunctionId" element, readCallbackContext element)
+            | "cancellationRequested" ->
+                ensureProperties "CancellationRequested node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
+                SemanticNodeKind.CancellationRequested
             | "listMap" ->
-                readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback ->
-                    SemanticNodeKind.ListMap(source, callback))
+                readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListMap(source, callback, context))
             | "listFilter" ->
-                readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback ->
-                    SemanticNodeKind.ListFilter(source, callback))
+                readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListFilter(source, callback, context))
             | "listAny" ->
-                readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback ->
-                    SemanticNodeKind.ListAny(source, callback))
+                readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListAny(source, callback, context))
             | "listAll" ->
-                readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback ->
-                    SemanticNodeKind.ListAll(source, callback))
+                readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListAll(source, callback, context))
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)

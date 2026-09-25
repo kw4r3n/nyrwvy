@@ -24,6 +24,8 @@ type ExpressionRecipe =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of ExpressionRecipe
+    | Int64ToString of ExpressionRecipe
+    | StringParseInt64 of ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
@@ -49,11 +51,16 @@ type ExpressionRecipe =
     | ListLength of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
-    | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId
-    | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId
-    | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId
-    | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId
-    | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId
+    /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
+    | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | CancellationRequested
+    | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ProductConstruct of typeId: TypeId * fields: (FieldId * ExpressionRecipe) list
     | FieldAccess of source: ExpressionRecipe * fieldId: FieldId
     | UnionConstruct of variantId: VariantId * fields: (FieldId * ExpressionRecipe) list
@@ -98,6 +105,81 @@ module AgentExpressionStructuralChangeProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+
+/// Structural rewriting of the type references embedded in an expression recipe.
+[<RequireQualifiedAccess>]
+module ExpressionRecipeTypes =
+    let rec map (mapType: TypeRef -> TypeRef) (recipe: ExpressionRecipe): ExpressionRecipe =
+        let go = map mapType
+        let pairs values = values |> List.map (fun (id, value) -> id, go value)
+        match recipe with
+        | ExpressionRecipe.Parameter _
+        | ExpressionRecipe.ParameterSlot _
+        | ExpressionRecipe.PatternReference _
+        | ExpressionRecipe.StringLiteral _
+        | ExpressionRecipe.BoolLiteral _
+        | ExpressionRecipe.UnitLiteral
+        | ExpressionRecipe.Int64Literal _
+        | ExpressionRecipe.Float64Literal _ -> recipe
+        | ExpressionRecipe.StringIsEmpty value -> ExpressionRecipe.StringIsEmpty(go value)
+        | ExpressionRecipe.Int64ToString value -> ExpressionRecipe.Int64ToString(go value)
+        | ExpressionRecipe.StringParseInt64 value -> ExpressionRecipe.StringParseInt64(go value)
+        | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
+        | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
+        | ExpressionRecipe.StringConcat(left, right) -> ExpressionRecipe.StringConcat(go left, go right)
+        | ExpressionRecipe.Int64WrappingAdd(left, right) -> ExpressionRecipe.Int64WrappingAdd(go left, go right)
+        | ExpressionRecipe.Int64WrappingSubtract(left, right) -> ExpressionRecipe.Int64WrappingSubtract(go left, go right)
+        | ExpressionRecipe.Int64WrappingMultiply(left, right) -> ExpressionRecipe.Int64WrappingMultiply(go left, go right)
+        | ExpressionRecipe.Int64Equal(left, right) -> ExpressionRecipe.Int64Equal(go left, go right)
+        | ExpressionRecipe.Int64LessThan(left, right) -> ExpressionRecipe.Int64LessThan(go left, go right)
+        | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> ExpressionRecipe.Int64LessThanOrEqual(go left, go right)
+        | ExpressionRecipe.Int64GreaterThan(left, right) -> ExpressionRecipe.Int64GreaterThan(go left, go right)
+        | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> ExpressionRecipe.Int64GreaterThanOrEqual(go left, go right)
+        | ExpressionRecipe.Float64Add(left, right) -> ExpressionRecipe.Float64Add(go left, go right)
+        | ExpressionRecipe.Float64Subtract(left, right) -> ExpressionRecipe.Float64Subtract(go left, go right)
+        | ExpressionRecipe.Float64Multiply(left, right) -> ExpressionRecipe.Float64Multiply(go left, go right)
+        | ExpressionRecipe.Float64Divide(left, right) -> ExpressionRecipe.Float64Divide(go left, go right)
+        | ExpressionRecipe.Float64Equal(left, right) -> ExpressionRecipe.Float64Equal(go left, go right)
+        | ExpressionRecipe.Float64LessThan(left, right) -> ExpressionRecipe.Float64LessThan(go left, go right)
+        | ExpressionRecipe.Float64IsNaN value -> ExpressionRecipe.Float64IsNaN(go value)
+        | ExpressionRecipe.Float64IsFinite value -> ExpressionRecipe.Float64IsFinite(go value)
+        | ExpressionRecipe.Float64IsInfinite value -> ExpressionRecipe.Float64IsInfinite(go value)
+        | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
+        | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
+        | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
+        | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
+        | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
+        | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
+        | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
+            ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
+        | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
+        | ExpressionRecipe.CancellationRequested -> recipe
+        | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
+        | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
+        | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
+        | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
+        | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
+        | ExpressionRecipe.ProductConstruct(typeId, fields) -> ExpressionRecipe.ProductConstruct(typeId, pairs fields)
+        | ExpressionRecipe.FieldAccess(source, fieldId) -> ExpressionRecipe.FieldAccess(go source, fieldId)
+        | ExpressionRecipe.UnionConstruct(variantId, fields) -> ExpressionRecipe.UnionConstruct(variantId, pairs fields)
+        | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
+        | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
+        | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
+        | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)
+        | ExpressionRecipe.DirectCall(functionId, arguments) -> ExpressionRecipe.DirectCall(functionId, pairs arguments)
+        | ExpressionRecipe.CapabilityInvoke(capability, operation, arguments) ->
+            ExpressionRecipe.CapabilityInvoke(go capability, operation, arguments |> List.map (fun (id, value) -> id, go value))
+        | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) -> ExpressionRecipe.Conditional(go condition, go whenTrue, go whenFalse)
+        | ExpressionRecipe.MatchUnion(input, arms) -> ExpressionRecipe.MatchUnion(go input, pairs arms)
+        | ExpressionRecipe.Bind(value, body) -> ExpressionRecipe.Bind(go value, go body)
+        | ExpressionRecipe.MatchOption(input, someBody, noneBody) -> ExpressionRecipe.MatchOption(go input, go someBody, go noneBody)
+        | ExpressionRecipe.MatchResult(input, okBody, errBody) -> ExpressionRecipe.MatchResult(go input, go okBody, go errBody)
+
+    /// Type references embedded directly in a recipe, including nested recipes.
+    let collect (recipe: ExpressionRecipe): TypeRef list =
+        let collected = System.Collections.Generic.List<TypeRef>()
+        map (fun typeRef -> collected.Add typeRef; typeRef) recipe |> ignore
+        List.ofSeq collected
 
 [<RequireQualifiedAccess>]
 module AgentExpressionStructuralWorkflow =
@@ -152,14 +234,12 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListEmpty _
         | ExpressionRecipe.OptionNone _ -> Seq.empty
         | ExpressionRecipe.StringIsEmpty child
+        | ExpressionRecipe.Int64ToString child
+        | ExpressionRecipe.StringParseInt64 child
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
         | ExpressionRecipe.ListLength child
-        | ExpressionRecipe.ListMap(child, _)
-        | ExpressionRecipe.ListFilter(child, _)
-        | ExpressionRecipe.ListAny(child, _)
-        | ExpressionRecipe.ListAll(child, _)
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
         | ExpressionRecipe.ResultOk(_, child)
@@ -184,7 +264,16 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64LessThan(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
-        | ExpressionRecipe.ListFold(source, seed, _) -> seq { yield source; yield seed }
+        | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.UseResource(acquire, releaseCapability, _, _, context) ->
+            seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
+        | ExpressionRecipe.CancellationRequested -> Seq.empty
+        | ExpressionRecipe.ListMap(source, _, context)
+        | ExpressionRecipe.ListFilter(source, _, context)
+        | ExpressionRecipe.ListAny(source, _, context)
+        | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | ExpressionRecipe.ProductConstruct(_, fields)
         | ExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
@@ -213,7 +302,9 @@ module AgentExpressionStructuralWorkflow =
 
         let rec validate typeRef =
             match typeRef with
-            | TypeRef.Primitive _ -> Ok()
+            | TypeRef.Primitive _
+            // Scope (a parameter type must declare it) is checked on the resulting snapshot.
+            | TypeRef.TypeParameter _ -> Ok()
             | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
             | TypeRef.Named typeId -> Error(invalid $"Type reference names unknown type '{StableId.value typeId}'.")
             | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
@@ -302,7 +393,43 @@ module AgentExpressionStructuralWorkflow =
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires List<T>, but the recipe produces {actual}."
 
-        let validateListCallback role callbackFunctionId sourceItemType predicateResultRequired =
+        /// Types context bindings with `inferValue` and returns the callback's unbound parameters with
+        /// the type arguments that the context values determine for a generic callback.
+        let validateCallbackContext role (callback: SemanticFunction) (context: (ParameterId * ExpressionRecipe) list) inferValue =
+            let parametersById = callback.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
+            match context |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
+            | Some(parameterId, _) ->
+                Error(diagnostic "PureExpressionDuplicateCallArgument" $"{role} binds callback parameter '{StableId.value parameterId}' more than once.")
+            | None ->
+                context
+                |> List.fold (fun state (parameterId, value) ->
+                    state
+                    |> Result.bind (fun substitution ->
+                        match Map.tryFind parameterId parametersById with
+                        | None ->
+                            Error(
+                                diagnostic
+                                    "PureExpressionCallArgumentTargetNotFound"
+                                    $"{role} context binds '{StableId.value parameterId}', which is not a parameter of callback '{StableId.value callback.Id}'."
+                            )
+                        | Some parameter ->
+                            match inferValue value with
+                            | Error error -> Error error
+                            | Ok actual ->
+                                match TypeParameters.matchType substitution parameter.Type actual with
+                                | Some extended -> Ok extended
+                                | None ->
+                                    Error(
+                                        diagnostic
+                                            "PureExpressionListCallbackContextTypeMismatch"
+                                            $"{role} context value for '{StableId.value parameterId}' has type {actual}, but the parameter expects {parameter.Type}."
+                                    ))) (Ok Map.empty)
+                |> Result.map (fun substitution ->
+                    callback.Parameters |> List.filter (fun parameter -> not (context |> List.exists (fun (bound, _) -> bound = parameter.Id))),
+                    substitution)
+
+        /// Returns the callback and the type arguments that its context and item types determine.
+        let validateListCallback role callbackFunctionId context sourceItemType predicateResultRequired inferValue =
             match Map.tryFind callbackFunctionId functionsById with
             | None ->
                 Error(
@@ -310,31 +437,36 @@ module AgentExpressionStructuralWorkflow =
                         "PureExpressionListCallbackNotFound"
                         $"{role} callback function '{StableId.value callbackFunctionId}' does not exist."
                 )
-            | Some callback when List.length callback.Parameters <> 1 ->
-                Error(
-                    diagnostic
-                        "PureExpressionListCallbackArityMismatch"
-                        $"{role} callback function '{StableId.value callback.Id}' must have exactly one parameter."
-                )
-            | Some callback when callback.Parameters.Head.Type <> sourceItemType ->
-                Error(
-                    diagnostic
-                        "PureExpressionListCallbackInputTypeMismatch"
-                        $"{role} callback function '{StableId.value callback.Id}' input type does not match the source list item type."
-                )
-            | Some callback when predicateResultRequired && callback.ResultType <> boolType ->
-                Error(
-                    diagnostic
-                        "PureExpressionListCallbackResultTypeMismatch"
-                        $"{role} callback function '{StableId.value callback.Id}' must return Bool."
-                )
-            | Some callback when not (List.isEmpty callback.RequiredEffects) ->
-                Error(
-                    diagnostic
-                        "PureExpressionListCallbackEffectsNotAllowed"
-                        $"{role} callback function '{StableId.value callback.Id}' must be pure."
-                )
-            | Some callback -> Ok callback
+            | Some callback ->
+                match validateCallbackContext role callback context inferValue with
+                | Error error -> Error error
+                | Ok(unbound, _) when List.length unbound <> 1 ->
+                    Error(
+                        diagnostic
+                            "PureExpressionListCallbackArityMismatch"
+                            $"{role} callback function '{StableId.value callback.Id}' must have exactly one parameter not bound by context."
+                    )
+                | Ok(unbound, substitution) ->
+                    match TypeParameters.matchType substitution unbound.Head.Type sourceItemType with
+                    | None ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackInputTypeMismatch"
+                                $"{role} callback function '{StableId.value callback.Id}' input type does not match the source list item type."
+                        )
+                    | Some substitution when predicateResultRequired && TypeParameters.substitute substitution callback.ResultType <> boolType ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackResultTypeMismatch"
+                                $"{role} predicate '{StableId.value callback.Id}' must return Bool."
+                        )
+                    | Some _ when not (List.isEmpty callback.RequiredEffects) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackEffectsNotAllowed"
+                                $"{role} callback function '{StableId.value callback.Id}' must be pure."
+                        )
+                    | Some substitution -> Ok(callback, substitution)
 
         let rec infer frames recipe =
             let unary role expected result child =
@@ -409,20 +541,23 @@ module AgentExpressionStructuralWorkflow =
                                     $"DirectCall is missing required parameter '{StableId.value parameter.Id}' for callee '{StableId.value callee.Id}'."
                             )
                         | None ->
-                            let rec validateParameters = function
-                                | [] -> Ok()
+                            // A generic callee's type arguments follow from matching each parameter type.
+                            let rec validateParameters substitution = function
+                                | [] -> Ok substitution
                                 | (parameter: SemanticParameter) :: rest ->
                                     let _, value = bindings |> List.find (fun (parameterId, _) -> parameterId = parameter.Id)
                                     match infer frames value with
                                     | Error error -> Error error
-                                    | Ok actual when actual <> parameter.Type ->
-                                        Error(
-                                            diagnostic
-                                                "PureExpressionCallArgumentTypeMismatch"
-                                                $"DirectCall parameter '{StableId.value parameter.Id}' requires {parameter.Type}, but the recipe produces {actual}."
-                                        )
-                                    | Ok _ -> validateParameters rest
-                            validateParameters callee.Parameters
+                                    | Ok actual ->
+                                        match TypeParameters.matchType substitution parameter.Type actual with
+                                        | Some extended -> validateParameters extended rest
+                                        | None ->
+                                            Error(
+                                                diagnostic
+                                                    "PureExpressionCallArgumentTypeMismatch"
+                                                    $"DirectCall parameter '{StableId.value parameter.Id}' requires {TypeParameters.substitute substitution parameter.Type}, but the recipe produces {actual}."
+                                            )
+                            validateParameters Map.empty callee.Parameters
 
             let validateCapabilityArguments
                 (operation: SemanticCapabilityOperation)
@@ -507,6 +642,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64Literal _ -> Ok int64Type
             | ExpressionRecipe.Float64Literal _ -> Ok float64Type
             | ExpressionRecipe.StringIsEmpty value -> unary "StringIsEmpty" stringType boolType value
+            | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
+            | ExpressionRecipe.StringParseInt64 value ->
+                unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
@@ -572,7 +710,7 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok rightType when rightType <> leftType -> Error(typeMismatch "ListConcat" "right" leftType rightType)
                         | Ok _ -> Ok leftType
-            | ExpressionRecipe.ListFold(source, seed, folderFunctionId) ->
+            | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
                 | Ok sourceType ->
@@ -584,51 +722,158 @@ module AgentExpressionStructuralWorkflow =
                         | Ok seedType ->
                             match Map.tryFind folderFunctionId functionsById with
                             | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ListFold folder '{StableId.value folderFunctionId}' does not exist.")
-                            | Some folder when folder.Parameters.Length <> 2 ->
-                                Error(diagnostic "PureExpressionListCallbackArityMismatch" "ListFold folder must have exactly two parameters (accumulator, item).")
-                            | Some folder when folder.Parameters.Head.Type <> seedType || folder.Parameters.Tail.Head.Type <> itemType || folder.ResultType <> seedType ->
-                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListFold folder must have type (accumulator, item) -> accumulator.")
-                            | Some folder when not (List.isEmpty folder.RequiredEffects) ->
-                                Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" "ListFold folder must be pure.")
-                            | Some _ -> Ok seedType
-            | ExpressionRecipe.ListMap(source, mapperFunctionId) ->
+                            | Some folder ->
+                                match validateCallbackContext "ListFold" folder context (infer frames) with
+                                | Error error -> Error error
+                                | Ok(unbound, _) when unbound.Length <> 2 ->
+                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" "ListFold folder must have exactly two parameters not bound by context (accumulator, item).")
+                                | Ok(unbound, substitution) ->
+                                    let matched =
+                                        TypeParameters.matchType substitution unbound.Head.Type seedType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                    match matched with
+                                    | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
+                                        if List.isEmpty folder.RequiredEffects then Ok seedType
+                                        else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" "ListFold folder must be pure.")
+                                    | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListFold folder must have type (accumulator, item) -> accumulator.")
+            | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListEffectFold" "source" sourceType)
+                    | Some itemType ->
+                        match infer frames seed with
+                        | Error error -> Error error
+                        | Ok seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ListEffectFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | Some folder ->
+                                match validateCallbackContext "ListEffectFold" folder context (infer frames) with
+                                | Error error -> Error error
+                                | Ok(unbound, _) when unbound.Length <> 2 ->
+                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" "ListEffectFold folder must have exactly two parameters not bound by context (accumulator, item).")
+                                | Ok(unbound, substitution) ->
+                                  match
+                                      TypeParameters.matchType substitution unbound.Head.Type seedType
+                                      |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                  with
+                                  | None -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListEffectFold folder must take (accumulator, item).")
+                                  | Some current ->
+                                    match
+                                        folder.RequiredEffects
+                                        |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
+                                    with
+                                    | Some effectId ->
+                                        Error(
+                                            diagnostic
+                                                "ExpressionCallMissingEffectRequirement"
+                                                $"ListEffectFold folder '{StableId.value folder.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                                        )
+                                    | None ->
+                                        match TypeParameters.substitute current folder.ResultType with
+                                        | resultType when resultType = seedType -> Ok seedType
+                                        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Ok resultType
+                                        | _ ->
+                                            Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ListEffectFold folder must return the accumulator type S or Result<S, E>.")
+            | ExpressionRecipe.UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context) ->
+                let fail code message = Error(diagnostic code message)
+                match infer frames acquire with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])) ->
+                    match Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
+                    | None, _ -> fail "PureExpressionListCallbackNotFound" $"UseResource body '{StableId.value bodyFunctionId}' does not exist."
+                    | _, None -> fail "ExpressionCapabilityOperationNotFound" $"UseResource references unknown release operation '{StableId.value releaseOperationId}'."
+                    | Some body, Some(ownerCapabilityId, operation) ->
+                        match validateCallbackContext "UseResource" body context (infer frames), infer frames releaseCapability with
+                        | Error error, _
+                        | _, Error error -> Error error
+                        | Ok(unbound, substitution), Ok receiverType ->
+                          match (match unbound with [ resource ] -> TypeParameters.matchType substitution resource.Type resourceType | _ -> None) with
+                          | None ->
+                            fail "UseResourceBodyMismatch" "UseResource body must have exactly one parameter not bound by context, of the acquired resource type."
+                          | Some _ when receiverType <> TypeRef.Capability ownerCapabilityId ->
+                            fail "UseResourceReleaseReceiverMismatch" "UseResource release capability value does not own the release operation."
+                          | Some bodySubstitution ->
+                            let bodyResult = TypeParameters.substitute bodySubstitution body.ResultType
+                            let releaseReturnsResult = operation.ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ unitType; errorType ])
+                            let missing =
+                                body.RequiredEffects @ [ operation.EffectId ]
+                                |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
+                            match bodyResult, missing with
+                            | _, Some effectId ->
+                                fail "ExpressionCallMissingEffectRequirement" $"UseResource requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]), None when bodyError <> errorType ->
+                                fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]), None ->
+                                match operation.Parameters with
+                                | [ parameter ] when parameter.Type = resourceType && (operation.ResultType = unitType || releaseReturnsResult) ->
+                                    Ok bodyResult
+                                | _ ->
+                                    fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
+                            | _ -> fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
+                | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {actual}."
+            | ExpressionRecipe.CancellationRequested -> Ok boolType
+            | ExpressionRecipe.ParallelAll(source, workerFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType, Map.tryFind workerFunctionId functionsById with
+                    | None, _ -> Error(listMismatch "ParallelAll" "source" sourceType)
+                    | _, None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ParallelAll worker '{StableId.value workerFunctionId}' does not exist.")
+                    | Some itemType, Some worker ->
+                        match validateCallbackContext "ParallelAll" worker context (infer frames) with
+                        | Error error -> Error error
+                        | Ok(unbound, substitution) ->
+                            let matched = match unbound with [ item ] -> TypeParameters.matchType substitution item.Type itemType | _ -> None
+                            match matched, worker.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                            | None, _ ->
+                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ParallelAll worker must have exactly one parameter not bound by context, of the item type.")
+                            | _, Some effectId ->
+                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"ParallelAll worker '{StableId.value worker.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                            | Some current, None ->
+                                match TypeParameters.substitute current worker.ResultType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                    Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ listType okType; errorType ]))
+                                | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ParallelAll worker must return Result<U, E>.")
+            | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
                 | Ok sourceType ->
                     match listItemType sourceType with
                     | None -> Error(listMismatch "ListMap" "source" sourceType)
                     | Some sourceItemType ->
-                        match validateListCallback "ListMap" mapperFunctionId sourceItemType false with
+                        match validateListCallback "ListMap" mapperFunctionId context sourceItemType false (infer frames) with
                         | Error error -> Error error
-                        | Ok mapper -> Ok(listType mapper.ResultType)
-            | ExpressionRecipe.ListFilter(source, predicateFunctionId) ->
+                        | Ok(mapper, substitution) -> Ok(listType (TypeParameters.substitute substitution mapper.ResultType))
+            | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
                 | Ok sourceType ->
                     match listItemType sourceType with
                     | None -> Error(listMismatch "ListFilter" "source" sourceType)
                     | Some sourceItemType ->
-                        match validateListCallback "ListFilter" predicateFunctionId sourceItemType true with
+                        match validateListCallback "ListFilter" predicateFunctionId context sourceItemType true (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok sourceType
-            | ExpressionRecipe.ListAny(source, predicateFunctionId) ->
+            | ExpressionRecipe.ListAny(source, predicateFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
                 | Ok sourceType ->
                     match listItemType sourceType with
                     | None -> Error(listMismatch "ListAny" "source" sourceType)
                     | Some sourceItemType ->
-                        match validateListCallback "ListAny" predicateFunctionId sourceItemType true with
+                        match validateListCallback "ListAny" predicateFunctionId context sourceItemType true (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok boolType
-            | ExpressionRecipe.ListAll(source, predicateFunctionId) ->
+            | ExpressionRecipe.ListAll(source, predicateFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
                 | Ok sourceType ->
                     match listItemType sourceType with
                     | None -> Error(listMismatch "ListAll" "source" sourceType)
                     | Some sourceItemType ->
-                        match validateListCallback "ListAll" predicateFunctionId sourceItemType true with
+                        match validateListCallback "ListAll" predicateFunctionId context sourceItemType true (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok boolType
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
@@ -684,7 +929,7 @@ module AgentExpressionStructuralWorkflow =
                                 $"DirectCall callee '{StableId.value callee.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}."
                         )
                     | None ->
-                        validateCallArguments callee arguments |> Result.map (fun () -> callee.ResultType)
+                        validateCallArguments callee arguments |> Result.map (fun substitution -> TypeParameters.substitute substitution callee.ResultType)
             | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
                 match Map.tryFind operationId capabilityOperationsById with
                 | None ->
@@ -868,10 +1113,20 @@ module AgentExpressionStructuralWorkflow =
                 let tailNodes, tailResults = many tail
                 headNodes @ tailNodes, headResult :: tailResults
 
-        let listCallback kind source callbackFunctionId =
+        /// Materializes context values in the callback's parameter order, like call arguments.
+        let materializeContext callbackFunctionId (context: (ParameterId * ExpressionRecipe) list) =
+            let callback = snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = callbackFunctionId)
+            callback.Parameters
+            |> List.choose (fun parameter -> context |> List.tryFind (fun (parameterId, _) -> parameterId = parameter.Id))
+            |> List.fold (fun (nodes, bindings) (parameterId, value) ->
+                let valueNodes, valueResult = materializeRecipe value
+                nodes @ valueNodes, bindings @ [ { TargetParameterId = parameterId; ValueNodeId = valueResult } ]) ([], [])
+
+        let listCallback kind source callbackFunctionId context =
             let sourceNodes, sourceResult = materializeRecipe source
+            let contextNodes, contextBindings = materializeContext callbackFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
-            sourceNodes @ [ { Id = nodeId; Kind = kind (sourceResult, callbackFunctionId) } ], nodeId
+            sourceNodes @ contextNodes @ [ { Id = nodeId; Kind = kind (sourceResult, callbackFunctionId, contextBindings) } ], nodeId
 
         let materializeFieldBindings (expectedFields: SemanticField list) (bindings: (FieldId * ExpressionRecipe) list) =
             let rec loop = function
@@ -948,6 +1203,8 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.Float64Literal value } ], nodeId
         | ExpressionRecipe.StringIsEmpty value -> unary SemanticNodeKind.StringIsEmpty value
+        | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
+        | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right
@@ -978,15 +1235,33 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListLength list -> unary SemanticNodeKind.ListLength list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
         | ExpressionRecipe.ListConcat(left, right) -> binary SemanticNodeKind.ListConcat left right
-        | ExpressionRecipe.ListFold(source, seed, folderFunctionId) ->
+        | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed
+            let contextNodes, contextBindings = materializeContext folderFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
-            sourceNodes @ seedNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListFold(sourceResult, seedResult, folderFunctionId) } ], nodeId
-        | ExpressionRecipe.ListMap(source, mapperFunctionId) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId
-        | ExpressionRecipe.ListFilter(source, predicateFunctionId) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId
-        | ExpressionRecipe.ListAny(source, predicateFunctionId) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId
-        | ExpressionRecipe.ListAll(source, predicateFunctionId) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId
+            sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
+            let sourceNodes, sourceResult = materializeRecipe source
+            let seedNodes, seedResult = materializeRecipe seed
+            let contextNodes, contextBindings = materializeContext folderFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListEffectFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context) ->
+            let acquireNodes, acquireResult = materializeRecipe acquire
+            let capabilityNodes, capabilityResult = materializeRecipe releaseCapability
+            let contextNodes, contextBindings = materializeContext bodyFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            acquireNodes @ capabilityNodes @ contextNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.UseResource(acquireResult, capabilityResult, releaseOperationId, bodyFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.ParallelAll(source, workerFunctionId, context) -> listCallback SemanticNodeKind.ParallelAll source workerFunctionId context
+        | ExpressionRecipe.CancellationRequested ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.CancellationRequested } ], nodeId
+        | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
+        | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
+        | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
+        | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context
         | ExpressionRecipe.ProductConstruct(typeId, fields) ->
             let expectedFields =
                 match snapshot.Types |> List.find (fun typeEntity -> typeEntity.Id = typeId) with
@@ -1127,6 +1402,26 @@ module AgentExpressionStructuralWorkflow =
 
     let private materialize snapshot target frames recipe =
         materializeWithContext snapshot (ownerForExistingFunction target) frames recipe
+
+    /// Materializes a complete replacement body for an existing function against a candidate
+    /// snapshot that a multi-function migration is still completing. The recipe is bound and
+    /// type-checked against the candidate; the caller validates the final snapshot as a whole.
+    let internal materializeReplacementBody (snapshot: Snapshot) (target: SemanticFunction) recipe
+        : Result<ValueGraph, TransactionDiagnostic> =
+        match validateRecipeBounds recipeChildren recipe with
+        | Error error -> Error error
+        | Ok() ->
+            match inferType snapshot target recipe with
+            | Error error -> Error error
+            | Ok replacementType when replacementType <> target.ResultType ->
+                Error(
+                    diagnostic
+                        "PureExpressionResultTypeMismatch"
+                        $"The replacement recipe produces {replacementType}, but the target function returns {target.ResultType}."
+                )
+            | Ok _ ->
+                let nodes, resultNodeId = materialize snapshot target [] recipe
+                Ok { Nodes = nodes; ResultNodeId = resultNodeId }
 
     let simulate
         (workspace: AgentWorkspace)
@@ -1931,10 +2226,29 @@ module AgentExpressionStructuralWorkflow =
                                             { CanonicalRequiredEffects = canonicalEffects
                                               Owner = owner }
 
+        /// A new function owns its type parameters: every type parameter named in the request
+        /// receives a fresh system-owned identity, keeping its display name.
+        let private withFreshTypeParameters (request: Request): Request =
+            let named =
+                (request.ResultType :: (request.Parameters |> List.map (fun parameter -> parameter.Type)))
+                @ ExpressionRecipeTypes.collect request.Body
+                |> List.collect TypeParameters.occurring
+                |> List.distinctBy fst
+            if List.isEmpty named then request
+            else
+                let fresh =
+                    named |> List.map (fun (id, name) -> id, TypeRef.TypeParameter(StableIdAllocator.newTypeParameterId (), name)) |> Map.ofList
+                let mapType = TypeParameters.substitute fresh
+                { request with
+                    Parameters = request.Parameters |> List.map (fun parameter -> { parameter with Type = mapType parameter.Type })
+                    ResultType = mapType request.ResultType
+                    Body = ExpressionRecipeTypes.map mapType request.Body }
+
         let simulate
             (workspace: AgentWorkspace)
             (request: Request)
             : Result<Proposal, AgentStructuralWorkflowError> =
+            let request = withFreshTypeParameters request
             let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
 
             match SnapshotValidator.validate baseSnapshot with

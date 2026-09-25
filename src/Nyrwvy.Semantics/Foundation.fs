@@ -70,6 +70,9 @@ type TypeRef =
     | Named of TypeId
     | Capability of CapabilityId
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
+    /// A type parameter of the function whose parameter types mention it. Its identity is
+    /// system-owned; the display name is fixed with it and carried for presentation only.
+    | TypeParameter of id: TypeParameterId * displayName: string
 
 type SemanticField =
     { Id: FieldId
@@ -165,6 +168,11 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
+    /// Canonical invariant decimal text of an Int64, with a leading '-' only for negative values.
+    | Int64ToString of valueNodeId: GraphNodeId
+    /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
+    /// range; any other text, including '+', whitespace or an empty String, is None.
+    | StringParseInt64 of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -190,11 +198,25 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
-    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
-    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
-    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    /// List callbacks reference an existing pure function. `context` binds some of its parameters,
+    /// by identity, to values evaluated once before iteration; the remaining parameters, in
+    /// declaration order, receive the iteration values (accumulator and item for ListFold, the
+    /// item otherwise). An empty context is the plain callback.
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    /// Acquires a resource with `acquire : Result<R, E>`; on Ok runs the body function with R (other
+    /// parameters bound by `context`) and then always releases R through a capability operation.
+    /// Runs the worker for every source item concurrently and waits for all of them. The first Err
+    /// (or host exception) requests cancellation of the others; the result is the Err of the lowest
+    /// failing index, or Ok of every worker's value in source order.
+    | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: ArgumentBinding list
+    /// Whether cancellation was requested for the ParallelAll worker evaluating it; false elsewhere.
+    | CancellationRequested
+    | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
+    | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
@@ -276,6 +298,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -300,6 +324,10 @@ module ValueGraph =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -352,6 +380,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -376,6 +406,10 @@ module ValueGraph =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListEffectFold _
+                | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.ParallelAll _
+                | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -404,3 +438,53 @@ module Snapshot =
           Capabilities = []
           Functions = []
           Obligations = [] }
+
+/// Function type parameters. A function's type parameters are those occurring in its parameter
+/// types; at a call or callback, type arguments are derived by matching each parameter type
+/// against the concrete argument type, so no inference beyond structural matching is involved.
+[<RequireQualifiedAccess>]
+module TypeParameters =
+    /// Type parameters occurring in a type, in first-occurrence order.
+    let occurring (typeRef: TypeRef): (TypeParameterId * string) list =
+        let rec collect (collected: (TypeParameterId * string) list) current =
+            match current with
+            | TypeRef.TypeParameter(id, name) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
+            | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.fold collect collected
+            | TypeRef.Primitive _
+            | TypeRef.Named _
+            | TypeRef.Capability _ -> collected
+        collect [] typeRef
+
+    /// Type parameters declared by a function's parameter types, in first-occurrence order.
+    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list =
+        functionEntity.Parameters
+        |> List.collect (fun parameter -> occurring parameter.Type)
+        |> List.distinctBy fst
+
+    let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
+        match typeRef with
+        | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
+        | TypeRef.Primitive _
+        | TypeRef.Named _
+        | TypeRef.Capability _ -> typeRef
+
+    /// Extends `substitution` so that `declared` becomes `actual`, or returns None on a conflict.
+    let rec matchType (substitution: Map<TypeParameterId, TypeRef>) (declared: TypeRef) (actual: TypeRef) =
+        match declared, actual with
+        | TypeRef.TypeParameter(id, _), _ ->
+            match Map.tryFind id substitution with
+            | Some bound when bound = actual -> Some substitution
+            | Some _ -> None
+            | None -> Some(Map.add id actual substitution)
+        | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
+            when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
+            List.zip declaredArguments actualArguments
+            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
+        | _ when declared = actual -> Some substitution
+        | _ -> None
+
+    /// Matches declared parameter types against actual types in order; None when any pair conflicts.
+    let matchAll (pairs: (TypeRef * TypeRef) list) =
+        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some Map.empty)

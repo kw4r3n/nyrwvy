@@ -36,7 +36,14 @@ module internal WireGraph =
     and private kind (value: SemanticNodeKind): obj =
         let unary name operand = tagged name [ "valueNodeId", identity operand ]
         let binary name left right = tagged name [ "leftNodeId", identity left; "rightNodeId", identity right ]
-        let traversal name source functionId = tagged name [ "sourceNodeId", identity source; "functionId", identity functionId ]
+        let context (bindings: ArgumentBinding list) =
+            if List.isEmpty bindings then []
+            else
+                [ "context",
+                  bindings |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map (fun argument ->
+                      objectValue [ "parameterId", identity argument.TargetParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue ]
+        let traversal name source functionId bindings =
+            tagged name ([ "sourceNodeId", identity source; "functionId", identity functionId ] @ context bindings)
         let valueArm (arm: ValueMatchArm) =
             objectValue [ "valueBinding", binding arm.ValueBinding; "body", graph arm.Body ]
         match value with
@@ -48,6 +55,8 @@ module internal WireGraph =
         | SemanticNodeKind.Int64Literal value -> tagged "int64Literal" [ "value", box (value.ToString(CultureInfo.InvariantCulture)) ]
         | SemanticNodeKind.Float64Literal value -> tagged "float64Literal" [ "bits", box (Float64Bits.toHex value) ]
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
+        | SemanticNodeKind.Int64ToString value -> unary "int64ToString" value
+        | SemanticNodeKind.StringParseInt64 value -> unary "stringParseInt64" value
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringConcat(left, right) -> tagged "stringConcat" [ "leftNodeId", identity left; "rightNodeId", identity right ]
@@ -73,11 +82,24 @@ module internal WireGraph =
         | SemanticNodeKind.ListLength value -> unary "listLength" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
-        | SemanticNodeKind.ListFold(source, seed, folder) -> tagged "listFold" [ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ]
-        | SemanticNodeKind.ListMap(source, callback) -> traversal "listMap" source callback
-        | SemanticNodeKind.ListFilter(source, callback) -> traversal "listFilter" source callback
-        | SemanticNodeKind.ListAny(source, callback) -> traversal "listAny" source callback
-        | SemanticNodeKind.ListAll(source, callback) -> traversal "listAll" source callback
+        | SemanticNodeKind.ListFold(source, seed, folder, bindings) ->
+            tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+        | SemanticNodeKind.ListEffectFold(source, seed, folder, bindings) ->
+            tagged "listEffectFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+        | SemanticNodeKind.UseResource(acquire, releaseCapability, releaseOperation, body, bindings) ->
+            tagged "useResource"
+                ([ "acquireNodeId", identity acquire
+                   "releaseCapabilityNodeId", identity releaseCapability
+                   "releaseOperationId", identity releaseOperation
+                   "bodyFunctionId", identity body ]
+                 @ context bindings)
+        | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
+            tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
+        | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
+        | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
+        | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
+        | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
+        | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             tagged "directCall"
                 [ "functionId", identity functionId

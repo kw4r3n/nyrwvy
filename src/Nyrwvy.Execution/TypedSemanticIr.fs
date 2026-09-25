@@ -81,6 +81,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
+    | Int64ToString of valueNodeId: GraphNodeId
+    | StringParseInt64 of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -106,11 +108,15 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
-    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
-    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
-    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
+    | CancellationRequested
+    | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | DirectCall of FunctionId * TypedSemanticArgument list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
@@ -179,6 +185,9 @@ module TypedSemanticIr =
         { TargetParameterId = argument.TargetParameterId
           ValueNodeId = argument.ValueNodeId }
 
+    let private projectContext (context: ArgumentBinding list) =
+        context |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map projectArgument
+
     let private projectCapabilityArgument
         (argument: CapabilityArgumentBinding)
         : TypedSemanticCapabilityArgument =
@@ -239,6 +248,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64Literal bits)
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringIsEmpty valueNodeId)
+                    | SemanticNodeKind.Int64ToString valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
+                    | SemanticNodeKind.StringParseInt64 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -289,16 +302,23 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
-                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId))
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId))
-                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId))
-                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId))
-                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId))
+                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
+                    | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
+                    | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, projectContext context))
+                    | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, projectContext context))
+                    | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
+                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->
                         Ok(
                             TypedSemanticNodeKind.DirectCall(

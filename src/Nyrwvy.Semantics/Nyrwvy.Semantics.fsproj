@@ -16,6 +16,7 @@
     <Compile Include="Validation.fs" />
     <Compile Include="SnapshotCodec.fs" />
     <Compile Include="Fingerprint.fs" />
+    <Compile Include="DependencyGraph.fs" />
     <Compile Include="NyasonSyntax.fs" />
     <Compile Include="NyasonCodec.fs" />
     <Compile Include="Readiness.fs" />
@@ -31,6 +32,7 @@
     <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
+    <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflow.fs" />
   </ItemGroup>
 </Project>

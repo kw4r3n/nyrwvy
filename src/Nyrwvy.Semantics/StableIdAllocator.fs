@@ -23,6 +23,7 @@ module StableIdAllocator =
     let newTypeId (): TypeId = allocate<TypeTag> ()
     let newFieldId (): FieldId = allocate<FieldTag> ()
     let newVariantId (): VariantId = allocate<VariantTag> ()
+    let newTypeParameterId (): TypeParameterId = allocate<TypeParameterTag> ()
     let newFunctionId (): FunctionId = allocate<FunctionTag> ()
     let newParameterId (): ParameterId = allocate<ParameterTag> ()
     let newPatternBindingId (): PatternBindingId = allocate<PatternBindingTag> ()

@@ -27,7 +27,8 @@ module internal CSharpBackendValidation =
                 block.Instructions
                 |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
-                    | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _) -> Some operationId
+                    | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _)
+                    | ExecutionInstructionKind.UseResource(_, _, operationId, _, _) -> Some operationId
                     | _ -> None)))
         |> List.distinct
         |> List.sortBy StableId.value
@@ -41,11 +42,14 @@ module internal CSharpBackendValidation =
                 |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
                     | ExecutionInstructionKind.DirectCall(functionId, _)
-                    | ExecutionInstructionKind.ListFold(_, _, functionId)
-                    | ExecutionInstructionKind.ListMap(_, functionId)
-                    | ExecutionInstructionKind.ListFilter(_, functionId)
-                    | ExecutionInstructionKind.ListAny(_, functionId)
-                    | ExecutionInstructionKind.ListAll(_, functionId) -> Some functionId
+                    | ExecutionInstructionKind.ListFold(_, _, functionId, _)
+                    | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _)
+                    | ExecutionInstructionKind.UseResource(_, _, _, functionId, _)
+                    | ExecutionInstructionKind.ParallelAll(_, functionId, _)
+                    | ExecutionInstructionKind.ListMap(_, functionId, _)
+                    | ExecutionInstructionKind.ListFilter(_, functionId, _)
+                    | ExecutionInstructionKind.ListAny(_, functionId, _)
+                    | ExecutionInstructionKind.ListAll(_, functionId, _) -> Some functionId
                     | _ -> None)))
         |> List.distinct
         |> List.sortBy StableId.value

@@ -10,7 +10,8 @@ module internal WireInput =
     let fail message = raise (ProtocolInputException message)
 
     let parseDocument (line: string): JsonDocument =
-        try JsonDocument.Parse(line)
+        // runPure values of recursive types may nest 32 composite layers, three JSON levels each.
+        try JsonDocument.Parse(line, JsonDocumentOptions(MaxDepth = 128))
         with :? JsonException as error -> fail $"Invalid JSON: {error.Message}"
 
     let private propertyNames (element: JsonElement): Set<string> =
@@ -106,6 +107,15 @@ module internal WireInput =
         | "capability" ->
             ensureFields "capability type" [ "kind"; "capabilityId" ] [ "kind"; "capabilityId" ] element
             TypeRef.Capability(id<CapabilityTag> "capabilityId" element)
+        | "typeParameter" when (tryProperty "name" element).IsSome ->
+            // A request-local name; function creation replaces it with a fresh system-owned identity.
+            ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
+            let name = requiredString "name" element
+            if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
+            TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
+        | "typeParameter" ->
+            ensureFields "type parameter" [ "kind"; "typeParameterId"; "displayName" ] [ "kind"; "typeParameterId"; "displayName" ] element
+            TypeRef.TypeParameter(id<TypeParameterTag> "typeParameterId" element, requiredString "displayName" element)
         | "builtinGeneric" ->
             ensureFields "builtin generic type" [ "kind"; "generic"; "arguments" ] [ "kind"; "generic"; "arguments" ] element
             let generic =

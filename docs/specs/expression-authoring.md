@@ -43,6 +43,8 @@ ExpressionRecipe =
   | StringContains(value, substring)
   | StringEqual(left, right)
   | StringConcat(left, right)
+  | Int64ToString(expr)
+  | StringParseInt64(expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
@@ -65,8 +67,8 @@ ExpressionRecipe =
   | ListLength(list)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
-  | ListFold(source, seed, folderFunctionId)
-  | ListMap(source, mapperFunctionId)
+  | ListFold(source, seed, folderFunctionId, context)
+  | ListMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId)
   | ListAny(source, predicateFunctionId)
   | ListAll(source, predicateFunctionId)
@@ -216,7 +218,23 @@ For a source `List<T>`:
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
-Effectful callbacks remain rejected, even when the target declares their effects. This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
+**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without closures or function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
+
+Effectful callbacks remain rejected by these pure traversals, even when the target declares their effects.
+
+**Generic functions.** `TypeRef.TypeParameter(id, displayName)` names a function type parameter. A function's type parameters are exactly those occurring in its parameter types (first-occurrence order). Its result type, pattern bindings and body type references may use only those (`TypeParameterNotDeclared`). Each belongs to one function (`TypeParameterSharedAcrossFunctions`), keeps one display name, and never appears in a Product/Union field or capability signature (`TypeParameterOutsideFunction`); declared types stay monomorphic. Identities are system-owned: function creation replaces every type parameter in the request (wire: `{ "kind": "typeParameter", "name": "T" }`; the same name is the same parameter) with a fresh `TypeParameterId`, keeping the name. Existing parameters are referenced as `{ "kind": "typeParameter", "typeParameterId", "displayName" }`. At a `DirectCall`, the callee's type arguments come from **matching** each parameter type against its argument's type. For List callbacks, `ListEffectFold` and `UseResource` bodies, they come from matching context, item, accumulator and resource types. This is deterministic structural matching, not general inference, and a conflict is a type mismatch. Results are the callee's result type under that substitution. Inside a generic body, a type parameter is opaque: only operations generic in it (List construction and traversal, Option/Result wrapping and matching, calls, passing values through) typecheck. There are no constraints or type classes. `runPure` rejects a generic entry point (`RunGenericEntryUnsupported`); run a concrete function that calls it.
+
+**Structured concurrency.** `ParallelAll(source, workerFunctionId, context)` runs the worker once per item of `source : List<T>`, concurrently. The worker has exactly one parameter not bound by context (the item) and returns `Result<U, E>`; its effects must be declared by the enclosing function, and capabilities arrive as context. The node always waits for **every** worker before it completes, so no task outlives it. Workers start at once. When a worker returns `Err` or raises a host exception, cancellation is requested for the others. Cancellation is cooperative: `CancellationRequested : Bool` reads whether the current worker's cancellation was requested (`false` outside a worker), and external implementations observe the same ambient token. Result: a host exception is rethrown (the lowest-index one) after all workers finish. Otherwise the lowest-index `Err` is returned, independent of timing; otherwise `Ok` of all values in source order. An empty source yields `Ok []`. `CancellationRequested` is effectful for ordering. Combine with `UseResource` so that cleanup runs after every worker has stopped.
+
+**Scoped resources.** `UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)` has these parts:
+- `acquire : Result<R, E>` is an ordinary expression, usually a capability invocation.
+- The body function has exactly one parameter not bound by `context`, of type `R`, and returns `Result<T, E>` with the same `E`.
+- The release operation belongs to `releaseCapability`'s capability, takes exactly `R`, and returns `Unit` or `Result<Unit, E>`.
+- The body's and release operation's effects must be declared by the enclosing function.
+
+The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the body and release do not run. Otherwise the body runs with the resource, and release **always** runs afterwards, on the body's Ok and Err exits alike and also before a host exception from the body propagates. A release failure during host-exception unwinding never replaces the original exception. Failure combination: a body `Err` wins; a release `Err` is the result only when the body succeeded. Values stay managed (Q-012 is unchanged): the resource is an ordinary value such as a handle string or Product, and nothing prevents it from being copied into the result. The construct guarantees release, not uniqueness. Diagnostics are `UseResourceAcquireTypeMismatch`, `UseResourceBodyMismatch`, `UseResourceResultMismatch`, `UseResourceReleaseReceiverMismatch` and `UseResourceReleaseSignatureMismatch`, plus the ordinary effect and reference errors. Wire recipes use `{ "kind": "useResource", "acquire", "releaseCapability", "releaseOperationId", "bodyFunctionId", "context"? }`; name-resolved recipes use `capability`, `releaseOperation` and `body` names.
+
+**Effectful iteration.** `ListEffectFold(source, seed, folderFunctionId, context)` is the separate construct for effectful traversal. The folder takes `(accumulator, item)` over its parameters not bound by context, may use effects, and every effect it requires must already be declared by the enclosing function (`ExpressionCallMissingEffectRequirement` / `MissingEffectRequirement`). Capabilities reach it as context arguments. It runs the folder exactly once per item, left to right, in the enclosing effect order. It has two modes, chosen by types: a folder returning the seed type `S` yields `S`; a folder returning `Result<S, E>` for seed `S` yields `Result<S, E>`, stops at the first `Err`, returns it, and calls the folder (and so performs its effects) for no later item. An empty source yields the seed (or `Ok seed`). The node is effectful for execution effect-ordering exactly when its folder declares effects. This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
 
 ## Structured declaration bindings
 

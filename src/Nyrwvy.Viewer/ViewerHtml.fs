@@ -31,6 +31,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
+        | TypeRef.TypeParameter(_, displayName) -> displayName
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
             "Option<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -98,6 +99,8 @@ module ViewerHtml =
         | ViewerNodeRole.Int64Literal value -> "Int64 literal " + string value
         | ViewerNodeRole.Float64Literal bits -> "Float64 literal 0x" + Float64Bits.toHex bits
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
+        | ViewerNodeRole.Int64ToString -> "int64 to string"
+        | ViewerNodeRole.StringParseInt64 -> "parse int64"
         | ViewerNodeRole.StringContains -> "string contains"
         | ViewerNodeRole.StringEqual -> "string equal"
         | ViewerNodeRole.StringConcat -> "string concat"
@@ -124,6 +127,10 @@ module ViewerHtml =
         | ViewerNodeRole.ListAppendItem -> "List append item"
         | ViewerNodeRole.ListConcat -> "List concat"
         | ViewerNodeRole.ListFold -> "List fold"
+        | ViewerNodeRole.ListEffectFold -> "List effect fold"
+        | ViewerNodeRole.UseResource -> "use resource"
+        | ViewerNodeRole.ParallelAll -> "parallel all"
+        | ViewerNodeRole.CancellationRequested -> "cancellation requested"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"

@@ -224,10 +224,12 @@ module ExecutionIr =
                             | Ok valueId -> loop (valueId :: acc) rest
                     loop [] nodeIds
 
-                let lowerListCallbackNode node sourceListNodeId callbackFunctionId constructor =
-                    requireNodeValue environment sourceListNodeId
-                    |> Result.map (fun sourceListValueId ->
-                        addInstruction currentBlock node (constructor sourceListValueId callbackFunctionId))
+                let lowerListCallbackNode node sourceListNodeId callbackFunctionId context constructor =
+                    match requireNodeValue environment sourceListNodeId, lowerCallArguments context with
+                    | Ok sourceListValueId, Ok lowered ->
+                        Ok(addInstruction currentBlock node (constructor sourceListValueId callbackFunctionId lowered))
+                    | Error error, _
+                    | _, Error error -> Error error
 
                 let lowerSimpleNode (node: TypedSemanticNode) =
                     let produced: Result<ExecutionValueId, ExecutionIrError> =
@@ -255,6 +257,14 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringIsEmpty valueId))
+                        | TypedSemanticNodeKind.Int64ToString valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.Int64ToString valueId))
+                        | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->
@@ -315,21 +325,42 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
-                        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
-                            lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
-                                ExecutionInstructionKind.ListFold(source, seed, folderFunctionId))
-                        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId mapperFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListMap(source, callback))
-                        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListFilter(source, callback))
-                        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListAny(source, callback))
-                        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListAll(source, callback))
+                        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.ListFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.ListEffectFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+                            match requireNodeValue environment acquireNodeId, requireNodeValue environment releaseCapabilityNodeId, lowerCallArguments context with
+                            | Ok acquire, Ok capability, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.UseResource(acquire, capability, releaseOperationId, bodyFunctionId, lowered)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId workerFunctionId context (fun source worker lowered ->
+                                ExecutionInstructionKind.ParallelAll(source, worker, lowered))
+                        | TypedSemanticNodeKind.CancellationRequested ->
+                            Ok(addInstruction currentBlock node ExecutionInstructionKind.CancellationRequested)
+                        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListFilter(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListAny(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListAll(source, callback, lowered))
                         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
                             lowerCallArguments arguments
                             |> Result.map (fun lowered ->
@@ -553,6 +584,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64Literal _
                         | TypedSemanticNodeKind.Float64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
+                        | TypedSemanticNodeKind.Int64ToString _
+                        | TypedSemanticNodeKind.StringParseInt64 _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringConcat _
@@ -579,6 +612,10 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListAppendItem _
                         | TypedSemanticNodeKind.ListConcat _
                         | TypedSemanticNodeKind.ListFold _
+                        | TypedSemanticNodeKind.ListEffectFold _
+                        | TypedSemanticNodeKind.UseResource _
+                        | TypedSemanticNodeKind.ParallelAll _
+                        | TypedSemanticNodeKind.CancellationRequested
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

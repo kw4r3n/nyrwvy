@@ -398,16 +398,16 @@ module AgentPureExpressionStructuralWorkflowTests =
         let workspace = createWorkspace fixture.Snapshot
         let cases =
             [ fixture.StringListTargetId,
-              PureExpressionRecipe.ListMap(intList [ 1L; 2L ], fixture.MapperFunctionId),
+              PureExpressionRecipe.ListMap(intList [ 1L; 2L ], fixture.MapperFunctionId, []),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListMap" ]
               fixture.ListTargetId,
-              PureExpressionRecipe.ListFilter(intList [ 1L; 2L ], fixture.PredicateFunctionId),
+              PureExpressionRecipe.ListFilter(intList [ 1L; 2L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListFilter" ]
               fixture.BoolTargetId,
-              PureExpressionRecipe.ListAny(intList [ 1L ], fixture.PredicateFunctionId),
+              PureExpressionRecipe.ListAny(intList [ 1L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "ListConstruct"; "ListAny" ]
               fixture.BoolTargetId,
-              PureExpressionRecipe.ListAll(intList [ 1L ], fixture.PredicateFunctionId),
+              PureExpressionRecipe.ListAll(intList [ 1L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "ListConstruct"; "ListAll" ] ]
 
         for targetId, recipe, expectedRoles in cases do
@@ -418,7 +418,7 @@ module AgentPureExpressionStructuralWorkflowTests =
             request
                 fixture
                 fixture.StringListTargetId
-                (PureExpressionRecipe.ListMap(intList [ 1L ], fixture.MapperFunctionId))
+                (PureExpressionRecipe.ListMap(intList [ 1L ], fixture.MapperFunctionId, []))
             |> simulate workspace
         let mapNode =
             (AgentPureExpressionStructuralChangeProposal.review mapProposal).ResultingChange.AddedNodes
@@ -460,35 +460,35 @@ module AgentPureExpressionStructuralWorkflowTests =
         |> assertRejectedCode "PureExpressionInvalidTypeRef"
 
         let missingCallback = StableId.createForTesting<FunctionTag> "function-pure-structural-missing-callback"
-        request fixture fixture.BoolTargetId (PureExpressionRecipe.ListAny(intList [ 1L ], missingCallback))
+        request fixture fixture.BoolTargetId (PureExpressionRecipe.ListAny(intList [ 1L ], missingCallback, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionListCallbackNotFound"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId))
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionListCallbackArityMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId))
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionListCallbackInputTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId))
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionListCallbackResultTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId))
+            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionListCallbackEffectsNotAllowed"
 
@@ -515,6 +515,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Int64Literal"
               "Float64Literal"
               "StringIsEmpty"
+              "Int64ToString"
+              "StringParseInt64"
               "StringContains"
               "StringEqual"
               "StringConcat"
@@ -541,6 +543,10 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListAppendItem"
               "ListConcat"
               "ListFold"
+              "ParallelAll"
+              "CancellationRequested"
+              "UseResource"
+              "ListEffectFold"
               "ListMap"
               "ListFilter"
               "ListAny"

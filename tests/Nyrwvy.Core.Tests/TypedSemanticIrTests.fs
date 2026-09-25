@@ -30,6 +30,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64Literal _
                 | TypedSemanticNodeKind.Float64Literal _
                 | TypedSemanticNodeKind.StringIsEmpty _
+                | TypedSemanticNodeKind.Int64ToString _
+                | TypedSemanticNodeKind.StringParseInt64 _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringConcat _
@@ -56,6 +58,10 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _
                 | TypedSemanticNodeKind.ListFold _
+                | TypedSemanticNodeKind.ListEffectFold _
+                | TypedSemanticNodeKind.UseResource _
+                | TypedSemanticNodeKind.ParallelAll _
+                | TypedSemanticNodeKind.CancellationRequested
                 | TypedSemanticNodeKind.ListMap _
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.ListAny _

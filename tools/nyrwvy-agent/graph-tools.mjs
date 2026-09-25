@@ -55,14 +55,16 @@ function defineTool(definition) { return definition }
  */
 export function createGraphTools(schema) {
   const object = schema.record(schema.string(), schema.unknown())
-  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, or builtinGeneric with generic option/result/list and arguments.')
+  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, builtinGeneric with generic option/result/list and arguments, or {kind:"typeParameter",name:"T"} in the parameter types of a new function (makes it generic; the same name means the same parameter, and callers get type arguments by argument matching).')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   return {
     open: defineTool({
-      description: "Create or reopen a persistent graph. Create with dependency stores its exact complete content. Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
-      args: { mode: schema.enum(["create", "open", "pin"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional() },
-      /** @param {{ mode: "create" | "open" | "pin"; snapshot: string; workspace?: string; dependency?: string }} args */
-      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency),
+      description: "Create or reopen a persistent graph. Create with dependency (or several dependencies) stores each exact complete content; identical shared declarations are imported once and any other identity collision is rejected. Mode upgrade replaces a dependency with a new version only after request op previewDependencyUpgrade reported it compatible: pass dependency (new version), expectedFingerprint (preview newFingerprint) and, for several dependencies, replaces (old SnapshotId). Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
+      args: { mode: schema.enum(["create", "open", "pin", "upgrade"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional(),
+        dependencies: schema.array(schema.string()).optional(), expectedFingerprint: schema.string().optional(), replaces: schema.string().optional() },
+      /** @param {{ mode: "create" | "open" | "pin" | "upgrade"; snapshot: string; workspace?: string; dependency?: string; dependencies?: string[]; expectedFingerprint?: string; replaces?: string }} args */
+      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies,
+        args.mode === "upgrade" ? { expectedFingerprint: args.expectedFingerprint ?? "", replaces: args.replaces } : undefined),
     }),
     inspect: defineTool({
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",
@@ -115,7 +117,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "reject", ...args }, context),
     }),
     request: defineTool({
-      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, deleteCapabilityOperation for unused operations, atomic migrations, readiness, emission, and explicit runPure verification of committed pure functions with scalar, flat List/Option/Result, or scalar-field Product/Union inputs/results. A request id is supplied by the bridge; simulations never auto-commit.",
+      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, deleteCapabilityOperation for unused operations, atomic migrations (parameter type, result type, Product field type, Union variant like an existing one), readiness, emission, and explicit runPure verification of committed functions (capability parameters bound to scripted fakeCapability responses or hostCapability implementations from explicit hostSources) with Unit/scalars and bounded nesting (including recursive named types) through List/Option, Product/Union fields and Result payloads; mismatches and runtime failures report semantic paths and function frames. A request id is supplied by the bridge; simulations never auto-commit.",
       args: { op: schema.string(), arguments: object },
       /** @param {{ op: string; arguments: Record<string, unknown> }} args */
       execute(args, context) {

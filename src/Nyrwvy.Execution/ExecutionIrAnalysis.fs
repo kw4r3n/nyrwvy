@@ -30,6 +30,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.OptionNone -> []
+        | TypedSemanticNodeKind.Int64ToString valueNodeId
+        | TypedSemanticNodeKind.StringParseInt64 valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
@@ -54,12 +56,20 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
-        | TypedSemanticNodeKind.ListLength listNodeId
-        | TypedSemanticNodeKind.ListMap(listNodeId, _)
-        | TypedSemanticNodeKind.ListFilter(listNodeId, _)
-        | TypedSemanticNodeKind.ListAny(listNodeId, _)
-        | TypedSemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
-        | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.CancellationRequested -> []
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -98,6 +108,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64Literal _
             | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
+            | TypedSemanticNodeKind.Int64ToString _
+            | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -122,6 +134,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
+            | TypedSemanticNodeKind.ListEffectFold _
+            | TypedSemanticNodeKind.UseResource _
+            | TypedSemanticNodeKind.ParallelAll _
+            | TypedSemanticNodeKind.CancellationRequested
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -160,6 +176,16 @@ module internal ExecutionIrAnalysis =
         : bool =
         match node.Kind with
         | TypedSemanticNodeKind.CapabilityInvoke _ -> true
+        | TypedSemanticNodeKind.ListEffectFold(_, _, functionId, _) ->
+            match Map.tryFind functionId functionsById with
+            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
+            | None -> false
+        | TypedSemanticNodeKind.UseResource _ -> true
+        | TypedSemanticNodeKind.CancellationRequested -> true
+        | TypedSemanticNodeKind.ParallelAll(_, functionId, _) ->
+            match Map.tryFind functionId functionsById with
+            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
+            | None -> false
         | TypedSemanticNodeKind.DirectCall(functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -181,6 +207,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64Literal _
         | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.StringIsEmpty _
+        | TypedSemanticNodeKind.Int64ToString _
+        | TypedSemanticNodeKind.StringParseInt64 _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringConcat _
@@ -303,6 +331,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64Literal _
             | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
+            | TypedSemanticNodeKind.Int64ToString _
+            | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -327,6 +357,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
+            | TypedSemanticNodeKind.ListEffectFold _
+            | TypedSemanticNodeKind.UseResource _
+            | TypedSemanticNodeKind.ParallelAll _
+            | TypedSemanticNodeKind.CancellationRequested
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

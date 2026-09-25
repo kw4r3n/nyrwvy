@@ -152,17 +152,17 @@ module ListHigherOrderTests =
                 { Nodes =
                     showcaseSourceNodes
                     @ [ { Id = mapNodeId
-                          Kind = SemanticNodeKind.ListMap(showcaseSourceId, positive.Id) }
+                          Kind = SemanticNodeKind.ListMap(showcaseSourceId, positive.Id, []) }
                         { Id = mappedAnyNodeId
-                          Kind = SemanticNodeKind.ListAny(mapNodeId, boolIdentity.Id) }
+                          Kind = SemanticNodeKind.ListAny(mapNodeId, boolIdentity.Id, []) }
                         { Id = mappedAllNodeId
-                          Kind = SemanticNodeKind.ListAll(mapNodeId, boolIdentity.Id) }
+                          Kind = SemanticNodeKind.ListAll(mapNodeId, boolIdentity.Id, []) }
                         { Id = filterNodeId
-                          Kind = SemanticNodeKind.ListFilter(showcaseSourceId, positive.Id) }
+                          Kind = SemanticNodeKind.ListFilter(showcaseSourceId, positive.Id, []) }
                         { Id = anyNodeId
-                          Kind = SemanticNodeKind.ListAny(showcaseSourceId, positive.Id) }
+                          Kind = SemanticNodeKind.ListAny(showcaseSourceId, positive.Id, []) }
                         { Id = allNodeId
-                          Kind = SemanticNodeKind.ListAll(showcaseSourceId, positive.Id) } ]
+                          Kind = SemanticNodeKind.ListAll(showcaseSourceId, positive.Id, []) } ]
                   ResultNodeId = mappedAllNodeId } }
 
         let filteredSourceNodes, filteredSourceId = sourceNodes "filtered-length"
@@ -177,7 +177,7 @@ module ListHigherOrderTests =
               Body =
                 { Nodes =
                     filteredSourceNodes
-                    @ [ { Id = filteredId; Kind = SemanticNodeKind.ListFilter(filteredSourceId, positive.Id) }
+                    @ [ { Id = filteredId; Kind = SemanticNodeKind.ListFilter(filteredSourceId, positive.Id, []) }
                         { Id = filteredLengthId; Kind = SemanticNodeKind.ListLength filteredId } ]
                   ResultNodeId = filteredLengthId } }
 
@@ -193,8 +193,8 @@ module ListHigherOrderTests =
                 { Nodes = nodes @ [ { Id = resultId; Kind = constructor sourceId positive.Id } ]
                   ResultNodeId = resultId } }
 
-        let anyPositive = predicateFunction "any-positive" (fun source callback -> SemanticNodeKind.ListAny(source, callback))
-        let allPositive = predicateFunction "all-positive" (fun source callback -> SemanticNodeKind.ListAll(source, callback))
+        let anyPositive = predicateFunction "any-positive" (fun source callback -> SemanticNodeKind.ListAny(source, callback, []))
+        let allPositive = predicateFunction "all-positive" (fun source callback -> SemanticNodeKind.ListAll(source, callback, []))
 
         let mappedAnySourceNodes, mappedAnySourceId = sourceNodes "mapped-any"
         let mappedAnyListId = nodeId "mapped-any-map"
@@ -208,8 +208,8 @@ module ListHigherOrderTests =
               Body =
                 { Nodes =
                     mappedAnySourceNodes
-                    @ [ { Id = mappedAnyListId; Kind = SemanticNodeKind.ListMap(mappedAnySourceId, positive.Id) }
-                        { Id = mappedAnyResultId; Kind = SemanticNodeKind.ListAny(mappedAnyListId, boolIdentity.Id) } ]
+                    @ [ { Id = mappedAnyListId; Kind = SemanticNodeKind.ListMap(mappedAnySourceId, positive.Id, []) }
+                        { Id = mappedAnyResultId; Kind = SemanticNodeKind.ListAny(mappedAnyListId, boolIdentity.Id, []) } ]
                   ResultNodeId = mappedAnyResultId } }
 
         let emptyPredicateFunction name constructor =
@@ -226,8 +226,8 @@ module ListHigherOrderTests =
                       { Id = resultId; Kind = constructor emptyId positive.Id } ]
                   ResultNodeId = resultId } }
 
-        let emptyAny = emptyPredicateFunction "empty-any" (fun source callback -> SemanticNodeKind.ListAny(source, callback))
-        let emptyAll = emptyPredicateFunction "empty-all" (fun source callback -> SemanticNodeKind.ListAll(source, callback))
+        let emptyAny = emptyPredicateFunction "empty-any" (fun source callback -> SemanticNodeKind.ListAny(source, callback, []))
+        let emptyAll = emptyPredicateFunction "empty-all" (fun source callback -> SemanticNodeKind.ListAll(source, callback, []))
 
         let snapshot: Snapshot =
             { Id = StableId.createForTesting<SnapshotTag> "snapshot-list-higher-order"
@@ -373,27 +373,27 @@ module ListHigherOrderTests =
 
         let unknown = functionId "unknown-callback"
         fixture.Snapshot
-        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, unknown))
+        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, unknown, []))
         |> SnapshotValidator.validate
         |> requireIssue "UnknownListCallbackFunction"
 
         fixture.Snapshot
-        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.TwoParameterFunctionId))
+        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.TwoParameterFunctionId, []))
         |> SnapshotValidator.validate
         |> requireIssue "ListCallbackArityMismatch"
 
         fixture.Snapshot
-        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.WrongParameterFunctionId))
+        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.WrongParameterFunctionId, []))
         |> SnapshotValidator.validate
         |> requireIssue "ListCallbackParameterTypeMismatch"
 
         fixture.Snapshot
-        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.EffectfulFunctionId))
+        |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.EffectfulFunctionId, []))
         |> SnapshotValidator.validate
         |> requireIssue "ListCallbackEffectsNotAllowed"
 
         fixture.Snapshot
-        |> replaceShowcaseNodeKind fixture fixture.AnyNodeId (SemanticNodeKind.ListAny(fixture.SourceListNodeId, fixture.BadResultFunctionId))
+        |> replaceShowcaseNodeKind fixture fixture.AnyNodeId (SemanticNodeKind.ListAny(fixture.SourceListNodeId, fixture.BadResultFunctionId, []))
         |> SnapshotValidator.validate
         |> requireIssue "ListPredicateResultTypeMismatch"
 
@@ -407,18 +407,18 @@ module ListHigherOrderTests =
 
         let assertNodes snapshot =
             match (showcaseNode fixture snapshot fixture.MapNodeId).Kind with
-            | SemanticNodeKind.ListMap(source, callback) ->
+            | SemanticNodeKind.ListMap(source, callback, _) ->
                 Assert.Equal(fixture.SourceListNodeId, source)
                 Assert.Equal(fixture.PositiveFunctionId, callback)
             | other -> failwithf "Expected ListMap, got %A" other
             match (showcaseNode fixture snapshot fixture.FilterNodeId).Kind with
-            | SemanticNodeKind.ListFilter(_, callback) -> Assert.Equal(fixture.PositiveFunctionId, callback)
+            | SemanticNodeKind.ListFilter(_, callback, _) -> Assert.Equal(fixture.PositiveFunctionId, callback)
             | other -> failwithf "Expected ListFilter, got %A" other
             match (showcaseNode fixture snapshot fixture.AnyNodeId).Kind with
-            | SemanticNodeKind.ListAny(_, callback) -> Assert.Equal(fixture.PositiveFunctionId, callback)
+            | SemanticNodeKind.ListAny(_, callback, _) -> Assert.Equal(fixture.PositiveFunctionId, callback)
             | other -> failwithf "Expected ListAny, got %A" other
             match (showcaseNode fixture snapshot fixture.AllNodeId).Kind with
-            | SemanticNodeKind.ListAll(_, callback) -> Assert.Equal(fixture.PositiveFunctionId, callback)
+            | SemanticNodeKind.ListAll(_, callback, _) -> Assert.Equal(fixture.PositiveFunctionId, callback)
             | other -> failwithf "Expected ListAll, got %A" other
 
         assertNodes fromJson
@@ -438,7 +438,7 @@ module ListHigherOrderTests =
         let typed, execution = lower fixture.Snapshot
         let typedShowcase = typed.Functions |> List.find (fun functionEntity -> functionEntity.Id = fixture.ShowcaseFunctionId)
         match typedShowcase.Body.Nodes |> List.find (fun node -> node.OriginNodeId = fixture.MapNodeId) |> fun node -> node.Kind with
-        | TypedSemanticNodeKind.ListMap(source, callback) ->
+        | TypedSemanticNodeKind.ListMap(source, callback, _) ->
             Assert.Equal(fixture.SourceListNodeId, source)
             Assert.Equal(fixture.PositiveFunctionId, callback)
         | other -> failwithf "Expected typed ListMap, got %A" other
@@ -448,10 +448,10 @@ module ListHigherOrderTests =
         let requireExecution origin predicate =
             let instruction = instructions |> List.find (fun item -> item.OriginNodeId = origin)
             if not (predicate instruction.Kind) then failwithf "Unexpected execution instruction: %A" instruction.Kind
-        requireExecution fixture.MapNodeId (function ExecutionInstructionKind.ListMap(_, callback) -> callback = fixture.PositiveFunctionId | _ -> false)
-        requireExecution fixture.FilterNodeId (function ExecutionInstructionKind.ListFilter(_, callback) -> callback = fixture.PositiveFunctionId | _ -> false)
-        requireExecution fixture.AnyNodeId (function ExecutionInstructionKind.ListAny(_, callback) -> callback = fixture.PositiveFunctionId | _ -> false)
-        requireExecution fixture.AllNodeId (function ExecutionInstructionKind.ListAll(_, callback) -> callback = fixture.PositiveFunctionId | _ -> false)
+        requireExecution fixture.MapNodeId (function ExecutionInstructionKind.ListMap(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
+        requireExecution fixture.FilterNodeId (function ExecutionInstructionKind.ListFilter(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
+        requireExecution fixture.AnyNodeId (function ExecutionInstructionKind.ListAny(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
+        requireExecution fixture.AllNodeId (function ExecutionInstructionKind.ListAll(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
@@ -531,7 +531,7 @@ module ListHigherOrderTests =
             |> replaceShowcaseNodeKind
                 fixture
                 fixture.MapNodeId
-                (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.AlternateMapperFunctionId))
+                (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.AlternateMapperFunctionId, []))
         Assert.Empty(SnapshotValidator.validate changed)
         let changedFingerprint = SemanticFingerprint.compute changed |> unwrap "changed semantic fingerprint"
         Assert.NotEqual(original, changedFingerprint)

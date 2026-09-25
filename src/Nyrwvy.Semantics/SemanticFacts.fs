@@ -11,6 +11,8 @@ module SemanticFacts =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.StringParseInt64 valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -34,13 +36,21 @@ module SemanticFacts =
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId
-        | SemanticNodeKind.ListMap(listNodeId, _)
-        | SemanticNodeKind.ListFilter(listNodeId, _)
-        | SemanticNodeKind.ListAny(listNodeId, _)
-        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -95,6 +105,8 @@ module SemanticFacts =
             | SemanticNodeKind.Int64Literal _
             | SemanticNodeKind.Float64Literal _
             | SemanticNodeKind.StringIsEmpty _
+            | SemanticNodeKind.Int64ToString _
+            | SemanticNodeKind.StringParseInt64 _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
             | SemanticNodeKind.StringConcat _
@@ -121,6 +133,10 @@ module SemanticFacts =
             | SemanticNodeKind.ListAppendItem _
             | SemanticNodeKind.ListConcat _
             | SemanticNodeKind.ListFold _
+            | SemanticNodeKind.ListEffectFold _
+            | SemanticNodeKind.UseResource _
+            | SemanticNodeKind.ParallelAll _
+            | SemanticNodeKind.CancellationRequested
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -216,6 +232,22 @@ module SemanticFacts =
                 resolvedTypes[nodeId] <- result
                 result
 
+        /// A callback's result type with the type arguments its context and iteration values determine.
+        and callbackResult (visiting: Set<GraphNodeId>) (callback: SemanticFunction) (context: ArgumentBinding list) (iteration: TypeRef list) =
+            let contextPairs =
+                context |> List.choose (fun binding ->
+                    match callback.Parameters |> List.tryFind (fun parameter -> parameter.Id = binding.TargetParameterId), tryNodeType visiting binding.ValueNodeId with
+                    | Some parameter, Some actual -> Some(parameter.Type, actual)
+                    | _ -> None)
+            let unbound =
+                callback.Parameters
+                |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id)))
+                |> List.map (fun parameter -> parameter.Type)
+            let iterationPairs = List.zip (List.truncate iteration.Length unbound) (List.truncate unbound.Length iteration)
+            match TypeParameters.matchAll (contextPairs @ iterationPairs) with
+            | Some substitution -> TypeParameters.substitute substitution callback.ResultType
+            | None -> callback.ResultType
+
         and inferNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
             if Set.contains nodeId visiting then
                 None
@@ -252,6 +284,9 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Multiply _
                     | SemanticNodeKind.Float64Divide _ ->
                         Some(TypeRef.Primitive PrimitiveType.Float64)
+                    | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
+                    | SemanticNodeKind.StringParseInt64 _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
@@ -272,7 +307,7 @@ module SemanticFacts =
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
-                    | SemanticNodeKind.ListFilter(listNodeId, _) ->
+                    | SemanticNodeKind.ListFilter(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
@@ -288,16 +323,54 @@ module SemanticFacts =
                             when leftItemType = rightItemType ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
                         | _ -> None
-                    | SemanticNodeKind.ListFold(_, seedNodeId, _) ->
+                    | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
-                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->
-                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ mapper.ResultType ]))
+                    | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        // A folder returning Result<S, E> for seed S stops at the first Err.
+                        match tryNodeType nextVisiting seedNodeId, Map.tryFind folderFunctionId index.Functions with
+                        | Some seedType, Some folder ->
+                            let iteration =
+                                match tryNodeType nextVisiting sourceListNodeId with
+                                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) -> [ seedType; itemType ]
+                                | _ -> [ seedType ]
+                            match callbackResult nextVisiting folder context iteration with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Some resultType
+                            | _ -> Some seedType
+                        | seedType, _ -> seedType
+                    | SemanticNodeKind.UseResource(acquireNodeId, _, _, bodyFunctionId, context) ->
+                        match Map.tryFind bodyFunctionId index.Functions with
+                        | None -> None
+                        | Some body ->
+                            let resource =
+                                match tryNodeType nextVisiting acquireNodeId with
+                                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; _ ])) -> [ resourceType ]
+                                | _ -> []
+                            Some(callbackResult nextVisiting body context resource)
+                    | SemanticNodeKind.CancellationRequested -> Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind workerFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
+                            match callbackResult nextVisiting worker context [ itemType ] with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ okType ]); errorType ]))
+                            | _ -> None
                         | _ -> None
-                    | SemanticNodeKind.DirectCall(targetFunctionId, _) ->
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting mapper context [ itemType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         Map.tryFind targetFunctionId index.Functions
-                        |> Option.map (fun target -> target.ResultType)
+                        |> Option.map (fun target ->
+                            let pairs =
+                                arguments |> List.choose (fun argument ->
+                                    match target.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId), tryNodeType nextVisiting argument.ValueNodeId with
+                                    | Some parameter, Some actual -> Some(parameter.Type, actual)
+                                    | _ -> None)
+                            match TypeParameters.matchAll pairs with
+                            | Some substitution -> TypeParameters.substitute substitution target.ResultType
+                            | None -> target.ResultType)
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                         Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)
