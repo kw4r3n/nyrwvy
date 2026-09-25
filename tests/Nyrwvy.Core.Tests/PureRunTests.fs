@@ -54,7 +54,7 @@ module PureRunTests =
             create ws "sumLists" (listType intType) intType
                 (ExpressionRecipe.ListFold(
                     ExpressionRecipe.ListConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1),
-                    ExpressionRecipe.Int64Literal 0L, plus))
+                    ExpressionRecipe.Int64Literal 0L, plus, []))
         let ws =
             [ "intList", intType; "stringList", stringType; "boolList", TypeRef.Primitive PrimitiveType.Bool ]
             |> List.fold (fun current (name, itemType) ->
@@ -89,7 +89,7 @@ module PureRunTests =
                     ExpressionRecipe.Int64Equal(ExpressionRecipe.ListLength(ExpressionRecipe.ParameterSlot 0), ExpressionRecipe.Int64Literal 0L),
                     ExpressionRecipe.OptionNone intType,
                     ExpressionRecipe.OptionSome(ExpressionRecipe.ListFold(
-                        ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, plus))))
+                        ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, plus, []))))
         let json = AgentWorkspace.serializeCurrentSnapshot ws |> function
             | Ok text -> text
             | Error error -> failwithf "Fixture serialization failed: %A" error

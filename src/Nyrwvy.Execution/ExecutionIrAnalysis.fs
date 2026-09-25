@@ -56,12 +56,13 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
-        | TypedSemanticNodeKind.ListLength listNodeId
-        | TypedSemanticNodeKind.ListMap(listNodeId, _)
-        | TypedSemanticNodeKind.ListFilter(listNodeId, _)
-        | TypedSemanticNodeKind.ListAny(listNodeId, _)
-        | TypedSemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
-        | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->

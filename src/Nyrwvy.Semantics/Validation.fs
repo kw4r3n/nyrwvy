@@ -47,13 +47,14 @@ module SnapshotValidator =
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId
-        | SemanticNodeKind.ListMap(listNodeId, _)
-        | SemanticNodeKind.ListFilter(listNodeId, _)
-        | SemanticNodeKind.ListAny(listNodeId, _)
-        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -104,11 +105,11 @@ module SnapshotValidator =
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId
-        | SemanticNodeKind.ListMap(listNodeId, _)
-        | SemanticNodeKind.ListFilter(listNodeId, _)
-        | SemanticNodeKind.ListAny(listNodeId, _)
-        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -121,7 +122,8 @@ module SnapshotValidator =
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -479,10 +481,37 @@ module SnapshotValidator =
                     (TypeRef.Primitive PrimitiveType.Float64)
                     valueNodeId
 
+            /// Checks context bindings of a List callback and returns its unbound parameters, which
+            /// receive the iteration values in declaration order.
+            let validateCallbackContext (nodeId: GraphNodeId) (callback: SemanticFunction) (context: ArgumentBinding list) =
+                context
+                |> List.countBy (fun binding -> binding.TargetParameterId)
+                |> List.filter (fun (_, count) -> count > 1)
+                |> List.iter (fun (parameterId, _) ->
+                    add
+                        "DuplicateArgumentTarget"
+                        $"Higher-order List node '{StableId.value nodeId}' binds callback parameter '{StableId.value parameterId}' more than once.")
+                for binding in context do
+                    match callback.Parameters |> List.tryFind (fun parameter -> parameter.Id = binding.TargetParameterId) with
+                    | None ->
+                        add
+                            "UnknownCallbackContextParameter"
+                            $"Higher-order List node '{StableId.value nodeId}' binds '{StableId.value binding.TargetParameterId}', which is not a parameter of callback '{StableId.value callback.Id}'."
+                    | Some parameter ->
+                        match nodeType binding.ValueNodeId with
+                        | Some actual when actual <> parameter.Type ->
+                            add
+                                "ListCallbackContextTypeMismatch"
+                                $"Higher-order List node '{StableId.value nodeId}' binds callback parameter '{StableId.value parameter.Id}' to a value of another type."
+                        | _ -> ()
+                callback.Parameters
+                |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id)))
+
             let validateListCallback
                 (nodeId: GraphNodeId)
                 (sourceListNodeId: GraphNodeId)
                 (callbackFunctionId: FunctionId)
+                (context: ArgumentBinding list)
                 (predicateResultRequired: bool)
                 =
                 let sourceItemType =
@@ -501,13 +530,14 @@ module SnapshotValidator =
                         "UnknownListCallbackFunction"
                         $"Higher-order List node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
                 | Some callback ->
-                    if callback.Parameters.Length <> 1 then
+                    let unbound = validateCallbackContext nodeId callback context
+                    if unbound.Length <> 1 then
                         add
                             "ListCallbackArityMismatch"
-                            $"Higher-order List node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter."
+                            $"Higher-order List node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
                     else
                         match sourceItemType with
-                        | Some itemType when callback.Parameters.Head.Type <> itemType ->
+                        | Some itemType when unbound.Head.Type <> itemType ->
                             add
                                 "ListCallbackParameterTypeMismatch"
                                 $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
@@ -716,16 +746,17 @@ module SnapshotValidator =
                                 $"ListConcat node '{StableId.value node.Id}' requires List<T> as its right input."
                         | None, _
                         | _, None -> ()
-                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
+                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceListNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
                             match Map.tryFind folderFunctionId functionsById with
                             | None -> add "UnknownListCallbackFunction" $"ListFold node '{StableId.value node.Id}' references an unknown folder."
                             | Some folder ->
-                                if folder.Parameters.Length <> 2 then
-                                    add "ListCallbackArityMismatch" "ListFold folder must have exactly two parameters (accumulator, item)."
+                                let unbound = validateCallbackContext node.Id folder context
+                                if unbound.Length <> 2 then
+                                    add "ListCallbackArityMismatch" "ListFold folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
-                                    if folder.Parameters.Head.Type <> seedType || folder.Parameters.Tail.Head.Type <> itemType then
+                                    if unbound.Head.Type <> seedType || unbound.Tail.Head.Type <> itemType then
                                         add "ListCallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
                                 if folder.ResultType <> seedType then
                                     add "ListCallbackResultTypeMismatch" "ListFold folder must return the seed type."
@@ -733,12 +764,12 @@ module SnapshotValidator =
                                     add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
                         | _ -> ()
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                        validateListCallback node.Id sourceListNodeId mapperFunctionId false
-                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId)
-                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId)
-                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-                        validateListCallback node.Id sourceListNodeId predicateFunctionId true
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                        validateListCallback node.Id sourceListNodeId mapperFunctionId context false
+                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
+                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
+                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+                        validateListCallback node.Id sourceListNodeId predicateFunctionId context true
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->

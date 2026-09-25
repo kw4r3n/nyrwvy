@@ -52,11 +52,11 @@ module internal StructuralTransactionInternals =
         | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
         | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
         | SemanticNodeKind.DirectCall(functionId, _)
-        | SemanticNodeKind.ListFold(_, _, functionId)
-        | SemanticNodeKind.ListMap(_, functionId)
-        | SemanticNodeKind.ListFilter(_, functionId)
-        | SemanticNodeKind.ListAny(_, functionId)
-        | SemanticNodeKind.ListAll(_, functionId) -> None, Some functionId, None
+        | SemanticNodeKind.ListFold(_, _, functionId, _)
+        | SemanticNodeKind.ListMap(_, functionId, _)
+        | SemanticNodeKind.ListFilter(_, functionId, _)
+        | SemanticNodeKind.ListAny(_, functionId, _)
+        | SemanticNodeKind.ListAll(_, functionId, _) -> None, Some functionId, None
         | _ -> None, None, None
 
     let summarizeNodes

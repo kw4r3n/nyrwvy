@@ -171,6 +171,8 @@ module internal SignatureMigrationCore =
             let one make value = rewrite value |> Result.map make
             let two make left right =
                 rewrite left |> Result.bind (fun left -> rewrite right |> Result.map (fun right -> make(left, right)))
+            let callback make source functionId context =
+                rewrite source |> Result.bind (fun source -> rewritePairs context |> Result.map (fun context -> make(source, functionId, context)))
             let three make first second third =
                 rewrite first |> Result.bind (fun first -> two (fun (second, third) -> make(first, second, third)) second third)
 
@@ -234,12 +236,14 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))
-            | ExpressionRecipe.ListFold(source, seed, folder) ->
-                two (fun (source, seed) -> ExpressionRecipe.ListFold(source, seed, folder)) source seed
-            | ExpressionRecipe.ListMap(source, functionId) -> one (fun source -> ExpressionRecipe.ListMap(source, functionId)) source
-            | ExpressionRecipe.ListFilter(source, functionId) -> one (fun source -> ExpressionRecipe.ListFilter(source, functionId)) source
-            | ExpressionRecipe.ListAny(source, functionId) -> one (fun source -> ExpressionRecipe.ListAny(source, functionId)) source
-            | ExpressionRecipe.ListAll(source, functionId) -> one (fun source -> ExpressionRecipe.ListAll(source, functionId)) source
+            | ExpressionRecipe.ListFold(source, seed, folder, context) ->
+                two (fun (source, seed) -> source, seed) source seed
+                |> Result.bind (fun (source, seed) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListFold(source, seed, folder, context)))
+            | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
+            | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
+            | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
+            | ExpressionRecipe.ListAll(source, functionId, context) -> callback ExpressionRecipe.ListAll source functionId context
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, fields))
             | ExpressionRecipe.FieldAccess(source, fieldId) -> one (fun source -> ExpressionRecipe.FieldAccess(source, fieldId)) source

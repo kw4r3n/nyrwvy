@@ -32,7 +32,11 @@ const unary = kind => ({ shape: { kind, value: recipe } })
 /** @param {string} kind */
 const binary = kind => ({ shape: { kind, left: recipe, right: recipe } })
 /** @param {string} kind */
-const listCallback = kind => ({ shape: { kind, source: recipe, function: "<function display name>" } })
+const callbackContext = [{ parameter: "<callback parameter display name>", value: recipe }]
+const listCallback = kind => ({
+  shape: { kind, source: recipe, function: "<function display name>", context: callbackContext },
+  notes: "Optional context binds callback parameters to values computed once before iteration; the remaining unbound parameter receives each item. Callbacks stay pure.",
+})
 
 const references = {
   parameter: {
@@ -80,7 +84,7 @@ const references = {
   listLength: unary("listLength"),
   listAppendItem: { shape: { kind: "listAppendItem", list: recipe, item: recipe } },
   listConcat: binary("listConcat"),
-  listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>" }, notes: "Pure folder: (accumulator, item) -> accumulator. Iterates left to right, returning the seed for an empty list. The seed type fixes the accumulator type and can carry runtime context." },
+  listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Pure folder: (accumulator, item) -> accumulator over its parameters not bound by the optional context. Iterates left to right, returning the seed for an empty list. Context binds further folder parameters to values computed once." },
   listMap: listCallback("listMap"),
   listFilter: listCallback("listFilter"),
   listAny: listCallback("listAny"),

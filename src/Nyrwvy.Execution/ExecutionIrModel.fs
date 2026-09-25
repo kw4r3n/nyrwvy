@@ -110,11 +110,12 @@ type ExecutionInstructionKind =
     | ListLength of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
-    | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId
-    | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId
-    | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
-    | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
-    | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId
+    /// `context` binds callback parameters to values computed before iteration.
+    | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list

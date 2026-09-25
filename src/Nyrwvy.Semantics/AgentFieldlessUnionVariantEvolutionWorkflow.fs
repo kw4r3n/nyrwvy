@@ -90,6 +90,9 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
         let mapPatternBinding (binding: PatternBinding) =
             { binding with Id = mapPatternId binding.Id }
 
+        let mapContext (context: ArgumentBinding list) =
+            context |> List.map (fun binding -> { binding with ValueNodeId = mapNodeId binding.ValueNodeId })
+
         let rec mapGraph (current: ValueGraph): ValueGraph =
             { Nodes = current.Nodes |> List.map mapNode
               ResultNodeId = mapNodeId current.ResultNodeId }
@@ -232,27 +235,31 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     mapNodeId leftListNodeId,
                     mapNodeId rightListNodeId
                 )
-            | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
-                SemanticNodeKind.ListFold(mapNodeId sourceListNodeId, mapNodeId seedNodeId, folderFunctionId)
-            | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+            | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                SemanticNodeKind.ListFold(mapNodeId sourceListNodeId, mapNodeId seedNodeId, folderFunctionId, mapContext context)
+            | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                 SemanticNodeKind.ListMap(
                     mapNodeId sourceListNodeId,
-                    mapperFunctionId
+                    mapperFunctionId,
+                    mapContext context
                 )
-            | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
+            | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                 SemanticNodeKind.ListFilter(
                     mapNodeId sourceListNodeId,
-                    predicateFunctionId
+                    predicateFunctionId,
+                    mapContext context
                 )
-            | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
+            | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                 SemanticNodeKind.ListAny(
                     mapNodeId sourceListNodeId,
-                    predicateFunctionId
+                    predicateFunctionId,
+                    mapContext context
                 )
-            | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
+            | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                 SemanticNodeKind.ListAll(
                     mapNodeId sourceListNodeId,
-                    predicateFunctionId
+                    predicateFunctionId,
+                    mapContext context
                 )
             | SemanticNodeKind.DirectCall(functionId, arguments) ->
                 SemanticNodeKind.DirectCall(

@@ -323,8 +323,25 @@ module CSharpBackend =
         else
             writer.Line(target + " = " + expression + ";")
 
-    let private emitInstruction (writer: SourceWriter) (instruction: ExecutionInstruction) =
+    /// A callback with context becomes a lambda that passes context values and the iteration values
+    /// by parameter name; without context the method group is emitted unchanged.
+    let private renderCallback (parametersOf: FunctionId -> ParameterId list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
+        if List.isEmpty context then callbackName functionId
+        else
+            let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
+            let iteration =
+                parametersOf functionId
+                |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
+                |> List.mapi (fun index parameterId -> parameterId, target + "_it" + string index)
+            let arguments =
+                (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
+                @ (iteration |> List.map (fun (parameterId, name) -> CSharpBackendNames.parameterName parameterId + ": " + name))
+            let names = iteration |> List.map snd |> String.concat ", "
+            "(" + names + ") => " + callbackName functionId + "(" + String.concat ", " arguments + ")"
+
+    let private emitInstruction (writer: SourceWriter) (parametersOf: FunctionId -> ParameterId list) (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
+        let callback = renderCallback parametersOf target
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter sourceValueId
         | ExecutionInstructionKind.ReadPatternBinding sourceValueId ->
@@ -404,16 +421,16 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
-        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callbackName folderFunctionId + ");")
-        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callbackName mapperFunctionId + ");")
-        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callbackName predicateFunctionId + ");")
-        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callbackName predicateFunctionId + ");")
-        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId) ->
-            writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callbackName predicateFunctionId + ");")
+        | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
@@ -479,7 +496,7 @@ module CSharpBackend =
             writer.Line("if (" + valueName inputValueId + ".IsOk) goto " + CSharpBackendNames.executionBlockLabel okBlock + ";")
             writer.Line("goto " + CSharpBackendNames.executionBlockLabel errBlock + ";")
 
-    let private emitFunction (writer: SourceWriter) (functionEntity: ExecutionFunction) =
+    let private emitFunction (writer: SourceWriter) (parametersOf: FunctionId -> ParameterId list) (functionEntity: ExecutionFunction) =
         let parameters =
             functionEntity.Parameters
             |> List.map (fun parameter ->
@@ -548,7 +565,7 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer instruction
+                emitInstruction writer parametersOf instruction
             emitTerminator writer block block.Terminator
             writer.Line("")
 
@@ -560,8 +577,12 @@ module CSharpBackend =
         writer.Line("public static class " + CSharpBackendNames.functionContainerName)
         writer.Line("{")
         writer.Push()
+        let parameters =
+            program.Functions
+            |> List.map (fun item -> item.SemanticFunctionId, item.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId))
+            |> Map.ofList
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
-            emitFunction writer functionEntity
+            emitFunction writer (fun functionId -> Map.find functionId parameters) functionEntity
         writer.Pop()
         writer.Line("}")
 

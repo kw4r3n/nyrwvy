@@ -224,10 +224,12 @@ module ExecutionIr =
                             | Ok valueId -> loop (valueId :: acc) rest
                     loop [] nodeIds
 
-                let lowerListCallbackNode node sourceListNodeId callbackFunctionId constructor =
-                    requireNodeValue environment sourceListNodeId
-                    |> Result.map (fun sourceListValueId ->
-                        addInstruction currentBlock node (constructor sourceListValueId callbackFunctionId))
+                let lowerListCallbackNode node sourceListNodeId callbackFunctionId context constructor =
+                    match requireNodeValue environment sourceListNodeId, lowerCallArguments context with
+                    | Ok sourceListValueId, Ok lowered ->
+                        Ok(addInstruction currentBlock node (constructor sourceListValueId callbackFunctionId lowered))
+                    | Error error, _
+                    | _, Error error -> Error error
 
                 let lowerSimpleNode (node: TypedSemanticNode) =
                     let produced: Result<ExecutionValueId, ExecutionIrError> =
@@ -323,21 +325,24 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
-                        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
-                            lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
-                                ExecutionInstructionKind.ListFold(source, seed, folderFunctionId))
-                        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId mapperFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListMap(source, callback))
-                        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListFilter(source, callback))
-                        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListAny(source, callback))
-                        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-                            lowerListCallbackNode node sourceListNodeId predicateFunctionId (fun source callback ->
-                                ExecutionInstructionKind.ListAll(source, callback))
+                        | TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.ListFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListFilter(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListAny(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListAll(source, callback, lowered))
                         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
                             lowerCallArguments arguments
                             |> Result.map (fun lowered ->

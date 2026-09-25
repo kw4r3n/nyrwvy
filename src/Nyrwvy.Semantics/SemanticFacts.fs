@@ -36,13 +36,14 @@ module SemanticFacts =
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId
-        | SemanticNodeKind.ListMap(listNodeId, _)
-        | SemanticNodeKind.ListFilter(listNodeId, _)
-        | SemanticNodeKind.ListAny(listNodeId, _)
-        | SemanticNodeKind.ListAll(listNodeId, _) -> [ listNodeId ]
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _) -> [ listNodeId; seedNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -279,7 +280,7 @@ module SemanticFacts =
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
-                    | SemanticNodeKind.ListFilter(listNodeId, _) ->
+                    | SemanticNodeKind.ListFilter(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
@@ -295,9 +296,9 @@ module SemanticFacts =
                             when leftItemType = rightItemType ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ]))
                         | _ -> None
-                    | SemanticNodeKind.ListFold(_, seedNodeId, _) ->
+                    | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, _) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ mapper.ResultType ]))

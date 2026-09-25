@@ -244,10 +244,10 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
                         { execution with Functions = poisonedFunction :: remainingFunctions }
 
         let cases: (string * (ExecutionValueId -> ExecutionInstructionKind)) list =
-            [ "ListMap", fun source -> ExecutionInstructionKind.ListMap(source, unknown)
-              "ListFilter", fun source -> ExecutionInstructionKind.ListFilter(source, unknown)
-              "ListAny", fun source -> ExecutionInstructionKind.ListAny(source, unknown)
-              "ListAll", fun source -> ExecutionInstructionKind.ListAll(source, unknown) ]
+            [ "ListMap", fun source -> ExecutionInstructionKind.ListMap(source, unknown, [])
+              "ListFilter", fun source -> ExecutionInstructionKind.ListFilter(source, unknown, [])
+              "ListAny", fun source -> ExecutionInstructionKind.ListAny(source, unknown, [])
+              "ListAll", fun source -> ExecutionInstructionKind.ListAll(source, unknown, []) ]
 
         for label, makeKind in cases do
             match CSharpBackend.emit (poison makeKind) CSharpBackendProfile.empty with

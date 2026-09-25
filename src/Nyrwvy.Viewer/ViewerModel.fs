@@ -202,15 +202,15 @@ module ViewerProjection =
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
-        | SemanticNodeKind.ListFold(_, _, folderFunctionId) ->
+        | SemanticNodeKind.ListFold(_, _, folderFunctionId, _) ->
             ViewerNodeRole.ListFold, callbackRelation folderFunctionId
-        | SemanticNodeKind.ListMap(_, mapperFunctionId) ->
+        | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
-        | SemanticNodeKind.ListFilter(_, predicateFunctionId) ->
+        | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListFilter, callbackRelation predicateFunctionId
-        | SemanticNodeKind.ListAny(_, predicateFunctionId) ->
+        | SemanticNodeKind.ListAny(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
-        | SemanticNodeKind.ListAll(_, predicateFunctionId) ->
+        | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,

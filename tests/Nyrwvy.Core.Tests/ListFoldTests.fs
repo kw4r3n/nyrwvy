@@ -75,7 +75,7 @@ module ListFoldTests =
                   foundId, ExpressionRecipe.BoolLiteral false ])
         let searchBody =
             ExpressionRecipe.FieldAccess(
-                ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id),
+                ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id, []),
                 foundId)
         let ws, search =
             create ws "contains_key"
@@ -94,7 +94,7 @@ module ListFoldTests =
             create ws "digits"
                 [ parameter "items" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ])) ]
                 intType
-                (ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, digitFolder.Id))
+                (ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, digitFolder.Id, []))
         AgentWorkspace.snapshotForStructuralEditing ws, folder, search, digits
 
     let private unwrap label result =
@@ -146,7 +146,7 @@ module ListFoldTests =
                 ExpressionRecipe.Int64LessThan(index, ExpressionRecipe.Int64Literal 0L),
                 ExpressionRecipe.OptionNone stringType,
                 ExpressionRecipe.FieldAccess(
-                    ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id), itemId))
+                    ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id, []), itemId))
         let ws, at =
             create ws "item_at"
                 [ parameter "items" listType; parameter "index" intType ] optionType lookup
@@ -206,7 +206,7 @@ module ListFoldTests =
                   stateValueId, ExpressionRecipe.OptionNone stringType ])
         let body =
             ExpressionRecipe.FieldAccess(
-                ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id),
+                ExpressionRecipe.ListFold(ExpressionRecipe.ParameterSlot 0, seed, folder.Id, []),
                 stateValueId)
         let ws, find =
             create ws "first_value_for_key"
@@ -433,7 +433,7 @@ module ListFoldTests =
               Replacement = ExpressionRecipe.ListFold(
                 ExpressionRecipe.Parameter target.Parameters[0].Id,
                 ExpressionRecipe.BoolLiteral false,
-                folder.Id) }
+                folder.Id, []) }
         match AgentExpressionStructuralWorkflow.simulate ws request with
         | Error(AgentStructuralWorkflowError.SimulationRejected errors) ->
             Assert.Contains(errors, fun error -> error.Code = "PureExpressionListCallbackInputTypeMismatch")
@@ -453,8 +453,8 @@ module ListFoldTests =
                                             functionEntity.Body.Nodes
                                             |> List.map (fun node ->
                                                 match node.Kind with
-                                                | SemanticNodeKind.ListFold(source, seed, _) ->
-                                                    { node with Kind = SemanticNodeKind.ListFold(source, seed, search.Id) }
+                                                | SemanticNodeKind.ListFold(source, seed, _, _) ->
+                                                    { node with Kind = SemanticNodeKind.ListFold(source, seed, search.Id, []) }
                                                 | _ -> node) } }) }
         let issues = SnapshotValidator.validate corrupted
         Assert.Contains(issues, fun issue -> issue.Code = "ListCallbackParameterTypeMismatch")

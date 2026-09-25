@@ -161,7 +161,7 @@ module AgentListMapStructuralWorkflowTests =
                                 [ { TargetParameterId = sourceParameter.Id; ValueNodeId = listId }
                                   { TargetParameterId = nonListParameter.Id; ValueNodeId = countId } ]
                             ) }
-                      { Id = anyId; Kind = SemanticNodeKind.ListAny(callId, boolIdentity.Id) } ]
+                      { Id = anyId; Kind = SemanticNodeKind.ListAny(callId, boolIdentity.Id, []) } ]
                   ResultNodeId = anyId } }
 
         let foreignParameter: SemanticParameter =
@@ -517,7 +517,7 @@ module AgentListMapStructuralWorkflowTests =
                 target.Body.Nodes
                 |> List.tryPick (fun node ->
                     match node.Kind with
-                    | SemanticNodeKind.ListMap(sourceId, mapperId)
+                    | SemanticNodeKind.ListMap(sourceId, mapperId, _)
                         when mapperId = fixture.MapperFunctionId -> Some(node.Id, sourceId)
                     | _ -> None)
                 |> Option.defaultWith (fun () ->

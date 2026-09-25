@@ -128,7 +128,7 @@ module AgentListMapStructuralWorkflow =
         [ { Id = sourceNodeId
             Kind = SemanticNodeKind.ParameterReference sourceParameterId }
           { Id = mapNodeId
-            Kind = SemanticNodeKind.ListMap(sourceNodeId, mapperFunctionId) } ],
+            Kind = SemanticNodeKind.ListMap(sourceNodeId, mapperFunctionId, []) } ],
         mapNodeId
 
     let simulate

@@ -67,8 +67,8 @@ ExpressionRecipe =
   | ListLength(list)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
-  | ListFold(source, seed, folderFunctionId)
-  | ListMap(source, mapperFunctionId)
+  | ListFold(source, seed, folderFunctionId, context)
+  | ListMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId)
   | ListAny(source, predicateFunctionId)
   | ListAll(source, predicateFunctionId)
@@ -217,6 +217,8 @@ For a source `List<T>`:
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
+
+**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without closures or function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
 
 Effectful callbacks remain rejected, even when the target declares their effects. This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
 

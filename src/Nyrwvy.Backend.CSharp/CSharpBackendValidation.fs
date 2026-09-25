@@ -41,11 +41,11 @@ module internal CSharpBackendValidation =
                 |> List.choose (fun (instruction: ExecutionInstruction) ->
                     match instruction.Kind with
                     | ExecutionInstructionKind.DirectCall(functionId, _)
-                    | ExecutionInstructionKind.ListFold(_, _, functionId)
-                    | ExecutionInstructionKind.ListMap(_, functionId)
-                    | ExecutionInstructionKind.ListFilter(_, functionId)
-                    | ExecutionInstructionKind.ListAny(_, functionId)
-                    | ExecutionInstructionKind.ListAll(_, functionId) -> Some functionId
+                    | ExecutionInstructionKind.ListFold(_, _, functionId, _)
+                    | ExecutionInstructionKind.ListMap(_, functionId, _)
+                    | ExecutionInstructionKind.ListFilter(_, functionId, _)
+                    | ExecutionInstructionKind.ListAny(_, functionId, _)
+                    | ExecutionInstructionKind.ListAll(_, functionId, _) -> Some functionId
                     | _ -> None)))
         |> List.distinct
         |> List.sortBy StableId.value

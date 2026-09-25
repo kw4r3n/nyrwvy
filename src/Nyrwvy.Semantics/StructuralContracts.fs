@@ -66,15 +66,18 @@ module ValueDependency =
             itemNodeIds
             |> List.mapi (fun index nodeId -> create (ValueDependencyRole.ListItem index) nodeId)
         | SemanticNodeKind.ListLength sourceNodeId
-        | SemanticNodeKind.ListMap(sourceNodeId, _)
-        | SemanticNodeKind.ListFilter(sourceNodeId, _)
-        | SemanticNodeKind.ListAny(sourceNodeId, _)
-        | SemanticNodeKind.ListAll(sourceNodeId, _)
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
-        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _) ->
+        | SemanticNodeKind.ListMap(sourceNodeId, _, context)
+        | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.ListAny(sourceNodeId, _, context)
+        | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
+            create ValueDependencyRole.Source sourceNodeId
+            :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Value seedNodeId ]
+            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]

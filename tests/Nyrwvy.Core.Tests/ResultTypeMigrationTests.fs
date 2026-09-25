@@ -128,7 +128,7 @@ module ResultTypeMigrationTests =
         Assert.Equal("ResultTypeMigrationCallerRewriteInvalid", rejects ws { valid with CallerRewrites = [ staleCaller ] })
         // A callback reference cannot be rewritten by this bounded migration.
         let ws = create ws "all" [ "keys", TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]) ] (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]))
-                    (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, lookup.Id))
+                    (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, lookup.Id, []))
         Assert.Equal("ResultTypeMigrationUnsupportedCallerUse", rejects ws (request ws))
 
     [<Fact; Trait("Suite", "Extended")>]

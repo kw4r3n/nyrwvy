@@ -77,7 +77,7 @@ module Int64TextTests =
             create (sprintf """{"id":"render","op":"simulateCreateFunctionByName","displayName":"render","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"int64ToString","value":{"kind":"parameter","name":"n"}}}""" (primitive "int64") (primitive "string"))
             create (sprintf """{"id":"parse","op":"simulateCreateFunctionByName","displayName":"parse","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringParseInt64","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") optionOfInt)
             let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
-            let listRecipe name source = ExpressionRecipe.ListMap(source, functionId name)
+            let listRecipe name source = ExpressionRecipe.ListMap(source, functionId name, [])
             let createMap name parameterType resultType mapper =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId

@@ -27,6 +27,12 @@ module internal WireRecipe =
                 ensureFields "call argument" [ "parameterId"; "value" ] [ "parameterId"; "value" ] item
                 id<ParameterTag> "parameterId" item, recipe (property "value" item))
 
+        /// Optional callback context: `[{ "parameterId", "value" }]`, like call arguments.
+        let callbackContext () =
+            match tryProperty "context" element with
+            | None -> []
+            | Some _ -> callArguments "context"
+
         let capabilityArguments name =
             array name element
             |> List.map (fun item ->
@@ -103,20 +109,21 @@ module internal WireRecipe =
             ExpressionRecipe.ListAppendItem(recipe (property "list" element), recipe (property "item" element))
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
         | "listFold" ->
-            ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId" ] [ "kind"; "source"; "seed"; "functionId" ] element
-            ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element)
+            ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
+            ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listMap"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
-            ensureFields $"{kind} recipe" [ "kind"; "source"; "functionId" ] [ "kind"; "source"; "functionId" ] element
+            ensureFields $"{kind} recipe" [ "kind"; "source"; "functionId"; "context" ] [ "kind"; "source"; "functionId" ] element
             let source = recipe (property "source" element)
             let functionId = id<FunctionTag> "functionId" element
+            let context = callbackContext ()
             match kind with
-            | "listMap" -> ExpressionRecipe.ListMap(source, functionId)
-            | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId)
-            | "listAny" -> ExpressionRecipe.ListAny(source, functionId)
-            | _ -> ExpressionRecipe.ListAll(source, functionId)
+            | "listMap" -> ExpressionRecipe.ListMap(source, functionId, context)
+            | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
+            | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
+            | _ -> ExpressionRecipe.ListAll(source, functionId, context)
         | "productConstruct" ->
             ensureFields "product-construct recipe" [ "kind"; "typeId"; "fields" ] [ "kind"; "typeId"; "fields" ] element
             ExpressionRecipe.ProductConstruct(id<TypeTag> "typeId" element, fieldValues "fields")

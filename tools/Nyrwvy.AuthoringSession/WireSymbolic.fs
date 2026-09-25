@@ -155,6 +155,21 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "right" element)
             )
 
+        /// Optional callback context: `[{ "parameter": <callback parameter display name>, "value" }]`.
+        let callbackContext (callback: SemanticFunction) =
+            match tryProperty "context" element with
+            | None -> []
+            | Some _ ->
+                array "context" element
+                |> List.map (fun item ->
+                    ensureFields "callback context" [ "parameter"; "value" ] [ "parameter"; "value" ] item
+                    let parameter =
+                        exactOne
+                            $"parameter on {callback.DisplayName}"
+                            (requiredString "parameter" item)
+                            callback.Parameters
+                            (fun value -> value.DisplayName)
+                    parameter.Id, recipe declarations parameterContext (property "value" item))
         match requiredString "kind" element with
         | "parameter" ->
             ensureFields "parameter recipe" [ "kind"; "name" ] [ "kind"; "name" ] element
@@ -247,24 +262,27 @@ module internal WireSymbolic =
             )
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
         | "listFold" ->
-            ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function" ] [ "kind"; "source"; "seed"; "function" ] element
+            ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
+            let callback = resolveFunction declarations (requiredString "function" element)
             ExpressionRecipe.ListFold(
                 recipe declarations parameterContext (property "source" element),
                 recipe declarations parameterContext (property "seed" element),
-                (resolveFunction declarations (requiredString "function" element)).Id
+                callback.Id,
+                callbackContext callback
             )
         | "listMap"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
-            ensureFields $"{kind} recipe" [ "kind"; "source"; "function" ] [ "kind"; "source"; "function" ] element
+            ensureFields $"{kind} recipe" [ "kind"; "source"; "function"; "context" ] [ "kind"; "source"; "function" ] element
             let source = recipe declarations parameterContext (property "source" element)
-            let functionId = (resolveFunction declarations (requiredString "function" element)).Id
+            let callback = resolveFunction declarations (requiredString "function" element)
+            let context = callbackContext callback
             match kind with
-            | "listMap" -> ExpressionRecipe.ListMap(source, functionId)
-            | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId)
-            | "listAny" -> ExpressionRecipe.ListAny(source, functionId)
-            | _ -> ExpressionRecipe.ListAll(source, functionId)
+            | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
+            | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
+            | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)
+            | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->
             ensureFields "product-construct recipe" [ "kind"; "type"; "fields" ] [ "kind"; "type"; "fields" ] element
             let owner = resolveType declarations (requiredString "type" element)

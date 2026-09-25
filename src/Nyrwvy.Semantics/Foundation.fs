@@ -195,11 +195,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
-    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
-    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
-    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    /// List callbacks reference an existing pure function. `context` binds some of its parameters,
+    /// by identity, to values evaluated once before iteration; the remaining parameters, in
+    /// declaration order, receive the iteration values (accumulator and item for ListFold, the
+    /// item otherwise). An empty context is the plain callback.
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list

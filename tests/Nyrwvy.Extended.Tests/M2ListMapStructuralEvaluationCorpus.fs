@@ -172,7 +172,7 @@ module M2ListMapStructuralEvaluationCorpus =
                                 [ { TargetParameterId = sourceParameter.Id; ValueNodeId = callerListId }
                                   { TargetParameterId = nonListParameter.Id; ValueNodeId = callerCountId } ]
                             ) }
-                      { Id = callerAnyId; Kind = SemanticNodeKind.ListAny(callerCallId, boolIdentity.Id) } ]
+                      { Id = callerAnyId; Kind = SemanticNodeKind.ListAny(callerCallId, boolIdentity.Id, []) } ]
                   ResultNodeId = callerAnyId } }
 
         let foreignParameter: SemanticParameter =

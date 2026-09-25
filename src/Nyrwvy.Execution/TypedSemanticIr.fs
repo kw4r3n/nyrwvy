@@ -108,11 +108,11 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
-    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId
-    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId
-    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
-    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId
+    | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | DirectCall of FunctionId * TypedSemanticArgument list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
@@ -180,6 +180,9 @@ module TypedSemanticIr =
     let private projectArgument (argument: ArgumentBinding): TypedSemanticArgument =
         { TargetParameterId = argument.TargetParameterId
           ValueNodeId = argument.ValueNodeId }
+
+    let private projectContext (context: ArgumentBinding list) =
+        context |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map projectArgument
 
     let private projectCapabilityArgument
         (argument: CapabilityArgumentBinding)
@@ -295,16 +298,16 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
-                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId))
-                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId))
-                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId))
-                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId))
-                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId) ->
-                        Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId))
+                    | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
+                    | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
+                    | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->
                         Ok(
                             TypedSemanticNodeKind.DirectCall(
