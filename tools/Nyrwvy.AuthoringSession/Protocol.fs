@@ -209,6 +209,27 @@ module AuthoringProtocol =
         | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
 
+    let private encodePathStep step =
+        match step with
+        | PureRunPathStep.Field(typeId, fieldId) ->
+            objectValue [ "kind", box "field"; "typeId", box (StableId.value typeId); "fieldId", box (StableId.value fieldId) ]
+        | PureRunPathStep.Item index -> objectValue [ "kind", box "item"; "index", box index ]
+        | PureRunPathStep.SomeValue -> objectValue [ "kind", box "some" ]
+        | PureRunPathStep.OkValue -> objectValue [ "kind", box "ok" ]
+        | PureRunPathStep.ErrValue -> objectValue [ "kind", box "err" ]
+
+    let private encodeMismatch (mismatch: PureRunMismatch) =
+        objectValue
+            [ "path", mismatch.Path |> List.map encodePathStep |> arrayValue
+              "expected", encodePureValue mismatch.Expected
+              "actual", encodePureValue mismatch.Actual ]
+
+    let private encodeFrame frame =
+        match frame with
+        | PureRunFrame.Function functionId -> objectValue [ "kind", box "function"; "functionId", box (StableId.value functionId) ]
+        | PureRunFrame.CapabilityOperation operationId ->
+            objectValue [ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ]
+
     let private currentSnapshotId (session: AuthoringSession) =
         match session.Status() with
         | Ok status -> status.SnapshotId
@@ -619,8 +640,18 @@ module AuthoringProtocol =
                               "functionId", box (StableId.value result.FunctionId)
                               "actual", encodePureValue result.Actual
                               "expected", result.Expected |> Option.map encodePureValue |> Option.defaultValue null
-                              "matches", result.Matches |> Option.map box |> Option.defaultValue null ])
+                              "matches", result.Matches |> Option.map box |> Option.defaultValue null
+                              "mismatch", result.Mismatch |> Option.map encodeMismatch |> Option.defaultValue null ])
                 | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
+                | Error(PureRunError.RuntimeFailure runtime) ->
+                    failure requestId
+                        (objectValue
+                            [ "code", box "RunRuntimeFailure"
+                              "message", box runtime.Message
+                              "functionId", box (StableId.value runtime.FunctionId)
+                              "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                              "exceptionType", box runtime.ExceptionType
+                              "frames", runtime.Frames |> List.map encodeFrame |> arrayValue ])
                 | Error(PureRunError.Unsupported(code, message)) ->
                     failure requestId
                         (objectValue

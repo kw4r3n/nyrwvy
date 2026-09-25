@@ -41,17 +41,49 @@ type PureRunValue =
     /// always use the flat ResultOk/ResultErr representation.
     | ResultValue of okType: TypeRef * errorType: TypeRef * isOk: bool * payload: PureRunValue
 
+/// One step from a value to a component, named by semantic identity rather than generated symbols.
+[<RequireQualifiedAccess>]
+type PureRunPathStep =
+    | Field of typeId: TypeId * fieldId: FieldId
+    | Item of index: int
+    | SomeValue
+    | OkValue
+    | ErrValue
+
+/// The first difference between an expectation and the actual result, in canonical field order.
+type PureRunMismatch =
+    { Path: PureRunPathStep list
+      Expected: PureRunValue
+      Actual: PureRunValue }
+
+/// A generated stack frame mapped back to the semantic declaration it implements.
+[<RequireQualifiedAccess>]
+type PureRunFrame =
+    | Function of FunctionId
+    | CapabilityOperation of CapabilityOperationId
+
+/// A host exception or crash raised while the program itself ran, as opposed to a runner limit.
+type PureRunRuntimeFailure =
+    { SnapshotId: SnapshotId
+      FunctionId: FunctionId
+      ExceptionType: string
+      Message: string
+      /// Innermost frame first; frames without a semantic declaration are omitted.
+      Frames: PureRunFrame list }
+
 [<RequireQualifiedAccess>]
 type PureRunError =
     | Unsupported of string * string
     | SessionFailure of AuthoringSessionError
+    | RuntimeFailure of PureRunRuntimeFailure
 
 type PureRunResult =
     { SnapshotId: SnapshotId
       FunctionId: FunctionId
       Actual: PureRunValue
       Expected: PureRunValue option
-      Matches: bool option }
+      Matches: bool option
+      Mismatch: PureRunMismatch option }
 
 /// Bounded T3 execution path: pure typed values, including nesting through List/Option layers,
 /// Product/Union fields and Result payloads, with no host bindings or caller-authored C# source.
@@ -202,7 +234,8 @@ module PureRun =
             | _ -> false
         local || (children value |> List.exists oversized)
 
-    let private launch (workingDirectory: string) (args: string list) (timeoutMs: int) =
+    /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
+    let private launchRaw (workingDirectory: string) (args: string list) (timeoutMs: int) =
         try
             let info = ProcessStartInfo("dotnet")
             info.WorkingDirectory <- workingDirectory
@@ -226,20 +259,85 @@ module PureRun =
                     Error(diagnostic "RunOutputTimeout" "The process exited but its output streams did not close.")
                 else
                     let output = stdout.Result
-                    let errors = stderr.Result
-                    if child.ExitCode <> 0 then
-                        let details = output + "\n" + errors
-                        let message = if details.Length > 4096 then details.Substring(0, 4096) else details
-                        Error(diagnostic "RunProcessFailure" message)
-                    elif output.Length > 1048576 then
+                    if output.Length > 1048576 then
                         Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
-                    else Ok output
+                    else Ok(child.ExitCode, output, stderr.Result)
         with
         | :? System.ComponentModel.Win32Exception as error ->
             Error(diagnostic "RunStartupFailure" error.Message)
         | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
         | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
         | :? AggregateException as error -> Error(diagnostic "RunIoFailure" error.Message)
+
+    let private processFailure (output: string) (errors: string) =
+        let details = output + "\n" + errors
+        diagnostic "RunProcessFailure" (if details.Length > 4096 then details.Substring(0, 4096) else details)
+
+    let private launch workingDirectory args timeoutMs =
+        launchRaw workingDirectory args timeoutMs
+        |> Result.bind (fun (exitCode, output, errors) ->
+            if exitCode <> 0 then Error(processFailure output errors) else Ok output)
+
+    /// Maps generated symbol names back to semantic identities using the emitted symbol manifest.
+    let private frameResolver (symbols: CSharpSymbolManifest) =
+        let functions = symbols.Functions |> List.map (fun symbol -> symbol.Name, PureRunFrame.Function symbol.Id)
+        let operations = symbols.CapabilityOperations |> List.map (fun symbol -> symbol.Name, PureRunFrame.CapabilityOperation symbol.Id)
+        let known = Map.ofList (functions @ operations)
+        fun (names: string seq) ->
+            names |> Seq.choose (fun name -> Map.tryFind name known) |> Seq.truncate 256 |> Seq.toList
+
+    let private stackOverflowFrames =
+        System.Text.RegularExpressions.Regex(@"\b(?:NyF|Op)_[0-9A-F]+\b", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+
+    let rec private firstDifference (path: PureRunPathStep list) expected actual =
+        let here () = Some { Path = List.rev path; Expected = expected; Actual = actual }
+        let fields step (left: (FieldId * PureRunValue) list) (right: (FieldId * PureRunValue) list) =
+            if List.map fst left <> List.map fst right then here ()
+            else
+                List.zip left right
+                |> List.tryPick (fun ((fieldId, left), (_, right)) ->
+                    if left = right then None else firstDifference (step fieldId :: path) left right)
+                |> Option.orElse (here ())
+        let items = function
+            | PureRunValue.ListValue(_, items) -> Some items
+            | PureRunValue.StringList items -> Some(items |> List.map PureRunValue.String)
+            | PureRunValue.BoolList items -> Some(items |> List.map PureRunValue.Bool)
+            | PureRunValue.Int64List items -> Some(items |> List.map PureRunValue.Int64)
+            | _ -> None
+        let payload = function
+            | PureRunValue.OptionValue(_, item) -> Some item
+            | PureRunValue.StringOption item -> Some(item |> Option.map PureRunValue.String)
+            | PureRunValue.BoolOption item -> Some(item |> Option.map PureRunValue.Bool)
+            | PureRunValue.Int64Option item -> Some(item |> Option.map PureRunValue.Int64)
+            | _ -> None
+        let result = function
+            | PureRunValue.ResultValue(_, _, isOk, item) -> Some(isOk, item)
+            | PureRunValue.ResultOk(_, item) -> Some(true, scalarValue item)
+            | PureRunValue.ResultErr(_, item) -> Some(false, scalarValue item)
+            | _ -> None
+        if expected = actual then None
+        elif valueType expected <> valueType actual then here ()
+        else
+            match expected, actual with
+            | PureRunValue.Product(typeId, left), PureRunValue.Product(_, right) ->
+                fields (fun fieldId -> PureRunPathStep.Field(typeId, fieldId)) left right
+            | PureRunValue.Union(typeId, leftVariant, left), PureRunValue.Union(_, rightVariant, right) when leftVariant = rightVariant ->
+                fields (fun fieldId -> PureRunPathStep.Field(typeId, fieldId)) left right
+            | _ ->
+                match items expected, items actual, payload expected, payload actual, result expected, result actual with
+                | Some left, Some right, _, _, _, _ ->
+                    List.zip (List.truncate right.Length left) (List.truncate left.Length right)
+                    |> List.indexed
+                    |> List.tryPick (fun (index, (left, right)) ->
+                        if left = right then None else firstDifference (PureRunPathStep.Item index :: path) left right)
+                    |> Option.orElse (here ())
+                | _, _, Some(Some left), Some(Some right), _, _ -> firstDifference (PureRunPathStep.SomeValue :: path) left right
+                | _, _, _, _, Some(leftOk, left), Some(rightOk, right) when leftOk = rightOk ->
+                    firstDifference ((if leftOk then PureRunPathStep.OkValue else PureRunPathStep.ErrValue) :: path) left right
+                | _ -> here ()
+
+    /// Locates the first difference between an expectation and an actual value, if any.
+    let mismatch expected actual = firstDifference [] expected actual
 
     let private supportedScalar = function
         | TypeRef.Primitive PrimitiveType.String
@@ -461,12 +559,27 @@ module PureRun =
                 | false, _ -> Error(diagnostic "RunInvalidResult" "The result is not an Int64.")
             | _ -> Error(diagnostic "RunInvalidResult" "The result does not have the declared type.")
 
-    let private parseResult types resultType (output: string) =
+    [<RequireQualifiedAccess>]
+    type private Envelope =
+        | Value of PureRunValue
+        | Limit of string
+        | Exception of exceptionType: string * message: string * frames: string list
+
+    let private parseEnvelope types resultType (output: string) =
+        let invalid () = Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
         try
             use document = JsonDocument.Parse(output, JsonDocumentOptions(MaxDepth = 256))
-            parseElement types resultType document.RootElement
-        with :? JsonException ->
-            Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
+            let root = document.RootElement
+            let text (item: JsonElement) = if item.ValueKind = JsonValueKind.String then Some(item.GetString()) else None
+            if root.ValueKind <> JsonValueKind.Array || root.GetArrayLength() < 2 then invalid () else
+                match text root[0], root.GetArrayLength() with
+                | Some "value", 2 -> parseElement types resultType root[1] |> Result.map Envelope.Value
+                | Some "limit", 2 when (text root[1]).IsSome -> Ok(Envelope.Limit(root[1].GetString()))
+                | Some "exception", 4 when (text root[1]).IsSome && (text root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array ->
+                    let frames = root[3].EnumerateArray() |> Seq.choose text |> Seq.toList
+                    Ok(Envelope.Exception(root[1].GetString(), root[2].GetString(), frames))
+                | _ -> invalid ()
+        with :? JsonException -> invalid ()
 
     let rec private validContainers (supported: int -> TypeRef -> bool) value =
         let local =
@@ -573,7 +686,7 @@ module PureRun =
                         let rec encode itemType access (depthBase: string) (offset: int) =
                             let depth = if offset = 0 then depthBase else depthBase + " + " + string offset
                             let layer expression =
-                                $"({depth} >= {layerLimit} ? throw new InvalidOperationException(\"Result exceeds {layerLimit} composite layers.\") : {expression})"
+                                $"({depth} >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {expression})"
                             let array items = "new object[] { " + String.concat ", " items + " }"
                             let expression =
                                 match itemType with
@@ -582,7 +695,7 @@ module PureRun =
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                     let name, accumulator = fresh (), fresh ()
                                     let child = encode item name depthBase (offset + 1)
-                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new InvalidOperationException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
                                     let child = encode item (access + ".Value") depthBase (offset + 1)
                                     layer $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
@@ -606,41 +719,73 @@ module PureRun =
                                 | Some declared -> fields "value" declared
                                 | None ->
                                     let cases = unionVariants declarations.Types typeId |> Option.get
-                                    let fallback = "throw new InvalidOperationException(\"Unknown or null Union variant.\")"
+                                    let fallback = "throw new RunnerException(\"Unknown or null Union variant.\")"
                                     List.foldBack (fun (variant: SemanticVariant) rest ->
                                         let name = fresh ()
                                         let variantName = CSharpBackendNames.variantName variant.Id
                                         let tag = JsonSerializer.Serialize(StableId.value variant.Id)
                                         $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
-                            $"object {encoders[typeId]}({CSharpBackendNames.typeName typeId} value, int depth) => depth >= {layerLimit} ? throw new InvalidOperationException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
+                            $"object {encoders[typeId]}({CSharpBackendNames.typeName typeId} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
                         let encoded = encode fn.ResultType "result" "0" 0
                         let namedEncoders = StringBuilder()
                         while pending.Count > 0 do
                             namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
                         let namedEncoders = namedEncoders.ToString()
                         let checksText = encoded.Contains("CheckedString(") || namedEncoders.Contains("CheckedString(")
+                        // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
+                        // conversion limits, or ["exception", type, message, frames] for a program failure.
                         let program =
-                            "using System; using System.Globalization; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
-                            + $"var result = NyFunctions.{entry}({args});\n"
+                            "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
+                            + "var options = new JsonSerializerOptions { MaxDepth = 256 };\n"
                             + "int remaining = 8192;\n"
                             + (if checksText then "long textRemaining = 65536;\n" else "")
-                            + $"Console.WriteLine(JsonSerializer.Serialize({encoded}, new JsonSerializerOptions {{ MaxDepth = 256 }}));\n"
-                            + "object Count(object value) { if (--remaining < 0) throw new InvalidOperationException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
+                            + "try\n{\n"
+                            + $"    var result = NyFunctions.{entry}({args});\n"
+                            + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded} }}, options));\n"
+                            + "}\n"
+                            + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
+                            + "catch (Exception error)\n{\n"
+                            + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
+                            + "    Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", error.Message, frames }));\n"
+                            + "}\n"
+                            + "object Count(object value) { if (--remaining < 0) throw new RunnerException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
                             + (if checksText then
-                                "string CheckedString(string value) { if (value == null) throw new InvalidOperationException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new InvalidOperationException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
+                                "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
                                else "")
                             + namedEncoders
+                            + "sealed class RunnerException(string message) : Exception(message);\n"
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
+                        let frames = frameResolver artifact.Symbols
+                        let runtimeFailure exceptionType message frameNames =
+                            PureRunError.RuntimeFailure
+                                { SnapshotId = status.SnapshotId
+                                  FunctionId = fn.Id
+                                  ExceptionType = exceptionType
+                                  Message = message
+                                  Frames = frames frameNames }
                         launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
-                            launch root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
-                        |> Result.bind (parseResult declarations.Types fn.ResultType)
+                            launchRaw root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
+                        |> Result.bind (fun (exitCode, output, errors) ->
+                            if exitCode = 0 then
+                                parseEnvelope declarations.Types fn.ResultType output
+                                |> Result.bind (function
+                                    | Envelope.Value actual -> Ok actual
+                                    | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
+                                    | Envelope.Exception(exceptionType, message, frameNames) ->
+                                        Error(runtimeFailure exceptionType message frameNames))
+                            elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
+                                // A stack overflow cannot be caught; the runtime prints the stack to stderr.
+                                let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
+                                Error(runtimeFailure "System.StackOverflowException" "Stack overflow." names)
+                            else Error(processFailure output errors))
                         |> Result.map (fun actual ->
                             { SnapshotId = status.SnapshotId
                               FunctionId = fn.Id
                               Actual = actual
                               Expected = expected
-                              Matches = expected |> Option.map ((=) actual) })
+                              Matches = expected |> Option.map ((=) actual)
+                              Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual) })
                     with
                     | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
                     | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
