@@ -56,8 +56,8 @@ and [<RequireQualifiedAccess>] PureRunFakeResponse =
     | Return of PureRunValue
     /// Raises a host exception from the operation, as a failing external implementation would.
     | Throw of message: string
-    /// Blocks like a long-running external process until the calling ParallelAll worker's
-    /// cancellation is requested, then returns the value.
+    /// Blocks like a long-running external process until the calling ParallelAll worker's or
+    /// task's cancellation is requested, then returns the value.
     | AwaitCancellation of PureRunValue
 
 /// One call the program made to a fake capability, with its arguments in canonical ID order.
@@ -173,7 +173,7 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.BuiltinGeneric(kind, arguments) ->
-            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult"
+            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Task values are not run values."
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | _ -> invalidOp "Unsupported runner type passed validation."
 
@@ -827,7 +827,7 @@ module PureRun =
                         operations |> List.exists (fun operation ->
                             operation.Responses |> List.exists (function PureRunFakeResponse.AwaitCancellation _ -> true | _ -> false))
                     | _ -> false) ->
-                Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation responses need a program that uses ParallelAll or CancellationRequested.")
+                Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
             | Ok(program, artifact), Ok status ->
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
@@ -1008,7 +1008,7 @@ module PureRun =
                             + "static class FakeLog\n{\n"
                             + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"
                             + "    public static void Record(int site, object[] arguments)\n    {\n"
-                            // Workers of ParallelAll may call fakes concurrently.
+                            // Workers of ParallelAll and tasks may call fakes concurrently.
                             + "        lock (Calls)\n        {\n"
                             + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
                             + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"

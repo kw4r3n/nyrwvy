@@ -62,6 +62,13 @@ module CSharpBackend =
             "NyResult<" + formatType okType + ", " + formatType errorType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             "NyList<" + formatType itemType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
+            "NyTask<" + formatType resultType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "NyTaskScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+            invalidOp $"C# backend received Task with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+            invalidOp $"C# backend received TaskScope with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"C# backend received Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
@@ -183,20 +190,131 @@ module CSharpBackend =
     let private fieldParameter (field: ExecutionField) =
         formatType field.Type + " " + CSharpBackendNames.fieldName field.Id
 
-    /// Ambient cancellation for ParallelAll workers, emitted only for programs that use concurrency so
-    /// other generated programs are unchanged. External implementations read the same token.
+    /// A task scope owns the tasks started in it. Each task has its own token linked to the scope's,
+    /// which is linked to the token of whoever created the scope, so cancellation only flows down.
+    let private taskRuntime =
+        [ "public interface INyTask"
+          "{"
+          "    System.Threading.Tasks.Task Running { get; }"
+          "    void Cancel();"
+          "}"
+          ""
+          "public sealed class NyTask<T> : INyTask"
+          "{"
+          "    private readonly System.Threading.CancellationTokenSource _cancellation;"
+          "    internal NyTask(System.Threading.CancellationTokenSource cancellation, System.Threading.Tasks.Task<T> running)"
+          "    {"
+          "        _cancellation = cancellation;"
+          "        Running = running;"
+          "    }"
+          "    public System.Threading.Tasks.Task<T> Running { get; }"
+          "    System.Threading.Tasks.Task INyTask.Running => Running;"
+          "    public void Cancel() => _cancellation.Cancel();"
+          "    /// The result once finished; a host exception from the task is rethrown to whoever observes it."
+          "    public NyOption<T> Snapshot() =>"
+          "        Running.IsCompleted ? NyOption<T>.Some(Running.GetAwaiter().GetResult()) : NyOption<T>.None();"
+          "}"
+          ""
+          "public sealed class NyTaskScope"
+          "{"
+          "    private readonly System.Threading.CancellationTokenSource _cancellation;"
+          "    private readonly System.Collections.Generic.List<INyTask> _tasks = new();"
+          "    private bool _closed;"
+          "    public NyTaskScope(System.Threading.CancellationToken parent) =>"
+          "        _cancellation = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(parent);"
+          "    public NyTask<T> Start<T>(Func<T> work)"
+          "    {"
+          "        lock (_tasks)"
+          "        {"
+          "            var cancellation = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);"
+          "            if (_closed)"
+          "            {"
+          "                // A scope that has completed runs a late start at once, already cancelled, so no"
+          "                // task outlives its scope."
+          "                cancellation.Cancel();"
+          "                var previous = NyRuntime.Cancellation.Value;"
+          "                NyRuntime.Cancellation.Value = cancellation.Token;"
+          "                try { return new NyTask<T>(cancellation, System.Threading.Tasks.Task.FromResult(work())); }"
+          "                catch (Exception error) { return new NyTask<T>(cancellation, System.Threading.Tasks.Task.FromException<T>(error)); }"
+          "                finally { NyRuntime.Cancellation.Value = previous; }"
+          "            }"
+          "            var running = System.Threading.Tasks.Task.Run(() =>"
+          "            {"
+          "                NyRuntime.Cancellation.Value = cancellation.Token;"
+          "                return work();"
+          "            });"
+          "            var task = new NyTask<T>(cancellation, running);"
+          "            _tasks.Add(task);"
+          "            return task;"
+          "        }"
+          "    }"
+          "    /// Cancels and awaits every task. Unless the body itself threw, rethrows the host exception of"
+          "    /// the earliest-started task that raised one."
+          "    public void Close(bool bodyThrew)"
+          "    {"
+          "        INyTask[] tasks;"
+          "        lock (_tasks)"
+          "        {"
+          "            _closed = true;"
+          "            tasks = _tasks.ToArray();"
+          "        }"
+          "        _cancellation.Cancel();"
+          "        foreach (var task in tasks) { try { task.Running.Wait(); } catch (AggregateException) { } }"
+          "        if (bodyThrew) return;"
+          "        var faulted = Array.Find(tasks, task => task.Running.IsFaulted);"
+          "        if (faulted != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(faulted.Running.Exception!.InnerException!).Throw();"
+          "    }"
+          "}"
+          ""
+          "public static class NyTasks"
+          "{"
+          "    public static NyList<NyOption<T>> Wait<T>(NyList<NyTask<T>> tasks, bool any)"
+          "    {"
+          "        var items = tasks.Fold(new System.Collections.Generic.List<NyTask<T>>(), (acc, task) => { acc.Add(task); return acc; });"
+          "        var running = items.ConvertAll(task => (System.Threading.Tasks.Task)task.Running).ToArray();"
+          "        if (running.Length > 0)"
+          "        {"
+          "            if (any) System.Threading.Tasks.Task.WaitAny(running);"
+          "            else { try { System.Threading.Tasks.Task.WaitAll(running); } catch (AggregateException) { } }"
+          "        }"
+          "        return NyList<NyOption<T>>.Create(items.ConvertAll(task => task.Snapshot()).ToArray());"
+          "    }"
+          "}"
+          "" ]
+
+    let private usesTaskTypes (program: ExecutionProgram) =
+        program.Functions
+        |> List.exists (fun functionEntity ->
+            TaskTypes.mentions functionEntity.ResultType
+            || functionEntity.Parameters |> List.exists (fun parameter -> TaskTypes.mentions parameter.Value.Type)
+            || functionEntity.Blocks
+               |> List.exists (fun block ->
+                   block.Instructions
+                   |> List.exists (fun instruction ->
+                       TaskTypes.mentions instruction.Result.Type
+                       || (match instruction.Kind with
+                           | ExecutionInstructionKind.TaskScope _
+                           | ExecutionInstructionKind.TaskStart _
+                           | ExecutionInstructionKind.TaskWait _
+                           | ExecutionInstructionKind.TaskCancel _ -> true
+                           | _ -> false))))
+
+    /// Ambient cancellation for ParallelAll workers and tasks, emitted only for programs that use
+    /// concurrency so other generated programs are unchanged. External implementations read the same token.
     let private emitConcurrencyRuntime (writer: SourceWriter) (program: ExecutionProgram) =
+        let usesTasks = usesTaskTypes program
         let usesConcurrency =
-            program.Functions
-            |> List.exists (fun functionEntity ->
-                functionEntity.Blocks
-                |> List.exists (fun block ->
-                    block.Instructions
-                    |> List.exists (fun instruction ->
-                        match instruction.Kind with
-                        | ExecutionInstructionKind.ParallelAll _
-                        | ExecutionInstructionKind.CancellationRequested -> true
-                        | _ -> false)))
+            usesTasks
+            || program.Functions
+               |> List.exists (fun functionEntity ->
+                   functionEntity.Blocks
+                   |> List.exists (fun block ->
+                       block.Instructions
+                       |> List.exists (fun instruction ->
+                           match instruction.Kind with
+                           | ExecutionInstructionKind.ParallelAll _
+                           | ExecutionInstructionKind.CancellationRequested -> true
+                           | _ -> false)))
         if usesConcurrency then
             writer.Line("public static class NyRuntime")
             writer.Line("{")
@@ -207,6 +325,9 @@ module CSharpBackend =
             writer.Pop()
             writer.Line("}")
             writer.Line("")
+        if usesTasks then
+            for line in taskRuntime do
+                writer.Line(line)
 
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
@@ -535,6 +656,27 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.CancellationRequested ->
             writer.Line(target + " = NyRuntime.CancellationRequested;")
+        | ExecutionInstructionKind.TaskScope(bodyFunctionId, context) ->
+            // Every exit of the body, including a host exception, cancels and awaits the scope's tasks.
+            let scope, body = target + "_scope", target + "_body"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + scope + " = new NyTaskScope(NyRuntime.Cancellation.Value);")
+            writer.Line(formatType instruction.Result.Type + " " + body + ";")
+            writer.Line("try { " + body + " = " + renderInvocation parametersOf bodyFunctionId context [ scope ] + "; }")
+            writer.Line("catch { " + scope + ".Close(bodyThrew: true); throw; }")
+            writer.Line(scope + ".Close(bodyThrew: false);")
+            writer.Line(target + " = " + body + ";")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.TaskStart(scopeValueId, workerFunctionId, context, itemValueId) ->
+            writer.Line(target + " = " + valueName scopeValueId + ".Start(() => " + renderInvocation parametersOf workerFunctionId context [ valueName itemValueId ] + ");")
+        | ExecutionInstructionKind.TaskWait(tasksValueId, mode) ->
+            let any = match mode with TaskWaitMode.Any -> "true" | TaskWaitMode.All -> "false"
+            writer.Line(target + " = NyTasks.Wait(" + valueName tasksValueId + ", any: " + any + ");")
+        | ExecutionInstructionKind.TaskCancel taskValueId ->
+            writer.Line(valueName taskValueId + ".Cancel();")
+            writer.Line(target + " = NyUnit.Value;")
         | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
             // Structured: every worker is awaited before the node completes. The first Err or host
             // exception cancels the shared token; faults win, then the lowest-index Err, else all Ok.

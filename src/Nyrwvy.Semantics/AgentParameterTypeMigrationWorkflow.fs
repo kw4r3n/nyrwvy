@@ -253,6 +253,14 @@ module internal SignatureMigrationCore =
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
+            | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
+                rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context))
+            | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
+                two (fun (scope, item) -> scope, item) scope item
+                |> Result.bind (fun (scope, item) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item)))
+            | ExpressionRecipe.TaskWait(tasks, mode) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode)) tasks
+            | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context

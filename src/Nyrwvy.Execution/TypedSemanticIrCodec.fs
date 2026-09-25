@@ -47,6 +47,15 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "list")
             writer.WritePropertyName("itemType")
             writeTypeRef writer itemType
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
+            writer.WriteString("kind", "task")
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer resultType
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> writer.WriteString("kind", "taskScope")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+            invalidOp $"Typed Semantic IR contains Task with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+            invalidOp $"Typed Semantic IR contains TaskScope with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Typed Semantic IR contains Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
@@ -395,6 +404,23 @@ module TypedSemanticIrCodec =
             writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
             writeCallbackContext writer context
         | TypedSemanticNodeKind.CancellationRequested -> writer.WriteString("kind", "cancellationRequested")
+        | TypedSemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+            writer.WriteString("kind", "taskScope")
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+            writer.WriteString("kind", "taskStart")
+            writer.WriteString("scopeNodeId", StableId.value scopeNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+            writer.WriteString("kind", "taskWait")
+            writer.WriteString("tasksNodeId", StableId.value tasksNodeId)
+            writer.WriteString("mode", (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all"))
+        | TypedSemanticNodeKind.TaskCancel taskNodeId ->
+            writer.WriteString("kind", "taskCancel")
+            writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

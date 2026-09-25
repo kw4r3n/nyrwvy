@@ -132,6 +132,18 @@ module internal WireRecipe =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "taskScope" ->
+            ensureFields "task-scope recipe" [ "kind"; "bodyFunctionId"; "context" ] [ "kind"; "bodyFunctionId" ] element
+            ExpressionRecipe.TaskScope(id<FunctionTag> "bodyFunctionId" element, callbackContext ())
+        | "taskStart" ->
+            ensureFields "task-start recipe" [ "kind"; "scope"; "workerFunctionId"; "item"; "context" ] [ "kind"; "scope"; "workerFunctionId"; "item" ] element
+            ExpressionRecipe.TaskStart(recipe (property "scope" element), id<FunctionTag> "workerFunctionId" element, callbackContext (), recipe (property "item" element))
+        | "taskWait" ->
+            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode" ] [ "kind"; "tasks"; "mode" ] element
+            ExpressionRecipe.TaskWait(recipe (property "tasks" element), WireInput.taskWaitMode element)
+        | "taskCancel" ->
+            ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
+            ExpressionRecipe.TaskCancel(recipe (property "task" element))
         | "listMap"
         | "listFilter"
         | "listAny"

@@ -38,6 +38,13 @@ module ViewerHtml =
             "Result<" + typeRefText okType + ", " + typeRefText errorType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
             "List<" + typeRefText item + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ->
+            "Task<" + typeRefText result + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+            "Task<invalid-arity:" + string arguments.Length + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+            "TaskScope<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             "Option<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
@@ -76,6 +83,7 @@ module ViewerHtml =
         | ValueDependencyRole.Error -> "error"
         | ValueDependencyRole.Substring -> "substring"
         | ValueDependencyRole.SliceStart -> "slice start"
+        | ValueDependencyRole.TaskScope -> "task scope"
         | ValueDependencyRole.SliceEnd -> "slice end"
         | ValueDependencyRole.LeftOperand -> "left operand"
         | ValueDependencyRole.RightOperand -> "right operand"
@@ -135,6 +143,11 @@ module ViewerHtml =
         | ViewerNodeRole.UseResource -> "use resource"
         | ViewerNodeRole.ParallelAll -> "parallel all"
         | ViewerNodeRole.CancellationRequested -> "cancellation requested"
+        | ViewerNodeRole.TaskScope -> "task scope"
+        | ViewerNodeRole.TaskStart -> "task start"
+        | ViewerNodeRole.TaskWait TaskWaitMode.Any -> "task wait (any)"
+        | ViewerNodeRole.TaskWait TaskWaitMode.All -> "task wait (all)"
+        | ViewerNodeRole.TaskCancel -> "task cancel"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"

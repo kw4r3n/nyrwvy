@@ -99,6 +99,12 @@ module internal WireGraph =
         | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
             tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
         | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
+        | SemanticNodeKind.TaskScope(body, bindings) -> tagged "taskScope" ([ "bodyFunctionId", identity body ] @ context bindings)
+        | SemanticNodeKind.TaskStart(scope, worker, bindings, item) ->
+            tagged "taskStart" ([ "scopeNodeId", identity scope; "workerFunctionId", identity worker; "itemNodeId", identity item ] @ context bindings)
+        | SemanticNodeKind.TaskWait(tasks, mode) ->
+            tagged "taskWait" [ "tasksNodeId", identity tasks; "mode", box (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all") ]
+        | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

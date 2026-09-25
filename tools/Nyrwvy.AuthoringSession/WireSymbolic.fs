@@ -71,6 +71,8 @@ module internal WireSymbolic =
                 | "option" -> BuiltinGenericType.Option
                 | "result" -> BuiltinGenericType.Result
                 | "list" -> BuiltinGenericType.List
+                | "task" -> BuiltinGenericType.Task
+                | "taskScope" -> BuiltinGenericType.TaskScope
                 | value -> fail $"Unsupported builtin generic '{value}'."
             TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map (typeRef declarations))
         | "typeParameter" ->
@@ -315,6 +317,24 @@ module internal WireSymbolic =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "taskScope" ->
+            ensureFields "task-scope recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
+            let body = resolveFunction declarations (requiredString "body" element)
+            ExpressionRecipe.TaskScope(body.Id, callbackContext body)
+        | "taskStart" ->
+            ensureFields "task-start recipe" [ "kind"; "scope"; "worker"; "item"; "context" ] [ "kind"; "scope"; "worker"; "item" ] element
+            let worker = resolveFunction declarations (requiredString "worker" element)
+            ExpressionRecipe.TaskStart(
+                recipe declarations parameterContext (property "scope" element),
+                worker.Id,
+                callbackContext worker,
+                recipe declarations parameterContext (property "item" element))
+        | "taskWait" ->
+            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode" ] [ "kind"; "tasks"; "mode" ] element
+            ExpressionRecipe.TaskWait(recipe declarations parameterContext (property "tasks" element), WireInput.taskWaitMode element)
+        | "taskCancel" ->
+            ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
+            ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
         | "listMap"
         | "listFilter"
         | "listAny"

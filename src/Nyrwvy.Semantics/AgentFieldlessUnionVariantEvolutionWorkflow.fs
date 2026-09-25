@@ -248,6 +248,11 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
             | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                 SemanticNodeKind.ParallelAll(mapNodeId sourceListNodeId, workerFunctionId, mapContext context)
             | SemanticNodeKind.CancellationRequested -> SemanticNodeKind.CancellationRequested
+            | SemanticNodeKind.TaskScope(bodyFunctionId, context) -> SemanticNodeKind.TaskScope(bodyFunctionId, mapContext context)
+            | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                SemanticNodeKind.TaskStart(mapNodeId scopeNodeId, workerFunctionId, mapContext context, mapNodeId itemNodeId)
+            | SemanticNodeKind.TaskWait(tasksNodeId, mode) -> SemanticNodeKind.TaskWait(mapNodeId tasksNodeId, mode)
+            | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
             | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                 SemanticNodeKind.ListMap(
                     mapNodeId sourceListNodeId,

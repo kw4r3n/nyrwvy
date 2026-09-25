@@ -2,7 +2,7 @@ const typeRef = {
   primitive: { kind: "primitive", primitive: "<string|bool|unit|int64|float64>" },
   named: { kind: "named", name: "<type display name>" },
   capability: { kind: "capability", name: "<capability display name>" },
-  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list>", arguments: ["<typeRef>"] },
+  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|task|taskScope>", arguments: ["<typeRef>"] },
 }
 
 /** @satisfies {Record<string, (keyof typeof references)[]>} */
@@ -17,6 +17,7 @@ const categories = {
     "float64IsNaN", "float64IsFinite", "float64IsInfinite",
   ],
   list: ["listEmpty", "listConstruct", "listLength", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listAny", "listAll"],
+  tasks: ["taskScope", "taskStart", "taskWait", "taskCancel"],
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
   calls: ["directCall", "capabilityInvoke"],
@@ -88,7 +89,11 @@ const references = {
   listConcat: binary("listConcat"),
   listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Pure folder: (accumulator, item) -> accumulator over its parameters not bound by the optional context. Iterates left to right, returning the seed for an empty list. Context binds further folder parameters to values computed once." },
   parallelAll: { shape: { kind: "parallelAll", source: recipe, worker: "<function display name>", context: callbackContext }, notes: "Runs the worker (item -> Result<U, E>, effects allowed, capabilities via context) for every item concurrently and awaits all. The first Err or exception cancels the others. Result: the lowest-index Err, else Ok of all values in order." },
-  cancellationRequested: { shape: { kind: "cancellationRequested" }, notes: "Bool: whether the current ParallelAll worker was asked to stop; false outside workers. Check it between steps to stop cooperatively." },
+  cancellationRequested: { shape: { kind: "cancellationRequested" }, notes: "Bool: whether the current ParallelAll worker, task or task scope body was asked to stop; false outside them. Check it between steps to stop cooperatively." },
+  taskScope: { shape: { kind: "taskScope", body: "<function display name>", context: callbackContext }, notes: "Runs the body with a new TaskScope through its one unbound parameter; the body returns Result<T, E>, which is the result. On every exit of the body (Ok, Err or a host exception) each unfinished task of the scope is cancelled and awaited before the node completes. A task's host exception is rethrown then unless the body threw first." },
+  taskStart: { shape: { kind: "taskStart", scope: recipe, worker: "<function display name>", item: recipe, context: callbackContext }, notes: "Starts the worker (item -> Result<U, E>, effects allowed, capabilities via context) as a task of the TaskScope and returns Task<Result<U, E>> at once. A task's Err does not cancel other tasks." },
+  taskWait: { shape: { kind: "taskWait", tasks: recipe, mode: "<any|all>" }, notes: "tasks: List<Task<T>>. Waits until any (or all) listed tasks have finished and returns List<Option<T>> in input order: Some(result) when finished, None while running. Tasks keep running. any on [] returns [] at once. A handle whose scope has completed is finished." },
+  taskCancel: { shape: { kind: "taskCancel", task: recipe }, notes: "Unit. Requests cooperative cancellation of one task and returns without waiting; idempotent, a no-op once finished. Wait for the task to see what its worker returned." },
   useResource: { shape: { kind: "useResource", acquire: recipe, releaseCapability: recipe, capability: "<capability display name>", releaseOperation: "<operation display name>", body: "<function display name>", context: callbackContext }, notes: "acquire: Result<R, E>. The body gets R through its one unbound parameter and returns Result<T, E>. Release (R -> Unit or Result<Unit, E>) always runs after a successful acquire, on Ok, Err or a host exception; a body Err wins over a release Err." },
   listEffectFold: { shape: { kind: "listEffectFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Effectful fold, left to right, each item exactly once. The folder may use effects the enclosing function declares and receives capabilities through context. If it returns Result<S, E> for seed S, the fold stops at the first Err and yields Result<S, E>; otherwise it returns S." },
   listMap: listCallback("listMap"),

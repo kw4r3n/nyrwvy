@@ -72,6 +72,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
+        | TypedSemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
+        | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -142,6 +147,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ParallelAll _
             | TypedSemanticNodeKind.CancellationRequested
+            | TypedSemanticNodeKind.TaskScope _
+            | TypedSemanticNodeKind.TaskStart _
+            | TypedSemanticNodeKind.TaskWait _
+            | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -186,6 +195,10 @@ module internal ExecutionIrAnalysis =
             | None -> false
         | TypedSemanticNodeKind.UseResource _ -> true
         | TypedSemanticNodeKind.CancellationRequested -> true
+        | TypedSemanticNodeKind.TaskScope _
+        | TypedSemanticNodeKind.TaskStart _
+        | TypedSemanticNodeKind.TaskWait _
+        | TypedSemanticNodeKind.TaskCancel _ -> true
         | TypedSemanticNodeKind.ParallelAll(_, functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -369,6 +382,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ParallelAll _
             | TypedSemanticNodeKind.CancellationRequested
+            | TypedSemanticNodeKind.TaskScope _
+            | TypedSemanticNodeKind.TaskStart _
+            | TypedSemanticNodeKind.TaskWait _
+            | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

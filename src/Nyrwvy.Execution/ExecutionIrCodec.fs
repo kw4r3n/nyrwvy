@@ -69,6 +69,15 @@ module ExecutionIrCodec =
             objectValue
                 [ property "kind" (quote "list")
                   property "itemType" (writeTypeRef itemType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
+            objectValue
+                [ property "kind" (quote "task")
+                  property "resultType" (writeTypeRef resultType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> objectValue [ property "kind" (quote "taskScope") ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+            invalidOp $"Execution IR contains Task with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+            invalidOp $"Execution IR contains TaskScope with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Execution IR contains Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
@@ -331,6 +340,23 @@ module ExecutionIrCodec =
               property "workerFunctionId" (stableIdValue workerFunctionId) ]
             @ writeCallbackContext context
         | ExecutionInstructionKind.CancellationRequested -> [ property "kind" (quote "cancellationRequested") ]
+        | ExecutionInstructionKind.TaskScope(bodyFunctionId, context) ->
+            [ property "kind" (quote "taskScope")
+              property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.TaskStart(scopeValueId, workerFunctionId, context, itemValueId) ->
+            [ property "kind" (quote "taskStart")
+              property "scopeValueId" (executionValueIdValue scopeValueId)
+              property "workerFunctionId" (stableIdValue workerFunctionId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.TaskWait(tasksValueId, mode) ->
+            [ property "kind" (quote "taskWait")
+              property "tasksValueId" (executionValueIdValue tasksValueId)
+              property "mode" (quote (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all")) ]
+        | ExecutionInstructionKind.TaskCancel taskValueId ->
+            [ property "kind" (quote "taskCancel")
+              property "taskValueId" (executionValueIdValue taskValueId) ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->

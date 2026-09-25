@@ -53,6 +53,11 @@ module SemanticFacts =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -141,6 +146,10 @@ module SemanticFacts =
             | SemanticNodeKind.UseResource _
             | SemanticNodeKind.ParallelAll _
             | SemanticNodeKind.CancellationRequested
+            | SemanticNodeKind.TaskScope _
+            | SemanticNodeKind.TaskStart _
+            | SemanticNodeKind.TaskWait _
+            | SemanticNodeKind.TaskCancel _
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
@@ -353,6 +362,20 @@ module SemanticFacts =
                                 | _ -> []
                             Some(callbackResult nextVisiting body context resource)
                     | SemanticNodeKind.CancellationRequested -> Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+                        Map.tryFind bodyFunctionId index.Functions
+                        |> Option.map (fun body -> callbackResult nextVisiting body context [ TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ])
+                    | SemanticNodeKind.TaskStart(_, workerFunctionId, context, itemNodeId) ->
+                        match tryNodeType nextVisiting itemNodeId, Map.tryFind workerFunctionId index.Functions with
+                        | Some itemType, Some worker ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ callbackResult nextVisiting worker context [ itemType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.TaskWait(tasksNodeId, _) ->
+                        match tryNodeType nextVisiting tasksNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ resultType ]) ]))
+                        | _ -> None
+                    | SemanticNodeKind.TaskCancel _ -> Some(TypeRef.Primitive PrimitiveType.Unit)
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind workerFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
