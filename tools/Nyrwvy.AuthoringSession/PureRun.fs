@@ -267,16 +267,24 @@ module PureRun =
     /// containers, Result arguments and declared fields. It bounds generated runner code.
     let private maxTypeNodes = 131072L
 
-    /// Returns a memoized support check. Scalars are leaves; any path from the checked type may pass
-    /// through at most eight composite layers (List, Option, Result, Product, Union), counting from
-    /// the given depth. Recursive named types are unsupported because their runner encoding is not finite.
+    /// Maximum composite layers (List, Option, Result, Product, Union) along any path of one value.
+    /// Only values of recursive named types can reach it; other types are bounded by typeSupport.
+    let maxValueLayers = 32
+
+    /// Returns a memoized support check. Scalars are leaves; any acyclic path from the checked type may
+    /// pass through at most eight composite layers (List, Option, Result, Product, Union), counting from
+    /// the given depth. A reference back to a named type on the current path is a recursive type: it is
+    /// supported because the runner encodes each named type once, and its values are bounded by
+    /// maxValueLayers instead.
     let private typeSupport (types: SemanticType list) =
         let memo = System.Collections.Generic.Dictionary<TypeRef * int, int64 option>(HashIdentity.Structural)
         let visiting = System.Collections.Generic.HashSet<TypeId>()
         let rec cost depth itemType =
-            if supportedScalar itemType then Some 1L
-            elif depth > 7 then None
-            else
+            match itemType with
+            | _ when supportedScalar itemType -> Some 1L
+            | TypeRef.Named typeId when visiting.Contains typeId -> Some 1L
+            | _ when depth > 7 -> None
+            | _ ->
                 match memo.TryGetValue((itemType, depth)) with
                 | true, known -> known
                 | _ ->
@@ -455,7 +463,7 @@ module PureRun =
 
     let private parseResult types resultType (output: string) =
         try
-            use document = JsonDocument.Parse(output)
+            use document = JsonDocument.Parse(output, JsonDocumentOptions(MaxDepth = 256))
             parseElement types resultType document.RootElement
         with :? JsonException ->
             Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
@@ -485,7 +493,7 @@ module PureRun =
             | PureRunValue.String _
             | PureRunValue.Bool _
             | PureRunValue.Int64 _ -> remaining >= 0
-            | _ when depth > 8 || remaining < 0 -> false
+            | _ when depth >= maxValueLayers || remaining < 0 -> false
             | PureRunValue.StringList items -> count items.Length
             | PureRunValue.BoolList items -> count items.Length
             | PureRunValue.Int64List items -> count items.Length
@@ -522,7 +530,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
             Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item and Result payload types must be supported and match every payload; scalar-only containers and Results use the flat value representation.")
         | Some fn when not (supported 0 fn.ResultType) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Supported results are scalars and non-recursive List/Option/Result/Product/Union compositions with at most eight composite layers.")
+            Error(diagnostic "RunResultTypeUnsupported" "Supported results are scalars and List/Option/Result/Product/Union compositions with at most eight composite layers along any non-recursive path.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
         | Some fn when expected |> Option.exists (validProduct declarations.Types >> not) ->
@@ -558,50 +566,70 @@ module PureRun =
                         let fresh () =
                             nextName <- nextName + 1
                             "v" + string nextName
-                        let rec encode itemType access =
+                        // Each named type is encoded by one local function, so recursive types stay finite.
+                        let encoders = System.Collections.Generic.Dictionary<TypeId, string>()
+                        let pending = System.Collections.Generic.Queue<TypeId>()
+                        let layerLimit = string maxValueLayers
+                        let rec encode itemType access (depthBase: string) (offset: int) =
+                            let depth = if offset = 0 then depthBase else depthBase + " + " + string offset
+                            let layer expression =
+                                $"({depth} >= {layerLimit} ? throw new InvalidOperationException(\"Result exceeds {layerLimit} composite layers.\") : {expression})"
                             let array items = "new object[] { " + String.concat ", " items + " }"
-                            let fields owner (fields: SemanticField list) =
-                                fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> array
                             let expression =
                                 match itemType with
                                 | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
                                 | TypeRef.Primitive _ -> "(object)" + access
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                     let name, accumulator = fresh (), fresh ()
-                                    let child = encode item name
-                                    $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new InvalidOperationException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                    let child = encode item name depthBase (offset + 1)
+                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new InvalidOperationException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
-                                    let child = encode item (access + ".Value")
-                                    $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
+                                    let child = encode item (access + ".Value") depthBase (offset + 1)
+                                    layer $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                    let ok = array [ "true"; encode okType (access + ".OkValue") ]
-                                    let error = array [ "false"; encode errorType (access + ".ErrorValue") ]
-                                    $"({access}.IsOk ? {ok} : {error})"
+                                    let ok = array [ "true"; encode okType (access + ".OkValue") depthBase (offset + 1) ]
+                                    let error = array [ "false"; encode errorType (access + ".ErrorValue") depthBase (offset + 1) ]
+                                    layer $"({access}.IsOk ? {ok} : {error})"
                                 | TypeRef.Named typeId ->
-                                    match productFields declarations.Types typeId with
-                                    | Some declared -> fields access declared
-                                    | None ->
-                                        let cases = unionVariants declarations.Types typeId |> Option.get
-                                        let fallback = "throw new InvalidOperationException(\"Unknown or null Union variant.\")"
-                                        List.foldBack (fun (variant: SemanticVariant) rest ->
-                                            let name = fresh ()
-                                            let variantName = CSharpBackendNames.variantName variant.Id
-                                            let tag = JsonSerializer.Serialize(StableId.value variant.Id)
-                                            let payload = array [ tag; fields name variant.Fields ]
-                                            $"({access} is {variantName} {name} ? {payload} : {rest})") cases fallback
+                                    if not (encoders.ContainsKey typeId) then
+                                        encoders[typeId] <- "Encode" + CSharpBackendNames.typeName typeId
+                                        pending.Enqueue typeId
+                                    encoders[typeId] + "(" + access + ", " + depth + ")"
                                 | _ -> invalidOp "Unsupported output type passed validation."
                             "Count(" + expression + ")"
-                        let encoded = encode fn.ResultType "result"
+                        let encodeNamed typeId =
+                            let fields owner (fields: SemanticField list) =
+                                fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id) "depth" 1)
+                                |> fun items -> "new object[] { " + String.concat ", " items + " }"
+                            let body =
+                                match productFields declarations.Types typeId with
+                                | Some declared -> fields "value" declared
+                                | None ->
+                                    let cases = unionVariants declarations.Types typeId |> Option.get
+                                    let fallback = "throw new InvalidOperationException(\"Unknown or null Union variant.\")"
+                                    List.foldBack (fun (variant: SemanticVariant) rest ->
+                                        let name = fresh ()
+                                        let variantName = CSharpBackendNames.variantName variant.Id
+                                        let tag = JsonSerializer.Serialize(StableId.value variant.Id)
+                                        $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
+                            $"object {encoders[typeId]}({CSharpBackendNames.typeName typeId} value, int depth) => depth >= {layerLimit} ? throw new InvalidOperationException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
+                        let encoded = encode fn.ResultType "result" "0" 0
+                        let namedEncoders = StringBuilder()
+                        while pending.Count > 0 do
+                            namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
+                        let namedEncoders = namedEncoders.ToString()
+                        let checksText = encoded.Contains("CheckedString(") || namedEncoders.Contains("CheckedString(")
                         let program =
                             "using System; using System.Globalization; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
                             + $"var result = NyFunctions.{entry}({args});\n"
                             + "int remaining = 8192;\n"
-                            + (if encoded.Contains("CheckedString(") then "long textRemaining = 65536;\n" else "")
-                            + $"Console.WriteLine(JsonSerializer.Serialize({encoded}));\n"
+                            + (if checksText then "long textRemaining = 65536;\n" else "")
+                            + $"Console.WriteLine(JsonSerializer.Serialize({encoded}, new JsonSerializerOptions {{ MaxDepth = 256 }}));\n"
                             + "object Count(object value) { if (--remaining < 0) throw new InvalidOperationException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
-                            + (if encoded.Contains("CheckedString(") then
+                            + (if checksText then
                                 "string CheckedString(string value) { if (value == null) throw new InvalidOperationException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new InvalidOperationException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
                                else "")
+                            + namedEncoders
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
@@ -632,5 +660,5 @@ module PureRun =
         match session.VerifyPersistedSource() with
         | Error error -> Error(PureRunError.SessionFailure error)
         | Ok() when arguments @ Option.toList expected |> List.exists (boundedValue >> not) ->
-            Error(diagnostic "RunArgumentTooLarge" "Values are limited to eight nested composite layers and 8192 total value nodes.")
+            Error(diagnostic "RunArgumentTooLarge" $"Values are limited to {maxValueLayers} nested composite layers and 8192 total value nodes.")
         | Ok() -> runVerified session functionId arguments expected

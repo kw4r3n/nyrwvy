@@ -84,7 +84,7 @@ module PureRunNestedTests =
             reject "strings" (PureRunValue.ListValue(listType stringType,
                 [ PureRunValue.StringList [ String('x', 32769) ]; PureRunValue.StringList [ String('y', 32769) ] ])) "RunArgumentTooLarge"
             reject "strings" (PureRunValue.ListValue(listType stringType, [ PureRunValue.StringList [ String([| char 0xD800 |]) ] ])) "RunInvalidString"
-            let deep = [ 1 .. 10 ] |> List.fold (fun value _ -> PureRunValue.OptionValue(optionType intType, Some value)) (PureRunValue.Int64Option None)
+            let deep = [ 1 .. PureRun.maxValueLayers ] |> List.fold (fun value _ -> PureRunValue.OptionValue(optionType intType, Some value)) (PureRunValue.Int64Option None)
             reject "matrix" deep "RunArgumentTooLarge"
             let eightOptions = [ 1 .. 8 ] |> List.fold (fun item _ -> optionType item) intType
             reject "deepNine" (PureRunValue.OptionValue(eightOptions, None)) "RunContainerTypeMismatch"
@@ -109,7 +109,7 @@ module PureRunNestedTests =
             reject """{"kind":"list","itemType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"items":[null]}""" "ProtocolError"
             reject """{"kind":"option","itemType":{"kind":"primitive","primitive":"int64"},"hasValue":false,"value":null}""" "ProtocolError"
             let mutable deep = """{"kind":"option","itemKind":"int64","hasValue":false}"""
-            for _ in 1 .. 10 do
+            for _ in 1 .. PureRun.maxValueLayers do
                 deep <- """{"kind":"option","itemType":{"kind":"primitive","primitive":"int64"},"hasValue":true,"value":""" + deep + "}"
             reject deep "ProtocolError"
             Assert.Equal(before, File.ReadAllText path))

@@ -10,7 +10,8 @@ module internal WireInput =
     let fail message = raise (ProtocolInputException message)
 
     let parseDocument (line: string): JsonDocument =
-        try JsonDocument.Parse(line)
+        // runPure values of recursive types may nest 32 composite layers, three JSON levels each.
+        try JsonDocument.Parse(line, JsonDocumentOptions(MaxDepth = 128))
         with :? JsonException as error -> fail $"Invalid JSON: {error.Message}"
 
     let private propertyNames (element: JsonElement): Set<string> =

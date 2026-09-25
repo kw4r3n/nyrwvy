@@ -107,7 +107,7 @@ module PureRunInnerNestingTests =
         else PureRunValue.Product(levelId first, [ levelFieldId first, chain (first + 1) last ])
 
     [<Fact>]
-    let ``inner nesting checks field payload representations recursion and depth before execution`` () =
+    let ``inner nesting checks field payload representations and depth before execution`` () =
         withSession (fun session path functionId ->
             let before = File.ReadAllText path
             let reject name arguments expected code =
@@ -129,7 +129,6 @@ module PureRunInnerNestingTests =
             reject "listOrItem" [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 1L) ] None "RunArgumentTypeMismatch"
             reject "listOrItem" [ PureRunValue.ResultValue(listType intType, itemType, false, valid) ]
                 (Some(PureRunValue.ResultValue(listType intType, itemType, false, PureRunValue.Product(itemId, [])))) "RunProductShapeMismatch"
-            reject "node" [ PureRunValue.Product(nodeId, [ nextId, PureRunValue.OptionValue(TypeRef.Named nodeId, None) ]) ] None "RunContainerTypeMismatch"
             reject "chainNine" [ chain 1 0L ] None "RunResultTypeUnsupported"
             Assert.Equal(before, File.ReadAllText path))
 
@@ -159,7 +158,7 @@ module PureRunInnerNestingTests =
             reject "item" (product """{"kind":"option","itemKind":"string","hasValue":false}""") "RunProductShapeMismatch"
             reject "item" (product """{"kind":"list","itemKind":"string","items":[null]}""") "ProtocolError"
             let mutable deep = """{"kind":"option","itemKind":"string","hasValue":false}"""
-            for _ in 1 .. 9 do
+            for _ in 1 .. PureRun.maxValueLayers do
                 deep <- $"""{{"kind":"result","okType":{optionString},"errorType":{text},"isOk":true,"value":{deep}}}"""
             reject "optionalText" deep "ProtocolError"
             Assert.Equal(before, File.ReadAllText path))

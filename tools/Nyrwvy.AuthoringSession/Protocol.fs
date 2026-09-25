@@ -36,8 +36,8 @@ module AuthoringProtocol =
     let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
-        if depth > 8 && kind <> "string" && kind <> "bool" && kind <> "int64" then
-            fail "Run values may have at most eight nested composite layers."
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" then
+            fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
         let children =
             match kind with
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
