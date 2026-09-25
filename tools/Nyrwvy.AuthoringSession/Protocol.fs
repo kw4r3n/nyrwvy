@@ -503,6 +503,21 @@ module AuthoringProtocol =
                 match session.SimulateParameterTypeMigration request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateResultTypeMigration" ->
+                ensureFields
+                    "simulateResultTypeMigration request"
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites" ]
+                    root
+                let request: AgentResultTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      TargetFunctionId = id<FunctionTag> "targetFunctionId" root
+                      NewResultType = typeRef (property "newResultType" root)
+                      TargetReplacement = recipe (property "targetReplacement" root)
+                      CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
+                match session.SimulateResultTypeMigration request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"

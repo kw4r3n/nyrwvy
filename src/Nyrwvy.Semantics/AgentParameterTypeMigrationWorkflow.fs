@@ -58,40 +58,96 @@ type AgentParameterTypeMigrationCommitResult =
     | Rejected of TransactionDiagnostic list
     | Committed of AgentWorkspace * AgentParameterTypeMigrationPublishedTransaction
 
+type AgentResultTypeMigrationRequest =
+    { ExpectedBaseSnapshotId: SnapshotId
+      TargetFunctionId: FunctionId
+      NewResultType: TypeRef
+      /// The complete new target body, which must have the new result type.
+      TargetReplacement: ExpressionRecipe
+      /// One complete replacement body for every function that directly calls the target.
+      CallerRewrites: AgentParameterTypeCallerRewrite list }
+
+type AgentResultTypeChange =
+    { FunctionId: FunctionId
+      OldType: TypeRef
+      NewType: TypeRef }
+
+type AgentResultTypeMigrationDiff =
+    { ResultChange: AgentResultTypeChange
+      AffectedCallSites: QueryCallSite list
+      BodyRewrites: FunctionBodyReplacementDiff list }
+
+type AgentResultTypeMigrationReview =
+    { RequestedChange: AgentResultTypeMigrationRequest
+      Receipt: TransactionPreviewReceipt
+      Readiness: TransactionReadiness
+      ResultingChange: AgentResultTypeMigrationDiff }
+
+type AgentResultTypeMigrationPublishedTransaction =
+    { TransactionId: TransactionId
+      BaseSnapshotId: SnapshotId
+      PublishedSnapshotId: SnapshotId
+      Diff: AgentResultTypeMigrationDiff
+      Readiness: TransactionReadiness
+      Receipt: TransactionPreviewReceipt }
+
+type private ResultTypeMigrationProposalState =
+    { TransactionId: TransactionId
+      ProposedSnapshot: Snapshot
+      Review: AgentResultTypeMigrationReview }
+
+type AgentResultTypeMigrationProposal =
+    private
+    | AgentResultTypeMigrationProposal of ResultTypeMigrationProposalState
+
 [<RequireQualifiedAccess>]
-module AgentParameterTypeMigrationWorkflow =
+module AgentResultTypeMigrationProposal =
+    let private state (AgentResultTypeMigrationProposal state) = state
+    let review proposal = (state proposal).Review
+    let transactionId proposal = (state proposal).TransactionId
+    let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+
+[<RequireQualifiedAccess>]
+type AgentResultTypeMigrationCommitResult =
+    | Rejected of TransactionDiagnostic list
+    | Committed of AgentWorkspace * AgentResultTypeMigrationPublishedTransaction
+
+/// Shared machinery for reviewed signature migrations: a target function's parameter or result
+/// types change together with its body and every direct caller in one publication.
+[<RequireQualifiedAccess>]
+module internal SignatureMigrationCore =
     open StructuralTransactionInternals
 
-    type private Preflight =
+    type Preflight =
         { Target: SemanticFunction
-          Parameter: SemanticParameter
           CallerSites: QueryCallSite list
           Callers: SemanticFunction list
           RewritesByCaller: Map<FunctionId, ExpressionRecipe> }
 
-    type private TemporaryTarget =
+    type TemporaryTarget =
         { Workspace: AgentWorkspace
           Function: SemanticFunction
           OriginalToTemporaryParameters: Map<ParameterId, ParameterId>
           TemporaryToOriginalParameters: Map<ParameterId, ParameterId> }
 
-    let private reject code message =
+    let reject code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
-    let private wrapStructuralError code context = function
+    let wrapStructuralError code context = function
         | AgentStructuralWorkflowError.SimulationRejected (inner :: _) ->
             reject code $"{context}: {inner.Code}: {inner.Message}"
         | error -> Error error
 
-    let private functionById (snapshot: Snapshot) functionId =
+    let functionById (snapshot: Snapshot) functionId =
         snapshot.Functions
         |> List.tryFind (fun functionEntity -> functionEntity.Id = functionId)
 
-    let private nodeById (functionEntity: SemanticFunction) nodeId =
+    let nodeById (functionEntity: SemanticFunction) nodeId =
         ValueGraph.collectNodes functionEntity.Body
         |> List.tryFind (fun node -> node.Id = nodeId)
 
-    let private rewriteForTemporaryFunction
+    let rewriteForTemporaryFunction
+        (prefix: string)
         (ownerParameters: SemanticParameter list)
         (targetMapping: (FunctionId * FunctionId * Map<ParameterId, ParameterId>) option)
         recipe
@@ -110,6 +166,13 @@ module AgentParameterTypeMigrationWorkflow =
                         | Error error -> Error error
                         | Ok mapped -> loop ((id, mapped) :: collected) rest
                 loop [] values
+            let rewriteAll values =
+                values |> List.map (fun value -> (), value) |> rewritePairs |> Result.map (List.map snd)
+            let one make value = rewrite value |> Result.map make
+            let two make left right =
+                rewrite left |> Result.bind (fun left -> rewrite right |> Result.map (fun right -> make(left, right)))
+            let three make first second third =
+                rewrite first |> Result.bind (fun first -> two (fun (second, third) -> make(first, second, third)) second third)
 
             match recipe with
             | ExpressionRecipe.Parameter parameterId ->
@@ -119,109 +182,89 @@ module AgentParameterTypeMigrationWorkflow =
             | ExpressionRecipe.ParameterSlot _ ->
                 Error(
                     diagnostic
-                        "ParameterTypeMigrationParameterSlotUnavailable"
+                        $"{prefix}ParameterSlotUnavailable"
                         "Migration recipes must reference existing parameters by stable ID."
                 )
-            | ExpressionRecipe.PatternReference _
-            | ExpressionRecipe.StringLiteral _
-            | ExpressionRecipe.BoolLiteral _
-            | ExpressionRecipe.UnitLiteral -> Ok recipe
-            | ExpressionRecipe.StringContains(value, substring) ->
-                match rewrite value with
-                | Error error -> Error error
-                | Ok mappedValue ->
-                    rewrite substring
-                    |> Result.map (fun mappedSubstring ->
-                        ExpressionRecipe.StringContains(mappedValue, mappedSubstring))
-            | ExpressionRecipe.StringEqual(left, right) ->
-                match rewrite left with
-                | Error error -> Error error
-                | Ok mappedLeft ->
-                    rewrite right
-                    |> Result.map (fun mappedRight ->
-                        ExpressionRecipe.StringEqual(mappedLeft, mappedRight))
-            | ExpressionRecipe.StringConcat(left, right) ->
-                match rewrite left with
-                | Error error -> Error error
-                | Ok mappedLeft ->
-                    rewrite right
-                    |> Result.map (fun mappedRight ->
-                        ExpressionRecipe.StringConcat(mappedLeft, mappedRight))
-            | ExpressionRecipe.ProductConstruct(typeId, fields) ->
-                rewritePairs fields
-                |> Result.map (fun mapped ->
-                    ExpressionRecipe.ProductConstruct(typeId, mapped))
-            | ExpressionRecipe.FieldAccess(source, fieldId) ->
-                rewrite source
-                |> Result.map (fun mapped ->
-                    ExpressionRecipe.FieldAccess(mapped, fieldId))
-            | ExpressionRecipe.UnionConstruct(variantId, fields) ->
-                rewritePairs fields
-                |> Result.map (fun mapped ->
-                    ExpressionRecipe.UnionConstruct(variantId, mapped))
             | ExpressionRecipe.DirectCall(functionId, arguments) ->
                 rewritePairs arguments
                 |> Result.map (fun mappedArguments ->
                     match targetMapping with
-                    | Some(originalTargetId, temporaryTargetId, parameterMap)
-                        when functionId = originalTargetId ->
+                    | Some(originalTargetId, temporaryTargetId, parameterMap) when functionId = originalTargetId ->
                         let remappedArguments =
                             mappedArguments
                             |> List.map (fun (parameterId, value) ->
-                                (Map.tryFind parameterId parameterMap
-                                 |> Option.defaultValue parameterId),
-                                value)
-                        ExpressionRecipe.DirectCall(
-                            temporaryTargetId,
-                            remappedArguments
-                        )
-                    | _ ->
-                        ExpressionRecipe.DirectCall(functionId, mappedArguments))
+                                (Map.tryFind parameterId parameterMap |> Option.defaultValue parameterId), value)
+                        ExpressionRecipe.DirectCall(temporaryTargetId, remappedArguments)
+                    | _ -> ExpressionRecipe.DirectCall(functionId, mappedArguments))
+            | ExpressionRecipe.PatternReference _
+            | ExpressionRecipe.StringLiteral _
+            | ExpressionRecipe.BoolLiteral _
+            | ExpressionRecipe.UnitLiteral
+            | ExpressionRecipe.Int64Literal _
+            | ExpressionRecipe.Float64Literal _
+            | ExpressionRecipe.ListEmpty _
+            | ExpressionRecipe.OptionNone _ -> Ok recipe
+            | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
+            | ExpressionRecipe.Int64ToString value -> one ExpressionRecipe.Int64ToString value
+            | ExpressionRecipe.StringParseInt64 value -> one ExpressionRecipe.StringParseInt64 value
+            | ExpressionRecipe.Float64IsNaN value -> one ExpressionRecipe.Float64IsNaN value
+            | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
+            | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
+            | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
+            | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
+            | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
+            | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
+            | ExpressionRecipe.StringConcat(left, right) -> two ExpressionRecipe.StringConcat left right
+            | ExpressionRecipe.Int64WrappingAdd(left, right) -> two ExpressionRecipe.Int64WrappingAdd left right
+            | ExpressionRecipe.Int64WrappingSubtract(left, right) -> two ExpressionRecipe.Int64WrappingSubtract left right
+            | ExpressionRecipe.Int64WrappingMultiply(left, right) -> two ExpressionRecipe.Int64WrappingMultiply left right
+            | ExpressionRecipe.Int64Equal(left, right) -> two ExpressionRecipe.Int64Equal left right
+            | ExpressionRecipe.Int64LessThan(left, right) -> two ExpressionRecipe.Int64LessThan left right
+            | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> two ExpressionRecipe.Int64LessThanOrEqual left right
+            | ExpressionRecipe.Int64GreaterThan(left, right) -> two ExpressionRecipe.Int64GreaterThan left right
+            | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> two ExpressionRecipe.Int64GreaterThanOrEqual left right
+            | ExpressionRecipe.Float64Add(left, right) -> two ExpressionRecipe.Float64Add left right
+            | ExpressionRecipe.Float64Subtract(left, right) -> two ExpressionRecipe.Float64Subtract left right
+            | ExpressionRecipe.Float64Multiply(left, right) -> two ExpressionRecipe.Float64Multiply left right
+            | ExpressionRecipe.Float64Divide(left, right) -> two ExpressionRecipe.Float64Divide left right
+            | ExpressionRecipe.Float64Equal(left, right) -> two ExpressionRecipe.Float64Equal left right
+            | ExpressionRecipe.Float64LessThan(left, right) -> two ExpressionRecipe.Float64LessThan left right
+            | ExpressionRecipe.ListAppendItem(list, item) -> two ExpressionRecipe.ListAppendItem list item
+            | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
+            | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
+            | ExpressionRecipe.ListConstruct(itemType, items) ->
+                rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))
+            | ExpressionRecipe.ListFold(source, seed, folder) ->
+                two (fun (source, seed) -> ExpressionRecipe.ListFold(source, seed, folder)) source seed
+            | ExpressionRecipe.ListMap(source, functionId) -> one (fun source -> ExpressionRecipe.ListMap(source, functionId)) source
+            | ExpressionRecipe.ListFilter(source, functionId) -> one (fun source -> ExpressionRecipe.ListFilter(source, functionId)) source
+            | ExpressionRecipe.ListAny(source, functionId) -> one (fun source -> ExpressionRecipe.ListAny(source, functionId)) source
+            | ExpressionRecipe.ListAll(source, functionId) -> one (fun source -> ExpressionRecipe.ListAll(source, functionId)) source
+            | ExpressionRecipe.ProductConstruct(typeId, fields) ->
+                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, fields))
+            | ExpressionRecipe.FieldAccess(source, fieldId) -> one (fun source -> ExpressionRecipe.FieldAccess(source, fieldId)) source
+            | ExpressionRecipe.UnionConstruct(variantId, fields) ->
+                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, fields))
+            | ExpressionRecipe.ResultOk(errorType, value) -> one (fun value -> ExpressionRecipe.ResultOk(errorType, value)) value
+            | ExpressionRecipe.ResultErr(okType, error) -> one (fun error -> ExpressionRecipe.ResultErr(okType, error)) error
             | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
-                match rewrite capabilityValue with
-                | Error error -> Error error
-                | Ok mappedCapability ->
+                rewrite capabilityValue
+                |> Result.bind (fun capabilityValue ->
                     rewritePairs arguments
-                    |> Result.map (fun mappedArguments ->
-                        ExpressionRecipe.CapabilityInvoke(
-                            mappedCapability,
-                            operationId,
-                            mappedArguments
-                        ))
-            | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) ->
-                match rewrite condition with
-                | Error error -> Error error
-                | Ok mappedCondition ->
-                    match rewrite whenTrue with
-                    | Error error -> Error error
-                    | Ok mappedTrue ->
-                        rewrite whenFalse
-                        |> Result.map (fun mappedFalse ->
-                            ExpressionRecipe.Conditional(
-                                mappedCondition,
-                                mappedTrue,
-                                mappedFalse
-                            ))
+                    |> Result.map (fun arguments -> ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments)))
+            | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) -> three ExpressionRecipe.Conditional condition whenTrue whenFalse
             | ExpressionRecipe.MatchUnion(input, arms) ->
-                match rewrite input with
-                | Error error -> Error error
-                | Ok mappedInput ->
-                    rewritePairs arms
-                    |> Result.map (fun mappedArms ->
-                        ExpressionRecipe.MatchUnion(mappedInput, mappedArms))
-            | unsupported ->
-                Error(
-                    diagnostic
-                        "ParameterTypeMigrationRecipeUnsupported"
-                        $"This bounded migration does not support recipe case '{unsupported.GetType().Name}' outside the selected M4 workload."
-                )
+                rewrite input |> Result.bind (fun input -> rewritePairs arms |> Result.map (fun arms -> ExpressionRecipe.MatchUnion(input, arms)))
+            | ExpressionRecipe.MatchOption(input, someBody, noneBody) -> three ExpressionRecipe.MatchOption input someBody noneBody
+            | ExpressionRecipe.MatchResult(input, okBody, errBody) -> three ExpressionRecipe.MatchResult input okBody errBody
 
         rewrite recipe
 
-    let private functionCreationRequest
+    let functionCreationRequest
         (workspace: AgentWorkspace)
         (functionEntity: SemanticFunction)
         (parameterTypes: Map<ParameterId, TypeRef>)
+        (resultType: TypeRef)
         body
         : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         let parameters: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list =
@@ -235,32 +278,36 @@ module AgentParameterTypeMigrationWorkflow =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId workspace
           DisplayName = functionEntity.DisplayName
           Parameters = parameters
-          ResultType = functionEntity.ResultType
+          ResultType = resultType
           RequiredEffects = functionEntity.RequiredEffects
           Body = body }
 
-    let private materializeTemporaryTarget
+    let materializeTemporaryTarget
+        (prefix: string)
         workspace
         (prepared: Preflight)
-        newParameterType
+        (parameterTypes: Map<ParameterId, TypeRef>)
+        (resultType: TypeRef)
         targetRecipe
         =
         match
             rewriteForTemporaryFunction
+                prefix
                 prepared.Target.Parameters
                 None
                 targetRecipe
         with
         | Error error ->
             reject
-                "ParameterTypeMigrationTargetRewriteInvalid"
+                $"{prefix}TargetRewriteInvalid"
                 $"{error.Code}: {error.Message}"
         | Ok temporaryRecipe ->
             let creationRequest =
                 functionCreationRequest
                     workspace
                     prepared.Target
-                    (Map.ofList [ prepared.Parameter.Id, newParameterType ])
+                    parameterTypes
+                    resultType
                     temporaryRecipe
 
             match
@@ -270,7 +317,7 @@ module AgentParameterTypeMigrationWorkflow =
             with
             | Error error ->
                 wrapStructuralError
-                    "ParameterTypeMigrationTargetRewriteInvalid"
+                    $"{prefix}TargetRewriteInvalid"
                     "The migrated target body is invalid"
                     error
             | Ok proposal ->
@@ -307,7 +354,8 @@ module AgentParameterTypeMigrationWorkflow =
                           OriginalToTemporaryParameters = originalToTemporary
                           TemporaryToOriginalParameters = temporaryToOriginal }
 
-    let private materializeTemporaryCaller
+    let materializeTemporaryCaller
+        (prefix: string)
         (temporaryTarget: TemporaryTarget)
         targetFunctionId
         (caller: SemanticFunction)
@@ -315,6 +363,7 @@ module AgentParameterTypeMigrationWorkflow =
         =
         match
             rewriteForTemporaryFunction
+                prefix
                 caller.Parameters
                 (Some(
                     targetFunctionId,
@@ -325,7 +374,7 @@ module AgentParameterTypeMigrationWorkflow =
         with
         | Error error ->
             reject
-                "ParameterTypeMigrationCallerRewriteInvalid"
+                $"{prefix}CallerRewriteInvalid"
                 $"Caller '{StableId.value caller.Id}' rewrite is invalid: {error.Code}: {error.Message}"
         | Ok temporaryRecipe ->
             let creationRequest =
@@ -333,6 +382,7 @@ module AgentParameterTypeMigrationWorkflow =
                     temporaryTarget.Workspace
                     caller
                     Map.empty
+                    caller.ResultType
                     temporaryRecipe
 
             match
@@ -342,7 +392,7 @@ module AgentParameterTypeMigrationWorkflow =
             with
             | Error error ->
                 wrapStructuralError
-                    "ParameterTypeMigrationCallerRewriteInvalid"
+                    $"{prefix}CallerRewriteInvalid"
                     $"Caller '{StableId.value caller.Id}' rewrite is invalid"
                     error
             | Ok proposal ->
@@ -350,7 +400,7 @@ module AgentParameterTypeMigrationWorkflow =
                 |> AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review
                 |> fun review -> Ok review.CreatedFunction
 
-    let rec private remapGraph
+    let rec remapGraph
         (ownerParameterMap: Map<ParameterId, ParameterId>)
         (temporaryTarget: TemporaryTarget)
         targetFunctionId
@@ -365,6 +415,8 @@ module AgentParameterTypeMigrationWorkflow =
                 parameterId
                 temporaryTarget.TemporaryToOriginalParameters
             |> Option.defaultValue parameterId
+
+        let remap = remapGraph ownerParameterMap temporaryTarget targetFunctionId
 
         let mapNode (node: SemanticNode) =
             let kind =
@@ -411,78 +463,71 @@ module AgentParameterTypeMigrationWorkflow =
                                         targetFunctionId
                                         arm.Body })
                     )
+                | SemanticNodeKind.Bind(inputNodeId, body) ->
+                    SemanticNodeKind.Bind(inputNodeId, { body with Body = remap body.Body })
+                | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
+                    SemanticNodeKind.MatchOption(inputNodeId, { someArm with Body = remap someArm.Body }, remap noneBody)
+                | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
+                    SemanticNodeKind.MatchResult(inputNodeId, { okArm with Body = remap okArm.Body }, { errArm with Body = remap errArm.Body })
                 | other -> other
             { node with Kind = kind }
 
         { graph with Nodes = graph.Nodes |> List.map mapNode }
 
-    let private validateCallSiteKind
+    let validateCallSiteKind
+        (prefix: string)
         (snapshot: Snapshot)
         (site: QueryCallSite)
         =
         match functionById snapshot site.CallerFunctionId with
         | None ->
             reject
-                "ParameterTypeMigrationCallerNotFound"
+                $"{prefix}CallerNotFound"
                 $"Caller '{StableId.value site.CallerFunctionId}' does not exist."
         | Some caller ->
             match nodeById caller site.CallNodeId with
             | Some { Kind = SemanticNodeKind.DirectCall _ } -> Ok()
             | Some _ ->
                 reject
-                    "ParameterTypeMigrationUnsupportedCallerUse"
+                    $"{prefix}UnsupportedCallerUse"
                     $"Caller use '{StableId.value site.CallNodeId}' is not a DirectCall; this bounded migration does not rewrite callback references."
             | None ->
                 reject
-                    "ParameterTypeMigrationCallerUseNotFound"
+                    $"{prefix}CallerUseNotFound"
                     $"Caller use '{StableId.value site.CallNodeId}' no longer exists."
 
-    let private validateCallSites snapshot sites =
+    let validateCallSites prefix snapshot sites =
         let rec loop = function
             | [] -> Ok()
             | head :: tail ->
-                match validateCallSiteKind snapshot head with
+                match validateCallSiteKind prefix snapshot head with
                 | Error error -> Error error
                 | Ok() -> loop tail
         loop sites
 
-    let private preflight
+    /// Checks the base, the target and the complete caller set shared by signature migrations.
+    /// `checkTarget` validates the migration-specific part of the signature before callers.
+    let preflight
+        (prefix: string)
         (baseSnapshot: Snapshot)
-        (request: AgentParameterTypeMigrationRequest)
+        (expectedBaseSnapshotId: SnapshotId)
+        (targetFunctionId: FunctionId)
+        (callerRewrites: AgentParameterTypeCallerRewrite list)
+        (checkTarget: SemanticFunction -> Result<unit, AgentStructuralWorkflowError>)
         =
-        if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
-            reject
-                "ParameterTypeMigrationExpectedBaseMismatch"
-                "The migration request targets a different base snapshot."
+        if expectedBaseSnapshotId <> baseSnapshot.Id then
+            reject $"{prefix}ExpectedBaseMismatch" "The migration request targets a different base snapshot."
         else
-            match functionById baseSnapshot request.TargetFunctionId with
-            | None ->
-                reject
-                    "ParameterTypeMigrationTargetNotFound"
-                    "The target function does not exist."
+            match functionById baseSnapshot targetFunctionId with
+            | None -> reject $"{prefix}TargetNotFound" "The target function does not exist."
             | Some target ->
-                match
-                    target.Parameters
-                    |> List.tryFind (fun parameter ->
-                        parameter.Id = request.TargetParameterId)
-                with
-                | None ->
-                    reject
-                        "ParameterTypeMigrationParameterNotFound"
-                        "The target parameter is not owned by the target function."
-                | Some parameter when parameter.Type = request.NewParameterType ->
-                    reject
-                        "ParameterTypeMigrationTypeUnchanged"
-                        "The requested parameter type is already the current type."
-                | Some parameter ->
+                match checkTarget target with
+                | Error error -> Error error
+                | Ok() ->
                     match SemanticQuery.getCallers baseSnapshot target.Id with
-                    | Error error ->
-                        Error(
-                            AgentStructuralWorkflowError.ReviewProjectionFailed
-                                error
-                        )
+                    | Error error -> Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
                     | Ok callerSites ->
-                        match validateCallSites baseSnapshot callerSites with
+                        match validateCallSites prefix baseSnapshot callerSites with
                         | Error error -> Error error
                         | Ok() ->
                             let callerIds =
@@ -490,85 +535,54 @@ module AgentParameterTypeMigrationWorkflow =
                                 |> List.map (fun site -> site.CallerFunctionId)
                                 |> List.distinct
                                 |> List.sortBy StableId.value
-
+                            let duplicate =
+                                callerRewrites
+                                |> List.countBy (fun rewrite -> rewrite.CallerFunctionId)
+                                |> List.tryFind (fun (_, count) -> count > 1)
+                            let expectedSet = Set.ofList callerIds
+                            let requestedSet = callerRewrites |> List.map (fun rewrite -> rewrite.CallerFunctionId) |> Set.ofList
+                            let render values = values |> Set.toList |> List.map StableId.value |> String.concat ", "
                             if callerIds |> List.contains target.Id then
                                 reject
-                                    "ParameterTypeMigrationRecursiveTargetUnsupported"
+                                    $"{prefix}RecursiveTargetUnsupported"
                                     "This bounded migration does not support a target that directly calls itself."
                             else
-                                match
-                                    request.CallerRewrites
-                                    |> List.countBy (fun rewrite ->
-                                        rewrite.CallerFunctionId)
-                                    |> List.tryFind (fun (_, count) ->
-                                        count > 1)
-                                with
+                                match duplicate with
                                 | Some(callerId, _) ->
                                     reject
-                                        "ParameterTypeMigrationDuplicateCallerRewrite"
+                                        $"{prefix}DuplicateCallerRewrite"
                                         $"Caller '{StableId.value callerId}' has more than one replacement body."
+                                | None when expectedSet <> requestedSet ->
+                                    reject
+                                        $"{prefix}CallerRewriteMismatch"
+                                        $"Caller rewrites must match the complete affected caller set. Missing: [{render (Set.difference expectedSet requestedSet)}]. Unrelated: [{render (Set.difference requestedSet expectedSet)}]."
                                 | None ->
-                                    let requestedCallerIds =
-                                        request.CallerRewrites
-                                        |> List.map (fun rewrite ->
-                                            rewrite.CallerFunctionId)
-                                    let expectedSet = Set.ofList callerIds
-                                    let requestedSet =
-                                        Set.ofList requestedCallerIds
-
-                                    if expectedSet <> requestedSet then
-                                        let render values =
-                                            values
-                                            |> Set.toList
-                                            |> List.map StableId.value
-                                            |> String.concat ", "
-                                        reject
-                                            "ParameterTypeMigrationCallerRewriteMismatch"
-                                            $"Caller rewrites must match the complete affected caller set. Missing: [{render (Set.difference expectedSet requestedSet)}]. Unrelated: [{render (Set.difference requestedSet expectedSet)}]."
-                                    else
+                                    match bodyObligationError target baseSnapshot with
+                                    | Some error ->
+                                        reject $"{prefix}TargetBodyReferencedByObligation" $"{error.Code}: {error.Message}"
+                                    | None ->
+                                        let callers =
+                                            callerIds |> List.map (fun callerId -> baseSnapshot.Functions |> List.find (fun fn -> fn.Id = callerId))
                                         match
-                                            bodyObligationError
-                                                target
-                                                baseSnapshot
+                                            callers
+                                            |> List.tryPick (fun caller ->
+                                                bodyObligationError caller baseSnapshot |> Option.map (fun error -> caller, error))
                                         with
-                                        | Some error ->
+                                        | Some(caller, error) ->
                                             reject
-                                                "ParameterTypeMigrationTargetBodyReferencedByObligation"
-                                                $"{error.Code}: {error.Message}"
+                                                $"{prefix}CallerBodyReferencedByObligation"
+                                                $"Caller '{StableId.value caller.Id}': {error.Code}: {error.Message}"
                                         | None ->
-                                            let callers =
-                                                callerIds
-                                                |> List.map (fun callerId ->
-                                                    baseSnapshot.Functions
-                                                    |> List.find (fun fn ->
-                                                        fn.Id = callerId))
-                                            match
-                                                callers
-                                                |> List.tryPick (fun caller ->
-                                                    bodyObligationError
-                                                        caller
-                                                        baseSnapshot
-                                                    |> Option.map (fun error ->
-                                                        caller, error))
-                                            with
-                                            | Some(caller, error) ->
-                                                reject
-                                                    "ParameterTypeMigrationCallerBodyReferencedByObligation"
-                                                    $"Caller '{StableId.value caller.Id}': {error.Code}: {error.Message}"
-                                            | None ->
-                                                Ok
-                                                    { Target = target
-                                                      Parameter = parameter
-                                                      CallerSites = callerSites
-                                                      Callers = callers
-                                                      RewritesByCaller =
-                                                        request.CallerRewrites
-                                                        |> List.map (fun rewrite ->
-                                                            rewrite.CallerFunctionId,
-                                                            rewrite.Replacement)
-                                                        |> Map.ofList }
+                                            Ok
+                                                { Target = target
+                                                  CallerSites = callerSites
+                                                  Callers = callers
+                                                  RewritesByCaller =
+                                                    callerRewrites
+                                                    |> List.map (fun rewrite -> rewrite.CallerFunctionId, rewrite.Replacement)
+                                                    |> Map.ofList }
 
-    let private bodyDiff
+    let bodyDiff
         baseSnapshot
         proposedSnapshot
         (before: SemanticFunction)
@@ -586,185 +600,128 @@ module AgentParameterTypeMigrationWorkflow =
             |> summarizeNodes proposedSnapshot after
             |> List.sortBy (fun node -> StableId.value node.NodeId) }
 
+    type Simulated =
+        { TransactionId: TransactionId
+          ProposedSnapshot: Snapshot
+          Receipt: TransactionPreviewReceipt
+          Readiness: TransactionReadiness
+          BodyRewrites: FunctionBodyReplacementDiff list }
+
+    /// Materializes the migrated target and every caller through temporary functions, then maps
+    /// them back onto the original identities and validates the proposed snapshot as a whole.
+    let simulate
+        (prefix: string)
+        (workspace: AgentWorkspace)
+        (baseSnapshot: Snapshot)
+        (prepared: Preflight)
+        (parameterTypes: Map<ParameterId, TypeRef>)
+        (resultType: TypeRef)
+        targetReplacement
+        : Result<Simulated, AgentStructuralWorkflowError> =
+        match materializeTemporaryTarget prefix workspace prepared parameterTypes resultType targetReplacement with
+        | Error error -> Error error
+        | Ok temporaryTarget ->
+            let rec materializeCallers collected = function
+                | [] -> Ok(List.rev collected)
+                | caller :: rest ->
+                    match materializeTemporaryCaller prefix temporaryTarget prepared.Target.Id caller (Map.find caller.Id prepared.RewritesByCaller) with
+                    | Error error -> Error error
+                    | Ok temporaryCaller -> materializeCallers ((caller, temporaryCaller) :: collected) rest
+            match materializeCallers [] prepared.Callers with
+            | Error error -> Error error
+            | Ok temporaryCallers ->
+                let ownerMap (temporary: SemanticFunction) (original: SemanticFunction) =
+                    List.map2 (fun (temp: SemanticParameter) (originalParameter: SemanticParameter) -> temp.Id, originalParameter.Id)
+                        temporary.Parameters original.Parameters
+                    |> Map.ofList
+                let migratedTarget =
+                    { prepared.Target with
+                        Parameters =
+                            prepared.Target.Parameters
+                            |> List.map (fun (parameter: SemanticParameter) ->
+                                match Map.tryFind parameter.Id parameterTypes with
+                                | Some newType -> { parameter with Type = newType }
+                                | None -> parameter)
+                        ResultType = resultType
+                        Body = remapGraph (ownerMap temporaryTarget.Function prepared.Target) temporaryTarget prepared.Target.Id temporaryTarget.Function.Body }
+                let migratedCallers =
+                    temporaryCallers
+                    |> List.map (fun ((original: SemanticFunction), (temporary: SemanticFunction)) ->
+                        original.Id, { original with Body = remapGraph (ownerMap temporary original) temporaryTarget prepared.Target.Id temporary.Body })
+                    |> Map.ofList
+                let proposedSnapshot =
+                    { baseSnapshot with
+                        Id = StableIdAllocator.newSnapshotId ()
+                        ParentId = Some baseSnapshot.Id
+                        Functions =
+                            baseSnapshot.Functions
+                            |> List.map (fun functionEntity ->
+                                if functionEntity.Id = migratedTarget.Id then migratedTarget
+                                else Map.tryFind functionEntity.Id migratedCallers |> Option.defaultValue functionEntity) }
+                match SnapshotValidator.validate proposedSnapshot with
+                | issue :: _ -> reject $"{prefix}InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
+                | [] ->
+                    match classifyReadiness proposedSnapshot with
+                    | Error diagnostics -> Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
+                    | Ok readiness ->
+                        let transactionId = StableIdAllocator.newTransactionId ()
+                        match createReceipt transactionId baseSnapshot proposedSnapshot with
+                        | Error error -> Error error
+                        | Ok receipt ->
+                            let proposed functionId = proposedSnapshot.Functions |> List.find (fun fn -> fn.Id = functionId)
+                            let rewrites =
+                                prepared.Target :: prepared.Callers
+                                |> List.map (fun original -> bodyDiff baseSnapshot proposedSnapshot original (proposed original.Id))
+                            Ok
+                                { TransactionId = transactionId
+                                  ProposedSnapshot = proposedSnapshot
+                                  Receipt = receipt
+                                  Readiness = readiness
+                                  BodyRewrites = rewrites }
+
+[<RequireQualifiedAccess>]
+module AgentParameterTypeMigrationWorkflow =
+    open StructuralTransactionInternals
+
+    let private prefix = "ParameterTypeMigration"
+
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentParameterTypeMigrationRequest)
         : Result<AgentParameterTypeMigrationProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot =
-            AgentWorkspace.snapshotForStructuralEditing workspace
-
+        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+        let checkParameter (target: SemanticFunction) =
+            match target.Parameters |> List.tryFind (fun parameter -> parameter.Id = request.TargetParameterId) with
+            | None -> SignatureMigrationCore.reject $"{prefix}ParameterNotFound" "The target parameter is not owned by the target function."
+            | Some parameter when parameter.Type = request.NewParameterType ->
+                SignatureMigrationCore.reject $"{prefix}TypeUnchanged" "The requested parameter type is already the current type."
+            | Some _ -> Ok()
         match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ ->
-            reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
+        | issue :: _ -> SignatureMigrationCore.reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
         | [] ->
-            match preflight baseSnapshot request with
-            | Error error -> Error error
-            | Ok prepared ->
-                match
-                    materializeTemporaryTarget
-                        workspace
-                        prepared
-                        request.NewParameterType
-                        request.TargetReplacement
-                with
-                | Error error -> Error error
-                | Ok temporaryTarget ->
-                    let rec materializeCallers collected = function
-                        | [] -> Ok(List.rev collected)
-                        | caller :: rest ->
-                            match
-                                materializeTemporaryCaller
-                                    temporaryTarget
-                                    prepared.Target.Id
-                                    caller
-                                    (Map.find
-                                        caller.Id
-                                        prepared.RewritesByCaller)
-                            with
-                            | Error error -> Error error
-                            | Ok temporaryCaller ->
-                                materializeCallers
-                                    ((caller, temporaryCaller) :: collected)
-                                    rest
-
-                    match materializeCallers [] prepared.Callers with
-                    | Error error -> Error error
-                    | Ok temporaryCallers ->
-                        let targetOwnerParameterMap =
-                            List.map2
-                                (fun (temporary: SemanticParameter) (original: SemanticParameter) ->
-                                    temporary.Id, original.Id)
-                                temporaryTarget.Function.Parameters
-                                prepared.Target.Parameters
-                            |> Map.ofList
-                        let migratedTarget =
-                            { prepared.Target with
-                                Parameters =
-                                    prepared.Target.Parameters
-                                    |> List.map (fun (parameter: SemanticParameter) ->
-                                        if parameter.Id =
-                                           prepared.Parameter.Id then
-                                            { parameter with
-                                                Type =
-                                                    request.NewParameterType }
-                                        else
-                                            parameter)
-                                Body =
-                                    remapGraph
-                                        targetOwnerParameterMap
-                                        temporaryTarget
-                                        prepared.Target.Id
-                                        temporaryTarget.Function.Body }
-
-                        let migratedCallers =
-                            temporaryCallers
-                            |> List.map (fun ((original: SemanticFunction), (temporary: SemanticFunction)) ->
-                                let ownerParameterMap =
-                                    List.map2
-                                        (fun (temp: SemanticParameter) (originalParameter: SemanticParameter) ->
-                                            temp.Id,
-                                            originalParameter.Id)
-                                        temporary.Parameters
-                                        original.Parameters
-                                    |> Map.ofList
-                                original.Id,
-                                { original with
-                                    Body =
-                                        remapGraph
-                                            ownerParameterMap
-                                            temporaryTarget
-                                            prepared.Target.Id
-                                            temporary.Body })
-                            |> Map.ofList
-
-                        let proposedSnapshot =
-                            { baseSnapshot with
-                                Id = StableIdAllocator.newSnapshotId ()
-                                ParentId = Some baseSnapshot.Id
-                                Functions =
-                                    baseSnapshot.Functions
-                                    |> List.map (fun functionEntity ->
-                                        if functionEntity.Id =
-                                           migratedTarget.Id then
-                                            migratedTarget
-                                        else
-                                            Map.tryFind
-                                                functionEntity.Id
-                                                migratedCallers
-                                            |> Option.defaultValue
-                                                functionEntity) }
-
-                        match SnapshotValidator.validate proposedSnapshot with
-                        | issue :: _ ->
-                            reject
-                                "ParameterTypeMigrationInvalidProposedSnapshot"
-                                $"{issue.Code}: {issue.Message}"
-                        | [] ->
-                            match classifyReadiness proposedSnapshot with
-                            | Error diagnostics ->
-                                Error(
-                                    AgentStructuralWorkflowError.SimulationRejected
-                                        diagnostics
-                                )
-                            | Ok readiness ->
-                                let transactionId =
-                                    StableIdAllocator.newTransactionId ()
-                                match
-                                    createReceipt
-                                        transactionId
-                                        baseSnapshot
-                                        proposedSnapshot
-                                with
-                                | Error error -> Error error
-                                | Ok receipt ->
-                                    let proposedTarget =
-                                        proposedSnapshot.Functions
-                                        |> List.find (fun fn ->
-                                            fn.Id = prepared.Target.Id)
-                                    let targetDiff =
-                                        bodyDiff
-                                            baseSnapshot
-                                            proposedSnapshot
-                                            prepared.Target
-                                            proposedTarget
-                                    let callerDiffs =
-                                        prepared.Callers
-                                        |> List.map (fun caller ->
-                                            let proposedCaller =
-                                                proposedSnapshot.Functions
-                                                |> List.find (fun fn ->
-                                                    fn.Id = caller.Id)
-                                            bodyDiff
-                                                baseSnapshot
-                                                proposedSnapshot
-                                                caller
-                                                proposedCaller)
-                                    let diff =
-                                        { ParameterChange =
-                                            { FunctionId =
-                                                prepared.Target.Id
-                                              ParameterId =
-                                                prepared.Parameter.Id
-                                              OldType =
-                                                prepared.Parameter.Type
-                                              NewType =
-                                                request.NewParameterType }
-                                          AffectedCallSites =
-                                            prepared.CallerSites
-                                          BodyRewrites =
-                                            targetDiff :: callerDiffs }
-                                    Ok(
-                                        AgentParameterTypeMigrationProposal
-                                            { TransactionId = transactionId
-                                              ProposedSnapshot =
-                                                proposedSnapshot
-                                              Review =
-                                                { RequestedChange =
-                                                    request
-                                                  Receipt = receipt
-                                                  Readiness = readiness
-                                                  ResultingChange = diff } }
-                                    )
+            SignatureMigrationCore.preflight
+                prefix baseSnapshot request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkParameter
+            |> Result.bind (fun prepared ->
+                let parameter = prepared.Target.Parameters |> List.find (fun item -> item.Id = request.TargetParameterId)
+                SignatureMigrationCore.simulate
+                    prefix workspace baseSnapshot prepared
+                    (Map.ofList [ parameter.Id, request.NewParameterType ]) prepared.Target.ResultType request.TargetReplacement
+                |> Result.map (fun simulated ->
+                    AgentParameterTypeMigrationProposal
+                        { TransactionId = simulated.TransactionId
+                          ProposedSnapshot = simulated.ProposedSnapshot
+                          Review =
+                            { RequestedChange = request
+                              Receipt = simulated.Receipt
+                              Readiness = simulated.Readiness
+                              ResultingChange =
+                                { ParameterChange =
+                                    { FunctionId = prepared.Target.Id
+                                      ParameterId = parameter.Id
+                                      OldType = parameter.Type
+                                      NewType = request.NewParameterType }
+                                  AffectedCallSites = prepared.CallerSites
+                                  BodyRewrites = simulated.BodyRewrites } } }))
 
     let private publishWithPolicy
         workspace
@@ -813,3 +770,69 @@ module AgentParameterTypeMigrationWorkflow =
         { TransactionId = proposal.TransactionId
           RetainedSnapshotId =
             AgentWorkspace.currentSnapshotId workspace }
+
+
+/// Changes a function's result type together with its body and every direct caller, as one
+/// reviewed publication. Identities of the target, its parameters and untouched nodes are kept.
+[<RequireQualifiedAccess>]
+module AgentResultTypeMigrationWorkflow =
+    open StructuralTransactionInternals
+
+    let private prefix = "ResultTypeMigration"
+
+    let simulate
+        (workspace: AgentWorkspace)
+        (request: AgentResultTypeMigrationRequest)
+        : Result<AgentResultTypeMigrationProposal, AgentStructuralWorkflowError> =
+        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+        let checkResult (target: SemanticFunction) =
+            if target.ResultType = request.NewResultType then
+                SignatureMigrationCore.reject $"{prefix}TypeUnchanged" "The requested result type is already the current type."
+            else Ok()
+        match SnapshotValidator.validate baseSnapshot with
+        | issue :: _ -> SignatureMigrationCore.reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
+        | [] ->
+            SignatureMigrationCore.preflight
+                prefix baseSnapshot request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkResult
+            |> Result.bind (fun prepared ->
+                SignatureMigrationCore.simulate
+                    prefix workspace baseSnapshot prepared Map.empty request.NewResultType request.TargetReplacement
+                |> Result.map (fun simulated ->
+                    AgentResultTypeMigrationProposal
+                        { TransactionId = simulated.TransactionId
+                          ProposedSnapshot = simulated.ProposedSnapshot
+                          Review =
+                            { RequestedChange = request
+                              Receipt = simulated.Receipt
+                              Readiness = simulated.Readiness
+                              ResultingChange =
+                                { ResultChange =
+                                    { FunctionId = prepared.Target.Id
+                                      OldType = prepared.Target.ResultType
+                                      NewType = request.NewResultType }
+                                  AffectedCallSites = prepared.CallerSites
+                                  BodyRewrites = simulated.BodyRewrites } } }))
+
+    let commitWithPolicy workspace (AgentResultTypeMigrationProposal proposal) policy =
+        match
+            publishReviewedWithPolicy
+                workspace
+                proposal.TransactionId
+                proposal.ProposedSnapshot
+                (List.head proposal.Review.ResultingChange.BodyRewrites)
+                proposal.Review.Readiness
+                proposal.Review.Receipt
+                policy
+        with
+        | AgentStructuralCommitResult.Rejected diagnostics -> AgentResultTypeMigrationCommitResult.Rejected diagnostics
+        | AgentStructuralCommitResult.Committed(nextWorkspace, _) ->
+            AgentResultTypeMigrationCommitResult.Committed(
+                nextWorkspace,
+                { TransactionId = proposal.TransactionId
+                  BaseSnapshotId = proposal.Review.Receipt.BaseSnapshotId
+                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                  Diff = proposal.Review.ResultingChange
+                  Readiness = proposal.Review.Readiness
+                  Receipt = proposal.Review.Receipt })
+
+    let commit workspace proposal = commitWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations

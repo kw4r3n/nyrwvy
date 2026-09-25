@@ -169,6 +169,23 @@ module internal WireEncode =
                 |> arrayValue
               "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
 
+    let private resultTypeMigrationDiff (value: AgentResultTypeMigrationDiff) =
+        objectValue
+            [ "resultChange",
+                objectValue
+                    [ "functionId", box (StableId.value value.ResultChange.FunctionId)
+                      "oldType", typeRef value.ResultChange.OldType
+                      "newType", typeRef value.ResultChange.NewType ]
+              "affectedCallSites",
+                value.AffectedCallSites
+                |> List.map (fun site ->
+                    objectValue
+                        [ "callerFunctionId", box (StableId.value site.CallerFunctionId)
+                          "callNodeId", box (StableId.value site.CallNodeId)
+                          "calleeFunctionId", box (StableId.value site.CalleeFunctionId) ])
+                |> arrayValue
+              "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
+
     let private capabilityEntity (value: SemanticCapability) =
         let operations =
             value.Operations
@@ -235,6 +252,12 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", parameterTypeMigrationDiff item.ResultingChange ]
+            | AuthoringProposalReview.ResultTypeMigration item ->
+                objectValue
+                    [ "kind", box "resultTypeMigration"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "diff", resultTypeMigrationDiff item.ResultingChange ]
             | AuthoringProposalReview.CreateType item ->
                 objectValue
                     [ "kind", box "createType"
