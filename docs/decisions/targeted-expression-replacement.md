@@ -1,10 +1,10 @@
 # Targeted expression replacement
 
-- **Status:** Accepted design; implementation pending
+- **Status:** Accepted; implemented (issue #148). The current contract is in the [expression authoring specification](../specs/expression-authoring.md) and the [agent authoring session](../specs/agent-authoring-session.md).
 - **Date:** 2026-09-08
 - **Issue:** [#145](https://github.com/kw4r3n/nyrwvy-lang/issues/145)
 
-This decision extends the structural-authoring direction beyond the whole-function-body boundary established for Milestone 2. It defines a typed targeted edit, not arbitrary graph mutation. The maintained [expression authoring specification](../specs/expression-authoring.md) remains authoritative for `ExpressionRecipe` itself until a targeted workflow is implemented.
+This decision extends the structural-authoring direction beyond the whole-function-body boundary established for Milestone 2. It defines a typed targeted edit, not arbitrary graph mutation. The maintained [expression authoring specification](../specs/expression-authoring.md) is authoritative for `ExpressionRecipe` itself.
 
 ## Decision
 

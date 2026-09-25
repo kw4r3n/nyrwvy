@@ -19,6 +19,7 @@ The shared model is intentionally compatible with the corresponding FuwaFuwa doc
 | `plans/` | How is a change intended to be implemented or evaluated? |
 | `verification/` | What evidence shows that requirements were satisfied? |
 | `experiments/` | What was explored or measured without becoming a current contract? |
+| `operations/` | What procedure or canonical operational name must be followed? |
 | `docs-archive/` | What described a previous, superseded, or frozen historical state? |
 
 Do not create a category merely for symmetry. Create it when maintained content actually needs that semantic home.
