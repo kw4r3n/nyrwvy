@@ -43,6 +43,8 @@ ExpressionRecipe =
   | StringContains(value, substring)
   | StringEqual(left, right)
   | StringConcat(left, right)
+  | Int64ToString(expr)
+  | StringParseInt64(expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)

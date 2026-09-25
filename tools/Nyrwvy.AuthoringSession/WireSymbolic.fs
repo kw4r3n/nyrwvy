@@ -202,6 +202,8 @@ module internal WireSymbolic =
             | Ok bits -> ExpressionRecipe.Float64Literal bits
             | Error error -> fail $"Invalid Float64 bits: {error}."
         | "stringIsEmpty" -> unary "string-is-empty recipe" ExpressionRecipe.StringIsEmpty
+        | "int64ToString" -> unary "int64-to-string recipe" ExpressionRecipe.Int64ToString
+        | "stringParseInt64" -> unary "string-parse-int64 recipe" ExpressionRecipe.StringParseInt64
         | "stringContains" ->
             ensureFields "string-contains recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringContains(

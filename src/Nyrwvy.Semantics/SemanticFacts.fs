@@ -11,6 +11,8 @@ module SemanticFacts =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.StringParseInt64 valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -95,6 +97,8 @@ module SemanticFacts =
             | SemanticNodeKind.Int64Literal _
             | SemanticNodeKind.Float64Literal _
             | SemanticNodeKind.StringIsEmpty _
+            | SemanticNodeKind.Int64ToString _
+            | SemanticNodeKind.StringParseInt64 _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
             | SemanticNodeKind.StringConcat _
@@ -252,6 +256,9 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Multiply _
                     | SemanticNodeKind.Float64Divide _ ->
                         Some(TypeRef.Primitive PrimitiveType.Float64)
+                    | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
+                    | SemanticNodeKind.StringParseInt64 _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _

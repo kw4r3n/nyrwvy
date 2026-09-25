@@ -81,6 +81,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
+    | Int64ToString of valueNodeId: GraphNodeId
+    | StringParseInt64 of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -239,6 +241,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64Literal bits)
                     | SemanticNodeKind.StringIsEmpty valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringIsEmpty valueNodeId)
+                    | SemanticNodeKind.Int64ToString valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
+                    | SemanticNodeKind.StringParseInt64 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->

@@ -131,6 +131,10 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 SemanticNodeKind.Float64Literal value
             | SemanticNodeKind.StringIsEmpty valueNodeId ->
                 SemanticNodeKind.StringIsEmpty(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64ToString valueNodeId ->
+                SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringParseInt64 valueNodeId ->
+                SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                 SemanticNodeKind.StringContains(
                     mapNodeId valueNodeId,

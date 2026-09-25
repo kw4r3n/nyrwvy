@@ -216,6 +216,12 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringIsEmpty valueId ->
             [ property "kind" (quote "stringIsEmpty")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Int64ToString valueId ->
+            [ property "kind" (quote "int64ToString")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringParseInt64 valueId ->
+            [ property "kind" (quote "stringParseInt64")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringContains(valueId, substringId) ->
             [ property "kind" (quote "stringContains")
               property "valueId" (executionValueIdValue valueId)

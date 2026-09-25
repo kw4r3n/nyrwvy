@@ -22,6 +22,8 @@ module SnapshotValidator =
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
+        | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.StringParseInt64 valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -77,6 +79,8 @@ module SnapshotValidator =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.StringParseInt64 valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -603,6 +607,18 @@ module SnapshotValidator =
                             $"StringIsEmpty node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.Int64ToString valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64ToString node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.StringParseInt64 valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringParseInt64 node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1116,6 +1132,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _

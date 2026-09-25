@@ -83,6 +83,8 @@ type ExecutionInstructionKind =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of ExecutionValueId
+    | Int64ToString of ExecutionValueId
+    | StringParseInt64 of ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     | StringConcat of leftId: ExecutionValueId * rightId: ExecutionValueId

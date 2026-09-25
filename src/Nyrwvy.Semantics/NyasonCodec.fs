@@ -431,6 +431,10 @@ module NyasonCodec =
             record "float64-literal" [ nodeId; "bits", atom (Float64Bits.toHex bits) ]
         | SemanticNodeKind.StringIsEmpty valueNodeId ->
             record "string-is-empty" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Int64ToString valueNodeId ->
+            record "int64-to-string" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringParseInt64 valueNodeId ->
+            record "string-parse-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             record
                 "string-contains"
@@ -679,6 +683,14 @@ module NyasonCodec =
             let fields = recordFields "string-is-empty" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringIsEmpty(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("int64-to-string", _) ->
+            let fields = recordFields "int64-to-string" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Int64ToString(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-parse-int64", _) ->
+            let fields = recordFields "string-parse-int64" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringParseInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-contains", _) ->
             let fields = recordFields "string-contains" [ "id"; "value"; "substring" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

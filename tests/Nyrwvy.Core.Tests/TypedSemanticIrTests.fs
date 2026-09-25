@@ -30,6 +30,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64Literal _
                 | TypedSemanticNodeKind.Float64Literal _
                 | TypedSemanticNodeKind.StringIsEmpty _
+                | TypedSemanticNodeKind.Int64ToString _
+                | TypedSemanticNodeKind.StringParseInt64 _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringConcat _

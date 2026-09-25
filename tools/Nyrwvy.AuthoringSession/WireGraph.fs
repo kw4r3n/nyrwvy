@@ -48,6 +48,8 @@ module internal WireGraph =
         | SemanticNodeKind.Int64Literal value -> tagged "int64Literal" [ "value", box (value.ToString(CultureInfo.InvariantCulture)) ]
         | SemanticNodeKind.Float64Literal value -> tagged "float64Literal" [ "bits", box (Float64Bits.toHex value) ]
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
+        | SemanticNodeKind.Int64ToString value -> unary "int64ToString" value
+        | SemanticNodeKind.StringParseInt64 value -> unary "stringParseInt64" value
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringConcat(left, right) -> tagged "stringConcat" [ "leftNodeId", identity left; "rightNodeId", identity right ]

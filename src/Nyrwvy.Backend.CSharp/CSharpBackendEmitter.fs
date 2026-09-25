@@ -341,6 +341,19 @@ module CSharpBackend =
             writer.Line(target + " = " + renderFloat64Literal bits + ";")
         | ExecutionInstructionKind.StringIsEmpty sourceValueId ->
             writer.Line(target + " = " + valueName sourceValueId + ".Length == 0;")
+        | ExecutionInstructionKind.Int64ToString sourceValueId ->
+            writer.Line(target + " = " + valueName sourceValueId + ".ToString(System.Globalization.CultureInfo.InvariantCulture);")
+        | ExecutionInstructionKind.StringParseInt64 sourceValueId ->
+            // Only '-'? ASCII digits are accepted; TryParse then enforces the Int64 range.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var text = " + valueName sourceValueId + ";")
+            writer.Line("var start = text.Length > 0 && text[0] == '-' ? 1 : 0;")
+            writer.Line("var digits = text.Length > start;")
+            writer.Line("for (var index = start; digits && index < text.Length; index++) digits = text[index] >= '0' && text[index] <= '9';")
+            writer.Line(target + " = digits && long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? NyOption<long>.Some(parsed) : NyOption<long>.None();")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->

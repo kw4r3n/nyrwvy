@@ -65,6 +65,7 @@
     <Compile Include="ListHigherOrderTests.fs" />
     <Compile Include="ListFoldTests.fs" />
     <Compile Include="StringConcatTests.fs" />
+    <Compile Include="Int64TextTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

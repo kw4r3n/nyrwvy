@@ -515,6 +515,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Int64Literal"
               "Float64Literal"
               "StringIsEmpty"
+              "Int64ToString"
+              "StringParseInt64"
               "StringContains"
               "StringEqual"
               "StringConcat"

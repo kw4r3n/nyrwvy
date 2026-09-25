@@ -279,6 +279,12 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Int64ToString valueNodeId ->
+            writer.WriteString("kind", "int64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)

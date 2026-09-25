@@ -43,7 +43,7 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 ## String equality
 
-`StringEqual` emits exact ordinal, case-sensitive .NET string comparison (`StringComparison.Ordinal`). It must not use culture-sensitive comparison, case folding, or a two-way substring check. `StringContains` retains its distinct substring semantics. `StringConcat` emits explicit `string.Concat(left, right)` without inserting separators, formatting values, or normalizing line endings/Unicode. Both input types and the output type are `String`.
+`StringEqual` emits exact ordinal, case-sensitive .NET string comparison (`StringComparison.Ordinal`). It must not use culture-sensitive comparison, case folding, or a two-way substring check. `StringContains` retains its distinct substring semantics. `StringConcat` emits explicit `string.Concat(left, right)` without inserting separators, formatting values, or normalizing line endings/Unicode. Both input types and the output type are `String`. `Int64ToString` emits `ToString(CultureInfo.InvariantCulture)`. `StringParseInt64` first checks that the text is an optional `-` followed by ASCII digits, then uses `long.TryParse` with `NumberStyles.AllowLeadingSign` and the invariant culture only to enforce the range, producing `NyOption<long>` without exceptions.
 
 ## Float64 literal emission
 

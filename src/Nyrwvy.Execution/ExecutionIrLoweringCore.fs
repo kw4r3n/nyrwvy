@@ -255,6 +255,14 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringIsEmpty valueId))
+                        | TypedSemanticNodeKind.Int64ToString valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.Int64ToString valueId))
+                        | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->
@@ -553,6 +561,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64Literal _
                         | TypedSemanticNodeKind.Float64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
+                        | TypedSemanticNodeKind.Int64ToString _
+                        | TypedSemanticNodeKind.StringParseInt64 _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringConcat _

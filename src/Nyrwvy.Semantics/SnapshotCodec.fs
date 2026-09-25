@@ -357,6 +357,12 @@ module SnapshotCodec =
         | SemanticNodeKind.StringIsEmpty valueNodeId ->
             writer.WriteString("kind", "stringIsEmpty")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Int64ToString valueNodeId ->
+            writer.WriteString("kind", "int64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringParseInt64 valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -865,6 +871,12 @@ module SnapshotCodec =
             | "stringIsEmpty" ->
                 ensureProperties "StringIsEmpty node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringIsEmpty(readId<GraphNodeTag> "valueNodeId" element)
+            | "int64ToString" ->
+                ensureProperties "Int64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Int64ToString(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringParseInt64" ->
+                ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringContains" ->
                 ensureProperties
                     "StringContains node"

@@ -24,6 +24,8 @@ type ExpressionRecipe =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of ExpressionRecipe
+    | Int64ToString of ExpressionRecipe
+    | StringParseInt64 of ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
@@ -152,6 +154,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListEmpty _
         | ExpressionRecipe.OptionNone _ -> Seq.empty
         | ExpressionRecipe.StringIsEmpty child
+        | ExpressionRecipe.Int64ToString child
+        | ExpressionRecipe.StringParseInt64 child
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
@@ -507,6 +511,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64Literal _ -> Ok int64Type
             | ExpressionRecipe.Float64Literal _ -> Ok float64Type
             | ExpressionRecipe.StringIsEmpty value -> unary "StringIsEmpty" stringType boolType value
+            | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
+            | ExpressionRecipe.StringParseInt64 value ->
+                unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
@@ -948,6 +955,8 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.Float64Literal value } ], nodeId
         | ExpressionRecipe.StringIsEmpty value -> unary SemanticNodeKind.StringIsEmpty value
+        | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
+        | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right

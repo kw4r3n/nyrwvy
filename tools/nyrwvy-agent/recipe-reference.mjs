@@ -10,7 +10,7 @@ const categories = {
   references: ["parameter", "patternReference"],
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
-    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringConcat", "int64ToString", "stringParseInt64",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -53,6 +53,8 @@ const references = {
   int64Literal: { shape: { kind: "int64Literal", value: "<decimal string or JSON integer>" }, notes: "Use a decimal string when JavaScript safe-integer precision would be insufficient." },
   float64Literal: { shape: { kind: "float64Literal", bits: "<16 lowercase hexadecimal digits>" } },
   stringIsEmpty: unary("stringIsEmpty"),
+  int64ToString: { ...unary("int64ToString"), notes: "Int64 to canonical invariant decimal String; '-' only for negative values." },
+  stringParseInt64: { ...unary("stringParseInt64"), notes: "String to Option<Int64>: Some only for an optional '-' followed by ASCII digits within range; '+', whitespace, empty text or overflow give None." },
   stringContains: { shape: { kind: "stringContains", value: recipe, substring: recipe } },
   stringEqual: { ...binary("stringEqual"), notes: "Ordinal, case-sensitive exact equality; both operands must be String." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },

@@ -32,7 +32,9 @@ module ValueDependency =
     /// Nested branch result nodes remain represented by their child ValueGraphs.
     let ofNode (node: SemanticNode): ValueDependency list =
         match node.Kind with
-        | SemanticNodeKind.StringIsEmpty sourceNodeId ->
+        | SemanticNodeKind.StringIsEmpty sourceNodeId
+        | SemanticNodeKind.Int64ToString sourceNodeId
+        | SemanticNodeKind.StringParseInt64 sourceNodeId ->
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.StringContains(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId

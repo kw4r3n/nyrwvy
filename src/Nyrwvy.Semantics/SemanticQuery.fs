@@ -67,6 +67,8 @@ module SemanticQuery =
                     | SemanticNodeKind.Int64Literal _
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.StringIsEmpty _
+                    | SemanticNodeKind.Int64ToString _
+                    | SemanticNodeKind.StringParseInt64 _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.StringConcat _

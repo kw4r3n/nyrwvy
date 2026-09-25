@@ -165,6 +165,11 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64Literal of int64
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
+    /// Canonical invariant decimal text of an Int64, with a leading '-' only for negative values.
+    | Int64ToString of valueNodeId: GraphNodeId
+    /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
+    /// range; any other text, including '+', whitespace or an empty String, is None.
+    | StringParseInt64 of valueNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -276,6 +281,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -352,6 +359,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64Literal _
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
+                | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
