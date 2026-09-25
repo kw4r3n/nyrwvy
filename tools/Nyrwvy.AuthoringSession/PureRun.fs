@@ -22,6 +22,7 @@ type PureRunScalar =
 
 [<RequireQualifiedAccess>]
 type PureRunValue =
+    | Unit
     | String of string
     | Bool of bool
     | Int64 of int64
@@ -40,6 +41,24 @@ type PureRunValue =
     /// A Result with at least one non-scalar side. Results whose Ok and Err types are both scalars
     /// always use the flat ResultOk/ResultErr representation.
     | ResultValue of okType: TypeRef * errorType: TypeRef * isOk: bool * payload: PureRunValue
+    /// A scripted stand-in for a capability, accepted only as a top-level argument. Each operation
+    /// answers its calls with its responses in order; operations without responses fail when called.
+    | FakeCapability of capabilityId: CapabilityId * operations: PureRunFakeOperation list
+
+and PureRunFakeOperation =
+    { OperationId: CapabilityOperationId
+      Responses: PureRunFakeResponse list }
+
+and [<RequireQualifiedAccess>] PureRunFakeResponse =
+    | Return of PureRunValue
+    /// Raises a host exception from the operation, as a failing external implementation would.
+    | Throw of message: string
+
+/// One call the program made to a fake capability, with its arguments in canonical ID order.
+type PureRunCall =
+    { ParameterId: ParameterId
+      OperationId: CapabilityOperationId
+      Arguments: (CapabilityParameterId * PureRunValue) list }
 
 /// One step from a value to a component, named by semantic identity rather than generated symbols.
 [<RequireQualifiedAccess>]
@@ -69,7 +88,10 @@ type PureRunRuntimeFailure =
       ExceptionType: string
       Message: string
       /// Innermost frame first; frames without a semantic declaration are omitted.
-      Frames: PureRunFrame list }
+      Frames: PureRunFrame list
+      /// True when a fake operation was called after its scripted responses ran out.
+      BindingExhausted: bool
+      Calls: PureRunCall list }
 
 [<RequireQualifiedAccess>]
 type PureRunError =
@@ -83,11 +105,12 @@ type PureRunResult =
       Actual: PureRunValue
       Expected: PureRunValue option
       Matches: bool option
-      Mismatch: PureRunMismatch option }
+      Mismatch: PureRunMismatch option
+      Calls: PureRunCall list }
 
-/// Bounded T3 execution path: pure typed values, including nesting through List/Option layers,
-/// Product/Union fields and Result payloads, with no host bindings or caller-authored C# source.
-/// Runs in a separate, bounded child process.
+/// Bounded T3 execution path: typed values, including nesting through List/Option layers,
+/// Product/Union fields and Result payloads. Capabilities are bound only to scripted fakes, never
+/// to host services or caller-authored C# source. Runs in a separate, bounded child process.
 [<RequireQualifiedAccess>]
 module PureRun =
     let private listType primitive = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive primitive ])
@@ -115,6 +138,8 @@ module PureRun =
         | PureRunScalar.Int64 _ -> PureRunScalarKind.Int64
 
     let private valueType = function
+        | PureRunValue.Unit -> TypeRef.Primitive PrimitiveType.Unit
+        | PureRunValue.FakeCapability(capabilityId, _) -> TypeRef.Capability capabilityId
         | PureRunValue.ResultValue(okType, errorType, _, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
         | PureRunValue.ListValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
         | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
@@ -135,6 +160,7 @@ module PureRun =
         | PureRunValue.Int64Option _ -> optionType PrimitiveType.Int64
 
     let rec private sourceType = function
+        | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
         | TypeRef.Primitive PrimitiveType.String -> "string"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
@@ -153,6 +179,8 @@ module PureRun =
             | None -> $"NyOption<{name}>.None()"
             | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
         match value with
+        | PureRunValue.Unit -> "NyUnit.Value"
+        | PureRunValue.FakeCapability _ -> invalidOp "Fake capabilities are rendered by argument position."
         | PureRunValue.ListValue(itemType, items) -> listSource (sourceType itemType) items
         | PureRunValue.OptionValue(itemType, item) -> optionSource (sourceType itemType) item
         | PureRunValue.Product(_, fields)
@@ -210,6 +238,9 @@ module PureRun =
         | PureRunValue.Product(_, fields)
         | PureRunValue.Union(_, _, fields) -> fields |> List.map snd
         | PureRunValue.ResultValue(_, _, _, payload) -> [ payload ]
+        | PureRunValue.FakeCapability(_, operations) ->
+            operations |> List.collect (fun operation ->
+                operation.Responses |> List.choose (function PureRunFakeResponse.Return value -> Some value | PureRunFakeResponse.Throw _ -> None))
         | _ -> []
 
     let rec private strings value =
@@ -219,6 +250,10 @@ module PureRun =
         | PureRunValue.String text -> [ text ]
         | PureRunValue.StringList items -> items
         | PureRunValue.StringOption item -> Option.toList item
+        | PureRunValue.FakeCapability(_, operations) ->
+            (operations |> List.collect (fun operation ->
+                operation.Responses |> List.choose (function PureRunFakeResponse.Throw message -> Some message | PureRunFakeResponse.Return _ -> None)))
+            @ (children value |> List.collect strings)
         | _ -> children value |> List.collect strings
 
     let rec private oversized value =
@@ -227,6 +262,8 @@ module PureRun =
             | PureRunValue.ListValue(_, items) -> items.Length > 4096
             | PureRunValue.Product(_, fields)
             | PureRunValue.Union(_, _, fields) -> fields.Length > 256
+            | PureRunValue.FakeCapability(_, operations) ->
+                operations.Length > 256 || operations |> List.exists (fun operation -> operation.Responses.Length > 256)
             | PureRunValue.StringList items ->
                 items.Length > 4096 || (items |> List.sumBy (fun text -> if isNull text then 65537L else int64 text.Length)) > 65536L
             | PureRunValue.BoolList items -> items.Length > 4096
@@ -345,6 +382,9 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Int64 -> true
         | _ -> false
 
+    /// Unit is a leaf but has no flat container form, so containers of Unit use the nested form.
+    let private supportedLeaf itemType = supportedScalar itemType || itemType = TypeRef.Primitive PrimitiveType.Unit
+
     let private productFields (types: SemanticType list) typeId =
         types |> List.tryFind (fun item -> item.Id = typeId)
         |> Option.bind (fun item ->
@@ -379,7 +419,7 @@ module PureRun =
         let visiting = System.Collections.Generic.HashSet<TypeId>()
         let rec cost depth itemType =
             match itemType with
-            | _ when supportedScalar itemType -> Some 1L
+            | _ when supportedLeaf itemType -> Some 1L
             | TypeRef.Named typeId when visiting.Contains typeId -> Some 1L
             | _ when depth > 7 -> None
             | _ ->
@@ -445,6 +485,13 @@ module PureRun =
                                          |> List.sortBy (fst >> StableId.value))
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
             PureRunValue.ResultValue(okType, errorType, isOk, canonicalValue payload)
+        | PureRunValue.FakeCapability(capabilityId, operations) ->
+            let response = function
+                | PureRunFakeResponse.Return value -> PureRunFakeResponse.Return(canonicalValue value)
+                | throw -> throw
+            PureRunValue.FakeCapability(capabilityId,
+                operations |> List.map (fun operation -> { operation with Responses = List.map response operation.Responses })
+                |> List.sortBy (fun operation -> StableId.value operation.OperationId))
         | value -> value
 
     let private parseScalar itemType (item: JsonElement) =
@@ -548,6 +595,8 @@ module PureRun =
                     | PrimitiveType.Int64 when items |> List.forall (fun item -> item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64())) ->
                         Ok(PureRunValue.Int64List(items |> List.map (fun item -> item.GetInt64())))
                     | _ -> Error(diagnostic "RunInvalidResult" "A List result item has the wrong type.")
+            | TypeRef.Primitive PrimitiveType.Unit, JsonValueKind.String when value.GetString() = "unit" ->
+                Ok PureRunValue.Unit
             | TypeRef.Primitive PrimitiveType.String, JsonValueKind.String ->
                 Ok(PureRunValue.String(value.GetString()))
             | TypeRef.Primitive PrimitiveType.Bool, JsonValueKind.True
@@ -559,25 +608,58 @@ module PureRun =
                 | false, _ -> Error(diagnostic "RunInvalidResult" "The result is not an Int64.")
             | _ -> Error(diagnostic "RunInvalidResult" "The result does not have the declared type.")
 
+    /// A generated call site: the entry parameter bound to a fake and one operation of its capability.
+    type private CallSite =
+        { ParameterId: ParameterId
+          Operation: ExecutionCapabilityOperation }
+
     [<RequireQualifiedAccess>]
     type private Envelope =
-        | Value of PureRunValue
+        | Value of PureRunValue * PureRunCall list
         | Limit of string
-        | Exception of exceptionType: string * message: string * frames: string list
+        | Exception of exceptionType: string * message: string * frames: string list * calls: PureRunCall list * exhausted: bool
 
-    let private parseEnvelope types resultType (output: string) =
+    let private parseEnvelope types resultType (sites: CallSite list) (output: string) =
         let invalid () = Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
+        let collect (items: Result<'T, PureRunError> list) =
+            List.foldBack (fun item state -> state |> Result.bind (fun rest -> item |> Result.map (fun value -> value :: rest))) items (Ok [])
+        let parseCalls (value: JsonElement) =
+            if value.ValueKind <> JsonValueKind.Array then invalid () else
+                value.EnumerateArray() |> Seq.toList |> List.map (fun call ->
+                    let site =
+                        if call.ValueKind = JsonValueKind.Array && call.GetArrayLength() = 2 && call[0].ValueKind = JsonValueKind.Number then
+                            match call[0].TryGetInt32() with
+                            | true, index when index >= 0 && index < sites.Length -> Some(sites[index])
+                            | _ -> None
+                        else None
+                    match site with
+                    | Some site when call[1].ValueKind = JsonValueKind.Array && call[1].GetArrayLength() = site.Operation.Parameters.Length ->
+                        site.Operation.Parameters
+                        |> List.mapi (fun index parameter ->
+                            let item = call[1].[index]
+                            parseElement types parameter.Type item |> Result.map (fun value -> parameter.Id, value))
+                        |> collect
+                        |> Result.map (fun arguments ->
+                            { ParameterId = site.ParameterId
+                              OperationId = site.Operation.Id
+                              Arguments = arguments |> List.sortBy (fst >> StableId.value) })
+                    | _ -> invalid ())
+                |> collect
         try
             use document = JsonDocument.Parse(output, JsonDocumentOptions(MaxDepth = 256))
             let root = document.RootElement
             let text (item: JsonElement) = if item.ValueKind = JsonValueKind.String then Some(item.GetString()) else None
             if root.ValueKind <> JsonValueKind.Array || root.GetArrayLength() < 2 then invalid () else
                 match text root[0], root.GetArrayLength() with
-                | Some "value", 2 -> parseElement types resultType root[1] |> Result.map Envelope.Value
+                | Some "value", 3 ->
+                    parseElement types resultType root[1]
+                    |> Result.bind (fun value -> parseCalls root[2] |> Result.map (fun calls -> Envelope.Value(value, calls)))
                 | Some "limit", 2 when (text root[1]).IsSome -> Ok(Envelope.Limit(root[1].GetString()))
-                | Some "exception", 4 when (text root[1]).IsSome && (text root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array ->
+                | Some "exception", 6 when (text root[1]).IsSome && (text root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array
+                                           && (root[5].ValueKind = JsonValueKind.True || root[5].ValueKind = JsonValueKind.False) ->
                     let frames = root[3].EnumerateArray() |> Seq.choose text |> Seq.toList
-                    Ok(Envelope.Exception(root[1].GetString(), root[2].GetString(), frames))
+                    parseCalls root[4]
+                    |> Result.map (fun calls -> Envelope.Exception(root[1].GetString(), root[2].GetString(), frames, calls, root[5].GetBoolean()))
                 | _ -> invalid ()
         with :? JsonException -> invalid ()
 
@@ -603,6 +685,7 @@ module PureRun =
             remaining <- remaining - 1
             let count size = remaining <- remaining - size; remaining >= 0
             match value with
+            | PureRunValue.Unit
             | PureRunValue.String _
             | PureRunValue.Bool _
             | PureRunValue.Int64 _ -> remaining >= 0
@@ -618,6 +701,35 @@ module PureRun =
             | _ -> children value |> List.forall (visit (depth + 1))
         visit 0 value
 
+    let rec private containsFake value =
+        children value |> List.exists (fun child ->
+            match child with
+            | PureRunValue.FakeCapability _ -> true
+            | _ -> containsFake child)
+
+    /// Checks one fake against its capability declaration. Every operation of a faked capability must
+    /// have runner-supported parameter and result types, because the program may call any of them.
+    let private fakeProblem (declarations: AuthoringDeclarations) (supported: int -> TypeRef -> bool) value =
+        match value with
+        | PureRunValue.FakeCapability(capabilityId, operations) ->
+            match declarations.Capabilities |> List.tryFind (fun item -> item.Id = capabilityId) with
+            | None -> Some("RunBindingShapeMismatch", "The fake names an unknown capability.")
+            | Some capability when capability.Operations |> List.exists (fun operation ->
+                not (supported 0 operation.ResultType) || operation.Parameters |> List.exists (fun parameter -> not (supported 0 parameter.Type))) ->
+                Some("RunBindingTypeUnsupported", "Every operation of a faked capability needs parameter and result types that runPure values support.")
+            | Some capability ->
+                let declared = capability.Operations |> List.map (fun operation -> operation.Id, operation) |> Map.ofList
+                let ids = operations |> List.map (fun operation -> operation.OperationId)
+                if List.distinct ids <> ids || ids |> List.exists (fun operationId -> not (Map.containsKey operationId declared)) then
+                    Some("RunBindingShapeMismatch", "Fake operations must be distinct operations of the faked capability.")
+                elif operations |> List.exists (fun operation ->
+                    operation.Responses |> List.exists (function
+                        | PureRunFakeResponse.Return response -> valueType response <> declared[operation.OperationId].ResultType
+                        | PureRunFakeResponse.Throw _ -> false)) then
+                    Some("RunBindingShapeMismatch", "Each fake return value must have the operation's declared result type.")
+                else None
+        | _ -> None
+
     let private runVerified
         (session: AuthoringSession)
         (functionId: FunctionId)
@@ -630,12 +742,15 @@ module PureRun =
         let expected = expected |> Option.map canonicalValue
         match declarations.Functions |> List.tryFind (fun item -> item.Id = functionId) with
         | None -> Error(diagnostic "RunFunctionNotFound" "The entry function does not exist.")
-        | Some fn when not (List.isEmpty fn.RequiredEffects) ->
-            Error(diagnostic "RunEffectsUnsupported" "This entrypoint requires effects; the pure runner has no bindings.")
         | Some fn when fn.Parameters.Length <> arguments.Length ->
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->
-            Error(diagnostic "RunArgumentTypeMismatch" "An argument has the wrong type.")
+            Error(diagnostic "RunArgumentTypeMismatch" "An argument has the wrong type; capability parameters take a fakeCapability binding.")
+        | Some fn when arguments @ Option.toList expected |> List.exists containsFake ->
+            Error(diagnostic "RunBindingPlacement" "Fake capabilities are accepted only as top-level arguments for capability parameters.")
+        | Some fn when arguments |> List.exists (fakeProblem declarations supported >> Option.isSome) ->
+            let code, message = arguments |> List.pick (fakeProblem declarations supported)
+            Error(diagnostic code message)
         | Some fn when arguments |> List.exists (validProduct declarations.Types >> not) ->
             Error(diagnostic "RunProductShapeMismatch" "Product arguments must supply each declared field exactly once with its exact type (at most 256 fields), including nested Products.")
         | Some fn when arguments |> List.exists (validUnion declarations.Types >> not) ->
@@ -662,10 +777,17 @@ module PureRun =
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (wellFormedUtf16 >> not) ->
             Error(diagnostic "RunInvalidString" "String arguments and expectations must contain well-formed UTF-16.")
         | Some fn ->
-            match session.EmitCSharp CSharpBackendProfile.empty, session.Status() with
+            // Every declared operation is an external implementation; the runner supplies only fakes.
+            let emitted =
+                session.ProjectExecution()
+                |> Result.bind (fun program ->
+                    let operationIds = program.Capabilities |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id))
+                    session.EmitCSharp(CSharpBackendProfile.externalImplementations operationIds)
+                    |> Result.map (fun artifact -> program, artifact))
+            match emitted, session.Status() with
             | Error error, _
             | _, Error error -> Error(PureRunError.SessionFailure error)
-            | Ok artifact, Ok status ->
+            | Ok(program, artifact), Ok status ->
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
                     try
@@ -673,7 +795,23 @@ module PureRun =
                         File.WriteAllText(Path.Combine(root, "Generated.csproj"),
                             "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
                         File.WriteAllText(Path.Combine(root, "Generated.cs"), artifact.Source)
-                        let args = arguments |> List.map sourceArgument |> String.concat ", "
+                        let args =
+                            arguments |> List.mapi (fun index value ->
+                                match value with
+                                | PureRunValue.FakeCapability _ -> $"new Fake{index}()"
+                                | value -> sourceArgument value)
+                            |> String.concat ", "
+                        let fakes =
+                            List.zip fn.Parameters arguments |> List.indexed |> List.choose (fun (index, (parameter, value)) ->
+                                match value with
+                                | PureRunValue.FakeCapability(capabilityId, operations) ->
+                                    let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                                    Some(index, parameter.Id, capability, operations)
+                                | _ -> None)
+                        let sites =
+                            fakes |> List.collect (fun (_, parameterId, capability, _) ->
+                                capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                |> List.map (fun operation -> { ParameterId = parameterId; Operation = operation }))
                         let entry = CSharpBackendNames.functionName fn.Id
                         let mutable nextName = 0
                         let fresh () =
@@ -690,6 +828,7 @@ module PureRun =
                             let array items = "new object[] { " + String.concat ", " items + " }"
                             let expression =
                                 match itemType with
+                                | TypeRef.Primitive PrimitiveType.Unit -> "\"unit\""
                                 | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
                                 | TypeRef.Primitive _ -> "(object)" + access
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
@@ -727,11 +866,51 @@ module PureRun =
                                         $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
                             $"object {encoders[typeId]}({CSharpBackendNames.typeName typeId} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
                         let encoded = encode fn.ResultType "result" "0" 0
+                        let callArms =
+                            sites |> List.mapi (fun site call ->
+                                let arguments =
+                                    call.Operation.Parameters |> List.mapi (fun index parameter ->
+                                        encode parameter.Type $"(({sourceType parameter.Type})arguments[{index}])" "0" 0)
+                                    |> String.concat ", "
+                                $"    {site} => new object[] {{ {site}, new object[] {{ {arguments} }} }},\n")
+                            |> String.concat ""
+                        let fakeClasses =
+                            let mutable site = 0
+                            fakes |> List.map (fun (index, _, capability, scripted) ->
+                                let methods =
+                                    capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                    |> List.map (fun operation ->
+                                        let name = CSharpBackendNames.capabilityOperationName operation.Id
+                                        let parameters =
+                                            operation.Parameters |> List.map (fun parameter -> sourceType parameter.Type + " " + CSharpBackendNames.capabilityParameterName parameter.Id)
+                                            |> String.concat ", "
+                                        let values =
+                                            operation.Parameters |> List.map (fun parameter -> "(object)" + CSharpBackendNames.capabilityParameterName parameter.Id)
+                                            |> String.concat ", "
+                                        let responses =
+                                            scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
+                                            |> Option.map (fun item -> item.Responses) |> Option.defaultValue []
+                                        let cases =
+                                            responses |> List.mapi (fun position response ->
+                                                match response with
+                                                | PureRunFakeResponse.Return value -> $"            case {position}: return {sourceArgument value};\n"
+                                                | PureRunFakeResponse.Throw message -> $"            case {position}: throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});\n")
+                                            |> String.concat ""
+                                        let text =
+                                            $"    int {name}Next;\n"
+                                            + $"    public {sourceType operation.ResultType} {name}({parameters})\n    {{\n"
+                                            + $"        FakeLog.Record({site}, new object[] {{ {values} }});\n"
+                                            + $"        switch ({name}Next++)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n    }}\n"
+                                        site <- site + 1
+                                        text)
+                                    |> String.concat ""
+                                $"sealed class Fake{index} : {CSharpBackendNames.capabilityName capability.Id}\n{{\n{methods}}}\n")
+                            |> String.concat ""
                         let namedEncoders = StringBuilder()
                         while pending.Count > 0 do
                             namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
                         let namedEncoders = namedEncoders.ToString()
-                        let checksText = encoded.Contains("CheckedString(") || namedEncoders.Contains("CheckedString(")
+                        let checksText = (encoded + callArms + namedEncoders).Contains("CheckedString(")
                         // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
                         // conversion limits, or ["exception", type, message, frames] for a program failure.
                         let program =
@@ -741,51 +920,70 @@ module PureRun =
                             + (if checksText then "long textRemaining = 65536;\n" else "")
                             + "try\n{\n"
                             + $"    var result = NyFunctions.{entry}({args});\n"
-                            + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded} }}, options));\n"
+                            + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
                             + "}\n"
                             + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
                             + "catch (Exception error)\n{\n"
                             + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
-                            + "    Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", error.Message, frames }));\n"
+                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", error.Message, frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
+                            + "    catch (RunnerException limit) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", limit.Message })); }\n"
                             + "}\n"
+                            // Calls are encoded after the result, with their own value budget.
+                            + "object[] EncodeCalls()\n{\n    remaining = 8192;\n"
+                            + (if checksText then "    textRemaining = 65536;\n" else "")
+                            + "    return FakeLog.Calls.Select(call => EncodeCall(call.Site, call.Arguments)).ToArray();\n}\n"
+                            + "object EncodeCall(int site, object[] arguments) => site switch\n{\n"
+                            + callArms
+                            + "    _ => throw new RunnerException(\"Unknown capability call site.\"),\n};\n"
                             + "object Count(object value) { if (--remaining < 0) throw new RunnerException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
                             + (if checksText then
                                 "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
                                else "")
                             + namedEncoders
                             + "sealed class RunnerException(string message) : Exception(message);\n"
+                            + "sealed class FakeCapabilityException(string message) : Exception(message);\n"
+                            + "sealed class FakeResponsesExhaustedException() : Exception(\"The fake operation has no scripted response left for this call.\");\n"
+                            + "static class FakeLog\n{\n"
+                            + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"
+                            + "    public static void Record(int site, object[] arguments)\n    {\n"
+                            + "        if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
+                            + "        Calls.Add((site, arguments));\n    }\n}\n"
+                            + fakeClasses
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         let frames = frameResolver artifact.Symbols
-                        let runtimeFailure exceptionType message frameNames =
+                        let runtimeFailure exceptionType message frameNames exhausted calls =
                             PureRunError.RuntimeFailure
                                 { SnapshotId = status.SnapshotId
                                   FunctionId = fn.Id
                                   ExceptionType = exceptionType
                                   Message = message
-                                  Frames = frames frameNames }
+                                  Frames = frames frameNames
+                                  BindingExhausted = exhausted
+                                  Calls = calls }
                         launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
                             launchRaw root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
-                                parseEnvelope declarations.Types fn.ResultType output
+                                parseEnvelope declarations.Types fn.ResultType sites output
                                 |> Result.bind (function
-                                    | Envelope.Value actual -> Ok actual
+                                    | Envelope.Value(actual, calls) -> Ok(actual, calls)
                                     | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
-                                    | Envelope.Exception(exceptionType, message, frameNames) ->
-                                        Error(runtimeFailure exceptionType message frameNames))
+                                    | Envelope.Exception(exceptionType, message, frameNames, calls, exhausted) ->
+                                        Error(runtimeFailure exceptionType message frameNames exhausted calls))
                             elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
                                 // A stack overflow cannot be caught; the runtime prints the stack to stderr.
                                 let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
-                                Error(runtimeFailure "System.StackOverflowException" "Stack overflow." names)
+                                Error(runtimeFailure "System.StackOverflowException" "Stack overflow." names false [])
                             else Error(processFailure output errors))
-                        |> Result.map (fun actual ->
+                        |> Result.map (fun (actual, calls) ->
                             { SnapshotId = status.SnapshotId
                               FunctionId = fn.Id
                               Actual = actual
                               Expected = expected
                               Matches = expected |> Option.map ((=) actual)
-                              Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual) })
+                              Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
+                              Calls = calls })
                     with
                     | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
                     | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)

@@ -36,7 +36,7 @@ module AuthoringProtocol =
     let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
-        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" then
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
         let children =
             match kind with
@@ -44,6 +44,7 @@ module AuthoringProtocol =
             | "product" | "union" -> (array "fields" item).Length
             | "result" -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
+            | "fakeCapability" -> array "operations" item |> List.sumBy (fun operation -> (array "responses" operation).Length)
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
@@ -59,6 +60,30 @@ module AuthoringProtocol =
             ensureFields "Nested Option run value" fields fields item
             PureRunValue.OptionValue(typeRef (property "itemType" item),
                 if hasValue then Some(pureValueAt remaining (depth + 1) (property "value" item)) else None)
+        | "unit" ->
+            ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
+            PureRunValue.Unit
+        | "fakeCapability" ->
+            ensureFields "Fake capability" [ "kind"; "capabilityId"; "operations" ] [ "kind"; "capabilityId"; "operations" ] item
+            let operations = array "operations" item
+            if operations.Length > 256 then fail "A fake capability may script at most 256 operations."
+            PureRunValue.FakeCapability(
+                id<CapabilityTag> "capabilityId" item,
+                operations |> List.map (fun operation ->
+                    ensureFields "Fake operation" [ "operationId"; "responses" ] [ "operationId"; "responses" ] operation
+                    let responses = array "responses" operation
+                    if responses.Length > 256 then fail "A fake operation may script at most 256 responses."
+                    { OperationId = id<CapabilityOperationTag> "operationId" operation
+                      Responses =
+                        responses |> List.map (fun response ->
+                            match requiredString "kind" response with
+                            | "return" ->
+                                ensureFields "Fake return" [ "kind"; "value" ] [ "kind"; "value" ] response
+                                PureRunFakeResponse.Return(pureValueAt remaining (depth + 1) (property "value" response))
+                            | "throw" ->
+                                ensureFields "Fake throw" [ "kind"; "message" ] [ "kind"; "message" ] response
+                                PureRunFakeResponse.Throw(requiredString "message" response)
+                            | other -> fail $"Unsupported fake response kind '{other}'.") }))
         | "string" | "bool" | "int64" ->
             match pureScalar item with
             | PureRunScalar.String text -> PureRunValue.String text
@@ -170,6 +195,18 @@ module AuthoringProtocol =
                   "isOk", box isOk
                   "value", payload ]
         match value with
+        | PureRunValue.Unit -> objectValue [ "kind", box "unit" ]
+        | PureRunValue.FakeCapability(capabilityId, operations) ->
+            let response = function
+                | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
+                | PureRunFakeResponse.Throw message -> objectValue [ "kind", box "throw"; "message", box message ]
+            objectValue
+                [ "kind", box "fakeCapability"
+                  "capabilityId", box (StableId.value capabilityId)
+                  "operations", operations |> List.map (fun operation ->
+                      objectValue
+                          [ "operationId", box (StableId.value operation.OperationId)
+                            "responses", operation.Responses |> List.map response |> arrayValue ]) |> arrayValue ]
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]
@@ -223,6 +260,13 @@ module AuthoringProtocol =
             [ "path", mismatch.Path |> List.map encodePathStep |> arrayValue
               "expected", encodePureValue mismatch.Expected
               "actual", encodePureValue mismatch.Actual ]
+
+    let private encodeCall (call: PureRunCall) =
+        objectValue
+            [ "parameterId", box (StableId.value call.ParameterId)
+              "operationId", box (StableId.value call.OperationId)
+              "arguments", call.Arguments |> List.map (fun (parameterId, value) ->
+                  objectValue [ "capabilityParameterId", box (StableId.value parameterId); "value", encodePureValue value ]) |> arrayValue ]
 
     let private encodeFrame frame =
         match frame with
@@ -641,17 +685,19 @@ module AuthoringProtocol =
                               "actual", encodePureValue result.Actual
                               "expected", result.Expected |> Option.map encodePureValue |> Option.defaultValue null
                               "matches", result.Matches |> Option.map box |> Option.defaultValue null
-                              "mismatch", result.Mismatch |> Option.map encodeMismatch |> Option.defaultValue null ])
+                              "mismatch", result.Mismatch |> Option.map encodeMismatch |> Option.defaultValue null
+                              "calls", result.Calls |> List.map encodeCall |> arrayValue ])
                 | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
                 | Error(PureRunError.RuntimeFailure runtime) ->
                     failure requestId
                         (objectValue
-                            [ "code", box "RunRuntimeFailure"
+                            [ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" else "RunRuntimeFailure")
                               "message", box runtime.Message
                               "functionId", box (StableId.value runtime.FunctionId)
                               "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
                               "exceptionType", box runtime.ExceptionType
-                              "frames", runtime.Frames |> List.map encodeFrame |> arrayValue ])
+                              "frames", runtime.Frames |> List.map encodeFrame |> arrayValue
+                              "calls", runtime.Calls |> List.map encodeCall |> arrayValue ])
                 | Error(PureRunError.Unsupported(code, message)) ->
                     failure requestId
                         (objectValue
