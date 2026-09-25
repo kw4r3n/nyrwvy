@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-09-24
+- **Updated:** 2026-09-25
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -14,7 +14,7 @@ Existing specifications and accepted decisions remain authoritative for exact co
 
 **Do not expand the language or infrastructure merely because M3-M5 are complete.** The next substantial implementation should be selected from a concrete blocked task, measured interaction cost, or real scale/collaboration pressure.
 
-The 2026-09-24 rrawrlet workload review now supplies a concrete language/tool implementation queue in the [general-purpose programming roadmap](general-purpose-programming-roadmap.md). It targets the ability to author and maintain ordinary programs without editing source text, not rrawrlet-specific builtins or provider implementations. The completed M3-M5 claims below remain unchanged; this does not automatically open M6 scale/collaboration work.
+The 2026-09-24 rrawrlet workload review now supplies a concrete language/tool implementation queue in the [general-purpose programming roadmap](general-purpose-programming-roadmap.md). It targets the ability to author and maintain ordinary programs without editing source text, not rrawrlet-specific builtins or provider implementations. That roadmap's goals (G1–G4, T1–T3) were completed on 2026-09-25 through #214 and #215; its remaining T3 non-support (Float64 run values, operations with a declared `failureType`) is recorded there. The completed M3-M5 claims below remain unchanged; this does not automatically open M6 scale/collaboration work.
 
 The post-M2 sequence established that an agent can create a small persistent program, define its domain/capability surface, and perform one identity-preserving cross-cutting evolution through the maintained authoring path. The next question is therefore not “which generic framework comes next?” but “what real task now fails or costs too much?”
 
@@ -134,12 +134,26 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and its evidence/documentation cleanup are complete. Use the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) for the current implementation queue: data operations and repetition, general external binding, declaration evolution/deletion, library reuse, and asynchronous/resource-lifetime expressiveness, with a shared execution/diagnostic path. Select one coherent slice and preserve these constraints:
+The real-host MCP probe and the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) are complete. The next implementation targets are the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps). That document is still **Proposed**, so each item below starts by settling the listed open decisions in a spec or decision record, then implements the smallest change.
+
+**The order is provisional.** A parallel investigation is authoring part of rrawrlet to find the next concrete blocker. If it finds one, that blocker comes first and this order is revised with the reason recorded.
+
+| Order | Gap | Why here | Smallest change |
+| --- | --- | --- | --- |
+| 1 | No function values | The acceptance question fails for computations that need them; a `find<T>(list, predicate)` cannot take its predicate. G2 stopped at context arguments and type parameters. | A function type and function-reference values, reusing callback context binding. |
+| 2 | No scoped interpretation | A program cannot choose a fake or alternate capability implementation; only host binding can. | A declaration implementing each operation of a capability with a Nyrwvy function, producing a capability value. |
+| 3 | No abort | Only fallback exists; `Result` propagation needs an explicit match at each step. | Define abort's meaning (never continues, runs `UseResource` release) before any construct. |
+| 4 | Shared capability under `ParallelAll` | Ordering and visibility for one capability used by several workers are inherited from the backend. | State the guarantees; decide with [Q-010](../decisions/open-questions.md) whether capabilities declare concurrency safety. |
+| 5 | Inferred requirements are not reported | Authoring limitation only; small and independent, so it may be taken earlier. | Expose computed requirements as a derived, non-authoritative review fact. |
+
+Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
+
+Preserve these constraints:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
 2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
-4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first; dependency-tool exposure and retained pins are already implemented in open PR #214 at the review date and must not be duplicated.
+4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first so work is not duplicated.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 
@@ -158,6 +172,7 @@ The earlier #152 cleanup suggestion is historical planning context; this probe d
 - [Verification philosophy](../developer/verification.md)
 - [Open questions](../decisions/open-questions.md)
 - Completed work/issues: #148, #149, #153, #154, #164, #166, #168, #170
+- Completed general-purpose programming roadmap: #214, #215
 - Completed measured discoverability repair: #198; [bounded live follow-up](../verification/expression-recipe-reference-live-probe.md)
 - Deferred build-cost investigation: #109
 

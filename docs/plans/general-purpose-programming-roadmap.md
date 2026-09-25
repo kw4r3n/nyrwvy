@@ -1,9 +1,10 @@
 # 汎用プログラミングと言語・ツール機能の実装計画
 
-- **Status:** Current planning direction
+- **Status:** Historical（完了した計画の記録。G1–G4、T1–T3の完了条件を満たした。T3に残る既知の非対応は§3のT3に記録）
 - **Prepared:** 2026-09-24
+- **Updated:** 2026-09-25（PR #214・#215のマージ後。次の実装キューは[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)）
 - **対象:** Nyrwvyの汎用的な言語機能、実行・外部連携の契約、semantic graphの作成・保守ツール
-- **基準:** main `23a2df028dfbdda046382c26c00ee6d2a7794368`。未マージのPR #214は別枠で確認。
+- **基準:** main `23a2df028dfbdda046382c26c00ee6d2a7794368`。計画策定時点で未マージだったPR #214は別枠で確認した（2026-09-25にマージ済み）。
 - **位置付け:** 当面の実装目標。既存仕様を上書きせず、個々の機能の具体的な意味論は実装着手時に決定・仕様化する。
 
 ## 1. 目的と境界
@@ -34,7 +35,7 @@ rrawrletは不足を発見するための題材であり、Nyrwvyに組み込む
 
 ### 調査時点の既存作業
 
-PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36ac6d11e2b5e81eb72dd26`は調査時点でopen。MCP/OpenCodeからのdependency指定、依存先の正確な内容をsidecarに保持する機能、既存pinの明示的な復旧・移行経路が実装されている。[S4]
+PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36ac6d11e2b5e81eb72dd26`は調査時点でopen（2026-09-25にマージ済み）。MCP/OpenCodeからのdependency指定、依存先の正確な内容をsidecarに保持する機能、既存pinの明示的な復旧・移行経路が実装されている。[S4]
 
 これらはmainの不足ではあるが、新規実装目標としては重複させない。内容保持は同じ版の再現・移動を改善するもので、変更された依存先へのsemantic upgrade、複数・多段依存まで解決したという意味ではない。各作業の開始時にmainと関連PRの状態を再確認する。
 
@@ -70,23 +71,23 @@ PR #214（head `d94e536`）の内容をローカルmainへ統合した。依存s
 
 G1の後続検証では、`ListFold`の蓄積値に残りindexと`Option<String>`を持たせ、通常の関数authoringから型付き`item_at : List<String> * Int64 -> Option<String>`を構築・保存・実行した。空、範囲外、負のindexを確認し、専用のListAtノードを増やさず要素取得を表現できることを確認した。次の段階では序数的`StringEqual`も追加し、双方向`StringContains`による完全一致の合成を簡潔にした。双方向の包含は等値と同値であり、以前の記録にあった誤一致の説明は誤りだった（`"ab"`対`"abab"`は従来の合成でも不一致）。foldによる実行時キー検索を作成・保存・lowering・C#実行まで通した。後続で順序・空文字・Unicodeを保つ`StringConcat`も、JSONLでのauthoring、保存・再オープン、Nyason、lowering、C#実行を通した。またProductの蓄積値に実行時キー・発見フラグ・`Option<String>`の結果を持たせたfoldにより、別の値を持つ同一キーが複数あっても最初の値を返し、未発見・空入力で`None`となる文脈付き検索を通常のauthoring/保存/C#実行で確認した。専用のfindノードは追加していない。その後、数値との変換として`Int64ToString`（不変カルチャの正規10進表記）と`StringParseInt64`（`-`と ASCII数字だけを受け付け、範囲外や他の表記は例外ではなく`None`）を追加し、JSONL authoring、保存・Nyason、lowering、共通runnerでの実行まで確認した。型ごとの関数本体複製を避けるG2の型抽象化、List自体の早期停止、効果付き反復などは未解決。
 
-T3の最初の共通実行入口としてauthoring sessionに`runPure`を追加した。保存済みプログラム中の関数を`FunctionId`、型付きString/Bool/Int64引数、任意の期待値で指定し、C#生成・一時ビルド・別プロセス実行を経てsnapshot/functionのidentityと実結果・一致可否を返す。生成ソースの手修正や関数ごとの手書きrunnerは要らない。続いてString/Bool/Int64のflat List入出力・期待値にも対応し、通常のauthoringで作ったListFold集計を手書きrunnerなしで実行した。空Listにも要素型を明示し、型不正や過大な入力は実行前に拒否する。さらにスカラーのOption入出力・期待値に対応し、NoneとSome(0)/Some(false)を区別し、空入力でNoneを返すfold関数の実行を確認した。スカラー型同士のResultも入出力・期待値に対応し、両側の型とOk/Errを保持する。通常のErrをホスト例外やprotocol失敗と区別し、authoringした条件分岐の両側を共通runnerで実行した。続いてスカラーfieldを持つProductの入出力・期待値に対応した。TypeId/FieldIdで全fieldを検査し、引数順ではなくfield identityで構築・比較する。空Product、field access、構築、Int64境界値、表示名が曖昧なfield、fieldの過不足・型不正の拒否を検証した。スカラーfield／fieldなしvariantからなるUnionも入出力・期待値に対応し、TypeId/VariantId/FieldIdの所有関係とfield型を検査する。Union構築・MatchUnion・variant違いの不一致を通常runnerで確認した。さらにList/Optionを外側に重ねる入れ子に対応し、List<Option<Int64>>、Option<List<Option<String>>>、List<Product>、Option<Union>、List<Result>を検証した。値変換に深さ・合計node数・合計文字列量の制限を設けた。続いてProduct/Unionのfield内部とResultのpayload内部の入れ子にも対応した。fieldは最上位と同じ型付き値形式で再帰的に検査し、両側がスカラーのResultは従来の平坦形式、片側でも非スカラーならTypeRefを持つ入れ子形式に限定した。深さはList/Option/Result/Product/Unionの合成層を経路ごとに8層までとし、再帰的な名前付き型は結果型・container要素型として実行前に拒否する。`List<String>`や`Option<Int64>`をfieldに持つProduct、Productの一覧をfieldに持つUnion、Productやスカラーを包むResult、8段のProduct連鎖を往復させ、field accessとResult構築を含む関数の実行・深い位置の不一致を確認した。続いて再帰的な名前付き型の値にも対応した。型の検査では現在の経路上の名前付き型への再参照を再帰として受け入れ、非循環経路だけに8層の制限を課す。生成runnerは名前付き結果型ごとに1つの変換関数を生成するため、再帰型でもコードは有限で、値は経路ごとに32層までに制限する（入力は実行前、出力は生成runner内で拒否）。`Node { next: Option<Node> }`の連鎖と`List<Tree>`を持つUnionの木を往復させ、再帰値を構築する関数と32層を超える結果の拒否を確認した。さらに診断をsemantic identityへ戻せるようにした。期待値との不一致ではField（TypeId/FieldId）・List index・Some/Ok/Errの経路で最初の差分と両側の部分値を返す。実行中の例外は生成シンボルをsymbol manifestで逆引きし、FunctionId/CapabilityOperationIdの呼び出し列として`RunRuntimeFailure`に含める。捕捉できないstack overflowも実行時のクラッシュ報告から同様に復元し、自己再帰と相互再帰の関数で確認した。変換上限の超過は従来通りprocess診断として区別する。最後に外部binding付きの実行にも対応した。Capability型の引数に、operationごとの戻り値・例外を順に返すfakeを指定でき、runnerはすべてのoperationをExternalImplementationとしてC#を生成し、fakeクラスを生成してその呼び出しをParameterId/CapabilityOperationId/CapabilityParameterIdで記録する。応答の枯渇は`RunBindingExhausted`、fakeの例外は`RunRuntimeFailure`として、operationと呼び出し元関数のframeを伴って返す。Unit値にも対応し、Product引数とResult戻り値を持つlookup、Unitを返すoperationの2回呼び出しを実行した。これまで既存のextended testで手書きしていたfake providerは、共通runnerの要求だけで置き換えられる。実サービスへの接続、`failureType`付きoperation、Float64値、並行・非同期の実行はまだ扱わず、T3全体の完了ではない。
+T3の最初の共通実行入口としてauthoring sessionに`runPure`を追加した。保存済みプログラム中の関数を`FunctionId`、型付きString/Bool/Int64引数、任意の期待値で指定し、C#生成・一時ビルド・別プロセス実行を経てsnapshot/functionのidentityと実結果・一致可否を返す。生成ソースの手修正や関数ごとの手書きrunnerは要らない。続いてString/Bool/Int64のflat List入出力・期待値にも対応し、通常のauthoringで作ったListFold集計を手書きrunnerなしで実行した。空Listにも要素型を明示し、型不正や過大な入力は実行前に拒否する。さらにスカラーのOption入出力・期待値に対応し、NoneとSome(0)/Some(false)を区別し、空入力でNoneを返すfold関数の実行を確認した。スカラー型同士のResultも入出力・期待値に対応し、両側の型とOk/Errを保持する。通常のErrをホスト例外やprotocol失敗と区別し、authoringした条件分岐の両側を共通runnerで実行した。続いてスカラーfieldを持つProductの入出力・期待値に対応した。TypeId/FieldIdで全fieldを検査し、引数順ではなくfield identityで構築・比較する。空Product、field access、構築、Int64境界値、表示名が曖昧なfield、fieldの過不足・型不正の拒否を検証した。スカラーfield／fieldなしvariantからなるUnionも入出力・期待値に対応し、TypeId/VariantId/FieldIdの所有関係とfield型を検査する。Union構築・MatchUnion・variant違いの不一致を通常runnerで確認した。さらにList/Optionを外側に重ねる入れ子に対応し、List<Option<Int64>>、Option<List<Option<String>>>、List<Product>、Option<Union>、List<Result>を検証した。値変換に深さ・合計node数・合計文字列量の制限を設けた。続いてProduct/Unionのfield内部とResultのpayload内部の入れ子にも対応した。fieldは最上位と同じ型付き値形式で再帰的に検査し、両側がスカラーのResultは従来の平坦形式、片側でも非スカラーならTypeRefを持つ入れ子形式に限定した。深さはList/Option/Result/Product/Unionの合成層を経路ごとに8層までとし、再帰的な名前付き型は結果型・container要素型として実行前に拒否する。`List<String>`や`Option<Int64>`をfieldに持つProduct、Productの一覧をfieldに持つUnion、Productやスカラーを包むResult、8段のProduct連鎖を往復させ、field accessとResult構築を含む関数の実行・深い位置の不一致を確認した。続いて再帰的な名前付き型の値にも対応した。型の検査では現在の経路上の名前付き型への再参照を再帰として受け入れ、非循環経路だけに8層の制限を課す。生成runnerは名前付き結果型ごとに1つの変換関数を生成するため、再帰型でもコードは有限で、値は経路ごとに32層までに制限する（入力は実行前、出力は生成runner内で拒否）。`Node { next: Option<Node> }`の連鎖と`List<Tree>`を持つUnionの木を往復させ、再帰値を構築する関数と32層を超える結果の拒否を確認した。さらに診断をsemantic identityへ戻せるようにした。期待値との不一致ではField（TypeId/FieldId）・List index・Some/Ok/Errの経路で最初の差分と両側の部分値を返す。実行中の例外は生成シンボルをsymbol manifestで逆引きし、FunctionId/CapabilityOperationIdの呼び出し列として`RunRuntimeFailure`に含める。捕捉できないstack overflowも実行時のクラッシュ報告から同様に復元し、自己再帰と相互再帰の関数で確認した。変換上限の超過は従来通りprocess診断として区別する。最後に外部binding付きの実行にも対応した。Capability型の引数に、operationごとの戻り値・例外を順に返すfakeを指定でき、runnerはすべてのoperationをExternalImplementationとしてC#を生成し、fakeクラスを生成してその呼び出しをParameterId/CapabilityOperationId/CapabilityParameterIdで記録する。応答の枯渇は`RunBindingExhausted`、fakeの例外は`RunRuntimeFailure`として、operationと呼び出し元関数のframeを伴って返す。Unit値にも対応し、Product引数とResult戻り値を持つlookup、Unitを返すoperationの2回呼び出しを実行した。これまで既存のextended testで手書きしていたfake providerは、共通runnerの要求だけで置き換えられる。実サービスへの接続、`failureType`付きoperation、Float64値はまだ扱わない（並行実行は後続のG4で`ParallelAll`とfakeの`awaitCancellation`により対応した）。これによりT3の完了条件（通常ツールで作ったプログラムをリポジトリ所有の単一入口から検証し、失敗時にsemantic要素と期待・実結果を取得でき、生成ソースを修正しない）を満たす。残る非対応は§3のT3に記録する。
 
 T1の最初の段階では既存のreviewed transactionへ`addProductField`と`deleteFunction`を追加した。Product field追加はすべての構築箇所に型付き既存値を明示して一括修正し、未指定や型不正は公開しない。不要関数はDirectCall/List callback参照・obligationがなくなった後だけ削除できる。既存identityの保持、review、JSONL経由のcommitと再オープンを確認した。次の小さな段階では`removeProductField`も追加し、field accessを事前に修正した後に宣言と構築値を一括除去する。効果を宣言する関数内の構築値は、評価が失われる可能性があるため保守的に拒否する。次の段階では未参照のProduct/Union宣言を`deleteType`で除去する経路を追加し、不要関数の削除と同じreview/publicationに合成できることを確認した。型、関数、capability、構築ノードに参照が残る場合はvalidatorで公開前に拒否する。さらに参照を除去したEffectとCapability宣言も削除できるようにし、関数→Capability→Effectの順でひとつのreviewにまとめ、操作・引数の削除IDと保存・再オープンを確認した。その後、関数の戻り値型変更を`simulateResultTypeMigration`として追加した。引数型移行と共通の内部機構（一時関数によるrecipeの具体化、全直接呼び出し元の差し替え、単一候補の検証・公開）に整理し、両方の移行でOption/Result/Bind/List等を含む全recipe種別を扱えるようにした。`lookup : String -> String`を`Option<String>`へ変更し、呼び出し元を`MatchOption`で書き換える変更をJSONLでreview/commitし、FunctionId・ParameterIdを保持したまま共通runnerで新しい振る舞いを確認した。続いてfieldを持つvariantの追加として`simulateAddUnionVariantLike`を追加した。既存variantのfieldを新しいIDで複製し、追加fieldを加え、全関数・入れ子のmatch armを新しいnode/binding IDで複製して網羅性を保ったまま1回で公開する。追加fieldは束縛のみ行い、armの本体は新IDが確定した後にtargeted replacementで変更する（将来IDの推測は行わない）。複製したarmを通じて新variantの値を共通runnerで実行した。最後に既存Product fieldの型変更として`simulateProductFieldTypeMigration`を追加した。Productを構築または当該fieldを参照するすべての関数の置換本体を必須とし、各本体を型変更後の宣言に対して束縛・型検査したうえで候補全体を一度だけ検証・公開する。`quantity: Int64`を`Option<Int64>`へ変更し、構築・表示・集計の3関数をJSONLでreview/commitして、TypeId・FieldId・関数/引数IDを保持したまま共通runnerで新しい振る舞いを確認した。これにより、field追加・削除・型変更、戻り値型・引数型の移行、fieldを持つvariantの追加、不要宣言の削除を通常ツールだけで、未修正参照や型不正を公開せずに行えるようになり、T1の完了条件を満たす。Union variantのfield型変更、参照元の自動書き換え、汎用migration DSLは引き続き対象外。
 
 ## 3. 実装目標一覧
 
-P0は最初に着手する候補、P1はその後のまとまった実装目標を表す。全項目を一括実装する指示ではない。
+P0は最初に着手する候補、P1はその後のまとまった実装目標を表す。全項目を一括実装する指示ではない。2026-09-25時点で全目標が完了条件を満たした（PR #215でマージ）。「計画時の主な制限」は策定時点の記述であり、各目標の実装内容と対象外は§2の記録にある。
 
-| ID | 優先 | 目標 | 現在の主な制限 |
-| --- | --- | --- | --- |
-| G1 | P0 | 実用的なデータ操作と反復 | Listの集計・要素取得・文脈付きcallback、文字列の基本操作が不足 |
-| G2 | P1 | 関数・型・ライブラリの再利用性 | callbackは既存の純粋な単項関数参照。一般的な関数値・closure・ユーザー定義型パラメーターがない |
-| G3 | P0 | 汎用的な外部連携 | Capability宣言はあるが、C# bindingがConsole専用。一般の戻り値・外部値・失敗を接続する経路が不足 |
-| G4 | P1 | 非同期・並行処理とリソース寿命 | 明示的な非同期合成・待機・停止・後始末の表現と実行契約が未整備 |
-| T1 | P0 | 作成したプログラムを変更・削除し続ける能力 | スキーマ・シグネチャ移行、宣言削除が限定的 |
-| T2 | P1 | 依存関係とプログラムの組み立て | mainは単一・一段の依存。既存PRを踏まえた明示的更新と合成が必要 |
-| T3 | 横断 | 共通の実行・テスト・診断経路 | 既存生成・実行機構を、アプリごとの手書き接着コードに依存しない開発経路へまとめる |
+| ID | 優先 | 目標 | 計画時の主な制限 | 状態 |
+| --- | --- | --- | --- | --- |
+| G1 | P0 | 実用的なデータ操作と反復 | Listの集計・要素取得・文脈付きcallback、文字列の基本操作が不足 | 完了 |
+| G2 | P1 | 関数・型・ライブラリの再利用性 | callbackは既存の純粋な単項関数参照。一般的な関数値・closure・ユーザー定義型パラメーターがない | 完了（関数値・closureは対象外。次のキューへ） |
+| G3 | P0 | 汎用的な外部連携 | Capability宣言はあるが、C# bindingがConsole専用。一般の戻り値・外部値・失敗を接続する経路が不足 | 完了 |
+| G4 | P1 | 非同期・並行処理とリソース寿命 | 明示的な非同期合成・待機・停止・後始末の表現と実行契約が未整備 | 完了 |
+| T1 | P0 | 作成したプログラムを変更・削除し続ける能力 | スキーマ・シグネチャ移行、宣言削除が限定的 | 完了 |
+| T2 | P1 | 依存関係とプログラムの組み立て | mainは単一・一段の依存。既存PRを踏まえた明示的更新と合成が必要 | 完了 |
+| T3 | 横断 | 共通の実行・テスト・診断経路 | 既存生成・実行機構を、アプリごとの手書き接着コードに依存しない開発経路へまとめる | 完了 |
 
 ### G1. データ操作と反復
 
@@ -168,6 +169,11 @@ rrawrletの`team.py`には、文字列IDの比較、usage項目のキーごと�
 
 **完了条件:** 通常ツールで作った小さなプログラムを、リポジトリが所有する単一の実行・検証入口から検証できる。失敗時には対象のsemantic要素と期待・実結果を取得でき、生成ソースを修正せず原因箇所を調べられる。既存の入口を確認し、不足だけを足す。
 
+**完了後に残る既知の非対応:** `runPure`は完了条件を満たすが、次の2点は扱わない。いずれも具体的な利用者が現れた時点で着手する。
+
+- **Float64値:** 入出力の値形式にFloat64がない。Float64の引数は指定できず（`RunArgumentTypeMismatch`）、Float64を含む結果型は実行前に拒否する（`RunResultTypeUnsupported`）。Float64を引数・戻り値に持つoperationを含むCapabilityはfake・host bindingにも指定できない（`RunBindingTypeUnsupported`）。IEEE 754の値（NaN、符号付きゼロ、無限大）の表現と等値比較を決める必要がある。
+- **`failureType`付きoperation:** C# backendが明示的に非対応のため、プログラム中のどこかにあれば実行全体が失敗する。Q-010の方針（具体的な利用者まで非対応）に従い、期待される失敗は`Result`の戻り値で表す。
+
 ## 4. 実装の進め方
 
 **最初の具体的な対象はG1の集計・文脈付き検索。外部機能への汎用的な到達経路としてG3を次の主要目標にする。** T1は継続的な開発の前提なので、非同期や大きなライブラリ基盤の完成まで後回しにしない。
@@ -179,6 +185,8 @@ rrawrletの`team.py`には、文字列IDの比較、usage項目のキーごと�
 | 3 | T1の最初のスキーマ変更と削除経路 | 新規作成したプログラムに仕様変更を加え、不要要素も除去できる。 |
 | 4 | T2と必要なG2のライブラリ再利用 | 複数・多段依存と明示更新を扱い、必要な型抽象化を追加する。 |
 | 5 | G4の非同期・寿命管理と残る反復表現 | 外部fake処理を組み合わせ、待機・停止・後始末を記述する。 |
+
+**2026-09-25時点で上表の1–5はすべて完了した。** 以降の実装キューは本計画ではなく[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)で管理し、[Semantic independence](../concepts/semantic-independence.md#current-gaps)のギャップを対象にする。
 
 T3は各段階で必要な細い実行・診断経路を先に整え、共通化の必要が具体化したところでまとめる。上表は依存関係を踏まえた推奨順であり、別の具体的なblockerが先に出た場合は理由を記録して入れ替える。全目標を達成するまでrrawrletの全面移植を始められない、という意味ではない。移植の可否と範囲は別途判断する。
 
