@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-09-24
+- **Updated:** 2026-09-25
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -14,7 +14,7 @@ Existing specifications and accepted decisions remain authoritative for exact co
 
 **Do not expand the language or infrastructure merely because M3-M5 are complete.** The next substantial implementation should be selected from a concrete blocked task, measured interaction cost, or real scale/collaboration pressure.
 
-The 2026-09-24 rrawrlet workload review now supplies a concrete language/tool implementation queue in the [general-purpose programming roadmap](general-purpose-programming-roadmap.md). It targets the ability to author and maintain ordinary programs without editing source text, not rrawrlet-specific builtins or provider implementations. The completed M3-M5 claims below remain unchanged; this does not automatically open M6 scale/collaboration work.
+The 2026-09-24 rrawrlet workload review now supplies a concrete language/tool implementation queue in the [general-purpose programming roadmap](general-purpose-programming-roadmap.md). It targets the ability to author and maintain ordinary programs without editing source text, not rrawrlet-specific builtins or provider implementations. That roadmap's goals (G1–G4, T1–T3) were completed on 2026-09-25 through #214 and #215; its remaining T3 non-support (Float64 run values, operations with a declared `failureType`) is recorded there. The completed M3-M5 claims below remain unchanged; this does not automatically open M6 scale/collaboration work.
 
 The post-M2 sequence established that an agent can create a small persistent program, define its domain/capability surface, and perform one identity-preserving cross-cutting evolution through the maintained authoring path. The next question is therefore not “which generic framework comes next?” but “what real task now fails or costs too much?”
 
@@ -134,12 +134,28 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and its evidence/documentation cleanup are complete. Use the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) for the current implementation queue: data operations and repetition, general external binding, declaration evolution/deletion, library reuse, and asynchronous/resource-lifetime expressiveness, with a shared execution/diagnostic path. Select one coherent slice and preserve these constraints:
+The real-host MCP probe and the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) are complete. The next implementation targets come from two sources: a 2026-09-25 rrawrlet slice probe, and the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps).
+
+The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
+
+**The order is provisional.** Items 1 and 2 are the two candidates for the next step, and neither has been chosen. Item 1 is the first blocker; item 2 is the smallest certain step. Revise the order with the reason recorded when a choice is made or new evidence appears.
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 1 | Concurrency control beyond `ParallelAll` | The rrawrlet leader waits for whichever member finishes first with a time limit, and stops one member from outside. `ParallelAll` only waits for all or cancels all on the first `Err`. Same area as the semantic-independence "no abort" and "shared capability under `ParallelAll`" gaps. | A design note first (structured races or task handles, time limits, per-worker cancellation, how abort and `UseResource` release interact), before any construct. |
+| 2 | No String length or substring | `preview(text, limit)` cannot be written; only empty/contains/equal/concat and Int64 conversion exist. | A small G1-style addition with UTF-16 or code-point semantics stated. |
+| 3 | Fakes cannot target one call | Fake responses are consumed in call order across all workers, so "only member 2 fails" cannot be pinned down. | Responses keyed by argument, or a separate fake per worker, in `runPure`. |
+| 4 | Stable IDs still required | Effect/Capability creation has no name-resolved form, and `runPure` values take only TypeId/FieldId; the probe needed a 30-line name→ID helper. | Name-resolved forms with the same ambiguity rejection as other graph tools. |
+| 5 | No Bool and/or/not, no Map | Expressible (nested conditionals; `List` of entries with a fold upsert), but verbose: 2 extra types and 2 extra functions in the probe. | Decide whether the review and authoring cost justifies dedicated constructs. |
+
+The remaining semantic-independence gaps follow without a fixed order: scoped interpretation (program-chosen capability implementation), function values, and reporting inferred requirements (small and independent, so it may be taken earlier). Abort and the shared-capability contract are covered by item 1. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
+
+Preserve these constraints:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
 2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
-4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first; dependency-tool exposure and retained pins are already implemented in open PR #214 at the review date and must not be duplicated.
+4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first so work is not duplicated.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 
@@ -158,6 +174,7 @@ The earlier #152 cleanup suggestion is historical planning context; this probe d
 - [Verification philosophy](../developer/verification.md)
 - [Open questions](../decisions/open-questions.md)
 - Completed work/issues: #148, #149, #153, #154, #164, #166, #168, #170
+- Completed general-purpose programming roadmap: #214, #215
 - Completed measured discoverability repair: #198; [bounded live follow-up](../verification/expression-recipe-reference-live-probe.md)
 - Deferred build-cost investigation: #109
 
