@@ -307,3 +307,10 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 Milestone 1 is complete for its accepted bounded-operation claim, including its recorded agent evaluation.
 
 Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged; scoped lexical control-flow authoring was verified separately because it introduced a new interaction assumption rather than changing the completed M2 milestone.
+
+## Proposed, not implemented: typed function abort
+
+The [typed function-abort contract](../specs/typed-function-abort.md) defines a
+possible local early exit for Result-returning functions, including resource
+cleanup and worker failure behavior. No Abort node, recipe or runtime support is
+currently available. Existing Result/Option matching remains the supported path.

@@ -75,7 +75,7 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 | Gap | Class | Smallest change | Open decisions |
 | --- | --- | --- | --- |
 | Broader scoped interpretation: stateful/effectful implementations and resumable handlers are absent. Pure stateless program implementations are now available. | Missing semantics | The bounded pure case is covered by [program capability implementations](../specs/program-capability-implementations.md). Extend only for a concrete consumer. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
-| No abort: only fallback exists, and `Result` propagation needs an explicit match at each step. | Missing semantics | Define abort's meaning (never continues, runs `UseResource` release) before any construct. | Whether abort is typed, and how it crosses `ParallelAll`. |
+| No implemented abort: Result propagation still needs explicit matching. | Missing implementation; proposed semantics | [Typed function abort](../specs/typed-function-abort.md) defines local early exit as Err from a Result-returning function, with cleanup and the existing worker-failure contract. | Exact authoring/encoding and lowering await implementation; broader non-local abort remains outside this proposal. |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
 | No per-declaration content hash. | Not a gap yet | Add one only when dependency upgrade or semantic diff needs "unchanged" per declaration. | Normalization and dependency rules. |
 
@@ -88,7 +88,7 @@ These examples test the direction; they are not an implementation mandate.
 | Probe | Current result |
 | --- | --- |
 | Value update vs shared mutation | Distinguishable: pure construction versus a capability operation with a declared effect. |
-| Abort vs fallback | Fallback only. |
+| Abort vs fallback | Fallback is implemented; typed function-local abort has a proposed contract only. |
 | Generic list search | `find<T>(list, predicate)` composes `ListFold`, callback context, and pure capture-free function values. The same body accepts different predicates and element types. |
 | Alternate request interpretation | Pure stateless implementations can be chosen and passed by the program; host binding remains available. |
 

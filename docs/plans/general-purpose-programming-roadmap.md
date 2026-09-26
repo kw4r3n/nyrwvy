@@ -36,9 +36,11 @@ G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[�
 | --- | --- | --- |
 | 1 | 現状と履歴の整理 | 本文を現在の対応表と作業順へ整理し、古い制限・調査・実装記録をarchiveへ保持する。この整理で完了。 |
 | 2 | Nyrwvy内でCapability実装を選択（実装済み） | 各operationを既存の純粋・captureなしの関数へ対応付け、Capability値を作って渡す。同じ利用側関数へ2実装を渡して結果を切り替え、通常authoring・review・保存/再オープン・共通runnerを通す。operation不足・型不一致・不純な実装を公開前に拒否する。[実行・検証記録](../verification/program-capability-implementations-20260926.md)。 |
-| 3 | abortの意味論を仕様化 | 中断範囲、型付き失敗との関係、`UseResource`の解放、`ParallelAll`のキャンセルと終了待ちを定義する。仕様化と実装済みの主張を区別する。 |
+| 3 | abortの意味論を仕様化（仕様案作成済み） | [型付き関数abort](../specs/typed-function-abort.md)は`Result<T,E>`関数のローカルな早期終了を定義する。解放・失敗優先順位・並行workerのキャンセルと終了待ちを明記した。ノード・authoring・runtimeは未実装。 |
 
 Capability実装は呼び出し側の既存Effect契約を自動で狭めない。実装が新たな効果を導入する一般形、状態・capture、継続を再開するhandlerはこの最初の段階に含めない。[Semantic independence](../concepts/semantic-independence.md)全体を採用したという意味でもない。
+
+当該3作業は完了。次にabortを実装する場合は仕様案のimplementation gatesを用い、現在利用可能な言語機能とは区別する。
 
 ## 各作業で維持する条件
 
