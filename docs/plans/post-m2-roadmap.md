@@ -134,12 +134,12 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and its evidence/documentation cleanup are complete. Use the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) for the current implementation queue: data operations and repetition, general external binding, declaration evolution/deletion, library reuse, and asynchronous/resource-lifetime expressiveness, with a shared execution/diagnostic path. Select one coherent slice and preserve these constraints:
+The real-host MCP probe and its evidence/documentation cleanup are complete. Use the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) for the current implementation queue: the completed bounded G1-G4/T1-T3 outcomes and the next Capability-implementation and abort-contract work. Select one coherent slice and preserve these constraints:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
 2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
-4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first; dependency-tool exposure and retained pins are already implemented in open PR #214 at the review date and must not be duplicated.
+4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first. Dependency-tool exposure, retained pins, multiple/transitive dependencies, and reviewed upgrades are implemented; use the maintained roadmap rather than the original PR #214 review-date status.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 
