@@ -420,6 +420,14 @@ module internal WireEncode =
                 "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
             | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
             | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
+            | AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired(functionId, nodeId, capabilityId, operationId)) ->
+                "ConcurrentCapabilityBindingRequired",
+                "An operation reachable from a ParallelAll worker requires a capability binding that supports concurrent calls.",
+                Some(objectValue
+                    [ "functionId", box (StableId.value functionId)
+                      "nodeId", box (StableId.value nodeId)
+                      "capabilityId", box (StableId.value capabilityId)
+                      "operationId", box (StableId.value operationId) ])
             | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
             | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
         match details with

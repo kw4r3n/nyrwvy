@@ -64,8 +64,8 @@ module AuthoringProtocol =
             ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
             PureRunValue.Unit
         | "hostCapability" ->
-            ensureFields "Host capability" [ "kind"; "capabilityId"; "implementation" ] [ "kind"; "capabilityId"; "implementation" ] item
-            PureRunValue.HostCapability(id<CapabilityTag> "capabilityId" item, requiredString "implementation" item)
+            ensureFields "Host capability" [ "kind"; "capabilityId"; "implementation"; "supportsConcurrentCalls" ] [ "kind"; "capabilityId"; "implementation" ] item
+            PureRunValue.HostCapability(id<CapabilityTag> "capabilityId" item, requiredString "implementation" item, optionalBool "supportsConcurrentCalls" false item)
         | "fakeCapability" ->
             ensureFields "Fake capability" [ "kind"; "capabilityId"; "operations" ] [ "kind"; "capabilityId"; "operations" ] item
             let operations = array "operations" item
@@ -202,8 +202,8 @@ module AuthoringProtocol =
                   "value", payload ]
         match value with
         | PureRunValue.Unit -> objectValue [ "kind", box "unit" ]
-        | PureRunValue.HostCapability(capabilityId, implementation) ->
-            objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation ]
+        | PureRunValue.HostCapability(capabilityId, implementation, concurrent) ->
+            objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation; "supportsConcurrentCalls", box concurrent ]
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let response = function
                 | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
@@ -815,7 +815,7 @@ module AuthoringProtocol =
                     | "externalImplementations" ->
                         ensureFields
                             "External C# implementations profile"
-                            [ "kind"; "operationIds" ]
+                            [ "kind"; "operationIds"; "concurrentCapabilityIds" ]
                             [ "kind"; "operationIds" ]
                             profileValue
                         let operationIds =
@@ -824,7 +824,15 @@ module AuthoringProtocol =
                                 if element.ValueKind <> JsonValueKind.String then
                                     WireInput.fail "External operation ID must be a string."
                                 stableId<CapabilityOperationTag> "operationId" (element.GetString()))
+                        let concurrentIds =
+                            tryProperty "concurrentCapabilityIds" profileValue
+                            |> Option.map (fun _ ->
+                                array "concurrentCapabilityIds" profileValue |> List.map (fun element ->
+                                    if element.ValueKind <> JsonValueKind.String then fail "Concurrent capability ID must be a string."
+                                    stableId<CapabilityTag> "capabilityId" (element.GetString())))
+                            |> Option.defaultValue []
                         CSharpBackendProfile.externalImplementations operationIds
+                        |> CSharpBackendProfile.withConcurrentCapabilities concurrentIds
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
                 match session.EmitCSharp profile with
                 | Ok artifact -> success requestId (WireEncode.csharpArtifact artifact)

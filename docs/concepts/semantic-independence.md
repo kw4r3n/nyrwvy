@@ -78,7 +78,6 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 | No scoped interpretation: capability values arrive only from the host, so a program cannot choose a fake or alternate implementation. | Missing semantics | A declaration that implements each operation of a capability with a Nyrwvy function, producing a capability value that is passed like any other. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
 | No abort: only fallback exists, and `Result` propagation needs an explicit match at each step. | Missing semantics | Define abort's meaning (never continues, runs `UseResource` release) before any construct. | Whether abort is typed, and how it crosses `ParallelAll`. |
 | Inferred requirements are checked but not reported. | Authoring limitation | Expose computed requirements as a derived, non-authoritative review fact. | None beyond presentation. |
-| No contract for one capability value used by several `ParallelAll` workers. | Missing semantics | State which ordering and visibility guarantees hold, instead of inheriting the backend's. | Whether capabilities declare concurrency safety (see [Q-010](../decisions/open-questions.md)). |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
 | No per-declaration content hash. | Not a gap yet | Add one only when dependency upgrade or semantic diff needs "unchanged" per declaration. | Normalization and dependency rules. |
 
@@ -96,6 +95,12 @@ These examples test the direction; they are not an implementation mandate.
 | Alternate request interpretation | Only by host binding. |
 
 ## Acceptance question
+
+The former shared-capability gap is now covered by the accepted
+[ParallelAll sharing contract](../specs/parallel-capability-sharing.md): no
+cross-worker order is promised; host bindings explicitly assert concurrent safety
+and visibility, and emission checks transitive worker operations. This resolution
+does not promote the other proposals in this document to accepted specifications.
 
 Can a new computation be defined by composing existing meanings, stay inspectable, editable, and reviewable at that level, and report backend non-support without changing its meaning? Today the third part holds; the first two fail for computations that need function values or program-chosen interpretation.
 

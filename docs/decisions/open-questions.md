@@ -177,7 +177,13 @@ Add a property only when validation, planning, execution, review, or another con
 
 ### Current position
 
-The proven synchronous Console boundary carries only the facts needed by current validators, lowering, backend binding, and viewer behavior.
+The synchronous Console boundary retains its existing typed operations. Concurrent
+use now consumes an explicit capability-wide host binding assertion: all worker
+calls, including transitive calls and cleanup, require concurrent support before
+emission. Sharing order and visibility are defined by the
+[ParallelAll capability-sharing contract](../specs/parallel-capability-sharing.md).
+This does not add speculative properties to semantic declarations or an ownership
+system; other capability properties remain open.
 
 ### Resolution target
 

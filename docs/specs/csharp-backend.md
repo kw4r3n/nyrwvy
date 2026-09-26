@@ -21,6 +21,12 @@ External behavior is bound through stable capability-operation identity. A requi
 
 Bindings must not be inferred from display names. The profile supports `SystemConsoleWriteLine` for its existing narrow signature and `ExternalImplementation` for a host-supplied implementation of the **generated typed capability interface**. A host must explicitly bind every operation of an externally implemented capability (by `CapabilityOperationId`) and pass its implementation as the function's capability argument. The emitter generates the interface and symbol manifest, but **no adapter or implementation** for that capability. Mixed Console/external bindings on one capability are rejected; unbound operations remain backend-readiness failures. `emitCSharp` accepts `{ "kind": "externalImplementations", "operationIds": ["<stable ID>", ...] }` as an explicit profile. This profile does not load or execute arbitrary source text.
 
+Shared capability use by `ParallelAll` additionally requires the profile's explicit
+`ConcurrentCapabilityIds` assertion (wire: `concurrentCapabilityIds` on an
+`externalImplementations` profile). Missing support is diagnosed before emission,
+including transitive worker calls and resource releases. No implicit serialization
+adapter is generated. See the [sharing contract](parallel-capability-sharing.md).
+
 ## Generated identifiers
 
 Generated C# identifiers are deterministic backend artifacts, not semantic identity. Their construction must be injective for the identities they encode and must not depend on mutable display names.

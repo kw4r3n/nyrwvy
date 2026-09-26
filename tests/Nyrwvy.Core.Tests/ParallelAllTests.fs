@@ -2,6 +2,7 @@ namespace Nyrwvy.Core.Tests
 
 open System
 open System.IO
+open System.Text.Json
 open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
@@ -89,6 +90,162 @@ module ParallelAllTests =
     let private jobs (fixture: Fixture) responses =
         PureRunValue.FakeCapability(fixture.Jobs.Id, [ { OperationId = (List.exactlyOne fixture.Jobs.Operations).Id; Responses = responses } ])
 
+    let private profile (fixture: Fixture) =
+        CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun op -> op.Id))
+
+    let private assertConcurrentRequired capabilityId outcome =
+        match outcome with
+        | Error(CSharpBackendError.ConcurrentCapabilityBindingRequired(_, _, actual, _)) -> Assert.Equal(capabilityId, actual)
+        | other -> failwithf "Expected concurrent binding rejection: %A" other
+
+    [<Fact>]
+    let ``parallel bindings are explicit and diagnosed with semantic identities through JSON`` () =
+        withFixture (fun fixture ->
+            let program = fixture.Session.ProjectExecution() |> unwrap "lower"
+            CSharpBackend.emit program (profile fixture) |> assertConcurrentRequired fixture.Jobs.Id
+            let safe = profile fixture |> CSharpBackendProfile.withConcurrentCapabilities [ fixture.Jobs.Id ]
+            // Files is used outside workers, around the join, so it may remain sequential.
+            CSharpBackend.emit program safe |> unwrap "safe" |> ignore
+            let unknown = StableId.createForTesting<CapabilityTag> "capability-unknown-concurrency"
+            match CSharpBackend.emit program (safe |> CSharpBackendProfile.withConcurrentCapabilities [ unknown ]) with
+            | Error(CSharpBackendError.InvalidConcurrentCapabilityBinding id) -> Assert.Equal(unknown, id)
+            | other -> failwithf "Unknown concurrency assertion accepted: %A" other
+            let operationIds = (profile fixture).CapabilityBindings |> List.map (fun binding -> StableId.value binding.OperationId) |> JsonSerializer.Serialize
+            let emit extra =
+                let line = $"""{{"id":"emit","op":"emitCSharp","profile":{{"kind":"externalImplementations","operationIds":{operationIds}{extra}}}}}"""
+                AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+            use rejected = emit ""
+            let error = rejected.RootElement.GetProperty("error")
+            Assert.Equal("ConcurrentCapabilityBindingRequired", error.GetProperty("code").GetString())
+            let details = error.GetProperty("details")
+            let worker = fixture.Function "runJob"
+            Assert.Equal(StableId.value worker.Id, details.GetProperty("functionId").GetString())
+            Assert.Equal(StableId.value fixture.Jobs.Id, details.GetProperty("capabilityId").GetString())
+            Assert.Equal(StableId.value (List.exactlyOne fixture.Jobs.Operations).Id, details.GetProperty("operationId").GetString())
+            Assert.False(String.IsNullOrEmpty(details.GetProperty("nodeId").GetString()))
+            use accepted = emit ($""", "concurrentCapabilityIds":["{StableId.value fixture.Jobs.Id}"]""")
+            Assert.True(accepted.RootElement.GetProperty("ok").GetBoolean(), accepted.RootElement.ToString())
+            use invalid = emit ", \"concurrentCapabilityIds\":[true]"
+            Assert.False(invalid.RootElement.GetProperty("ok").GetBoolean()))
+
+    [<Fact>]
+    let ``worker reachability checks indirect calls folds releases and cycles without requiring unused context`` () =
+        withFixture (fun fixture ->
+            let session = fixture.Session
+            let slot = ExpressionRecipe.ParameterSlot
+            let param (fn: SemanticFunction) name = (fn.Parameters |> List.find (fun p -> p.DisplayName = name)).Id
+            let create name parameters resultType effects body =
+                session.SimulateCreateFunction(creation session name parameters resultType effects body) |> unwrap name |> publish session
+                fixture.Function name
+            let capType = TypeRef.Capability fixture.Jobs.Id
+            let runJob = fixture.Function "runJob"
+            let indirect = create "indirect" [ "jobs", capType; "name", stringType ] (result stringType) [ fixture.Effect.Id ]
+                                (ExpressionRecipe.DirectCall(runJob.Id, [ param runJob "jobs", slot 0; param runJob "name", slot 1 ]))
+            let folder = create "folder" [ "jobs", capType; "state", stringType; "name", stringType ] (result stringType) [ fixture.Effect.Id ]
+                                (ExpressionRecipe.DirectCall(indirect.Id, [ param indirect "jobs", slot 0; param indirect "name", slot 2 ]))
+            let foldWorker = create "foldWorker" [ "jobs", capType; "name", stringType ] (result stringType) [ fixture.Effect.Id ]
+                                (ExpressionRecipe.ListEffectFold(ExpressionRecipe.ListConstruct(stringType, [ slot 1 ]), ExpressionRecipe.StringLiteral "", folder.Id, [ param folder "jobs", slot 0 ]))
+            let createParallel name (worker: SemanticFunction) capId =
+                create name [ "cap", TypeRef.Capability capId ] (result (listOf stringType)) [ fixture.Effect.Id ]
+                    (ExpressionRecipe.ParallelAll(ExpressionRecipe.ListEmpty stringType, worker.Id, [ worker.Parameters.Head.Id, slot 0 ]))
+            let throughFold = createParallel "throughFold" foldWorker fixture.Jobs.Id
+            let body = create "resourceBody" [ "handle", stringType ] (result stringType) [] (ExpressionRecipe.ResultOk(stringType, slot 0))
+            let close = fixture.Files.Operations |> List.find (fun op -> op.DisplayName = "close")
+            let releaseWorker = create "releaseWorker" [ "files", TypeRef.Capability fixture.Files.Id; "name", stringType ] (result stringType) [ fixture.Effect.Id ]
+                                    (ExpressionRecipe.UseResource(ExpressionRecipe.ResultOk(stringType, slot 1), slot 0, close.Id, body.Id, []))
+            let throughRelease = createParallel "throughRelease" releaseWorker fixture.Files.Id
+            let unused = create "unusedCapability" [ "jobs", capType; "name", stringType ] (result stringType) [] (ExpressionRecipe.ResultOk(stringType, slot 1))
+            let unusedEntry = createParallel "unusedEntry" unused fixture.Jobs.Id
+            let program = session.ProjectExecution() |> unwrap "lower"
+            let emit entry = CSharpBackend.emit (ExecutionCallGraph.forEntry program entry) (profile fixture)
+            // Even an empty source is checked structurally. The operation sits behind both a fold and a direct call.
+            emit throughFold.Id |> assertConcurrentRequired fixture.Jobs.Id
+            emit throughRelease.Id |> assertConcurrentRequired fixture.Files.Id
+            emit unusedEntry.Id |> unwrap "unused context" |> ignore
+            emit runJob.Id |> unwrap "sequential entry" |> ignore
+            // A recursive edge must not prevent discovering the existing invocation or terminate traversal early.
+            let addCycle (fn: ExecutionFunction) =
+                if fn.SemanticFunctionId <> runJob.Id then fn else
+                    let blocks = fn.Blocks |> List.map (fun block ->
+                        let call = { block.Instructions.Head with Kind = ExecutionInstructionKind.DirectCall(indirect.Id, []) }
+                        { block with Instructions = call :: block.Instructions })
+                    { fn with Blocks = blocks }
+            let recursive = { program with Functions = List.map addCycle program.Functions }
+            CSharpBackend.emit (ExecutionCallGraph.forEntry recursive throughFold.Id) (profile fixture)
+            |> assertConcurrentRequired fixture.Jobs.Id)
+
+    [<Fact>]
+    let ``runner rejects an unasserted host before compiling and cannot launder it through a safe fake`` () =
+        withFixture (fun fixture ->
+            // Intentionally invalid host source proves admission rejects before compilation.
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Host.cs"), "not C sharp")
+            let request support =
+                $"""{{"id":"run","op":"runPure","functionId":"{StableId.value (fixture.Function "runAll").Id}","hostSources":["Host.cs"],"arguments":[{{"kind":"list","itemKind":"string","items":[]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Jobs.Id}","implementation":"Counter"{support}}}]}}"""
+            for support in [ ""; ",\"supportsConcurrentCalls\":false" ] do
+                use response = AuthoringProtocol.executeLine fixture.Session (request support) |> JsonDocument.Parse
+                Assert.Equal("ConcurrentCapabilityBindingRequired", response.RootElement.GetProperty("error").GetProperty("code").GetString())
+            use malformed = AuthoringProtocol.executeLine fixture.Session (request ",\"supportsConcurrentCalls\":\"true\"") |> JsonDocument.Parse
+            Assert.False(malformed.RootElement.GetProperty("ok").GetBoolean())
+            let runAll = fixture.Function "runAll"
+            let request = creation fixture.Session "mixedInstances"
+                                [ "names", listOf stringType; "safe", TypeRef.Capability fixture.Jobs.Id; "unsafe", TypeRef.Capability fixture.Jobs.Id ]
+                                runAll.ResultType [ fixture.Effect.Id ]
+                                (ExpressionRecipe.DirectCall(runAll.Id, [ runAll.Parameters[0].Id, ExpressionRecipe.ParameterSlot 0; runAll.Parameters[1].Id, ExpressionRecipe.ParameterSlot 1 ]))
+            fixture.Session.SimulateCreateFunction request |> unwrap "mixed" |> publish fixture.Session
+            match PureRun.runWithHost fixture.Session (fixture.Function "mixedInstances").Id
+                      [ PureRunValue.StringList []; jobs fixture []; PureRunValue.HostCapability(fixture.Jobs.Id, "Counter", false) ] None [ "Host.cs" ] with
+            | Error(PureRunError.SessionFailure(AuthoringSessionError.BackendFailure error)) ->
+                Error error |> assertConcurrentRequired fixture.Jobs.Id
+            | other -> failwithf "Unsafe instance accepted: %A" other)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``shared fake consumes each ticket once in recorded call order and retains state after join`` () =
+        withFixture (fun fixture ->
+            let names = [ for i in 1 .. 32 -> string i ]
+            let tickets = [ for i in 1 .. 32 -> "ticket-" + string i ]
+            let completed = PureRun.run fixture.Session (fixture.Function "runAll").Id
+                                [ PureRunValue.StringList names; jobs fixture (tickets |> List.map (okText >> PureRunFakeResponse.Return)) ] None |> unwrap "tickets"
+            let assigned = List.zip completed.Calls tickets |> List.map (fun (call, ticket) ->
+                (List.exactlyOne call.Arguments |> snd), ticket) |> Map.ofList
+            let expected = names |> List.map (fun name -> Map.find (PureRunValue.String name) assigned)
+            Assert.Equal(PureRunValue.ResultValue(listOf stringType, stringType, true, PureRunValue.StringList expected), completed.Actual)
+            let runAll, runJob = fixture.Function "runAll", fixture.Function "runJob"
+            let request = creation fixture.Session "afterJoin" [ "names", listOf stringType; "jobs", TypeRef.Capability fixture.Jobs.Id ] (result stringType) [ fixture.Effect.Id ]
+                            (ExpressionRecipe.Bind(
+                                ExpressionRecipe.DirectCall(runAll.Id, [ runAll.Parameters[0].Id, ExpressionRecipe.ParameterSlot 0; runAll.Parameters[1].Id, ExpressionRecipe.ParameterSlot 1 ]),
+                                ExpressionRecipe.DirectCall(runJob.Id, [ runJob.Parameters[0].Id, ExpressionRecipe.ParameterSlot 1; runJob.Parameters[1].Id, ExpressionRecipe.StringLiteral "read" ])))
+            fixture.Session.SimulateCreateFunction request |> unwrap "after join" |> publish fixture.Session
+            let joined = PureRun.run fixture.Session (fixture.Function "afterJoin").Id
+                            [ PureRunValue.StringList [ "a"; "b" ]; jobs fixture ([ "one"; "two"; "three" ] |> List.map (okText >> PureRunFakeResponse.Return)) ] None |> unwrap "joined"
+            Assert.Equal(okText "three", joined.Actual)
+            Assert.Equal(PureRunValue.String "read", List.last joined.Calls |> fun call -> List.exactlyOne call.Arguments |> snd))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``concurrent stateful host runs through JSON and sequential host needs no assertion`` () =
+        withFixture (fun fixture ->
+            let operation = List.exactlyOne fixture.Jobs.Operations
+            let source = String.concat "\n"
+                            [ "using Nyrwvy.Generated;"
+                              $"public sealed class Counter : {CSharpBackendNames.capabilityName fixture.Jobs.Id}"
+                              "{"
+                              "    int count;"
+                              $"    public NyResult<string, string> {CSharpBackendNames.capabilityOperationName operation.Id}(string name)"
+                              "    {"
+                              "        int next = System.Threading.Interlocked.Increment(ref count);"
+                              "        return NyResult<string, string>.Ok(next.ToString(System.Globalization.CultureInfo.InvariantCulture));"
+                              "    }"
+                              "}" ]
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Host.cs"), source)
+            let line =
+                $"""{{"id":"host","op":"runPure","functionId":"{StableId.value (fixture.Function "runAll").Id}","hostSources":["Host.cs"],"arguments":[{{"kind":"list","itemKind":"string","items":["a","b"]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Jobs.Id}","implementation":"Counter","supportsConcurrentCalls":true}}]}}"""
+            use response = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+            let actual = response.RootElement.GetProperty("result").GetProperty("actual").GetProperty("value").GetProperty("items")
+            Assert.Equal<string list>([ "1"; "2" ], actual.EnumerateArray() |> Seq.map (fun value -> value.GetString()) |> Seq.sort |> Seq.toList)
+            let sequential = PureRun.runWithHost fixture.Session (fixture.Function "runJob").Id
+                                [ PureRunValue.HostCapability(fixture.Jobs.Id, "Counter", false); PureRunValue.String "a" ] None [ "Host.cs" ] |> unwrap "sequential"
+            Assert.Equal(okText "1", sequential.Actual))
+
     [<Fact>]
     let ``ParallelAll checks its worker and persists`` () =
         withFixture (fun fixture ->
@@ -105,7 +262,7 @@ module ParallelAllTests =
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText fixture.Path) |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap "nyason") |> unwrap "nyason decode"))
-            let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun item -> item.Id))) |> unwrap "emit"
+            let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun item -> item.Id)) |> CSharpBackendProfile.withConcurrentCapabilities [ fixture.Jobs.Id ]) |> unwrap "emit"
             Assert.Contains("public static class NyRuntime", artifact.Source)
             Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value)", artifact.Source)
             // A program without concurrency never contains the runtime helper.

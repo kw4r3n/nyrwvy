@@ -8,6 +8,12 @@
 
 ## 1. 目的と境界
 
+### 現在の残件（2026-09-26更新）
+
+以下の制限表・調査記録は計画開始時点の記録を含む。型パラメーター、依存更新、宣言移行、`UseResource`、`ParallelAll`は実装済みで、再実装する残件ではない。`ParallelAll`のCapability共有も[契約](../specs/parallel-capability-sharing.md)を定義し、並行対応bindingの明示・生成前の到達先検証・共通runnerのfake/host対応を追加した。
+
+次の候補は、本文から導くEffect要求を根拠のsemantic IDとともにinspect/reviewへ表示することと、純粋・captureなしの関数値を最小範囲で導入すること。どちらも今回の共有契約には含めない。一般closure、型パラメーター付き宣言型、所有権・借用、独自schedulerも未導入のままとする。
+
 **Nyrwvyは、プログラム言語の代替として、ソーステキストを直接編集せずにプログラムを構築・変更するための層である。** 永続的な型付きsemantic graphがプログラム本体であり、生成コードはその投影である。[Vision](../concepts/vision.md)のこの方向を、実用的なプログラムの表現力と保守可能性まで広げる。
 
 rrawrletは不足を発見するための題材であり、Nyrwvyに組み込む製品機能の一覧ではない。問うのは「rrawrlet相当のプログラムをNyrwvyで記述・変更するために、言語とツールに何が足りないか」である。本計画はrrawrletの移植作業そのものや、そのエージェントにNyrwvyを利用させる計画ではない。

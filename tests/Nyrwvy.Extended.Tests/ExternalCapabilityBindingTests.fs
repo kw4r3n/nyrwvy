@@ -122,9 +122,10 @@ module ExternalCapabilityBindingTests =
                 Assert.Equal(fallback.Id, id)
             | result -> failwithf "Expected exhaustive capability binding: %A" result
             let mixed: CSharpBackendProfile =
-                { CapabilityBindings =
-                    [ { OperationId = lookup.Id; Kind = CSharpCapabilityBindingKind.ExternalImplementation }
-                      { OperationId = fallback.Id; Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
+                { CSharpBackendProfile.empty with
+                    CapabilityBindings =
+                        [ { OperationId = lookup.Id; Kind = CSharpCapabilityBindingKind.ExternalImplementation }
+                          { OperationId = fallback.Id; Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
             match reopened.EmitCSharp mixed with
             | Error(AuthoringSessionError.BackendFailure(CSharpBackendError.MixedCapabilityBindingKinds id)) ->
                 Assert.Equal(capability.Id, id)
