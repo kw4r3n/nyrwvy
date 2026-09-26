@@ -67,7 +67,7 @@ export function createGraphTools(schema) {
         args.mode === "upgrade" ? { expectedFingerprint: args.expectedFingerprint ?? "", replaces: args.replaces } : undefined),
     }),
     inspect: defineTool({
-      description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",
+      description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes, callers, and declared versus derived body effect requirements with semantic evidence. Pass exactly one function name or functionId for the function view.",
       args: { view: schema.enum(["status", "declarations", "function"]), function: schema.string().optional(), functionId: schema.string().optional() },
       /** @param {{ view: "status" | "declarations" | "function"; function?: string; functionId?: string }} args */
       execute(args, context) {

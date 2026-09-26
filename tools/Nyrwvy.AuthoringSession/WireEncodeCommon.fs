@@ -172,10 +172,23 @@ module internal WireEncodeCommon =
               "callNodeId", box (StableId.value value.CallNodeId)
               "calleeFunctionId", box (StableId.value value.CalleeFunctionId) ]
 
+    let bodyEffectRequirements (value: BodyEffectRequirements) =
+        objectValue
+            [ "effectIds", value.EffectIds |> List.map (StableId.value >> box) |> arrayValue
+              "evidence", value.Evidence |> List.map (fun item ->
+                  let source =
+                      match item.Source with
+                      | EffectRequirementSource.FunctionContract id -> objectValue [ "kind", box "functionContract"; "functionId", box (StableId.value id) ]
+                      | EffectRequirementSource.CapabilityOperation id -> objectValue [ "kind", box "capabilityOperation"; "operationId", box (StableId.value id) ]
+                  objectValue [ "effectId", box (StableId.value item.EffectId); "nodeId", box (StableId.value item.NodeId); "source", source ]) |> arrayValue
+              "unresolvedFunctionIds", value.UnresolvedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
+              "unresolvedOperationIds", value.UnresolvedOperationIds |> List.map (StableId.value >> box) |> arrayValue ]
+
     let focusWith encodeFunction (value: FunctionFocusView) =
         objectValue
             [ "snapshotId", box (StableId.value value.SnapshotId)
               "function", encodeFunction value.Function
+              "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
               "nodeTypes",
                 value.NodeTypes
                 |> List.map (fun item ->

@@ -227,7 +227,23 @@ module ViewerHtml =
                 |> List.sortBy StableId.value
                 |> List.map (stableText "effect:" >> code)
                 |> String.concat ", "
-        writer.Line("<p>Required effects: " + text + "</p>")
+        writer.Line("<p>Declared required effects: " + text + "</p>")
+
+    let private emitBodyEffects (writer: HtmlWriter) (report: BodyEffectRequirements) =
+        writer.Line("<section><h2>Body effect requirements (derived)</h2>")
+        if List.isEmpty report.Evidence then writer.Line("<p>No resolved nominal effect requirements.</p>")
+        else
+            writer.Line("<ul>")
+            for item in report.Evidence do
+                let source =
+                    match item.Source with
+                    | EffectRequirementSource.FunctionContract id -> stableText "function:" id
+                    | EffectRequirementSource.CapabilityOperation id -> stableText "operation:" id
+                writer.Line("<li>" + code (stableText "effect:" item.EffectId) + " at " + code (stableText "node:" item.NodeId) + " from " + code source + "</li>")
+            writer.Line("</ul>")
+        for id in report.UnresolvedFunctionIds do writer.Line("<p>Unresolved function contract: " + code (stableText "function:" id) + "</p>")
+        for id in report.UnresolvedOperationIds do writer.Line("<p>Unresolved operation contract: " + code (stableText "operation:" id) + "</p>")
+        writer.Line("</section>")
 
     let private emitCallSites
         (writer: HtmlWriter)
@@ -400,6 +416,7 @@ module ViewerHtml =
         emitParameters writer model.Function.Parameters
         emitRequiredEffects writer model.Function.RequiredEffects
         writer.Line("</section>")
+        emitBodyEffects writer model.BodyEffectRequirements
         emitCallSites writer "Direct callers" model.Callers (fun site -> site.CallerFunctionId)
         emitCallSites writer "Direct callees" model.Callees (fun site -> site.CalleeFunctionId)
         emitObligations writer model.OpenObligations

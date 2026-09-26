@@ -223,6 +223,13 @@ module internal WireEncode =
               "displayName", box value.DisplayName
               "operations", arrayValue operations ]
 
+    let private functionEffects (items: FunctionEffectSummary list) =
+        items |> List.map (fun item ->
+            objectValue
+                [ "functionId", box (StableId.value item.FunctionId)
+                  "declaredEffectIds", item.DeclaredEffectIds |> List.map (StableId.value >> box) |> arrayValue
+                  "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.Body ]) |> arrayValue
+
     let proposalWith functionEntity focus (value: AuthoringProposal) =
         let review =
             match value.Review with
@@ -241,7 +248,8 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", compactBodyDiff item.ResultingChange
-                      "proposedFunction", functionEntity item.ProposedFocus.Function ]
+                      "proposedFunction", functionEntity item.ProposedFocus.Function
+                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements ]
             | AuthoringProposalReview.ReplaceTarget item ->
                 objectValue
                     [ "kind", box "replaceTarget"
@@ -255,25 +263,29 @@ module internal WireEncode =
                     [ "kind", box "createFunction"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "createdFunction", functionEntity item.CreatedFunction ]
+                      "createdFunction", functionEntity item.CreatedFunction
+                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements ]
             | AuthoringProposalReview.ParameterTypeMigration item ->
                 objectValue
                     [ "kind", box "parameterTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "diff", parameterTypeMigrationDiff item.ResultingChange ]
+                      "diff", parameterTypeMigrationDiff item.ResultingChange
+                      "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.ResultTypeMigration item ->
                 objectValue
                     [ "kind", box "resultTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "diff", resultTypeMigrationDiff item.ResultingChange ]
+                      "diff", resultTypeMigrationDiff item.ResultingChange
+                      "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.ProductFieldTypeMigration item ->
                 objectValue
                     [ "kind", box "productFieldTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "diff", productFieldTypeMigrationDiff item.ResultingChange ]
+                      "diff", productFieldTypeMigrationDiff item.ResultingChange
+                      "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.CreateType item ->
                 objectValue
                     [ "kind", box "createType"

@@ -25,6 +25,7 @@ type QueryFunctionSignature =
 type FunctionFocusView =
     { SnapshotId: SnapshotId
       Function: SemanticFunction
+      BodyEffectRequirements: BodyEffectRequirements
       NodeTypes: QueryNodeType list
       Callers: QueryCallSite list
       Callees: QueryCallSite list
@@ -370,6 +371,7 @@ module SemanticQuery =
                 Ok
                     { SnapshotId = snapshot.Id
                       Function = functionEntity
+                      BodyEffectRequirements = EffectRequirements.derive snapshot functionEntity
                       NodeTypes = nodeTypes
                       Callers = callers
                       Callees = callees

@@ -134,6 +134,7 @@ type ViewerFunctionSignature =
 type ViewerFocusModel =
     { SnapshotId: SnapshotId
       Function: ViewerFunctionSignature
+      BodyEffectRequirements: BodyEffectRequirements
       Graph: ViewerGraph
       Callers: QueryCallSite list
       Callees: QueryCallSite list
@@ -404,6 +405,7 @@ module ViewerProjection =
               ResultType = source.Function.ResultType
               RequiredEffects = source.Function.RequiredEffects }
           Graph = projectGraph nodeTypes source.Function.Body
+          BodyEffectRequirements = source.BodyEffectRequirements
           Callers = source.Callers
           Callees = source.Callees
           RelatedFunctionSignatures = source.RelatedFunctionSignatures

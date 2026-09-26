@@ -25,6 +25,7 @@ type AgentParameterTypeMigrationDiff =
 
 type AgentParameterTypeMigrationReview =
     { RequestedChange: AgentParameterTypeMigrationRequest
+      FunctionEffects: FunctionEffectSummary list
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       ResultingChange: AgentParameterTypeMigrationDiff }
@@ -79,6 +80,7 @@ type AgentResultTypeMigrationDiff =
 
 type AgentResultTypeMigrationReview =
     { RequestedChange: AgentResultTypeMigrationRequest
+      FunctionEffects: FunctionEffectSummary list
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       ResultingChange: AgentResultTypeMigrationDiff }
@@ -729,6 +731,7 @@ module AgentParameterTypeMigrationWorkflow =
                             { RequestedChange = request
                               Receipt = simulated.Receipt
                               Readiness = simulated.Readiness
+                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
                               ResultingChange =
                                 { ParameterChange =
                                     { FunctionId = prepared.Target.Id
@@ -820,6 +823,7 @@ module AgentResultTypeMigrationWorkflow =
                             { RequestedChange = request
                               Receipt = simulated.Receipt
                               Readiness = simulated.Readiness
+                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
                               ResultingChange =
                                 { ResultChange =
                                     { FunctionId = prepared.Target.Id

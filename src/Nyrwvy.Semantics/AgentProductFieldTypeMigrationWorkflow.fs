@@ -24,6 +24,7 @@ type AgentProductFieldTypeMigrationDiff =
 
 type AgentProductFieldTypeMigrationReview =
     { RequestedChange: AgentProductFieldTypeMigrationRequest
+      FunctionEffects: FunctionEffectSummary list
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       ResultingChange: AgentProductFieldTypeMigrationDiff }
@@ -165,6 +166,7 @@ module AgentProductFieldTypeMigrationWorkflow =
                                                     { RequestedChange = request
                                                       Receipt = receipt
                                                       Readiness = readiness
+                                                      FunctionEffects = EffectRequirements.summarize proposedSnapshot (affected |> List.map (fun fn -> fn.Id) |> Set.ofList)
                                                       ResultingChange =
                                                         { FieldChange =
                                                             { TypeId = ownerType.Id

@@ -58,6 +58,7 @@
     <Compile Include="ExecutionIrCodecTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />
+    <Compile Include="EffectRequirementsTests.fs" />
     <Compile Include="ChangeReviewQueryTests.fs" />
     <Compile Include="ViewerTests.fs" />
     <Compile Include="ViewerArtifactTests.fs" />

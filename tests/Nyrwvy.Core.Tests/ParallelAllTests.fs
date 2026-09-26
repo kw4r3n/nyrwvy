@@ -261,6 +261,11 @@ module ParallelAllTests =
             Assert.Equal("PureExpressionListCallbackInputTypeMismatch", reject [ fixture.Effect.Id ] parameters (ExpressionRecipe.ParallelAll(ExpressionRecipe.ParameterSlot 0, runJob.Id, [])))
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText fixture.Path) |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
+            let effects name = EffectRequirements.derive snapshot (fixture.Function name)
+            Assert.Equal<EffectId list>([ fixture.Effect.Id ], (effects "runAll").EffectIds)
+            let release = fixture.Files.Operations |> List.find (fun op -> op.DisplayName = "close")
+            Assert.Contains((effects "runInWorkspace").Evidence, fun item -> item.Source = EffectRequirementSource.CapabilityOperation release.Id)
+            Assert.Empty((effects "notCancelled").EffectIds)
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap "nyason") |> unwrap "nyason decode"))
             let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun item -> item.Id)) |> CSharpBackendProfile.withConcurrentCapabilities [ fixture.Jobs.Id ]) |> unwrap "emit"
             Assert.Contains("public static class NyRuntime", artifact.Source)

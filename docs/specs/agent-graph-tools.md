@@ -92,6 +92,11 @@ This is a read projection, not a new accepted snapshot encoding or a raw graph-e
 
 All simulation operations accept optional `structuredReview: true`. This selects the same structured function/focus projection inside the existing review; receipts, diffs, proposal handles, validation and commit semantics are unchanged. The default remains the existing wire format. Ordinary tools request structured review automatically. Targeted review includes both base and proposed focus so the agent can inspect actual old/new literal values and their branch context before publication.
 
+Inspect and review distinguish declared `requiredEffects` from derived
+`bodyEffectRequirements`, with effect, node, and referenced declaration IDs as
+evidence. See [body effect requirements](body-effect-requirements.md) for report
+scope and incomplete-reference handling; inspection never widens a declaration.
+
 Name resolution happens at simulation. Commit still binds the exact simulated proposal, never a re-resolved name or regenerated body. Stale proposals remain rejected. Closing a session drops pending proposals; reopening preserves only committed semantic identities.
 
 ## Named recipe reference guide

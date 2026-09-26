@@ -12,7 +12,7 @@
 
 以下の制限表・調査記録は計画開始時点の記録を含む。型パラメーター、依存更新、宣言移行、`UseResource`、`ParallelAll`は実装済みで、再実装する残件ではない。`ParallelAll`のCapability共有も[契約](../specs/parallel-capability-sharing.md)を定義し、並行対応bindingの明示・生成前の到達先検証・共通runnerのfake/host対応を追加した。
 
-次の候補は、本文から導くEffect要求を根拠のsemantic IDとともにinspect/reviewへ表示することと、純粋・captureなしの関数値を最小範囲で導入すること。どちらも今回の共有契約には含めない。一般closure、型パラメーター付き宣言型、所有権・借用、独自schedulerも未導入のままとする。
+本文から導くEffect要求は[派生情報](../specs/body-effect-requirements.md)としてinspect/reviewへ表示できる。呼び出しノードと参照先のsemantic IDを根拠とし、宣言は自動変更しない。次の候補は、純粋・captureなしの関数値を最小範囲で導入すること。一般closure、型パラメーター付き宣言型、所有権・借用、独自schedulerも未導入のままとする。
 
 **Nyrwvyは、プログラム言語の代替として、ソーステキストを直接編集せずにプログラムを構築・変更するための層である。** 永続的な型付きsemantic graphがプログラム本体であり、生成コードはその投影である。[Vision](../concepts/vision.md)のこの方向を、実用的なプログラムの表現力と保守可能性まで広げる。
 

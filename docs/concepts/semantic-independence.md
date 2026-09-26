@@ -77,7 +77,6 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 | No function values: callbacks reference a fixed `FunctionId`, and `TypeRef` has no function type. A reusable `find<T>(list, predicate)` therefore cannot take its predicate as an argument. | Missing semantics | A function type and function-reference values, reusing existing callback context binding. | Capture, effects of function values, identity of references. |
 | No scoped interpretation: capability values arrive only from the host, so a program cannot choose a fake or alternate implementation. | Missing semantics | A declaration that implements each operation of a capability with a Nyrwvy function, producing a capability value that is passed like any other. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
 | No abort: only fallback exists, and `Result` propagation needs an explicit match at each step. | Missing semantics | Define abort's meaning (never continues, runs `UseResource` release) before any construct. | Whether abort is typed, and how it crosses `ParallelAll`. |
-| Inferred requirements are checked but not reported. | Authoring limitation | Expose computed requirements as a derived, non-authoritative review fact. | None beyond presentation. |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
 | No per-declaration content hash. | Not a gap yet | Add one only when dependency upgrade or semantic diff needs "unchanged" per declaration. | Normalization and dependency rules. |
 
@@ -95,6 +94,8 @@ These examples test the direction; they are not an implementation mandate.
 | Alternate request interpretation | Only by host binding. |
 
 ## Acceptance question
+
+The effect-reporting gap is covered by [body effect requirements](../specs/body-effect-requirements.md): inspect and review show the derived requirements and their semantic evidence separately from the declared contract.
 
 The former shared-capability gap is now covered by the accepted
 [ParallelAll sharing contract](../specs/parallel-capability-sharing.md): no
