@@ -14,6 +14,8 @@ module ExecutionCallGraph =
         | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _)
         | ExecutionInstructionKind.UseResource(_, _, _, functionId, _)
         | ExecutionInstructionKind.ParallelAll(_, functionId, _)
+        | ExecutionInstructionKind.TaskScope(functionId, _)
+        | ExecutionInstructionKind.TaskStart(_, functionId, _, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)

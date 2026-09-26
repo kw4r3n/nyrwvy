@@ -39,6 +39,10 @@ module internal GraphOrder =
                 | SemanticNodeKind.Abort _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.UseResource _
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.CancellationRequested -> true
                 | SemanticNodeKind.DirectCall(id, _)
                 | SemanticNodeKind.ListEffectFold(_, _, id, _)

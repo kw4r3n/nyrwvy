@@ -37,6 +37,8 @@ module EffectRequirements =
                 | SemanticNodeKind.ListFold(_, _, id, _)
                 | SemanticNodeKind.ListEffectFold(_, _, id, _)
                 | SemanticNodeKind.ParallelAll(_, id, _)
+                | SemanticNodeKind.TaskScope(id, _)
+                | SemanticNodeKind.TaskStart(_, id, _, _)
                 | SemanticNodeKind.ListMap(_, id, _)
                 | SemanticNodeKind.ListFilter(_, id, _)
                 | SemanticNodeKind.ListAny(_, id, _)

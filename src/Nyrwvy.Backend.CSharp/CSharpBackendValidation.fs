@@ -53,7 +53,8 @@ module internal CSharpBackendValidation =
                 |> List.collect ExecutionCallGraph.instructions
                 |> List.choose (fun instruction ->
                     match instruction.Kind with
-                    | ExecutionInstructionKind.ParallelAll(_, worker, _) -> Some worker
+                    | ExecutionInstructionKind.ParallelAll(_, worker, _)
+                    | ExecutionInstructionKind.TaskStart(_, worker, _, _) -> Some worker
                     | _ -> None)
                 |> ExecutionCallGraph.reachable program
             program.Functions

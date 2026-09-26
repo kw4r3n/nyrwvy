@@ -20,6 +20,10 @@ module PureFunctions =
                         | SemanticNodeKind.CapabilityInvoke _
                         | SemanticNodeKind.UseResource _
                         | SemanticNodeKind.ParallelAll _
+                        | SemanticNodeKind.TaskScope _
+                        | SemanticNodeKind.TaskStart _
+                        | SemanticNodeKind.TaskWait _
+                        | SemanticNodeKind.TaskCancel _
                         | SemanticNodeKind.CancellationRequested -> true
                         | _ -> false)
                     let targets = nodes |> List.collect (fun node ->

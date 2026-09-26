@@ -436,7 +436,7 @@ module internal WireEncode =
             | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
             | AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired(functionId, nodeId, capabilityId, operationId)) ->
                 "ConcurrentCapabilityBindingRequired",
-                "An operation reachable from a ParallelAll worker requires a capability binding that supports concurrent calls.",
+                "An operation reachable from a ParallelAll or TaskStart worker requires a capability binding that supports concurrent calls.",
                 Some(objectValue
                     [ "functionId", box (StableId.value functionId)
                       "nodeId", box (StableId.value nodeId)

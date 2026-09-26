@@ -57,8 +57,10 @@ the ordinary `emitCSharp` protocol:
 ```
 
 An unknown or unbound asserted capability is rejected. Before emission, the
-backend follows every `ParallelAll` worker transitively through direct calls,
-List callbacks, resource bodies, and nested parallel calls, including cycles.
+backend follows every `ParallelAll` worker and every `TaskStart` worker transitively
+through direct calls, List callbacks, resource bodies, task scope bodies, and nested
+parallel calls or tasks, including cycles. A task runs concurrently with its scope
+body and its siblings, so it is held to the same contract as a `ParallelAll` worker.
 Every capability invocation and resource release found must have the assertion.
 Otherwise `ConcurrentCapabilityBindingRequired` identifies the invoking
 FunctionId, node ID, CapabilityId, and CapabilityOperationId. The wire diagnostic

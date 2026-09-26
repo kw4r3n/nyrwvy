@@ -81,6 +81,7 @@
     <Compile Include="CapabilityImplementationTests.fs" />
     <Compile Include="ParallelAllTests.fs" />
     <Compile Include="TaskScopeTests.fs" />
+    <Compile Include="TaskScopeCompositionTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />
