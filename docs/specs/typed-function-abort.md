@@ -1,12 +1,12 @@
 # Typed function abort
 
-**Status:** Proposed
+**Status:** Implemented (2026-09-26)
 
-This is the proposed contract for the first abort implementation. **No Abort node,
-recipe, wire operation, IR terminator, or runtime behavior is implemented by this
-document.** Existing programs retain the current Result/Option, UseResource and
-ParallelAll contracts. Implementation must add the authoring and verification
-paths below before the language reference can claim support.
+Typed function-local abort is available through ordinary exact-ID and symbolic
+recipes, reviewed publication, snapshot reopen, and the common C# runner.
+[Verification and implementation evidence](../verification/typed-function-abort-20260926.md)
+and a [runnable ordinary-tool example](../../examples/function-abort/README.md)
+cover the boundaries below.
 
 ## Chosen boundary
 
@@ -29,8 +29,9 @@ scope/handler and effect contract; it is not silently supplied by host exception
 
 ## Observable behavior
 
-Use `Abort(error)` as conceptual notation only; the final recipe and encoding
-must be specified in the implementation change.
+`Abort(error)` denotes the semantic node. Both recipe protocols encode it as
+`{"kind":"abort","error":<recipe>}`; the payload must produce the owning function
+result's error type. No result type or target function ID is supplied in a recipe.
 
 1. Evaluate the error payload once under existing evaluation-order rules.
 2. If that evaluation completes normally, terminate the owning invocation with
@@ -146,7 +147,7 @@ identify a wrong owner result type, payload mismatch, or invalid value use with
 semantic IDs; an unsupported backend must report readiness failure instead of
 changing the graph.
 
-Before implementation is considered complete:
+The maintained implementation is verified against these gates:
 
 1. Define exact recipe and snapshot/Nyason/IR encodings with explicit new schema
    versions. Old readers must reject new constructs. Existing valid graph meaning
@@ -171,3 +172,42 @@ A backend may implement local transfer using an explicit IR terminator or a
 private runtime mechanism, provided it preserves these observations. Host
 exception catches must not accidentally consume an internal transfer, and a
 backend's mechanism never defines a new semantic failure category.
+
+## Representation and compatibility
+
+| Contract | Abort representation | Version |
+| --- | --- | --- |
+| Exact-ID and name-resolved recipe | `{"kind":"abort","error":<recipe>}` | Additive recipe kind in the maintained closed protocol; old servers reject unknown kinds. |
+| Snapshot JSON | `{"id":<nodeId>,"kind":"abort","errorNodeId":<nodeId>}` | 11 when an Abort node is present. |
+| Nyason | `abort` record with `id` and `error` node identities | `nayamnyam.snapshot.v7` when Abort is present. |
+| Typed Semantic IR | `kind: "abort"`, `errorNodeId`, `originNodeId`, `completion: "abort"`; no normal `type` | 8 when Abort is present. |
+| Execution IR | Block terminator `kind: "abort"`, `originNodeId`, `errorValueId` | 7 when an abort terminator is present. |
+
+`GraphCompletion.Normal(TypeRef)` and `GraphCompletion.Aborts` are derived facts,
+not new language types. Typed structured nodes with no normally completing arm
+also carry abrupt completion, and lowering creates no value or merge parameter
+for them. `TypedSemanticNode.Completion` replaces its record `Type` field; the
+read-only `Type` accessor is only valid for normally completing nodes.
+
+The C# backend emits a function-local `return NyResult<...>.Err(payload)` at the
+terminator. No internal exception is thrown or intercepted, so existing resource
+and parallel runtime code receives the same typed Result as from an ordinary
+callee. Payload instructions run once in their owning block.
+
+Graphs without Abort retain their previous canonical bytes: JSON 9 / Nyason v5,
+or JSON 10 / Nyason v6 with CapabilityConstruct; Typed IR 7 and Execution IR 6.
+Older snapshot/Nyason versions reject an Abort even if the input has been relabeled
+with an older schema. Fingerprint algorithms/domains are unchanged; the existing
+canonical serialization includes the new node and version in new graph digests.
+
+Focus, function creation/body replacement review, and targeted review expose
+`aborts`: owning function/node IDs, error node/type, enclosing control IDs and
+value-dependent continuation IDs. These continuations describe graph dependence,
+not a proof of runtime reachability. HTML Focus and Change Review expose the same
+boundary facts. Recipe discovery is shared by the MCP and OpenCode tool hosts.
+
+Abort-bearing functions must pass the shared dependency-order rule during
+snapshot validation, including deserialize and publication. Legacy graphs with
+only ordinary effects retain their existing lowering-time readiness check.
+A control that may abort counts as observable for ordering without becoming a
+nominal EffectId. Invalid branches and undeclared effects are still validated.

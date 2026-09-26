@@ -22,7 +22,7 @@ const categories = {
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
   calls: ["directCall", "functionReference", "functionInvoke", "capabilityConstruct", "capabilityInvoke"],
-  control: ["conditional", "matchUnion", "bind", "matchOption", "matchResult"],
+  control: ["abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult"],
 }
 
 export const recipeKinds = Object.freeze(Object.values(categories).flat())
@@ -109,6 +109,7 @@ const references = {
   optionNone: { shape: { kind: "optionNone", itemType: type }, typeRef },
   optionSome: unary("optionSome"),
   resultOk: { shape: { kind: "resultOk", errorType: type, value: recipe }, typeRef },
+  abort: { shape: { kind: "abort", error: recipe }, notes: "Terminates the current Result<T,E> function with Err(error). Only allowed at graph results, including Bind and branch bodies; it has no normal value. The payload must have type E." },
   resultErr: { shape: { kind: "resultErr", okType: type, error: recipe }, typeRef },
   functionReference: {
     shape: { kind: "functionReference", function: "<monomorphic pure function display name>" },
@@ -132,7 +133,7 @@ const references = {
   },
   conditional: {
     shape: { kind: "conditional", condition: recipe, whenTrue: recipe, whenFalse: recipe },
-    notes: "condition must produce Bool; both branches must produce the same type.",
+    notes: "condition must produce Bool; normally completing branches must produce the same type. An aborting branch contributes no normal value type.",
   },
   matchUnion: {
     shape: { kind: "matchUnion", type: "<union type display name>", input: recipe, arms: [{ variant: "<variant display name>", body: recipe }] },

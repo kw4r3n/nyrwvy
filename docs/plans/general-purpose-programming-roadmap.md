@@ -36,11 +36,11 @@ G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[�
 | --- | --- | --- |
 | 1 | 現状と履歴の整理 | 本文を現在の対応表と作業順へ整理し、古い制限・調査・実装記録をarchiveへ保持する。この整理で完了。 |
 | 2 | Nyrwvy内でCapability実装を選択（実装済み） | 各operationを既存の純粋・captureなしの関数へ対応付け、Capability値を作って渡す。同じ利用側関数へ2実装を渡して結果を切り替え、通常authoring・review・保存/再オープン・共通runnerを通す。operation不足・型不一致・不純な実装を公開前に拒否する。[実行・検証記録](../verification/program-capability-implementations-20260926.md)。 |
-| 3 | abortの意味論を仕様化（仕様案作成済み） | [型付き関数abort](../specs/typed-function-abort.md)は`Result<T,E>`関数のローカルな早期終了を定義する。解放・失敗優先順位・並行workerのキャンセルと終了待ちを明記した。ノード・authoring・runtimeは未実装。 |
+| 3 | abortの意味論を仕様化・実装（完了） | [型付き関数abort](../specs/typed-function-abort.md)は`Result<T,E>`関数のローカルな早期終了を定義する。解放・失敗優先順位・並行workerのキャンセルと終了待ちを明記した。[実装・検証も完了](../verification/typed-function-abort-20260926.md)。通常authoring、保存・再オープン、C#実行、解放と並行workerの失敗契約を確認した。 |
 
 Capability実装は呼び出し側の既存Effect契約を自動で狭めない。実装が新たな効果を導入する一般形、状態・capture、継続を再開するhandlerはこの最初の段階に含めない。[Semantic independence](../concepts/semantic-independence.md)全体を採用したという意味でもない。
 
-当該3作業は完了。次にabortを実装する場合は仕様案のimplementation gatesを用い、現在利用可能な言語機能とは区別する。
+当該3作業とabort実装は完了。[通常ツールだけで構築する実用例](../../examples/function-abort/README.md)も追加した。次の機能拡張はこの経路で実際の処理を構築し、不足が確認されたものから選ぶ。
 
 ## 各作業で維持する条件
 

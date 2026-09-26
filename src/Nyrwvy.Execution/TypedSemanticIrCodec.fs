@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 7
+    let schemaVersion = 8
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -275,8 +275,11 @@ module TypedSemanticIrCodec =
     and private writeNode (writer: Utf8JsonWriter) (node: TypedSemanticNode) =
         writer.WriteStartObject()
         writer.WriteString("originNodeId", StableId.value node.OriginNodeId)
-        writer.WritePropertyName("type")
-        writeTypeRef writer node.Type
+        match node.Completion with
+        | GraphCompletion.Normal value ->
+            writer.WritePropertyName("type")
+            writeTypeRef writer value
+        | GraphCompletion.Aborts -> writer.WriteString("completion", "abort")
 
         match node.Kind with
         | TypedSemanticNodeKind.ParameterReference parameterId ->
@@ -471,6 +474,9 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.ResultOk valueNodeId ->
             writer.WriteString("kind", "resultOk")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Abort errorNodeId ->
+            writer.WriteString("kind", "abort")
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
         | TypedSemanticNodeKind.ResultErr errorNodeId ->
             writer.WriteString("kind", "resultErr")
             writer.WriteString("errorNodeId", StableId.value errorNodeId)
@@ -536,7 +542,17 @@ module TypedSemanticIrCodec =
         use writer = new Utf8JsonWriter(stream)
 
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", schemaVersion)
+        let rec hasAbort (graph: TypedSemanticGraph) =
+            graph.Nodes |> List.exists (fun node ->
+                match node.Kind with
+                | TypedSemanticNodeKind.Abort _ -> true
+                | TypedSemanticNodeKind.Conditional(_, a, b) -> hasAbort a || hasAbort b
+                | TypedSemanticNodeKind.Bind(_, arm) -> hasAbort arm.Body
+                | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> hasAbort arm.Body)
+                | TypedSemanticNodeKind.MatchOption(_, arm, other) -> hasAbort arm.Body || hasAbort other
+                | TypedSemanticNodeKind.MatchResult(_, a, b) -> hasAbort a.Body || hasAbort b.Body
+                | _ -> false)
+        writer.WriteNumber("schemaVersion", if program.Functions |> List.exists (fun fn -> hasAbort fn.Body) then schemaVersion else 7)
         writer.WriteString("sourceSnapshotId", StableId.value program.SourceSnapshotId)
 
         writer.WritePropertyName("types")

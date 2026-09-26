@@ -268,6 +268,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.UnionConstruct(variantId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, fields))
             | ExpressionRecipe.ResultOk(errorType, value) -> one (fun value -> ExpressionRecipe.ResultOk(errorType, value)) value
+            | ExpressionRecipe.Abort error -> one ExpressionRecipe.Abort error
             | ExpressionRecipe.ResultErr(okType, error) -> one (fun error -> ExpressionRecipe.ResultErr(okType, error)) error
             | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
                 rewrite capabilityValue

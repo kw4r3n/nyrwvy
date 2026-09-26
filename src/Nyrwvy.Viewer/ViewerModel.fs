@@ -87,6 +87,7 @@ type ViewerNodeRole =
     | OptionNone
     | OptionSome
     | ResultOk
+    | Abort
     | ResultErr
     | Conditional
     | MatchUnion
@@ -139,6 +140,7 @@ type ViewerFocusModel =
     { SnapshotId: SnapshotId
       Function: ViewerFunctionSignature
       BodyEffectRequirements: BodyEffectRequirements
+      Aborts: QueryFunctionAbort list
       Graph: ViewerGraph
       Callers: QueryCallSite list
       Callees: QueryCallSite list
@@ -260,6 +262,7 @@ module ViewerProjection =
         | SemanticNodeKind.OptionNone _ -> ViewerNodeRole.OptionNone, []
         | SemanticNodeKind.OptionSome _ -> ViewerNodeRole.OptionSome, []
         | SemanticNodeKind.ResultOk _ -> ViewerNodeRole.ResultOk, []
+        | SemanticNodeKind.Abort _ -> ViewerNodeRole.Abort, []
         | SemanticNodeKind.ResultErr _ -> ViewerNodeRole.ResultErr, []
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
             ViewerNodeRole.Conditional,
@@ -392,6 +395,7 @@ module ViewerProjection =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> []
 
             { Id = node.Id
@@ -422,6 +426,7 @@ module ViewerProjection =
               RequiredEffects = source.Function.RequiredEffects }
           Graph = projectGraph nodeTypes source.Function.Body
           BodyEffectRequirements = source.BodyEffectRequirements
+          Aborts = source.Aborts
           Callers = source.Callers
           Callees = source.Callees
           RelatedFunctionSignatures = source.RelatedFunctionSignatures

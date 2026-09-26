@@ -286,6 +286,7 @@ module Transaction =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
@@ -764,6 +765,7 @@ module Transaction =
                         | SemanticNodeKind.OptionNone _
                         | SemanticNodeKind.OptionSome _
                         | SemanticNodeKind.ResultOk _
+                        | SemanticNodeKind.Abort _
                         | SemanticNodeKind.ResultErr _
                         | SemanticNodeKind.Conditional _
                         | SemanticNodeKind.MatchUnion _

@@ -299,3 +299,13 @@ persist in snapshot schema 10 (old graphs still write schema 9), survive pinned
 dependencies and reopen, and appear in structured reads. `runPure` executes
 program-constructed capabilities internally through the generated interface; no
 new input/output value encoding or host source registration is required.
+
+### Typed function abort
+
+Both exact-ID and symbolic expression recipes accept
+`{"kind":"abort","error":<recipe>}` at graph-result positions in a Result-returning
+function. Focus and structural review expose `aborts` with owner, error and
+continuation identities. Abort snapshots use JSON schema 11; their prior schema
+encodings remain unchanged when no Abort is present. See the
+[contract and compatibility table](typed-function-abort.md#representation-and-compatibility)
+and [ordinary-tool example](../../examples/function-abort/README.md).

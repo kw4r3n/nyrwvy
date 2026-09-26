@@ -75,6 +75,7 @@ module SnapshotValidator =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             [ conditionNodeId; whenTrue.ResultNodeId; whenFalse.ResultNodeId ]
@@ -134,6 +135,7 @@ module SnapshotValidator =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
@@ -177,12 +179,6 @@ module SnapshotValidator =
 
         nodesById |> Map.exists (fun nodeId _ -> visit Set.empty nodeId)
 
-    let private commonType (types: TypeRef option list): TypeRef option =
-        match types with
-        | [] -> None
-        | Some first :: rest when rest |> List.forall (fun item -> item = Some first) -> Some first
-        | Some _ :: _
-        | None :: _ -> None
 
     let private validateUncached (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
@@ -496,7 +492,7 @@ module SnapshotValidator =
                 | ObligationStatus.Resolved _ -> None)
             |> Set.ofList
 
-        let createNodeTypeResolver = SemanticFacts.createNodeTypeResolverFactory snapshot
+        let createCompletionResolver = SemanticFacts.createNodeCompletionResolverFactory snapshot
 
         for functionEntity in snapshot.Functions do
             let allNodes = ValueGraph.collectNodes functionEntity.Body
@@ -506,7 +502,14 @@ module SnapshotValidator =
                 |> List.map (fun parameter -> parameter.Id, parameter)
                 |> Map.ofList
             let requiredEffects = Set.ofList functionEntity.RequiredEffects
-            let nodeType = createNodeTypeResolver functionEntity
+            let completion = createCompletionResolver functionEntity
+            let nodeType nodeId = completion nodeId |> Option.bind GraphCompletion.normalType
+            let compatibleArms graphs = graphs |> List.map (SemanticFacts.graphCompletion completion) |> GraphCompletion.merge |> Option.isSome
+
+            for node in allNodes do
+                for dependency in SemanticFacts.directValueDependencies node do
+                    if completion dependency = Some GraphCompletion.Aborts then
+                        add "AbortValueUse" $"Node '{StableId.value node.Id}' uses abrupt node '{StableId.value dependency}' as a value in function '{StableId.value functionEntity.Id}'."
 
             let requireNodeType code message expectedType nodeId =
                 match nodeType nodeId with
@@ -1101,6 +1104,15 @@ module SnapshotValidator =
                             validateFieldBindings $"Union node '{StableId.value node.Id}'" variant.Fields fields
                     | SemanticNodeKind.OptionNone itemType ->
                         validateTypeRef $"Option.None node '{StableId.value node.Id}'" itemType
+                    | SemanticNodeKind.Abort errorNodeId ->
+                        if node.Id <> graph.ResultNodeId then
+                            add "AbortNotGraphResult" $"Abort node '{StableId.value node.Id}' in function '{StableId.value functionEntity.Id}' must be its graph result."
+                        match functionEntity.ResultType with
+                        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) ->
+                            requireNodeType "AbortPayloadTypeMismatch"
+                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {errorType} of function '{StableId.value functionEntity.Id}'."
+                                errorType errorNodeId
+                        | _ -> add "AbortOwnerResultTypeMismatch" $"Abort node '{StableId.value node.Id}' requires function '{StableId.value functionEntity.Id}' to return Result<T, E>."
                     | SemanticNodeKind.OptionSome _ -> ()
                     | SemanticNodeKind.ResultOk(errorType, _) ->
                         validateTypeRef $"Result.Ok node '{StableId.value node.Id}' error type" errorType
@@ -1115,7 +1127,7 @@ module SnapshotValidator =
                                 $"Conditional node '{StableId.value node.Id}' requires a Bool condition."
                         | None -> ()
 
-                        if commonType [ nodeType whenTrue.ResultNodeId; nodeType whenFalse.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ whenTrue; whenFalse ]) then
                             add
                                 "ConditionalBranchTypeMismatch"
                                 $"Conditional node '{StableId.value node.Id}' branches do not produce one common type."
@@ -1203,8 +1215,8 @@ module SnapshotValidator =
                                 $"Union match node '{StableId.value node.Id}' requires a declared union input."
                         | None -> ()
 
-                        let armTypes = arms |> List.map (fun arm -> nodeType arm.Body.ResultNodeId)
-                        if commonType armTypes |> Option.isNone then
+                        let armGraphs = arms |> List.map (fun arm -> arm.Body)
+                        if not (compatibleArms armGraphs) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Union match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1232,7 +1244,7 @@ module SnapshotValidator =
                                 $"Option match node '{StableId.value node.Id}' requires Option<T> input."
                         | None -> ()
 
-                        if commonType [ nodeType someArm.Body.ResultNodeId; nodeType noneBody.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ someArm.Body; noneBody ]) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Option match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1264,7 +1276,7 @@ module SnapshotValidator =
                                 $"Result match node '{StableId.value node.Id}' requires Result<T,E> input."
                         | None -> ()
 
-                        if commonType [ nodeType okArm.Body.ResultNodeId; nodeType errArm.Body.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ okArm.Body; errArm.Body ]) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Result match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1292,6 +1304,11 @@ module SnapshotValidator =
                     "FunctionResultTypeMismatch"
                     $"Function '{StableId.value functionEntity.Id}' result node type does not match its declared result type."
             | Some _
+            | None -> ()
+
+            match GraphOrder.tryAbortOrderConflict functionsById functionEntity with
+            | Some(first, second) ->
+                add "AmbiguousEffectOrder" $"Function '{StableId.value functionEntity.Id}' has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow."
             | None -> ()
 
             if hasDependencyCycle nodesById then
@@ -1400,6 +1417,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _

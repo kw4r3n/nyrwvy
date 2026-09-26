@@ -16,6 +16,7 @@ exception private NyasonSchemaException of string
 [<RequireQualifiedAccess>]
 module NyasonCodec =
     let schemaId = "nayamnyam.snapshot.v5"
+    let abortSchemaId = "nayamnyam.snapshot.v7"
     let capabilitySchemaId = "nayamnyam.snapshot.v6"
 
     let private shape message = raise (NyasonShapeException message)
@@ -604,6 +605,7 @@ module NyasonCodec =
             record
                 "result-ok"
                 [ nodeId; "error-type", encodeTypeRef errorType; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId -> record "abort" [ nodeId; "error", encodeId "node" errorNodeId ]
         | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
             record
                 "result-err"
@@ -923,6 +925,10 @@ module NyasonCodec =
                     decodeTypeRef (require "error-type" fields),
                     decodeId<GraphNodeTag> "node" (require "value" fields)
                 ) }
+        | NyasonValue.Record("abort", _) ->
+            let fields = recordFields "abort" [ "id"; "error" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Abort(decodeId<GraphNodeTag> "node" (require "error" fields)) }
         | NyasonValue.Record("result-err", _) ->
             let fields = recordFields "result-err" [ "id"; "ok-type"; "error" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1107,7 +1113,7 @@ module NyasonCodec =
             let root =
                 record
                     "nyason"
-                    [ "schema", text (if CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
+                    [ "schema", text (if FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
                       "snapshot", encodeSnapshot snapshot ]
             Ok(NyasonSyntax.render root)
 
@@ -1118,10 +1124,12 @@ module NyasonCodec =
             try
                 let fields = recordFields "nyason" [ "schema"; "snapshot" ] [] root
                 let actualSchema = decodeText (require "schema" fields)
-                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId then
+                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId && actualSchema <> abortSchemaId then
                     raise (NyasonSchemaException actualSchema)
 
                 let snapshot = decodeSnapshot (require "snapshot" fields)
+                if actualSchema <> abortSchemaId && FunctionAbort.isUsed snapshot then
+                    raise (NyasonShapeException "Function abort requires nayamnyam.snapshot.v7.")
                 if actualSchema = schemaId && CapabilityImplementations.isUsed snapshot then
                     raise (NyasonShapeException "Capability construction requires nayamnyam.snapshot.v6.")
                 match SnapshotValidator.validate snapshot with

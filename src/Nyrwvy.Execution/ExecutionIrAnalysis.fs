@@ -82,6 +82,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | TypedSemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ResultOk valueNodeId -> [ valueNodeId ]
+        | TypedSemanticNodeKind.Abort errorNodeId
         | TypedSemanticNodeKind.ResultErr errorNodeId -> [ errorNodeId ]
         | TypedSemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | TypedSemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
@@ -156,6 +157,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.OptionNone
             | TypedSemanticNodeKind.OptionSome _
             | TypedSemanticNodeKind.ResultOk _
+            | TypedSemanticNodeKind.Abort _
             | TypedSemanticNodeKind.ResultErr _ -> []
 
         immediateDependencies node @ nestedFree
@@ -255,50 +257,19 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.OptionSome _
         | TypedSemanticNodeKind.ResultOk _
         | TypedSemanticNodeKind.ResultErr _ -> false
+        | TypedSemanticNodeKind.Abort _ -> true
 
     let rec validateEffectOrder
         (functionId: FunctionId)
         (functionsById: Map<FunctionId, TypedSemanticFunction>)
         (graph: TypedSemanticGraph)
         : Result<unit, ExecutionIrError> =
-        let localNodes: Map<GraphNodeId, TypedSemanticNode> =
-            graph.Nodes
-            |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
-            |> Map.ofList
-
-        let dependsOn nodeId targetId =
-            // Share visits across branches, but not across queries or graph scopes.
-            let visited = System.Collections.Generic.HashSet<GraphNodeId>()
-            let rec visit currentId =
-                if currentId = targetId then
-                    true
-                elif not (visited.Add currentId) then
-                    false
-                else
-                    match Map.tryFind currentId localNodes with
-                    | None -> false
-                    | Some node -> dependencies node |> List.exists visit
-            visit nodeId
-
-        let effectfulNodes: TypedSemanticNode list =
-            graph.Nodes
-            |> List.filter (nodeHasEffects functionsById)
-            |> List.sortBy (fun node -> StableId.value node.OriginNodeId)
-
-        let rec checkPairs (nodes: TypedSemanticNode list) =
-            match nodes with
-            | []
-            | [ _ ] -> Ok ()
-            | first :: rest ->
-                let unorderedSecond =
-                    rest
-                    |> List.tryFind (fun second ->
-                        not (dependsOn first.OriginNodeId second.OriginNodeId)
-                        && not (dependsOn second.OriginNodeId first.OriginNodeId))
-                match unorderedSecond with
-                | Some second ->
-                    Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first.OriginNodeId, second.OriginNodeId))
-                | None -> checkPairs rest
+        let edges = graph.Nodes |> List.map (fun node -> node.OriginNodeId, dependencies node) |> Map.ofList
+        let effectfulIds = graph.Nodes |> List.filter (nodeHasEffects functionsById) |> List.map (fun node -> node.OriginNodeId)
+        let ordered =
+            match GraphOrder.tryUnorderedPair edges effectfulIds with
+            | Some(first, second) -> Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second))
+            | None -> Ok()
 
         let validateChildren (node: TypedSemanticNode): Result<unit, ExecutionIrError> =
             match node.Kind with
@@ -385,9 +356,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.OptionNone
             | TypedSemanticNodeKind.OptionSome _
             | TypedSemanticNodeKind.ResultOk _
+            | TypedSemanticNodeKind.Abort _
             | TypedSemanticNodeKind.ResultErr _ -> Ok ()
 
-        match checkPairs effectfulNodes with
+        match ordered with
         | Error error -> Error error
         | Ok () ->
             let rec validateAll remaining =

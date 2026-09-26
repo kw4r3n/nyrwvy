@@ -260,9 +260,10 @@ Before adding an error path, answer:
 
 If these answers are unclear, the feature contract is not ready to implement.
 
-## Proposed typed function abort
+## Typed function abort
 
-The [abort proposal](typed-function-abort.md) preserves this classification: an
-explicitly typed, local early exit would deliver an ordinary Err at the function
-boundary. Host faults and backend readiness errors remain separate. This link
-does not add an implemented construct or change existing Result behavior.
+The implemented [typed function abort](typed-function-abort.md) preserves this
+classification: an explicitly typed, local early exit delivers an ordinary Err
+at the function boundary. Host faults and backend readiness errors remain
+separate. ResultErr remains ordinary data that can be matched within the same
+invocation; Abort skips the invocation's remaining ordinary operations.

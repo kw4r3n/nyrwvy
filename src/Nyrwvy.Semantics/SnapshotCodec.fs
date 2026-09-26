@@ -20,6 +20,7 @@ type SnapshotCodecError =
 module SnapshotCodec =
     let private schemaVersion = 9
     let private capabilitySchemaVersion = 10
+    let private abortSchemaVersion = 11
     // Retain the writer's existing depth allowance and apply it to reads too:
     // nested graph envelopes must not make a successfully saved snapshot unreadable.
     let private maxJsonDepth = 1000
@@ -564,6 +565,9 @@ module SnapshotCodec =
             writer.WritePropertyName("errorType")
             writeTypeRef writer errorType
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Abort errorNodeId ->
+            writer.WriteString("kind", "abort")
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
         | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
             writer.WriteString("kind", "resultErr")
             writer.WritePropertyName("okType")
@@ -681,7 +685,7 @@ module SnapshotCodec =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", if CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
+        writer.WriteNumber("schemaVersion", if FunctionAbort.isUsed snapshot then abortSchemaVersion elif CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
         match dependencyMarker with
         | Some(id, fingerprint) ->
@@ -1123,6 +1127,9 @@ module SnapshotCodec =
             | "resultOk" ->
                 ensureProperties "Result.Ok node" (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) element
                 SemanticNodeKind.ResultOk(readTypeRef (requireProperty "errorType" element), readId<GraphNodeTag> "valueNodeId" element)
+            | "abort" ->
+                ensureProperties "Abort node" (set [ "id"; "kind"; "errorNodeId" ]) (set [ "id"; "kind"; "errorNodeId" ]) element
+                SemanticNodeKind.Abort(readId<GraphNodeTag> "errorNodeId" element)
             | "resultErr" ->
                 ensureProperties "Result.Err node" (set [ "id"; "kind"; "okType"; "errorNodeId" ]) (set [ "id"; "kind"; "okType"; "errorNodeId" ]) element
                 SemanticNodeKind.ResultErr(readTypeRef (requireProperty "okType" element), readId<GraphNodeTag> "errorNodeId" element)
@@ -1235,7 +1242,7 @@ module SnapshotCodec =
                        || readString "digest" marker <> dependencyDigest imported then
                         invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
-                if version <> schemaVersion && version <> capabilitySchemaVersion then
+                if version <> schemaVersion && version <> capabilitySchemaVersion && version <> abortSchemaVersion then
                     Error(SnapshotCodecError.UnsupportedSchemaVersion version)
                 else
                     let parentId =
@@ -1250,6 +1257,8 @@ module SnapshotCodec =
                           Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
+                    if version <> abortSchemaVersion && FunctionAbort.isUsed snapshot then
+                        invalidShape "Function abort requires snapshot schemaVersion 11."
                     if version = schemaVersion && CapabilityImplementations.isUsed snapshot then
                         invalidShape "Capability construction requires snapshot schemaVersion 10."
                     let resolved =

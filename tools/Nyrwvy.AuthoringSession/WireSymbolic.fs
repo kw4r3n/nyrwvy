@@ -370,6 +370,9 @@ module internal WireSymbolic =
                 typeRef declarations (property "errorType" element),
                 recipe declarations parameterContext (property "value" element)
             )
+        | "abort" ->
+            ensureFields "abort recipe" [ "kind"; "error" ] [ "kind"; "error" ] element
+            ExpressionRecipe.Abort(recipe declarations parameterContext (property "error" element))
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(

@@ -43,7 +43,7 @@ Choosing an interpretation composes program meaning; choosing a backend only rea
 | --- | --- | --- |
 | Identity | Resolution is `(snapshot, entity)`. Names never decide identity. | Storage layout and indexes. |
 | Value update vs shared mutation | Building an updated value leaves other holders with the old value. Changing shared state is possible only through a capability operation, so its effect is declared and visible. | Copying or structural sharing of values. |
-| Abort vs fallback | Fallback (`match` on `Result`/`Option`) continues with another value. An abort, once defined, must never continue. | How an abort propagates, such as `Result` threading or an internal exception. |
+| Abort vs fallback | Fallback (`match` on `Result`/`Option`) continues with another value. An abort exits its owning invocation; that invocation never resumes. | How an abort propagates, such as `Result` threading or an internal exception. |
 | Declared vs inferred requirements | A function's declared `RequiredEffects` is its public contract. Requirements computed from its body must be a subset; widening the contract requires an explicit reviewed edit. | How the check is implemented. |
 | `Bind` and ordering | Its input is evaluated once, before its body. Independent effectful siblings stay an `AmbiguousEffectOrder` error rather than taking a backend order. | Evaluation strategy that keeps this order. |
 | `ParallelAll` | Waits for every worker. The first `Err` requests cancellation; the result is the `Err` of the lowest failing index, or all values in source order. | Scheduling and degree of parallelism. |
@@ -75,7 +75,7 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 | Gap | Class | Smallest change | Open decisions |
 | --- | --- | --- | --- |
 | Broader scoped interpretation: stateful/effectful implementations and resumable handlers are absent. Pure stateless program implementations are now available. | Missing semantics | The bounded pure case is covered by [program capability implementations](../specs/program-capability-implementations.md). Extend only for a concrete consumer. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
-| No implemented abort: Result propagation still needs explicit matching. | Missing implementation; proposed semantics | [Typed function abort](../specs/typed-function-abort.md) defines local early exit as Err from a Result-returning function, with cleanup and the existing worker-failure contract. | Exact authoring/encoding and lowering await implementation; broader non-local abort remains outside this proposal. |
+| Function-local abort is implemented; propagation through callers still needs explicit matching. | Implemented bounded control flow | [Typed function abort](../specs/typed-function-abort.md) implements local early exit as Err from a Result-returning function, with cleanup and the existing worker-failure contract. | Exact authoring, versioned persistence and explicit IR termination are implemented; broader non-local abort remains outside this contract. |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
 | No per-declaration content hash. | Not a gap yet | Add one only when dependency upgrade or semantic diff needs "unchanged" per declaration. | Normalization and dependency rules. |
 
@@ -88,7 +88,7 @@ These examples test the direction; they are not an implementation mandate.
 | Probe | Current result |
 | --- | --- |
 | Value update vs shared mutation | Distinguishable: pure construction versus a capability operation with a declared effect. |
-| Abort vs fallback | Fallback is implemented; typed function-local abort has a proposed contract only. |
+| Abort vs fallback | Fallback and typed function-local abort are implemented; recovery belongs to the caller. |
 | Generic list search | `find<T>(list, predicate)` composes `ListFold`, callback context, and pure capture-free function values. The same body accepts different predicates and element types. |
 | Alternate request interpretation | Pure stateless implementations can be chosen and passed by the program; host binding remains available. |
 

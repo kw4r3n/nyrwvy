@@ -186,11 +186,22 @@ module internal WireEncodeCommon =
               "unresolvedFunctionIds", value.UnresolvedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
               "unresolvedOperationIds", value.UnresolvedOperationIds |> List.map (StableId.value >> box) |> arrayValue ]
 
+    let aborts (values: QueryFunctionAbort list) =
+        values |> List.map (fun item ->
+            objectValue
+                [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                  "nodeId", box (StableId.value item.NodeId)
+                  "errorNodeId", box (StableId.value item.ErrorNodeId)
+                  "errorType", optional item.ErrorType typeRef
+                  "enclosingControlNodeIds", item.EnclosingControlNodeIds |> List.map (StableId.value >> box) |> arrayValue
+                  "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
+
     let focusWith encodeFunction (value: FunctionFocusView) =
         objectValue
             [ "snapshotId", box (StableId.value value.SnapshotId)
               "function", encodeFunction value.Function
               "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
+              "aborts", aborts value.Aborts
               "nodeTypes",
                 value.NodeTypes
                 |> List.map (fun item ->

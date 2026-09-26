@@ -640,10 +640,13 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName inputValueId + ".ErrorValue;")
 
     let private emitTerminator
+        (resultType: TypeRef)
         (writer: SourceWriter)
         (block: ExecutionBlock)
         (terminator: ExecutionTerminator) =
         match terminator with
+        | ExecutionTerminator.Abort(_, errorValueId) ->
+            writer.Line("return " + formatType resultType + ".Err(" + valueName errorValueId + ");")
         | ExecutionTerminator.Return resultValueId ->
             writer.Line("return " + valueName resultValueId + ";")
         | ExecutionTerminator.Jump(targetBlockId, arguments) ->
@@ -752,7 +755,7 @@ module CSharpBackend =
             writer.Push()
             for instruction in block.Instructions do
                 emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
-            emitTerminator writer block block.Terminator
+            emitTerminator functionEntity.ResultType writer block block.Terminator
             writer.Line("")
 
         writer.Pop()

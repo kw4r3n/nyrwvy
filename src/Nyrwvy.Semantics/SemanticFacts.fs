@@ -64,6 +64,7 @@ module SemanticFacts =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
@@ -79,6 +80,21 @@ module SemanticFacts =
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
+
+    let nestedGraphs (node: SemanticNode) =
+        match node.Kind with
+        | SemanticNodeKind.Conditional(_, a, b) -> [ a; b ]
+        | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun arm -> arm.Body)
+        | SemanticNodeKind.Bind(_, arm) -> [ arm.Body ]
+        | SemanticNodeKind.MatchOption(_, arm, other) -> [ arm.Body; other ]
+        | SemanticNodeKind.MatchResult(_, a, b) -> [ a.Body; b.Body ]
+        | _ -> []
+
+    /// Stored nodes execute even if the result does not depend on their values.
+    let graphCompletion resolve (graph: ValueGraph) =
+        if graph.Nodes |> List.exists (fun node -> resolve node.Id = Some GraphCompletion.Aborts) then
+            Some GraphCompletion.Aborts
+        else resolve graph.ResultNodeId
 
     let rec collectPatternBindings (graph: ValueGraph): PatternBinding list =
         graph.Nodes
@@ -155,14 +171,8 @@ module SemanticFacts =
             | SemanticNodeKind.OptionNone _
             | SemanticNodeKind.OptionSome _
             | SemanticNodeKind.ResultOk _
+            | SemanticNodeKind.Abort _
             | SemanticNodeKind.ResultErr _ -> [])
-
-    let private commonType (types: TypeRef option list): TypeRef option =
-        match types with
-        | [] -> None
-        | Some first :: rest when rest |> List.forall (fun item -> item = Some first) -> Some first
-        | Some _ :: _
-        | None :: _ -> None
 
     type private SnapshotTypeIndex =
         { Functions: Map<FunctionId, SemanticFunction>
@@ -205,10 +215,10 @@ module SemanticFacts =
           ProductFields = productFieldsById
           Variants = variantsById }
 
-    let private createResolver
+    let private createCompletionResolver
         (index: SnapshotTypeIndex)
         (functionEntity: SemanticFunction)
-        : GraphNodeId -> TypeRef option =
+        : GraphNodeId -> GraphCompletion option =
         // These indexes and the memo belong to this function only. In particular,
         // an invalid graph reusing another function's node IDs cannot borrow types.
         let nodesById =
@@ -226,13 +236,28 @@ module SemanticFacts =
             |> List.map (fun binding -> binding.Id, binding)
             |> Map.ofList
 
-        let resolvedTypes = System.Collections.Generic.Dictionary<GraphNodeId, TypeRef option>()
+        let resolvedTypes = System.Collections.Generic.Dictionary<GraphNodeId, GraphCompletion option>()
 
-        let rec tryNodeType (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): TypeRef option =
+        let rec tryNodeType visiting nodeId =
+            tryCompletion visiting nodeId |> Option.bind GraphCompletion.normalType
+
+        and tryCompletion (visiting: Set<GraphNodeId>) (nodeId: GraphNodeId): GraphCompletion option =
             match resolvedTypes.TryGetValue nodeId with
             | true, result -> result
             | false, _ ->
-                let result = inferNodeType visiting nodeId
+                let result =
+                    if Set.contains nodeId visiting then None
+                    else
+                        let next = Set.add nodeId visiting
+                        let graph (g: ValueGraph) = graphCompletion (tryCompletion next) g
+                        match Map.tryFind nodeId nodesById with
+                        | Some { Kind = SemanticNodeKind.Abort _ } -> Some GraphCompletion.Aborts
+                        | Some { Kind = SemanticNodeKind.Conditional(_, a, b) } -> GraphCompletion.merge [ graph a; graph b ]
+                        | Some { Kind = SemanticNodeKind.MatchUnion(_, arms) } -> arms |> List.map (fun arm -> graph arm.Body) |> GraphCompletion.merge
+                        | Some { Kind = SemanticNodeKind.Bind(_, arm) } -> graph arm.Body
+                        | Some { Kind = SemanticNodeKind.MatchOption(_, arm, other) } -> GraphCompletion.merge [ graph arm.Body; graph other ]
+                        | Some { Kind = SemanticNodeKind.MatchResult(_, a, b) } -> GraphCompletion.merge [ graph a.Body; graph b.Body ]
+                        | _ -> inferNodeType visiting nodeId |> Option.map GraphCompletion.Normal
                 // Cache failures as well: shared invalid subgraphs otherwise have
                 // the same exponential traversal cost as shared valid subgraphs.
                 resolvedTypes[nodeId] <- result
@@ -262,9 +287,9 @@ module SemanticFacts =
                 | None -> None
                 | Some node ->
                     let nextVisiting = Set.add nodeId visiting
-                    let graphResultType (graph: ValueGraph) = tryNodeType nextVisiting graph.ResultNodeId
 
                     match node.Kind with
+                    | SemanticNodeKind.Abort _ -> None
                     | SemanticNodeKind.ParameterReference parameterId ->
                         Map.tryFind parameterId parametersById
                         |> Option.map (fun parameter -> parameter.Type)
@@ -409,21 +434,23 @@ module SemanticFacts =
                         tryNodeType nextVisiting errorNodeId
                         |> Option.map (fun errorType ->
                             TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]))
-                    | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                        commonType [ graphResultType whenTrue; graphResultType whenFalse ]
-                    | SemanticNodeKind.MatchUnion(_, arms) ->
-                        arms
-                        |> List.map (fun arm -> graphResultType arm.Body)
-                        |> commonType
-                    | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                        commonType [ graphResultType someArm.Body; graphResultType noneBody ]
-                    | SemanticNodeKind.Bind(_, body) -> graphResultType body.Body
-                    | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                        commonType [ graphResultType okArm.Body; graphResultType errArm.Body ]
+                    // Structured results are completion facts, derived by tryCompletion above.
+                    | SemanticNodeKind.Conditional _
+                    | SemanticNodeKind.MatchUnion _
+                    | SemanticNodeKind.MatchOption _
+                    | SemanticNodeKind.Bind _
+                    | SemanticNodeKind.MatchResult _ -> None
 
         // Keep concurrent calls to the public resolver safe without sharing
         // mutable memo state between different function resolvers.
-        fun nodeId -> lock resolvedTypes (fun () -> tryNodeType Set.empty nodeId)
+        fun nodeId -> lock resolvedTypes (fun () -> tryCompletion Set.empty nodeId)
+
+    let internal createNodeCompletionResolverFactory (snapshot: Snapshot) =
+        let index = indexSnapshot snapshot
+        fun functionEntity -> createCompletionResolver index functionEntity
+
+    let createNodeCompletionResolver snapshot functionEntity =
+        createNodeCompletionResolverFactory snapshot functionEntity
 
     /// Builds snapshot-wide indexes once for a validation/projection pass. Each
     /// function gets its own memoized resolver. No cache is keyed by SnapshotId:
@@ -432,11 +459,15 @@ module SemanticFacts =
         (snapshot: Snapshot)
         : SemanticFunction -> GraphNodeId -> TypeRef option =
         let index = indexSnapshot snapshot
-        fun functionEntity -> createResolver index functionEntity
+        fun functionEntity ->
+            let resolve = createCompletionResolver index functionEntity
+            fun nodeId -> resolve nodeId |> Option.bind GraphCompletion.normalType
 
     /// Creates one type resolver for a function. The resolver uses only semantic
     /// facts in the supplied snapshot and returns None when the graph is not
-    /// sufficiently valid to derive a type. Callers must not substitute a fallback.
+    /// sufficiently valid to derive a type, or when the node has no normal completion.
+    /// Use createNodeCompletionResolver to distinguish abrupt completion from unknown typing.
+    /// Callers must not substitute a fallback.
     let createNodeTypeResolver
         (snapshot: Snapshot)
         (functionEntity: SemanticFunction)

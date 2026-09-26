@@ -76,6 +76,30 @@ type TypeRef =
     /// system-owned; the display name is fixed with it and carried for presentation only.
     | TypeParameter of id: TypeParameterId * displayName: string
 
+/// Completion is a derived control-flow fact, never a language value type.
+[<RequireQualifiedAccess>]
+type GraphCompletion =
+    /// The value type on normal paths; other paths may still abort.
+    | Normal of TypeRef
+    /// There is no normally completing path through this expression.
+    | Aborts
+
+[<RequireQualifiedAccess>]
+module GraphCompletion =
+    let normalType = function
+        | GraphCompletion.Normal value -> Some value
+        | GraphCompletion.Aborts -> None
+
+    /// Unknown or inconsistent arms remain unknown; only abrupt arms are ignored.
+    let merge (arms: GraphCompletion option list) =
+        if List.isEmpty arms || List.exists Option.isNone arms then None
+        else
+            let normal = arms |> List.choose (Option.bind normalType)
+            match normal with
+            | [] -> Some GraphCompletion.Aborts
+            | first :: rest when List.forall ((=) first) rest -> Some(GraphCompletion.Normal first)
+            | _ -> None
+
 type SemanticField =
     { Id: FieldId
       DisplayName: string
@@ -231,6 +255,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | OptionNone of itemType: TypeRef
     | OptionSome of valueNodeId: GraphNodeId
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
+    | Abort of errorNodeId: GraphNodeId
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: ValueGraph * whenFalse: ValueGraph
     | MatchUnion of inputNodeId: GraphNodeId * arms: UnionMatchArm list
@@ -349,6 +374,7 @@ module ValueGraph =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> []
 
             node :: nested
@@ -434,11 +460,19 @@ module ValueGraph =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> node.Kind
 
             transform { node with Kind = kind }
 
         { graph with Nodes = graph.Nodes |> List.map mapNode }
+
+[<RequireQualifiedAccess>]
+module FunctionAbort =
+    let isUsed (snapshot: Snapshot) =
+        snapshot.Functions |> List.exists (fun fn ->
+            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
+                match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false))
 
 [<RequireQualifiedAccess>]
 module Snapshot =

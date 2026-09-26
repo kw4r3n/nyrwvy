@@ -121,6 +121,7 @@ module ValueDependency =
         | SemanticNodeKind.OptionSome valueNodeId
         | SemanticNodeKind.ResultOk(_, valueNodeId) ->
             [ create ValueDependencyRole.Value valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) ->
             [ create ValueDependencyRole.Error errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->

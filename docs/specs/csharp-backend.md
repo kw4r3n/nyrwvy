@@ -108,3 +108,12 @@ expressed as named C# arguments. The profile's existing interface binding and
 parallel-sharing checks remain in force; internally constructed values require
 no host implementation source in the common runner. Typed Semantic IR schema 7
 and Execution IR schema 6 carry the operation/function mapping.
+
+## Typed function abort
+
+The backend consumes the explicit Execution IR `abort` terminator (schema 7)
+and emits a local typed Err return. Structured branches with no normal completion
+do not create merge values. No host exception or hidden default value represents
+an abort. Existing UseResource and ParallelAll cleanup/failure policies apply at
+the callee/worker Result boundary. See [typed function abort](typed-function-abort.md).
+Programs without an abort terminator retain Execution IR serialization schema 6.

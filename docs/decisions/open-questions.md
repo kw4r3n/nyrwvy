@@ -197,13 +197,13 @@ Extend capability contracts feature-by-feature when a new external behavior requ
 
 ## Typed abort follow-up
 
-- **Status:** Proposed contract, not implemented
-- The [typed function-abort proposal](../specs/typed-function-abort.md) fixes the
+- **Status:** First bounded implementation complete
+- The [typed function-abort contract](../specs/typed-function-abort.md) fixes the
   first boundary as local early exit from a Result-returning function. The error
   type comes from that result; cleanup and ParallelAll retain their current
   failure/termination contracts.
-- Exact persisted/wire forms and lowering require implementation and the stated
-  validation gates. Non-local scopes, resumable handlers and implicit propagation
+- Exact persisted/wire forms and lowering are implemented and covered by the
+  [verification gates](../verification/typed-function-abort-20260926.md). Non-local scopes, resumable handlers and implicit propagation
   through callers are not part of this first slice.
 
 ---

@@ -110,7 +110,7 @@ module ExecutionIr =
                 (startBlock: MutableBlock)
                 (initialEnvironment: LoweringEnvironment)
                 (graph: TypedSemanticGraph)
-                : Result<MutableBlock * ExecutionValueId, ExecutionIrError> =
+                : Result<(MutableBlock * ExecutionValueId) option, ExecutionIrError> =
                 let mutable currentBlock = startBlock
                 let mutable environment = initialEnvironment
                 let mutable pending: Map<GraphNodeId, TypedSemanticNode> =
@@ -118,6 +118,7 @@ module ExecutionIr =
                     |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
                     |> Map.ofList
                 let mutable failure: ExecutionIrError option = None
+                let mutable stopped = false
 
                 let bindNode (nodeId: GraphNodeId) (valueId: ExecutionValueId) =
                     environment <-
@@ -401,6 +402,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ResultErr errorNodeId ->
                             requireNodeValue environment errorNodeId
                             |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
+                        | TypedSemanticNodeKind.Abort _
                         | TypedSemanticNodeKind.Conditional _
                         | TypedSemanticNodeKind.MatchUnion _
                         | TypedSemanticNodeKind.Bind _
@@ -422,10 +424,25 @@ module ExecutionIr =
                           ValueId = valueId }
                     setTerminator endBlock (ExecutionTerminator.Jump(mergeBlock.Id, [ argument ]))
 
-                let makeMerge (node: TypedSemanticNode): ExecutionValue * MutableBlock =
-                    let mergeValue = makeNodeValue node
-                    let mergeBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "merge") [ mergeValue ]
-                    mergeValue, mergeBlock
+                let makeMerge (node: TypedSemanticNode): (ExecutionValue * MutableBlock) option =
+                    match node.Completion with
+                    | GraphCompletion.Aborts -> None
+                    | GraphCompletion.Normal _ ->
+                        let value = makeNodeValue node
+                        Some(value, addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "merge") [ value ])
+
+                let connect endpoint merge =
+                    match endpoint, merge with
+                    | None, _ -> ()
+                    | Some(endBlock, valueId), Some(value, block) -> jumpToMerge endBlock value valueId block
+                    | Some _, None -> invalidOp "Normal endpoint of an abrupt typed graph."
+
+                let continueAt (node: TypedSemanticNode) (merge: (ExecutionValue * MutableBlock) option) =
+                    match merge with
+                    | None -> stopped <- true
+                    | Some(value, block) ->
+                        currentBlock <- block
+                        bindNode node.OriginNodeId value.Id
 
                 let lowerBind (node: TypedSemanticNode) inputNodeId (body: TypedSemanticValueArm) =
                     match requireNodeValue environment inputNodeId with
@@ -444,11 +461,10 @@ module ExecutionIr =
                                 PatternValues = Map.add body.ValueBinding.Id boundValue.Id environment.PatternValues }
                         match lowerGraph bodyBlock bodyEnvironment body.Body with
                         | Error error -> failure <- Some error
-                        | Ok(endBlock, resultValueId) ->
-                            let resultValue, continuation = makeMerge node
-                            jumpToMerge endBlock resultValue resultValueId continuation
-                            currentBlock <- continuation
-                            bindNode node.OriginNodeId resultValue.Id
+                        | Ok endpoint ->
+                            let merge = makeMerge node
+                            connect endpoint merge
+                            continueAt node merge
 
                 let lowerConditional
                     (node: TypedSemanticNode)
@@ -460,14 +476,13 @@ module ExecutionIr =
                     | Ok conditionValueId ->
                         let trueBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "when-true") []
                         let falseBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "when-false") []
-                        let mergeValue, mergeBlock = makeMerge node
+                        let merge = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.Branch(conditionValueId, trueBlock.Id, falseBlock.Id))
                         match lowerGraph trueBlock environment whenTrue, lowerGraph falseBlock environment whenFalse with
-                        | Ok(trueEnd, trueValueId), Ok(falseEnd, falseValueId) ->
-                            jumpToMerge trueEnd mergeValue trueValueId mergeBlock
-                            jumpToMerge falseEnd mergeValue falseValueId mergeBlock
-                            currentBlock <- mergeBlock
-                            bindNode node.OriginNodeId mergeValue.Id
+                        | Ok trueEnd, Ok falseEnd ->
+                            connect trueEnd merge
+                            connect falseEnd merge
+                            continueAt node merge
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
@@ -478,7 +493,7 @@ module ExecutionIr =
                     match requireNodeValue environment inputNodeId with
                     | Error error -> failure <- Some error
                     | Ok inputValueId ->
-                        let mergeValue, mergeBlock = makeMerge node
+                        let merge = makeMerge node
                         let armBlocks: (TypedSemanticUnionArm * MutableBlock) list =
                             arms
                             |> List.sortBy (fun (arm: TypedSemanticUnionArm) -> StableId.value arm.VariantId)
@@ -504,12 +519,11 @@ module ExecutionIr =
                                 let armEnvironment: LoweringEnvironment =
                                     { environment with PatternValues = patternValues }
                                 match lowerGraph block armEnvironment arm.Body with
-                                | Ok(endBlock, resultValueId) -> jumpToMerge endBlock mergeValue resultValueId mergeBlock
+                                | Ok endpoint -> connect endpoint merge
                                 | Error error -> failure <- Some error
 
                         if Option.isNone failure then
-                            currentBlock <- mergeBlock
-                            bindNode node.OriginNodeId mergeValue.Id
+                            continueAt node merge
 
                 let lowerOptionMatch
                     (node: TypedSemanticNode)
@@ -521,7 +535,7 @@ module ExecutionIr =
                     | Ok inputValueId ->
                         let someBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "some") []
                         let noneBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "none") []
-                        let mergeValue, mergeBlock = makeMerge node
+                        let merge = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.MatchOption(inputValueId, someBlock.Id, noneBlock.Id))
                         let extracted =
                             addPatternExtraction someBlock node.OriginNodeId someArm.ValueBinding (ExecutionInstructionKind.ExtractOptionSome inputValueId)
@@ -529,11 +543,10 @@ module ExecutionIr =
                             { environment with
                                 PatternValues = Map.add someArm.ValueBinding.Id extracted.Id environment.PatternValues }
                         match lowerGraph someBlock someEnvironment someArm.Body, lowerGraph noneBlock environment noneBody with
-                        | Ok(someEnd, someValueId), Ok(noneEnd, noneValueId) ->
-                            jumpToMerge someEnd mergeValue someValueId mergeBlock
-                            jumpToMerge noneEnd mergeValue noneValueId mergeBlock
-                            currentBlock <- mergeBlock
-                            bindNode node.OriginNodeId mergeValue.Id
+                        | Ok someEnd, Ok noneEnd ->
+                            connect someEnd merge
+                            connect noneEnd merge
+                            continueAt node merge
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
@@ -547,7 +560,7 @@ module ExecutionIr =
                     | Ok inputValueId ->
                         let okBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "ok") []
                         let errBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "err") []
-                        let mergeValue, mergeBlock = makeMerge node
+                        let merge = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.MatchResult(inputValueId, okBlock.Id, errBlock.Id))
                         let okExtracted =
                             addPatternExtraction okBlock node.OriginNodeId okArm.ValueBinding (ExecutionInstructionKind.ExtractResultOk inputValueId)
@@ -558,15 +571,14 @@ module ExecutionIr =
                         let errEnvironment: LoweringEnvironment =
                             { environment with PatternValues = Map.add errArm.ErrorBinding.Id errExtracted.Id environment.PatternValues }
                         match lowerGraph okBlock okEnvironment okArm.Body, lowerGraph errBlock errEnvironment errArm.Body with
-                        | Ok(okEnd, okValueId), Ok(errEnd, errValueId) ->
-                            jumpToMerge okEnd mergeValue okValueId mergeBlock
-                            jumpToMerge errEnd mergeValue errValueId mergeBlock
-                            currentBlock <- mergeBlock
-                            bindNode node.OriginNodeId mergeValue.Id
+                        | Ok okEnd, Ok errEnd ->
+                            connect okEnd merge
+                            connect errEnd merge
+                            continueAt node merge
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
-                while not (Map.isEmpty pending) && Option.isNone failure do
+                while not stopped && not (Map.isEmpty pending) && Option.isNone failure do
                     match readyNodes () with
                     | [] ->
                         failure <-
@@ -574,6 +586,12 @@ module ExecutionIr =
                     | (node: TypedSemanticNode) :: _ ->
                         pending <- Map.remove node.OriginNodeId pending
                         match node.Kind with
+                        | TypedSemanticNodeKind.Abort errorNodeId ->
+                            match requireNodeValue environment errorNodeId with
+                            | Error error -> failure <- Some error
+                            | Ok valueId ->
+                                setTerminator currentBlock (ExecutionTerminator.Abort(node.OriginNodeId, valueId))
+                                stopped <- true
                         | TypedSemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                             lowerConditional node conditionNodeId whenTrue whenFalse
                         | TypedSemanticNodeKind.MatchUnion(inputNodeId, arms) ->
@@ -642,9 +660,10 @@ module ExecutionIr =
 
                 match failure with
                 | Some error -> Error error
+                | None when stopped -> Ok None
                 | None ->
                     requireNodeValue environment graph.ResultNodeId
-                    |> Result.map (fun resultValueId -> currentBlock, resultValueId)
+                    |> Result.map (fun resultValueId -> Some(currentBlock, resultValueId))
 
             let entry = addBlock (ExecutionIrIds.entryBlock functionEntity.Id) []
             let initialEnvironment: LoweringEnvironment =
@@ -653,8 +672,10 @@ module ExecutionIr =
 
             match lowerGraph entry initialEnvironment functionEntity.Body with
             | Error error -> Error error
-            | Ok(endBlock, resultValueId) ->
-                setTerminator endBlock (ExecutionTerminator.Return resultValueId)
+            | Ok endpoint ->
+                match endpoint with
+                | Some(endBlock, resultValueId) -> setTerminator endBlock (ExecutionTerminator.Return resultValueId)
+                | None -> ()
 
                 let finalizeBlock (block: MutableBlock): Result<ExecutionBlock, ExecutionIrError> =
                     match block.Terminator with

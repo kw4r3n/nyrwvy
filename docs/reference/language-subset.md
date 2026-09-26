@@ -308,9 +308,16 @@ Milestone 1 is complete for its accepted bounded-operation claim, including its 
 
 Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged; scoped lexical control-flow authoring was verified separately because it introduced a new interaction assumption rather than changing the completed M2 milestone.
 
-## Proposed, not implemented: typed function abort
+## Typed function abort
 
-The [typed function-abort contract](../specs/typed-function-abort.md) defines a
-possible local early exit for Result-returning functions, including resource
-cleanup and worker failure behavior. No Abort node, recipe or runtime support is
-currently available. Existing Result/Option matching remains the supported path.
+`Abort(E)` ends the current `Result<T,E>` function invocation with `Err(E)`.
+The exact-ID and symbolic recipe is `{"kind":"abort","error":<recipe>}`. It is
+allowed at graph results, including nested Bind/match/conditional bodies, and
+has no normal value. Only normally completing arms contribute a branch result
+type. There is no user-visible Never type or implicit propagation through callees.
+
+The caller can recover from the returned Err. UseResource releases after its
+body function exits; ParallelAll requests cancellation on a worker Err, joins
+every worker, and chooses the lowest-index typed failure. Host-fault precedence
+is unchanged. See the [implemented contract](../specs/typed-function-abort.md)
+and [ordinary-tool example](../../examples/function-abort/README.md).

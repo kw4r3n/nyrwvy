@@ -258,7 +258,7 @@ module ExecutionIrTests =
         let unitType = TypeRef.Primitive PrimitiveType.Unit
         let call nodeId argumentId: TypedSemanticNode =
             { OriginNodeId = nodeId
-              Type = unitType
+              Completion = GraphCompletion.Normal unitType
               Kind =
                 TypedSemanticNodeKind.DirectCall(
                     fixture.MainFunctionId,
@@ -271,7 +271,7 @@ module ExecutionIrTests =
               RequiredEffects = [ fixture.ConsoleEffectId ]
               Body =
                 { Nodes =
-                    [ { OriginNodeId = valueNodeId; Type = unitType; Kind = TypedSemanticNodeKind.UnitLiteral }
+                    [ { OriginNodeId = valueNodeId; Completion = GraphCompletion.Normal unitType; Kind = TypedSemanticNodeKind.UnitLiteral }
                       call firstNodeId firstNodeId
                       call secondNodeId (if ordered then firstNodeId else valueNodeId) ]
                   ResultNodeId = secondNodeId } }

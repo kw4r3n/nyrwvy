@@ -14,6 +14,7 @@
     <Compile Include="PureFunctions.fs" />
     <Compile Include="CapabilityImplementations.fs" />
     <Compile Include="SemanticFacts.fs" />
+    <Compile Include="GraphOrder.fs" />
     <Compile Include="EffectRequirements.fs" />
     <Compile Include="SemanticQuery.fs" />
     <Compile Include="Validation.fs" />

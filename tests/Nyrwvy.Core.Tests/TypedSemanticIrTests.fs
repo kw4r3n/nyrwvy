@@ -77,6 +77,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.OptionNone
                 | TypedSemanticNodeKind.OptionSome _
                 | TypedSemanticNodeKind.ResultOk _
+                | TypedSemanticNodeKind.Abort _
                 | TypedSemanticNodeKind.ResultErr _ -> []
 
             node :: nested)

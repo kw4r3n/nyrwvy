@@ -401,7 +401,7 @@ Branch recipes become nested child `ValueGraph`s. No caller-supplied raw graph, 
 
 Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, capability `CapabilityOperationId` / `CapabilityParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
 
-Bind adds a persisted semantic node role. The Bind-era snapshot JSON schema is **9** and Nyason schema is **`nayamnyam.snapshot.v5`**; these remain the canonical formats for graphs without `CapabilityConstruct`. That new construct uses JSON **10** and Nyason **v6** as defined in [program capability implementations](program-capability-implementations.md). Current Typed Semantic IR serialization is **7** and Execution IR serialization is **6**. Snapshot and semantic fingerprint domains advance to **v6**. Bind itself needs no new execution instruction: existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
+Bind adds a persisted semantic node role. The Bind-era snapshot JSON schema is **9** and Nyason schema is **`nayamnyam.snapshot.v5`**; these remain the canonical formats for graphs without `CapabilityConstruct` or `Abort`. That new construct uses JSON **10** and Nyason **v6** as defined in [program capability implementations](program-capability-implementations.md). Graphs without Abort retain Typed Semantic IR **7** and Execution IR **6**. Abort uses JSON **11**, Nyason **v7**, Typed Semantic IR **8**, and Execution IR **7**; see [typed function abort](typed-function-abort.md). Snapshot and semantic fingerprint domains advance to **v6**. Bind itself needs no new execution instruction: existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
 
 Snapshot JSON 8 and Nyason v4 are now rejected explicitly, including for graphs without Bind. There is no implicit migration or inferred ordering of older graphs. Older artifacts require the matching older reader or a separately reviewed meaning-preserving migration; no migration is added in this slice. Typed Semantic IR currently has a serializer, not a round-trip reader. Frozen evaluation protocols/corpora are not extended with Bind.
 
@@ -453,3 +453,19 @@ The maintained recipe does not author:
 - semantic merge/rebase or multi-proposal composition.
 
 These exclusions are deliberate authority or semantic boundaries rather than missing encodings of the current feature.
+
+## Typed local early exit
+
+The `abort` recipe has exactly `kind` and `error` fields. Both name-resolved and
+exact-ID authoring support it in a `Result<T,E>` function when the error recipe
+has type `E`. Abort has no normal value and is valid only at a graph result,
+including a branch or Bind body. It cannot be a call argument, container element
+or Bind initializer. A mixed branch can abort on one side and produce a normal
+value on the other. All-aborting branches propagate abrupt completion.
+
+Targeted replacement can switch a graph-result expression between normal and
+abrupt completion while preserving the target identity. The entire proposed
+snapshot must still validate; an existing ordinary value use cannot consume an
+abort. Review reports the owning function, payload and dependent continuations.
+See the [complete contract](typed-function-abort.md), including cleanup, worker
+cancellation, ordering and schema compatibility.

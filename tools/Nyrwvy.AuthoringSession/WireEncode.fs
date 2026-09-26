@@ -249,7 +249,8 @@ module internal WireEncode =
                       "readiness", readiness item.Readiness
                       "diff", compactBodyDiff item.ResultingChange
                       "proposedFunction", functionEntity item.ProposedFocus.Function
-                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements ]
+                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
+                      "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
             | AuthoringProposalReview.ReplaceTarget item ->
                 objectValue
                     [ "kind", box "replaceTarget"
@@ -264,7 +265,8 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdFunction", functionEntity item.CreatedFunction
-                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements ]
+                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
+                      "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
             | AuthoringProposalReview.ParameterTypeMigration item ->
                 objectValue
                     [ "kind", box "parameterTypeMigration"

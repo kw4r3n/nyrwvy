@@ -308,6 +308,7 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 SemanticNodeKind.OptionSome(mapNodeId valueNodeId)
             | SemanticNodeKind.ResultOk(errorType, valueNodeId) ->
                 SemanticNodeKind.ResultOk(errorType, mapNodeId valueNodeId)
+            | SemanticNodeKind.Abort errorNodeId -> SemanticNodeKind.Abort(mapNodeId errorNodeId)
             | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
                 SemanticNodeKind.ResultErr(okType, mapNodeId errorNodeId)
             | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->

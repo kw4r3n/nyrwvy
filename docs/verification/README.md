@@ -36,6 +36,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Capability and operation declaration authoring (M4)](m4-capability-authoring-20260915.md)
 
 - [Program-defined capability implementations](program-capability-implementations-20260926.md)
+- [Typed function abort and cleanup](typed-function-abort-20260926.md)
 
 ## Live agent probes
 

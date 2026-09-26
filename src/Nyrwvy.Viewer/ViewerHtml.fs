@@ -152,6 +152,7 @@ module ViewerHtml =
         | ViewerNodeRole.OptionNone -> "Option.None"
         | ViewerNodeRole.OptionSome -> "Option.Some"
         | ViewerNodeRole.ResultOk -> "Result.Ok"
+        | ViewerNodeRole.Abort -> "Abort (function exit)"
         | ViewerNodeRole.ResultErr -> "Result.Err"
         | ViewerNodeRole.Conditional -> "conditional"
         | ViewerNodeRole.MatchUnion -> "union match"
@@ -426,6 +427,14 @@ module ViewerHtml =
         emitRequiredEffects writer model.Function.RequiredEffects
         writer.Line("</section>")
         emitBodyEffects writer model.BodyEffectRequirements
+        if not (List.isEmpty model.Aborts) then
+            writer.Line("<section><h2>Function abort boundaries</h2>")
+            for boundary in model.Aborts do
+                writer.Line("<p>Abort " + code (StableId.value boundary.NodeId) + " exits function " + code (StableId.value boundary.OwnerFunctionId)
+                    + " with error " + code (StableId.value boundary.ErrorNodeId) + " : " + code (boundary.ErrorType |> Option.map typeRefText |> Option.defaultValue "unknown") + ".</p>")
+                let ids values = values |> List.map (StableId.value >> code) |> String.concat ", "
+                writer.Line("<p>Enclosing controls: " + ids boundary.EnclosingControlNodeIds + ". Dependent continuations: " + ids boundary.DependentContinuationNodeIds + ".</p>")
+            writer.Line("</section>")
         emitCallSites writer "Direct callers" model.Callers (fun site -> site.CallerFunctionId)
         emitCallSites writer "Direct callees" model.Callees (fun site -> site.CalleeFunctionId)
         emitObligations writer model.OpenObligations

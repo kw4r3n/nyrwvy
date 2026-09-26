@@ -153,6 +153,7 @@ type ExecutionUnionTarget =
 
 [<RequireQualifiedAccess>]
 type ExecutionTerminator =
+    | Abort of originNodeId: GraphNodeId * errorValueId: ExecutionValueId
     | Return of ExecutionValueId
     | Jump of ExecutionBlockId * ExecutionJumpArgument list
     | Branch of conditionValueId: ExecutionValueId * whenTrue: ExecutionBlockId * whenFalse: ExecutionBlockId

@@ -157,6 +157,9 @@ module internal WireRecipe =
         | "resultOk" ->
             ensureFields "result-ok recipe" [ "kind"; "errorType"; "value" ] [ "kind"; "errorType"; "value" ] element
             ExpressionRecipe.ResultOk(typeRef (property "errorType" element), recipe (property "value" element))
+        | "abort" ->
+            ensureFields "abort recipe" [ "kind"; "error" ] [ "kind"; "error" ] element
+            ExpressionRecipe.Abort(recipe (property "error" element))
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(typeRef (property "okType" element), recipe (property "error" element))

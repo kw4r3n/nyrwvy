@@ -129,6 +129,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | OptionNone
     | OptionSome of valueNodeId: GraphNodeId
     | ResultOk of valueNodeId: GraphNodeId
+    | Abort of errorNodeId: GraphNodeId
     | ResultErr of errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: TypedSemanticGraph * whenFalse: TypedSemanticGraph
     | MatchUnion of inputNodeId: GraphNodeId * TypedSemanticUnionArm list
@@ -138,8 +139,12 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
 
 and TypedSemanticNode =
     { OriginNodeId: GraphNodeId
-      Type: TypeRef
+      Completion: GraphCompletion
       Kind: TypedSemanticNodeKind }
+    member this.Type =
+        match this.Completion with
+        | GraphCompletion.Normal value -> value
+        | GraphCompletion.Aborts -> invalidOp "An abrupt node has no value type."
 
 and TypedSemanticGraph =
     { Nodes: TypedSemanticNode list
@@ -201,7 +206,7 @@ module TypedSemanticIr =
     let rec private projectGraph
         (snapshot: Snapshot)
         (functionEntity: SemanticFunction)
-        (resolveType: GraphNodeId -> TypeRef option)
+        (resolveType: GraphNodeId -> GraphCompletion option)
         (graph: ValueGraph)
         : Result<TypedSemanticGraph, TypedSemanticIrError> =
         let projectPatternField (binding: PatternFieldBinding): TypedSemanticPatternField =
@@ -370,6 +375,7 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.OptionSome valueNodeId)
                     | SemanticNodeKind.ResultOk(_, valueNodeId) ->
                         Ok(TypedSemanticNodeKind.ResultOk valueNodeId)
+                    | SemanticNodeKind.Abort errorNodeId -> Ok(TypedSemanticNodeKind.Abort errorNodeId)
                     | SemanticNodeKind.ResultErr(_, errorNodeId) ->
                         Ok(TypedSemanticNodeKind.ResultErr errorNodeId)
                     | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
@@ -410,7 +416,7 @@ module TypedSemanticIr =
                 projectedKind
                 |> Result.map (fun kind ->
                     { OriginNodeId = node.Id
-                      Type = nodeType
+                      Completion = nodeType
                       Kind = kind })
 
         graph.Nodes
@@ -474,7 +480,7 @@ module TypedSemanticIr =
 
     let private projectFunction
         (snapshot: Snapshot)
-        (createNodeTypeResolver: SemanticFunction -> GraphNodeId -> TypeRef option)
+        (createNodeTypeResolver: SemanticFunction -> GraphNodeId -> GraphCompletion option)
         (functionEntity: SemanticFunction)
         : Result<TypedSemanticFunction, TypedSemanticIrError> =
         let resolveType = createNodeTypeResolver functionEntity
@@ -497,7 +503,7 @@ module TypedSemanticIr =
         | Ok(SemanticReadiness.Incomplete obligationIds) ->
             Error(TypedSemanticIrError.IncompleteSnapshot obligationIds)
         | Ok SemanticReadiness.Complete ->
-            let createNodeTypeResolver = SemanticFacts.createNodeTypeResolverFactory snapshot
+            let createNodeTypeResolver = SemanticFacts.createNodeCompletionResolverFactory snapshot
             snapshot.Functions
             |> List.sortBy (fun functionEntity -> StableId.value functionEntity.Id)
             |> traverse (projectFunction snapshot createNodeTypeResolver)
