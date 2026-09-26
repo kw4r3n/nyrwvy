@@ -152,6 +152,14 @@ module SnapshotCodec =
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
             )
+        | TypeRef.Function(arguments, result) ->
+            writer.WriteString("kind", "function")
+            writer.WritePropertyName("parameters")
+            writer.WriteStartArray()
+            arguments |> List.iter (writeTypeRef writer)
+            writer.WriteEndArray()
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer result
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
@@ -482,6 +490,16 @@ module SnapshotCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.FunctionReference target ->
+            writer.WriteString("kind", "functionReference")
+            writer.WriteString("targetFunctionId", StableId.value target)
+        | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+            writer.WriteString("kind", "functionInvoke")
+            writer.WriteString("functionValueNodeId", StableId.value value)
+            writer.WritePropertyName("arguments")
+            writer.WriteStartArray()
+            arguments |> List.iter (fun id -> writer.WriteStringValue(StableId.value id))
+            writer.WriteEndArray()
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -737,6 +755,9 @@ module SnapshotCodec =
         | "named" ->
             ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId" ]) element
             TypeRef.Named(readId<TypeTag> "typeId" element)
+        | "function" ->
+            ensureProperties "Function type" (set [ "kind"; "parameters"; "resultType" ]) (set [ "kind"; "parameters"; "resultType" ]) element
+            TypeRef.Function(readArray "parameters" readTypeRef element, readTypeRef (requireProperty "resultType" element))
         | "typeParameter" ->
             ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId"; "displayName" ]) (set [ "kind"; "typeParameterId"; "displayName" ]) element
             TypeRef.TypeParameter(readId<TypeParameterTag> "typeParameterId" element, readString "displayName" element)
@@ -1043,6 +1064,12 @@ module SnapshotCodec =
             | "listAll" ->
                 readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAll(source, callback, context))
+            | "functionReference" ->
+                ensureProperties "Function reference" (set [ "id"; "kind"; "targetFunctionId" ]) (set [ "id"; "kind"; "targetFunctionId" ]) element
+                SemanticNodeKind.FunctionReference(readId<FunctionTag> "targetFunctionId" element)
+            | "functionInvoke" ->
+                ensureProperties "Function invocation" (set [ "id"; "kind"; "functionValueNodeId"; "arguments" ]) (set [ "id"; "kind"; "functionValueNodeId"; "arguments" ]) element
+                SemanticNodeKind.FunctionInvoke(readId<GraphNodeTag> "functionValueNodeId" element, readIdArray<GraphNodeTag> "arguments" element)
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)

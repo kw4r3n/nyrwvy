@@ -2,6 +2,8 @@ const typeRef = {
   primitive: { kind: "primitive", primitive: "<string|bool|unit|int64|float64>" },
   named: { kind: "named", name: "<type display name>" },
   capability: { kind: "capability", name: "<capability display name>" },
+  function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
+  typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
   builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list>", arguments: ["<typeRef>"] },
 }
 
@@ -19,7 +21,7 @@ const categories = {
   list: ["listEmpty", "listConstruct", "listLength", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listAny", "listAll"],
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
-  calls: ["directCall", "capabilityInvoke"],
+  calls: ["directCall", "functionReference", "functionInvoke", "capabilityInvoke"],
   control: ["conditional", "matchUnion", "bind", "matchOption", "matchResult"],
 }
 
@@ -108,6 +110,14 @@ const references = {
   optionSome: unary("optionSome"),
   resultOk: { shape: { kind: "resultOk", errorType: type, value: recipe }, typeRef },
   resultErr: { shape: { kind: "resultErr", okType: type, error: recipe }, typeRef },
+  functionReference: {
+    shape: { kind: "functionReference", function: "<monomorphic pure function display name>" },
+    notes: "A capture-free function value, without executing the function. Transitive effects and ambient cancellation reads are rejected. Use a concrete wrapper for a generic target.",
+  },
+  functionInvoke: {
+    shape: { kind: "functionInvoke", functionValue: recipe, arguments: [recipe] },
+    notes: "Invokes a pure function value with positional arguments in signature order; arity and types must match exactly.",
+  },
   directCall: {
     shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }] },
     notes: "arguments must cover the callee parameters exactly; argument order is not semantic.",

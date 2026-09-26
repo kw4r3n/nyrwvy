@@ -12,7 +12,7 @@
 
 以下の制限表・調査記録は計画開始時点の記録を含む。型パラメーター、依存更新、宣言移行、`UseResource`、`ParallelAll`は実装済みで、再実装する残件ではない。`ParallelAll`のCapability共有も[契約](../specs/parallel-capability-sharing.md)を定義し、並行対応bindingの明示・生成前の到達先検証・共通runnerのfake/host対応を追加した。
 
-本文から導くEffect要求は[派生情報](../specs/body-effect-requirements.md)としてinspect/reviewへ表示できる。呼び出しノードと参照先のsemantic IDを根拠とし、宣言は自動変更しない。次の候補は、純粋・captureなしの関数値を最小範囲で導入すること。一般closure、型パラメーター付き宣言型、所有権・借用、独自schedulerも未導入のままとする。
+本文から導くEffect要求は[派生情報](../specs/body-effect-requirements.md)としてinspect/reviewへ表示できる。呼び出しノードと参照先のsemantic IDを根拠とし、宣言は自動変更しない。[純粋・captureなしの関数値](../specs/pure-function-values.md)も追加し、同じ`find<T>`へ異なる述語と要素型を渡せる。参照・呼び出し・通常authoring・保存・共通runnerを実装し、不純な参照・型不一致・未修正の宣言変更は公開前に拒否する。今回の優先3項目は完了。現在の言語上の残件は、Capability実装をプログラム側で選ぶ仕組みやabortなど、semantic-independenceの未決部分である。一般closure、型パラメーター付き宣言型、所有権・借用、独自schedulerも未導入のままとする。
 
 **Nyrwvyは、プログラム言語の代替として、ソーステキストを直接編集せずにプログラムを構築・変更するための層である。** 永続的な型付きsemantic graphがプログラム本体であり、生成コードはその投影である。[Vision](../concepts/vision.md)のこの方向を、実用的なプログラムの表現力と保守可能性まで広げる。
 
@@ -48,7 +48,7 @@ PR [#214](https://github.com/kw4r3n/nyrwvy/pull/214)、head `d94e536c60253ddee36
 
 ### G2 文脈引数による関数の再利用
 
-G2の最初の方式として、closureや型パラメーターではなく明示的な文脈引数を採用した。`ListFold`/`ListMap`/`ListFilter`/`ListAny`/`ListAll`は任意の`context`を持ち、callbackの一部の引数をParameterIdで反復前に評価した値へ束縛する。残りの未束縛引数が宣言順に反復値（foldでは蓄積値と要素）を受け取る。これにより、同じ述語・変換・畳み込み関数を実行時の閾値や係数など異なる文脈に本体を複製せず適用できる。検証（束縛先の存在・重複・型、未束縛引数のarity）、JSON/Nyason/typed IR/Execution IRの保存（空のcontextは書かず既存グラフのバイト列とfingerprintを維持）、lowering、C#のlambda生成、ID指定・表示名指定のrecipeを追加し、通常のauthoringから共通runnerでfilter/map/fold/any/allを実行した。callbackは引き続き純粋に限る。効果付き反復は別の構成として`ListEffectFold`を追加した。folderは囲む関数が宣言した効果だけを使え、Capabilityを文脈引数として受け取り、要素ごとに1回ずつ左から順に実行する。folderが`Result<S, E>`を返す場合は最初の`Err`で停止してそれを返し、以降の効果を実行しない。fake Capabilityを使った共通runnerで、呼び出し順序・1回実行・`Err`での停止（4要素中3回で停止）を確認した。続いて関数の型パラメーターを追加した。`TypeRef.TypeParameter`を引数型に含む関数が汎用関数となり、型パラメーターのIDはシステムが割り当てる（作成要求では名前で指定）。呼び出しやcallbackでは、引数・要素・蓄積値・資源の型と引数型を構造的に照合して型引数を決める（一般的な型推論は行わない）。汎用関数の本体では型パラメーターは不透明で、宣言された型（Product/Union）やCapabilityには使えない。C#では汎用メソッドとして生成する。同じ`count`・`wrap`・`orElse`の本体を`List<String>`・`List<Int64>`・`Option<String>`などへ複製せずに適用し、汎用関数から汎用関数への呼び出し、汎用callbackの`ListMap`、型の衝突や未宣言の型パラメーターの拒否を通常のauthoringと共通runnerで確認した。これで文脈引数と合わせてG2の完了条件を満たす。関数値・closure、型パラメーター付きの宣言型、制約付き型パラメーターは未導入。
+G2の最初の方式として、closureや型パラメーターではなく明示的な文脈引数を採用した。`ListFold`/`ListMap`/`ListFilter`/`ListAny`/`ListAll`は任意の`context`を持ち、callbackの一部の引数をParameterIdで反復前に評価した値へ束縛する。残りの未束縛引数が宣言順に反復値（foldでは蓄積値と要素）を受け取る。これにより、同じ述語・変換・畳み込み関数を実行時の閾値や係数など異なる文脈に本体を複製せず適用できる。検証（束縛先の存在・重複・型、未束縛引数のarity）、JSON/Nyason/typed IR/Execution IRの保存（空のcontextは書かず既存グラフのバイト列とfingerprintを維持）、lowering、C#のlambda生成、ID指定・表示名指定のrecipeを追加し、通常のauthoringから共通runnerでfilter/map/fold/any/allを実行した。callbackは引き続き純粋に限る。効果付き反復は別の構成として`ListEffectFold`を追加した。folderは囲む関数が宣言した効果だけを使え、Capabilityを文脈引数として受け取り、要素ごとに1回ずつ左から順に実行する。folderが`Result<S, E>`を返す場合は最初の`Err`で停止してそれを返し、以降の効果を実行しない。fake Capabilityを使った共通runnerで、呼び出し順序・1回実行・`Err`での停止（4要素中3回で停止）を確認した。続いて関数の型パラメーターを追加した。`TypeRef.TypeParameter`を引数型に含む関数が汎用関数となり、型パラメーターのIDはシステムが割り当てる（作成要求では名前で指定）。呼び出しやcallbackでは、引数・要素・蓄積値・資源の型と引数型を構造的に照合して型引数を決める（一般的な型推論は行わない）。汎用関数の本体では型パラメーターは不透明で、宣言された型（Product/Union）やCapabilityには使えない。C#では汎用メソッドとして生成する。同じ`count`・`wrap`・`orElse`の本体を`List<String>`・`List<Int64>`・`Option<String>`などへ複製せずに適用し、汎用関数から汎用関数への呼び出し、汎用callbackの`ListMap`、型の衝突や未宣言の型パラメーターの拒否を通常のauthoringと共通runnerで確認した。これで文脈引数と合わせてG2の完了条件を満たす。この後、純粋・captureなしの関数値を追加した（上記の現在の残件と仕様を参照）。一般closure、型パラメーター付きの宣言型、制約付き型パラメーターは未導入。
 
 ### G4 スコープ付きリソース（第1段階）
 

@@ -55,6 +55,8 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
+        | TypeRef.Function(arguments, result) ->
+            "NyFunction" + string arguments.Length + "<" + (arguments @ [ result ] |> List.map formatType |> String.concat ", ") + ">"
         | TypeRef.TypeParameter(typeParameterId, _) -> CSharpBackendNames.typeParameterName typeParameterId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
             "NyOption<" + formatType itemType + ">"
@@ -207,6 +209,27 @@ module CSharpBackend =
             writer.Pop()
             writer.Line("}")
             writer.Line("")
+
+    let private emitFunctionTypes (writer: SourceWriter) (program: ExecutionProgram) =
+        let rec arities = function
+            | TypeRef.Function(arguments, result) -> arguments.Length :: List.collect arities (arguments @ [ result ])
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.collect arities arguments
+            | _ -> []
+        let declaredTypes = program.Types |> List.collect (fun t ->
+            match t.Kind with
+            | ExecutionTypeKind.Product fields -> fields |> List.map (fun f -> f.Type)
+            | ExecutionTypeKind.Union variants -> variants |> List.collect (fun v -> v.Fields |> List.map (fun f -> f.Type)))
+        let capabilityTypes = program.Capabilities |> List.collect (fun c -> c.Operations |> List.collect (fun op -> op.ResultType :: List.map (fun (p: ExecutionCapabilityParameter) -> p.Type) op.Parameters))
+        let functionTypes = program.Functions |> List.collect (fun fn ->
+            fn.ResultType :: (fn.Parameters |> List.map (fun p -> p.Value.Type))
+            @ (fn.Blocks |> List.collect (fun block -> List.map (fun (p: ExecutionValue) -> p.Type) block.Parameters @ List.map (fun i -> i.Result.Type) block.Instructions)))
+        let requiredArities = declaredTypes @ capabilityTypes @ functionTypes |> List.collect arities |> List.distinct |> List.sort
+        for count in requiredArities do
+            let types = [ for index in 0 .. count - 1 -> "T" + string index ]
+            let generics = String.concat ", " (types @ [ "TResult" ])
+            let arguments = types |> List.mapi (fun index t -> t + " arg" + string index) |> String.concat ", "
+            writer.Line("public delegate TResult NyFunction" + string count + "<" + generics + ">(" + arguments + ");")
+        if not (List.isEmpty requiredArities) then writer.Line("")
 
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
@@ -554,6 +577,10 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.FunctionReference functionId ->
+            writer.Line(target + " = " + CSharpBackendNames.functionName functionId + ";")
+        | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
+            writer.Line(target + " = " + valueName value + "(" + (arguments |> List.map valueName |> String.concat ", ") + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
@@ -804,6 +831,7 @@ module CSharpBackend =
             writer.Line("")
             emitRuntime writer
             emitConcurrencyRuntime writer program
+            emitFunctionTypes writer program
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program

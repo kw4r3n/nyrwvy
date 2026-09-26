@@ -120,6 +120,8 @@ type ExecutionInstructionKind =
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    | FunctionReference of FunctionId
+    | FunctionInvoke of ExecutionValueId * ExecutionValueId list
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list

@@ -23,6 +23,14 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "primitiveInt64")
         | TypeRef.Primitive PrimitiveType.Float64 ->
             writer.WriteString("kind", "primitiveFloat64")
+        | TypeRef.Function(arguments, result) ->
+            writer.WriteString("kind", "function")
+            writer.WritePropertyName("parameters")
+            writer.WriteStartArray()
+            arguments |> List.iter (writeTypeRef writer)
+            writer.WriteEndArray()
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer result
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
@@ -395,6 +403,16 @@ module TypedSemanticIrCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.FunctionReference target ->
+            writer.WriteString("kind", "functionReference")
+            writer.WriteString("functionId", StableId.value target)
+        | TypedSemanticNodeKind.FunctionInvoke(value, arguments) ->
+            writer.WriteString("kind", "functionInvoke")
+            writer.WriteString("functionValueNodeId", StableId.value value)
+            writer.WritePropertyName("arguments")
+            writer.WriteStartArray()
+            arguments |> List.iter (fun id -> writer.WriteStringValue(StableId.value id))
+            writer.WriteEndArray()
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)

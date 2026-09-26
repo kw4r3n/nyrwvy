@@ -68,6 +68,8 @@ type ExpressionRecipe =
     | OptionSome of ExpressionRecipe
     | ResultOk of errorType: TypeRef * value: ExpressionRecipe
     | ResultErr of okType: TypeRef * error: ExpressionRecipe
+    | FunctionReference of FunctionId
+    | FunctionInvoke of functionValue: ExpressionRecipe * arguments: ExpressionRecipe list
     | DirectCall of targetFunctionId: FunctionId * arguments: (ParameterId * ExpressionRecipe) list
     | CapabilityInvoke of capabilityValue: ExpressionRecipe * operationId: CapabilityOperationId * arguments: (CapabilityParameterId * ExpressionRecipe) list
     | Conditional of condition: ExpressionRecipe * whenTrue: ExpressionRecipe * whenFalse: ExpressionRecipe
@@ -166,6 +168,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)
+        | ExpressionRecipe.FunctionReference _ -> recipe
+        | ExpressionRecipe.FunctionInvoke(value, arguments) -> ExpressionRecipe.FunctionInvoke(go value, List.map go arguments)
         | ExpressionRecipe.DirectCall(functionId, arguments) -> ExpressionRecipe.DirectCall(functionId, pairs arguments)
         | ExpressionRecipe.CapabilityInvoke(capability, operation, arguments) ->
             ExpressionRecipe.CapabilityInvoke(go capability, operation, arguments |> List.map (fun (id, value) -> id, go value))
@@ -277,6 +281,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | ExpressionRecipe.ProductConstruct(_, fields)
         | ExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
+        | ExpressionRecipe.FunctionReference _ -> Seq.empty
+        | ExpressionRecipe.FunctionInvoke(value, arguments) -> seq { yield value; yield! arguments }
         | ExpressionRecipe.DirectCall(_, arguments) -> arguments |> Seq.map snd
         | ExpressionRecipe.CapabilityInvoke(capabilityValue, _, arguments) ->
             seq {
@@ -310,6 +316,8 @@ module AgentExpressionStructuralWorkflow =
             | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
             | TypeRef.Capability capabilityId ->
                 Error(invalid $"Type reference names unknown capability '{StableId.value capabilityId}'.")
+            | TypeRef.Function(arguments, result) ->
+                (arguments @ [ result ]) |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with
@@ -913,6 +921,25 @@ module AgentExpressionStructuralWorkflow =
                 match validateTypeRef snapshot okType with
                 | Error error -> Error error
                 | Ok() -> infer frames error |> Result.map (resultType okType)
+            | ExpressionRecipe.FunctionReference target ->
+                match Map.tryFind target functionsById with
+                | None -> Error(diagnostic "UnknownFunctionReference" "The referenced function does not exist.")
+                | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) -> Error(diagnostic "GenericFunctionReferenceUnsupported" "Use a monomorphic wrapper for a generic function reference.")
+                | Some _ when not (PureFunctions.isPure snapshot target) -> Error(diagnostic "ImpureFunctionReference" "Function references require transitive purity and no ambient cancellation reads.")
+                | Some fn -> Ok(TypeRef.Function(List.map (fun (p: SemanticParameter) -> p.Type) fn.Parameters, fn.ResultType))
+            | ExpressionRecipe.FunctionInvoke(value, arguments) ->
+                match infer frames value with
+                | Error error -> Error error
+                | Ok(TypeRef.Function(parameters, result)) when parameters.Length = arguments.Length ->
+                    List.zip parameters arguments
+                    |> List.fold (fun state (expected, argument) ->
+                        state |> Result.bind (fun () ->
+                            infer frames argument |> Result.bind (fun actual ->
+                                if actual = expected then Ok()
+                                else Error(diagnostic "FunctionInvokeArgumentTypeMismatch" "Function invocation argument has the wrong type.")))) (Ok())
+                    |> Result.map (fun () -> result)
+                | Ok(TypeRef.Function _) -> Error(diagnostic "FunctionInvokeArityMismatch" "Function invocation arguments must match its positional parameter count.")
+                | Ok _ -> Error(diagnostic "FunctionInvokeTargetTypeMismatch" "Function invocation requires a function value.")
             | ExpressionRecipe.DirectCall(targetFunctionId, arguments) ->
                 match Map.tryFind targetFunctionId functionsById with
                 | None ->
@@ -1291,6 +1318,13 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error
+        | ExpressionRecipe.FunctionReference target ->
+            let id = StableIdAllocator.newGraphNodeId ()
+            [ { Id = id; Kind = SemanticNodeKind.FunctionReference target } ], id
+        | ExpressionRecipe.FunctionInvoke(value, arguments) ->
+            let nodes, values = many (value :: arguments)
+            let id = StableIdAllocator.newGraphNodeId ()
+            nodes @ [ { Id = id; Kind = SemanticNodeKind.FunctionInvoke(values.Head, values.Tail) } ], id
         | ExpressionRecipe.DirectCall(targetFunctionId, arguments) ->
             let callee = snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = targetFunctionId)
             let argumentNodes, argumentBindings = materializeCallArguments callee arguments

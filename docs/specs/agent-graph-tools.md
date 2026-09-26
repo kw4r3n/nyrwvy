@@ -131,3 +131,10 @@ OpenCode UI discovery and a real model choosing the tools are a distinct live in
 ## Maintainer rule
 
 Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch. Host adapters must reuse the shared tool definitions rather than fork their behavior. Keep the on-demand recipe reference aligned with the maintained name-resolved `WireSymbolic` surface; add focused regression checks for observed discovery failures rather than one test per recipe variant.
+
+Pure function types and the `functionReference` / `functionInvoke` recipes are
+available through the shared recipe reference and ordinary name/ID authoring.
+See [pure function values](pure-function-values.md) for the exact wire shapes and
+restrictions. Focused inspection retains reference dependencies and shows
+function-valued node types; review validates referenced signatures and purity
+before publication.

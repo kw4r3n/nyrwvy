@@ -49,6 +49,9 @@ module internal WireSymbolic =
 
     let rec typeRef (declarations: AuthoringDeclarations) (element: JsonElement): TypeRef =
         match requiredString "kind" element with
+        | "function" ->
+            ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
+            TypeRef.Function(array "parameters" element |> List.map (typeRef declarations), typeRef declarations (property "resultType" element))
         | "primitive" ->
             ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
             match requiredString "primitive" element with
@@ -373,6 +376,12 @@ module internal WireSymbolic =
                 typeRef declarations (property "okType" element),
                 recipe declarations parameterContext (property "error" element)
             )
+        | "functionReference" ->
+            ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
+            ExpressionRecipe.FunctionReference((resolveFunction declarations (requiredString "function" element)).Id)
+        | "functionInvoke" ->
+            ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
+            ExpressionRecipe.FunctionInvoke(recipe declarations parameterContext (property "functionValue" element), array "arguments" element |> List.map (recipe declarations parameterContext))
         | "directCall" ->
             ensureFields
                 "direct-call recipe"

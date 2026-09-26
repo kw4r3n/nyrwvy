@@ -91,6 +91,8 @@ module AgentCapabilityDeclarationWorkflow =
                         "CapabilityDeclarationUnknownCapabilityType"
                         $"{context} references unknown capability '{StableId.value capabilityId}'."
                 )
+            | TypeRef.Function(arguments, result) ->
+                (arguments @ [ result ]) |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with

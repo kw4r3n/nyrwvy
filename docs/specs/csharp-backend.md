@@ -88,3 +88,13 @@ If a semantically valid program cannot be represented or bound by the selected b
 ## Historical design evidence
 
 The original Milestone 0 backend design gate and implementation chronology remain in the [pre-reorganization archive](../../docs-archive/2026-08-pre-reorg/csharp-backend-design-20260825.md). This maintained specification intentionally excludes historical CI state and milestone-specific verification instructions.
+
+## Pure function values
+
+Function types lower to invariant `NyFunctionN<..., TResult>` delegates, emitted
+only for the arities used by the program. Named monomorphic references lower to
+method groups; invocation calls the typed delegate. References remain in entry
+reachability, so selecting one entry retains the referenced implementation and
+its transitive dependencies. These representations implement the
+[pure function-value contract](pure-function-values.md); delegate identity and
+captures are not new semantic capabilities.

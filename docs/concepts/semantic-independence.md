@@ -74,7 +74,6 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 
 | Gap | Class | Smallest change | Open decisions |
 | --- | --- | --- | --- |
-| No function values: callbacks reference a fixed `FunctionId`, and `TypeRef` has no function type. A reusable `find<T>(list, predicate)` therefore cannot take its predicate as an argument. | Missing semantics | A function type and function-reference values, reusing existing callback context binding. | Capture, effects of function values, identity of references. |
 | No scoped interpretation: capability values arrive only from the host, so a program cannot choose a fake or alternate implementation. | Missing semantics | A declaration that implements each operation of a capability with a Nyrwvy function, producing a capability value that is passed like any other. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
 | No abort: only fallback exists, and `Result` propagation needs an explicit match at each step. | Missing semantics | Define abort's meaning (never continues, runs `UseResource` release) before any construct. | Whether abort is typed, and how it crosses `ParallelAll`. |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
@@ -90,10 +89,12 @@ These examples test the direction; they are not an implementation mandate.
 | --- | --- |
 | Value update vs shared mutation | Distinguishable: pure construction versus a capability operation with a declared effect. |
 | Abort vs fallback | Fallback only. |
-| Generic list search | A search with one fixed predicate works through `ListFold` and a type parameter. A search reusable across predicates does not, because predicates cannot be passed as values. |
+| Generic list search | `find<T>(list, predicate)` composes `ListFold`, callback context, and pure capture-free function values. The same body accepts different predicates and element types. |
 | Alternate request interpretation | Only by host binding. |
 
 ## Acceptance question
+
+The function-value gap is covered by [pure function values](../specs/pure-function-values.md), with monomorphic named references and generic consumers. Capturing closures and effectful function values remain outside this slice.
 
 The effect-reporting gap is covered by [body effect requirements](../specs/body-effect-requirements.md): inspect and review show the derived requirements and their semantic evidence separately from the declared contract.
 
@@ -103,7 +104,7 @@ cross-worker order is promised; host bindings explicitly assert concurrent safet
 and visibility, and emission checks transitive worker operations. This resolution
 does not promote the other proposals in this document to accepted specifications.
 
-Can a new computation be defined by composing existing meanings, stay inspectable, editable, and reviewable at that level, and report backend non-support without changing its meaning? Today the third part holds; the first two fail for computations that need function values or program-chosen interpretation.
+Can a new computation be defined by composing existing meanings, stay inspectable, editable, and reviewable at that level, and report backend non-support without changing its meaning? Today the third part holds; the first two fail for computations that need program-chosen interpretation.
 
 ## Out of scope
 

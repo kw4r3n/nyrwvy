@@ -24,6 +24,8 @@ module FoundationTests =
             |> List.choose (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.DirectCall(targetFunctionId, arguments) -> Some(node.Id, targetFunctionId, arguments)
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _

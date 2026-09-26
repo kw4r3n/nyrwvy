@@ -189,6 +189,10 @@ module internal SignatureMigrationCore =
                         $"{prefix}ParameterSlotUnavailable"
                         "Migration recipes must reference existing parameters by stable ID."
                 )
+            | ExpressionRecipe.FunctionReference _ -> Ok recipe
+            | ExpressionRecipe.FunctionInvoke(value, arguments) ->
+                rewrite value |> Result.bind (fun target ->
+                    rewriteAll arguments |> Result.map (fun values -> ExpressionRecipe.FunctionInvoke(target, values)))
             | ExpressionRecipe.DirectCall(functionId, arguments) ->
                 rewritePairs arguments
                 |> Result.map (fun mappedArguments ->

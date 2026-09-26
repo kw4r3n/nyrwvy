@@ -55,6 +55,7 @@ module SemanticFingerprint =
 
     let rec private normalizeTypeRef (typeRef: TypeRef): TypeRef =
         match typeRef with
+        | TypeRef.Function(arguments, result) -> TypeRef.Function(List.map normalizeTypeRef arguments, normalizeTypeRef result)
         | TypeRef.TypeParameter(id, _) -> TypeRef.TypeParameter(id, displayPlaceholder)
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             TypeRef.BuiltinGeneric(generic, arguments |> List.map normalizeTypeRef)

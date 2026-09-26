@@ -116,6 +116,8 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.Unit -> record "primitive-unit" []
         | TypeRef.Primitive PrimitiveType.Int64 -> record "primitive-int64" []
         | TypeRef.Primitive PrimitiveType.Float64 -> record "primitive-float64" []
+        | TypeRef.Function(arguments, result) ->
+            record "function-type" [ "parameters", NyasonValue.List(List.map encodeTypeRef arguments); "result", encodeTypeRef result ]
         | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ]
@@ -151,6 +153,9 @@ module NyasonCodec =
         | NyasonValue.Record("primitive-float64", _) ->
             recordFields "primitive-float64" [] [] value |> ignore
             TypeRef.Primitive PrimitiveType.Float64
+        | NyasonValue.Record("function-type", _) ->
+            let fields = recordFields "function-type" [ "parameters"; "result" ] [] value
+            TypeRef.Function(decodeList decodeTypeRef (require "parameters" fields), decodeTypeRef (require "result" fields))
         | NyasonValue.Record("type-parameter", _) ->
             let fields = recordFields "type-parameter" [ "id"; "name" ] [] value
             TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields), decodeText (require "name" fields))
@@ -536,6 +541,10 @@ module NyasonCodec =
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-all" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.FunctionReference target ->
+            record "function-reference" [ nodeId; "target", encodeId "function" target ]
+        | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+            record "function-invoke" [ nodeId; "value", encodeId "node" value; "arguments", list (List.map (encodeId "node") arguments) ]
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             record
                 "direct-call"
@@ -835,6 +844,14 @@ module NyasonCodec =
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-all", _) ->
             decodeListCallbackNode "list-all" value (fun source callback context -> SemanticNodeKind.ListAll(source, callback, context))
+        | NyasonValue.Record("function-reference", _) ->
+            let fields = recordFields "function-reference" [ "id"; "target" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.FunctionReference(decodeId<FunctionTag> "function" (require "target" fields)) }
+        | NyasonValue.Record("function-invoke", _) ->
+            let fields = recordFields "function-invoke" [ "id"; "value"; "arguments" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.FunctionInvoke(decodeId<GraphNodeTag> "node" (require "value" fields), decodeList (decodeId<GraphNodeTag> "node") (require "arguments" fields)) }
         | NyasonValue.Record("direct-call", _) ->
             let fields = recordFields "direct-call" [ "id"; "target-function"; "arguments" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

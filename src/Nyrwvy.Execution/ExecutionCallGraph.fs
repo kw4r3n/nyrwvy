@@ -7,6 +7,7 @@ module ExecutionCallGraph =
 
     let target (instruction: ExecutionInstruction) =
         match instruction.Kind with
+        | ExecutionInstructionKind.FunctionReference functionId
         | ExecutionInstructionKind.DirectCall(functionId, _)
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
         | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _)

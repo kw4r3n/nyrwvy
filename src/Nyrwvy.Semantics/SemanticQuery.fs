@@ -54,6 +54,7 @@ module SemanticQuery =
             |> List.choose (fun node ->
                 let calleeId =
                     match node.Kind with
+                    | SemanticNodeKind.FunctionReference functionId
                     | SemanticNodeKind.DirectCall(functionId, _)
                     | SemanticNodeKind.ListFold(_, _, functionId, _)
                     | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
@@ -63,6 +64,7 @@ module SemanticQuery =
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
                     | SemanticNodeKind.ListAll(_, functionId, _) -> Some functionId
+                    | SemanticNodeKind.FunctionInvoke _
                     | SemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ParameterReference _
                     | SemanticNodeKind.PatternReference _
@@ -242,6 +244,7 @@ module SemanticQuery =
             match typeRef with
             | TypeRef.Primitive _
             | TypeRef.TypeParameter _ -> ()
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter visitTypeRef
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then

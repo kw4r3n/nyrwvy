@@ -62,6 +62,8 @@ module SnapshotValidator =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -118,6 +120,8 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -354,6 +358,7 @@ module SnapshotValidator =
 
         let rec validateTypeRef (context: string) (typeRef: TypeRef) =
             match typeRef with
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter (validateTypeRef context)
             | TypeRef.Primitive _ -> ()
             | TypeRef.TypeParameter(_, displayName) ->
                 // Function scope is checked per function; declarations reject type parameters.
@@ -929,6 +934,25 @@ module SnapshotValidator =
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId predicateFunctionId context true
+                    | SemanticNodeKind.FunctionReference target ->
+                        match Map.tryFind target functionsById with
+                        | None -> add "UnknownFunctionReference" $"Function reference '{StableId.value node.Id}' names unknown function '{StableId.value target}'."
+                        | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
+                            add "GenericFunctionReferenceUnsupported" "A function value must reference a monomorphic function; use a concrete wrapper."
+                        | Some _ when not (PureFunctions.isPure snapshot target) ->
+                            add "ImpureFunctionReference" "A function value must reference a pure function, including its transitive calls and ambient cancellation behavior."
+                        | Some _ -> ()
+                    | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+                        match nodeType value with
+                        | Some(TypeRef.Function(parameters, _)) when parameters.Length <> arguments.Length ->
+                            add "FunctionInvokeArityMismatch" "Function invocation must supply exactly one value for each positional parameter."
+                        | Some(TypeRef.Function(parameters, _)) ->
+                            List.zip parameters arguments |> List.iter (fun (expected, argument) ->
+                                match nodeType argument with
+                                | Some actual when actual <> expected -> add "FunctionInvokeArgumentTypeMismatch" "Function invocation argument has the wrong type."
+                                | _ -> ())
+                        | Some _ -> add "FunctionInvokeTargetTypeMismatch" "Function invocation requires a function value."
+                        | None -> ()
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
@@ -1317,6 +1341,8 @@ module SnapshotValidator =
                             add
                                 "InvalidObligationResolutionValue"
                                 $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _

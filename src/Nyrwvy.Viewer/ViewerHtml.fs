@@ -31,6 +31,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
+        | TypeRef.Function(arguments, result) -> "(" + (arguments |> List.map typeRefText |> String.concat ", ") + ") -> " + typeRefText result
         | TypeRef.TypeParameter(_, displayName) -> displayName
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
             "Option<" + typeRefText item + ">"
@@ -60,6 +61,7 @@ module ViewerHtml =
         match kind with
         | ViewerRelationKind.DependsOn -> "depends on"
         | ViewerRelationKind.CallsFunction -> "calls function"
+        | ViewerRelationKind.ReferencesFunction -> "references function"
         | ViewerRelationKind.ReadsParameter -> "reads parameter"
         | ViewerRelationKind.ReadsPatternBinding -> "reads pattern binding"
         | ViewerRelationKind.InvokesCapabilityOperation -> "invokes capability operation"
@@ -80,6 +82,8 @@ module ViewerHtml =
         | ValueDependencyRole.Source -> "source"
         | ValueDependencyRole.Item -> "item"
         | ValueDependencyRole.ListItem index -> "list item [" + string index + "]"
+        | ValueDependencyRole.FunctionValue -> "function value"
+        | ValueDependencyRole.FunctionArgument index -> "function argument " + string index
         | ValueDependencyRole.CallArgument parameterId -> "call argument " + stableText "parameter:" parameterId
         | ValueDependencyRole.CapabilityValue -> "capability value"
         | ValueDependencyRole.CapabilityArgument parameterId ->
@@ -135,6 +139,8 @@ module ViewerHtml =
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
+        | ViewerNodeRole.FunctionReference -> "function reference"
+        | ViewerNodeRole.FunctionInvoke -> "function invocation"
         | ViewerNodeRole.DirectCall -> "direct call"
         | ViewerNodeRole.CapabilityInvoke -> "capability invoke"
         | ViewerNodeRole.ProductConstruct -> "product construct"

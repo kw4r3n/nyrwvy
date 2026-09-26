@@ -15,6 +15,7 @@ type ViewerTarget =
 type ViewerRelationKind =
     | DependsOn
     | CallsFunction
+    | ReferencesFunction
     | ReadsParameter
     | ReadsPatternBinding
     | InvokesCapabilityOperation
@@ -75,6 +76,8 @@ type ViewerNodeRole =
     | ListFilter
     | ListAny
     | ListAll
+    | FunctionReference
+    | FunctionInvoke
     | DirectCall
     | CapabilityInvoke
     | ProductConstruct
@@ -224,6 +227,11 @@ module ViewerProjection =
             ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
         | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
+        | SemanticNodeKind.FunctionReference functionId ->
+            ViewerNodeRole.FunctionReference,
+            [ { Kind = ViewerRelationKind.ReferencesFunction
+                Target = ViewerTarget.Function functionId } ]
+        | SemanticNodeKind.FunctionInvoke _ -> ViewerNodeRole.FunctionInvoke, []
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,
             [ { Kind = ViewerRelationKind.CallsFunction
@@ -368,6 +376,8 @@ module ViewerProjection =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _

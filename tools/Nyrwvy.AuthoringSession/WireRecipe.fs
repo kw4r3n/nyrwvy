@@ -160,6 +160,12 @@ module internal WireRecipe =
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(typeRef (property "okType" element), recipe (property "error" element))
+        | "functionReference" ->
+            ensureFields "Function reference recipe" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
+            ExpressionRecipe.FunctionReference(id<FunctionTag> "functionId" element)
+        | "functionInvoke" ->
+            ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
+            ExpressionRecipe.FunctionInvoke(recipe (property "functionValue" element), array "arguments" element |> List.map (recipe))
         | "directCall" ->
             ensureFields "direct-call recipe" [ "kind"; "functionId"; "arguments" ] [ "kind"; "functionId"; "arguments" ] element
             ExpressionRecipe.DirectCall(id<FunctionTag> "functionId" element, callArguments "arguments")

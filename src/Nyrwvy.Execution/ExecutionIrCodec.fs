@@ -48,6 +48,8 @@ module ExecutionIrCodec =
                 [ property "kind" (quote "typeParameter")
                   property "typeParameterId" (quote (StableId.value typeParameterId))
                   property "displayName" (quote displayName) ]
+        | TypeRef.Function(arguments, result) ->
+            objectValue [ property "kind" (quote "function"); property "parameters" (arrayValue (List.map writeTypeRef arguments)); property "resultType" (writeTypeRef result) ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")
@@ -331,6 +333,11 @@ module ExecutionIrCodec =
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.FunctionReference target ->
+            [ property "kind" (quote "functionReference"); property "functionId" (stableIdValue target) ]
+        | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
+            [ property "kind" (quote "functionInvoke"); property "functionValueId" (executionValueIdValue value)
+              property "arguments" (arguments |> List.map executionValueIdValue |> arrayValue) ]
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)

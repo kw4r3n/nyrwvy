@@ -51,6 +51,7 @@ module internal StructuralTransactionInternals =
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
         | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
+        | SemanticNodeKind.FunctionReference functionId
         | SemanticNodeKind.DirectCall(functionId, _)
         | SemanticNodeKind.ListFold(_, _, functionId, _)
         | SemanticNodeKind.ListEffectFold(_, _, functionId, _)

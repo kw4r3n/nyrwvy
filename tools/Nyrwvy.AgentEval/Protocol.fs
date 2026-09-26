@@ -289,6 +289,11 @@ module private Encode =
             objectValue [ "kind", box "capability"; "id", box (StableId.value capabilityId) ]
         | TypeRef.TypeParameter(id, name) ->
             objectValue [ "kind", box "typeParameter"; "id", box (StableId.value id); "name", box name ]
+        | TypeRef.Function(parameters, resultType) ->
+            objectValue
+                [ "kind", box "function"
+                  "parameters", parameters |> List.map typeRef |> arrayValue
+                  "resultType", typeRef resultType ]
         | TypeRef.BuiltinGeneric(kind, arguments) ->
             objectValue
                 [ "kind", box "builtinGeneric"

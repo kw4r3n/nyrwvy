@@ -79,6 +79,8 @@ ExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
+  | FunctionReference(FunctionId)
+  | FunctionInvoke(functionValue, arguments)
   | DirectCall(targetFunctionId, argumentBindings)
   | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
   | Bind(value, body)
@@ -206,6 +208,23 @@ The supplied types are construction intent, not raw graph payloads. Before mater
 - `Result<T,E>` requires two type arguments;
 - nested type arguments are validated recursively.
 
+## Pure function values
+
+`FunctionReference(functionId)` accepts only a monomorphic named function with a
+pure transitive body: no declared effects, capability calls, resource/parallel
+execution, or ambient cancellation reads. It neither executes nor captures the
+body. `FunctionInvoke(functionValue, arguments)` evaluates the value and ordered
+argument dependencies, checks the exact positional signature, and returns the
+function result. Materialization visits the value, then arguments, then the
+invocation; evaluation of independent effectful inputs still requires `Bind`.
+Function type parameters are matched recursively inside function types.
+
+Name-resolved wire recipes use `functionReference` with `function`; exact-ID
+recipes use `functionId`. `functionInvoke` takes `functionValue` and `arguments`.
+The TypeRef shape is `{ "kind": "function", "parameters": [<TypeRef>],
+"resultType": <TypeRef> }`. See [pure function values](pure-function-values.md)
+for purity, persistence, dependency and host-boundary contracts.
+
 ## Higher-order List callbacks
 
 `ListFold`, `ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
@@ -218,7 +237,7 @@ For a source `List<T>`:
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
-**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without closures or function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
+**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without capturing closures. Context can also carry pure function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
 
 Effectful callbacks remain rejected by these pure traversals, even when the target declares their effects.
 

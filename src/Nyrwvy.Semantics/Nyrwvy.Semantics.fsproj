@@ -11,6 +11,7 @@
     <Compile Include="StableIdAllocator.fs" />
     <Compile Include="Foundation.fs" />
     <Compile Include="SnapshotComputationScope.fs" />
+    <Compile Include="PureFunctions.fs" />
     <Compile Include="SemanticFacts.fs" />
     <Compile Include="EffectRequirements.fs" />
     <Compile Include="SemanticQuery.fs" />

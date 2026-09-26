@@ -66,6 +66,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.ListAny _
                 | TypedSemanticNodeKind.ListAll _
+                | TypedSemanticNodeKind.FunctionReference _
+                | TypedSemanticNodeKind.FunctionInvoke _
                 | TypedSemanticNodeKind.DirectCall _
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _

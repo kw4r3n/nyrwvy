@@ -117,6 +117,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | FunctionReference of FunctionId
+    | FunctionInvoke of GraphNodeId * GraphNodeId list
     | DirectCall of FunctionId * TypedSemanticArgument list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
@@ -319,6 +321,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.FunctionReference target -> Ok(TypedSemanticNodeKind.FunctionReference target)
+                    | SemanticNodeKind.FunctionInvoke(value, arguments) -> Ok(TypedSemanticNodeKind.FunctionInvoke(value, arguments))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->
                         Ok(
                             TypedSemanticNodeKind.DirectCall(

@@ -20,6 +20,8 @@ module internal WireEncodeCommon =
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
             objectValue [ "kind", box "primitive"; "primitive", box name ]
+        | TypeRef.Function(arguments, result) ->
+            objectValue [ "kind", box "function"; "parameters", arguments |> List.map typeRef |> arrayValue; "resultType", typeRef result ]
         | TypeRef.Named typeId ->
             objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId) ]
         | TypeRef.Capability capabilityId ->

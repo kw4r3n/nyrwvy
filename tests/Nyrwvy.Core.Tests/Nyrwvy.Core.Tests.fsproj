@@ -75,6 +75,7 @@
     <Compile Include="ListEffectFoldTests.fs" />
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
+    <Compile Include="FunctionValueTests.fs" />
     <Compile Include="ParallelAllTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />

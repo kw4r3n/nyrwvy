@@ -69,6 +69,8 @@ type TypeRef =
     | Primitive of PrimitiveType
     | Named of TypeId
     | Capability of CapabilityId
+    /// Pure, capture-free callable; parameter order is semantic, parameter identities are not.
+    | Function of parameters: TypeRef list * resultType: TypeRef
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
     /// A type parameter of the function whose parameter types mention it. Its identity is
     /// system-owned; the display name is fixed with it and carried for presentation only.
@@ -218,6 +220,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
+    | FunctionReference of FunctionId
+    | FunctionInvoke of functionValueNodeId: GraphNodeId * arguments: GraphNodeId list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
@@ -332,6 +336,8 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -414,6 +420,8 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -450,6 +458,7 @@ module TypeParameters =
             match current with
             | TypeRef.TypeParameter(id, name) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
             | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.fold collect collected
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.fold collect collected
             | TypeRef.Primitive _
             | TypeRef.Named _
@@ -465,6 +474,7 @@ module TypeParameters =
     let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
         match typeRef with
         | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.Function(arguments, result) -> TypeRef.Function(arguments |> List.map (substitute substitution), substitute substitution result)
         | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
         | TypeRef.Primitive _
         | TypeRef.Named _
@@ -478,6 +488,9 @@ module TypeParameters =
             | Some bound when bound = actual -> Some substitution
             | Some _ -> None
             | None -> Some(Map.add id actual substitution)
+        | TypeRef.Function(declaredArguments, declaredResult), TypeRef.Function(actualArguments, actualResult) when declaredArguments.Length = actualArguments.Length ->
+            List.zip (declaredArguments @ [ declaredResult ]) (actualArguments @ [ actualResult ])
+            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
         | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
             when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
             List.zip declaredArguments actualArguments
