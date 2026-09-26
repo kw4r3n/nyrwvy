@@ -79,6 +79,7 @@ ExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
+  | CapabilityConstruct(CapabilityId, implementations: (CapabilityOperationId * FunctionId) list)
   | FunctionReference(FunctionId)
   | FunctionInvoke(functionValue, arguments)
   | DirectCall(targetFunctionId, argumentBindings)
@@ -207,6 +208,10 @@ The supplied types are construction intent, not raw graph payloads. Before mater
 - `Option<T>` and `List<T>` require one type argument;
 - `Result<T,E>` requires two type arguments;
 - nested type arguments are validated recursively.
+
+## Program-defined capability values
+
+`CapabilityConstruct` constructs an existing Capability type by assigning a named, monomorphic pure function to each operation. It is a leaf recipe: no capture or state values are evaluated. Full snapshot validation checks the exact operation set, positional signature and transitive purity both at creation and after later edits. Calls retain their nominal Effect requirements. See [the implementation contract](program-capability-implementations.md) for wire shapes and version boundaries.
 
 ## Pure function values
 
@@ -396,7 +401,7 @@ Branch recipes become nested child `ValueGraph`s. No caller-supplied raw graph, 
 
 Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, capability `CapabilityOperationId` / `CapabilityParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
 
-Bind adds a persisted semantic node role. The current snapshot JSON schema is **9**, Nyason schema is **`nayamnyam.snapshot.v5`**, and Typed Semantic IR serialization schema is **6**. Snapshot and semantic fingerprint domains advance to **v6**. Execution IR remains **5**, since existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
+Bind adds a persisted semantic node role. The Bind-era snapshot JSON schema is **9** and Nyason schema is **`nayamnyam.snapshot.v5`**; these remain the canonical formats for graphs without `CapabilityConstruct`. That new construct uses JSON **10** and Nyason **v6** as defined in [program capability implementations](program-capability-implementations.md). Current Typed Semantic IR serialization is **7** and Execution IR serialization is **6**. Snapshot and semantic fingerprint domains advance to **v6**. Bind itself needs no new execution instruction: existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
 
 Snapshot JSON 8 and Nyason v4 are now rejected explicitly, including for graphs without Bind. There is no implicit migration or inferred ordering of older graphs. Older artifacts require the matching older reader or a separately reviewed meaning-preserving migration; no migration is added in this slice. Typed Semantic IR currently has a serializer, not a round-trip reader. Frozen evaluation protocols/corpora are not extended with Bind.
 

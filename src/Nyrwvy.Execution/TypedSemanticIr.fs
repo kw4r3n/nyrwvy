@@ -117,6 +117,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
     | FunctionReference of FunctionId
     | FunctionInvoke of GraphNodeId * GraphNodeId list
     | DirectCall of FunctionId * TypedSemanticArgument list
@@ -321,6 +323,7 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) -> Ok(TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations))
                     | SemanticNodeKind.FunctionReference target -> Ok(TypedSemanticNodeKind.FunctionReference target)
                     | SemanticNodeKind.FunctionInvoke(value, arguments) -> Ok(TypedSemanticNodeKind.FunctionInvoke(value, arguments))
                     | SemanticNodeKind.DirectCall(functionId, arguments) ->

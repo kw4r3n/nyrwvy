@@ -16,6 +16,7 @@ exception private NyasonSchemaException of string
 [<RequireQualifiedAccess>]
 module NyasonCodec =
     let schemaId = "nayamnyam.snapshot.v5"
+    let capabilitySchemaId = "nayamnyam.snapshot.v6"
 
     let private shape message = raise (NyasonShapeException message)
 
@@ -541,6 +542,11 @@ module NyasonCodec =
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-all" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            record "capability-construct"
+                [ nodeId; "capability", encodeId "capability" capabilityId
+                  "implementations", list (implementations |> List.sortBy (fst >> StableId.value) |> List.map (fun (operationId, functionId) ->
+                      record "implementation" [ "operation", encodeId "capability-operation" operationId; "function", encodeId "function" functionId ])) ]
         | SemanticNodeKind.FunctionReference target ->
             record "function-reference" [ nodeId; "target", encodeId "function" target ]
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->
@@ -844,6 +850,13 @@ module NyasonCodec =
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-all", _) ->
             decodeListCallbackNode "list-all" value (fun source callback context -> SemanticNodeKind.ListAll(source, callback, context))
+        | NyasonValue.Record("capability-construct", _) ->
+            let fields = recordFields "capability-construct" [ "id"; "capability"; "implementations" ] [] value
+            let implementations = decodeList (fun item ->
+                let fields = recordFields "implementation" [ "operation"; "function" ] [] item
+                decodeId<CapabilityOperationTag> "capability-operation" (require "operation" fields), decodeId<FunctionTag> "function" (require "function" fields)) (require "implementations" fields)
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.CapabilityConstruct(decodeId<CapabilityTag> "capability" (require "capability" fields), implementations) }
         | NyasonValue.Record("function-reference", _) ->
             let fields = recordFields "function-reference" [ "id"; "target" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1094,7 +1107,7 @@ module NyasonCodec =
             let root =
                 record
                     "nyason"
-                    [ "schema", text schemaId
+                    [ "schema", text (if CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
                       "snapshot", encodeSnapshot snapshot ]
             Ok(NyasonSyntax.render root)
 
@@ -1105,10 +1118,12 @@ module NyasonCodec =
             try
                 let fields = recordFields "nyason" [ "schema"; "snapshot" ] [] root
                 let actualSchema = decodeText (require "schema" fields)
-                if actualSchema <> schemaId then
+                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId then
                     raise (NyasonSchemaException actualSchema)
 
                 let snapshot = decodeSnapshot (require "snapshot" fields)
+                if actualSchema = schemaId && CapabilityImplementations.isUsed snapshot then
+                    raise (NyasonShapeException "Capability construction requires nayamnyam.snapshot.v6.")
                 match SnapshotValidator.validate snapshot with
                 | [] -> Ok snapshot
                 | issues -> Error(NyasonCodecError.InvalidSnapshot issues)

@@ -20,7 +20,7 @@ rrawrletは不足を発見する題材であり、製品固有のLeader、Member
 | --- | --- | --- | --- |
 | G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Setや追加文字列操作は具体的要求に応じて選ぶ。 |
 | G2 | 本体を複製しない文脈・型・述語の再利用 | 関数型パラメーター、明示的な文脈引数、[純粋・captureなしの関数値](../specs/pure-function-values.md)。 | 一般closure、型パラメーター付きProduct/Union、制約付き型パラメーター、効果付き関数値。 |
-| G3 | 別モジュールの外部実装と型付き値・失敗の接続 | 明示的なC# `ExternalImplementation`、共通runnerの`hostSources`/`hostCapability`、複合値・`Result`・host例外の診断。 | プログラム内でのCapability実装選択。`FailureType`はC# backendで明示的に非対応。 |
+| G3 | 別モジュールの外部実装と型付き値・失敗の接続 | 明示的なC# `ExternalImplementation`、共通runnerの`hostSources`/`hostCapability`、複合値・`Result`・host例外の診断。[純粋なプログラム内実装](../specs/program-capability-implementations.md)。 | 状態・効果を持つプログラム内Capability実装。`FailureType`はC# backendで明示的に非対応。 |
 | G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)。 | 非構造的task値、タイムアウト、独自scheduler、所有権・借用は未導入。 |
 | T1 | reviewを伴う宣言変更・削除 | Product field追加・削除・型移行、引数/戻り値型移行、field付きvariant追加、不要関数・型・Effect・Capability/Operationの削除。 | Capability signature移行、Union variant field型移行、自動書き換え、汎用migration DSL。 |
 | T2 | 複数・多段依存の再現と明示的更新 | 内容保持sidecar、同一内容の同一IDのみ共有、ダイヤモンド依存、更新previewとreview済みfingerprintに束縛した適用。 | 更新と局所migrationの同時公開、registry、オンライン配布、semantic merge。 |
@@ -35,7 +35,7 @@ G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[�
 | 順序 | 作業 | 最小の範囲と完了条件 |
 | --- | --- | --- |
 | 1 | 現状と履歴の整理 | 本文を現在の対応表と作業順へ整理し、古い制限・調査・実装記録をarchiveへ保持する。この整理で完了。 |
-| 2 | Nyrwvy内でCapability実装を選択 | 各operationを既存の純粋・captureなしの関数へ対応付け、Capability値を作って渡す。同じ利用側関数へ2実装を渡して結果を切り替え、通常authoring・review・保存/再オープン・共通runnerを通す。operation不足・型不一致・不純な実装を公開前に拒否する。 |
+| 2 | Nyrwvy内でCapability実装を選択（実装済み） | 各operationを既存の純粋・captureなしの関数へ対応付け、Capability値を作って渡す。同じ利用側関数へ2実装を渡して結果を切り替え、通常authoring・review・保存/再オープン・共通runnerを通す。operation不足・型不一致・不純な実装を公開前に拒否する。[実行・検証記録](../verification/program-capability-implementations-20260926.md)。 |
 | 3 | abortの意味論を仕様化 | 中断範囲、型付き失敗との関係、`UseResource`の解放、`ParallelAll`のキャンセルと終了待ちを定義する。仕様化と実装済みの主張を区別する。 |
 
 Capability実装は呼び出し側の既存Effect契約を自動で狭めない。実装が新たな効果を導入する一般形、状態・capture、継続を再開するhandlerはこの最初の段階に含めない。[Semantic independence](../concepts/semantic-independence.md)全体を採用したという意味でもない。

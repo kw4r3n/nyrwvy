@@ -183,7 +183,11 @@ calls, including transitive calls and cleanup, require concurrent support before
 emission. Sharing order and visibility are defined by the
 [ParallelAll capability-sharing contract](../specs/parallel-capability-sharing.md).
 This does not add speculative properties to semantic declarations or an ownership
-system; other capability properties remain open.
+system. [Program-defined capability implementations](../specs/program-capability-implementations.md)
+now admit stateless, monomorphic pure functions with exact operation signatures.
+They introduce no additional effects and do not remove the invocation's declared
+effect. This derived restriction does not replace assertions about external host
+implementations. Stateful/effectful implementations and other properties remain open.
 
 ### Resolution target
 

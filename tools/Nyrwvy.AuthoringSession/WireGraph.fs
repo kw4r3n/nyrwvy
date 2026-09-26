@@ -100,6 +100,11 @@ module internal WireGraph =
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
         | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            tagged "capabilityConstruct"
+                [ "capabilityId", identity capabilityId
+                  "implementations", implementations |> List.sortBy fst |> List.map (fun (operationId, functionId) ->
+                      objectValue [ "operationId", identity operationId; "functionId", identity functionId ]) |> arrayValue ]
         | SemanticNodeKind.FunctionReference target -> tagged "functionReference" [ "functionId", identity target ]
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> tagged "functionInvoke" [ "functionValueNodeId", identity value; "arguments", identities arguments ]
         | SemanticNodeKind.DirectCall(functionId, arguments) ->

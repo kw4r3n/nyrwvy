@@ -12,6 +12,7 @@
     <Compile Include="Foundation.fs" />
     <Compile Include="SnapshotComputationScope.fs" />
     <Compile Include="PureFunctions.fs" />
+    <Compile Include="CapabilityImplementations.fs" />
     <Compile Include="SemanticFacts.fs" />
     <Compile Include="EffectRequirements.fs" />
     <Compile Include="SemanticQuery.fs" />

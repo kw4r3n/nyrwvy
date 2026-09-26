@@ -51,9 +51,10 @@ module SemanticQuery =
         snapshot.Functions
         |> List.collect (fun owner ->
             ValueGraph.collectNodes owner.Body
-            |> List.choose (fun node ->
-                let calleeId =
+            |> List.collect (fun node ->
+                let calleeIds =
                     match node.Kind with
+                    | SemanticNodeKind.CapabilityConstruct(_, implementations) -> List.map snd implementations
                     | SemanticNodeKind.FunctionReference functionId
                     | SemanticNodeKind.DirectCall(functionId, _)
                     | SemanticNodeKind.ListFold(_, _, functionId, _)
@@ -63,7 +64,7 @@ module SemanticQuery =
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
-                    | SemanticNodeKind.ListAll(_, functionId, _) -> Some functionId
+                    | SemanticNodeKind.ListAll(_, functionId, _) -> [ functionId ]
                     | SemanticNodeKind.FunctionInvoke _
                     | SemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ParameterReference _
@@ -113,10 +114,11 @@ module SemanticQuery =
                     | SemanticNodeKind.MatchUnion _
                     | SemanticNodeKind.Bind _
                     | SemanticNodeKind.MatchOption _
-                    | SemanticNodeKind.MatchResult _ -> None
+                    | SemanticNodeKind.MatchResult _ -> []
 
-                calleeId
-                |> Option.map (fun functionId ->
+                calleeIds
+                |> List.distinct
+                |> List.map (fun functionId ->
                     { CallerFunctionId = owner.Id
                       CallNodeId = node.Id
                       CalleeFunctionId = functionId })))

@@ -95,6 +95,7 @@ module ValueDependency =
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->
             { Role = ValueDependencyRole.FunctionValue; NodeId = value } :: (arguments |> List.mapi (fun index id -> { Role = ValueDependencyRole.FunctionArgument index; NodeId = id }))

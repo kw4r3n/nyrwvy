@@ -160,6 +160,12 @@ module internal WireRecipe =
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(typeRef (property "okType" element), recipe (property "error" element))
+        | "capabilityConstruct" ->
+            ensureFields "Capability construction recipe" [ "kind"; "capabilityId"; "implementations" ] [ "kind"; "capabilityId"; "implementations" ] element
+            let implementations = array "implementations" element |> List.map (fun item ->
+                ensureFields "Capability implementation" [ "operationId"; "functionId" ] [ "operationId"; "functionId" ] item
+                id<CapabilityOperationTag> "operationId" item, id<FunctionTag> "functionId" item)
+            ExpressionRecipe.CapabilityConstruct(id<CapabilityTag> "capabilityId" element, implementations)
         | "functionReference" ->
             ensureFields "Function reference recipe" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
             ExpressionRecipe.FunctionReference(id<FunctionTag> "functionId" element)

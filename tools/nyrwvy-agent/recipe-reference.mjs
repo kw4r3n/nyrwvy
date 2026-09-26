@@ -21,7 +21,7 @@ const categories = {
   list: ["listEmpty", "listConstruct", "listLength", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listAny", "listAll"],
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
-  calls: ["directCall", "functionReference", "functionInvoke", "capabilityInvoke"],
+  calls: ["directCall", "functionReference", "functionInvoke", "capabilityConstruct", "capabilityInvoke"],
   control: ["conditional", "matchUnion", "bind", "matchOption", "matchResult"],
 }
 
@@ -121,6 +121,10 @@ const references = {
   directCall: {
     shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }] },
     notes: "arguments must cover the callee parameters exactly; argument order is not semantic.",
+  },
+  capabilityConstruct: {
+    shape: { kind: "capabilityConstruct", capability: "<capability display name>", implementations: [{ operation: "<operation display name>", function: "<monomorphic pure function display name>" }] },
+    notes: "Cover every operation exactly once. Implementation parameters match operation parameter types in declaration order, with the exact result type. No state or captures; construction does not invoke the functions. Invocation still requires the operation's declared effect.",
   },
   capabilityInvoke: {
     shape: { kind: "capabilityInvoke", capabilityValue: recipe, capability: "<capability display name>", operation: "<operation display name>", arguments: [{ parameter: "<operation parameter display name>", value: recipe }] },

@@ -290,3 +290,12 @@ M3 does not select a new long-term storage format. The maintained session stores
 ## Non-goals
 
 The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, runtime provider registration/implementation, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
+
+## Program-defined capabilities
+
+The exact-ID and name-resolved create/replace recipes accept
+[`capabilityConstruct`](program-capability-implementations.md). Its mappings
+persist in snapshot schema 10 (old graphs still write schema 9), survive pinned
+dependencies and reopen, and appear in structured reads. `runPure` executes
+program-constructed capabilities internally through the generated interface; no
+new input/output value encoding or host source registration is required.

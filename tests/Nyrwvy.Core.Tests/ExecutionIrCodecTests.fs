@@ -22,7 +22,7 @@ module ExecutionIrCodecTests =
         let first = ExecutionIrCodec.serialize execution
         let second = ExecutionIrCodec.serialize execution
         Assert.Equal(first, second)
-        Assert.Contains("\"schemaVersion\":5", first)
+        Assert.Contains("\"schemaVersion\":6", first)
 
     [<Fact>]
     let ``execution IR codec canonicalizes nonsemantic collection order`` () =

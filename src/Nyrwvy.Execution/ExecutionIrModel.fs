@@ -120,6 +120,8 @@ type ExecutionInstructionKind =
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
     | FunctionReference of FunctionId
     | FunctionInvoke of ExecutionValueId * ExecutionValueId list
     | DirectCall of FunctionId * ExecutionCallArgument list

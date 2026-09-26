@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 6
+    let schemaVersion = 7
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -403,6 +403,16 @@ module TypedSemanticIrCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            writer.WriteString("kind", "capabilityConstruct")
+            writer.WriteString("capabilityId", StableId.value capabilityId)
+            writer.WriteStartArray("implementations")
+            for operationId, functionId in implementations |> List.sortBy (fst >> StableId.value) do
+                writer.WriteStartObject()
+                writer.WriteString("operationId", StableId.value operationId)
+                writer.WriteString("functionId", StableId.value functionId)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
         | TypedSemanticNodeKind.FunctionReference target ->
             writer.WriteString("kind", "functionReference")
             writer.WriteString("functionId", StableId.value target)

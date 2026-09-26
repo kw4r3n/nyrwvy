@@ -268,6 +268,7 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     predicateFunctionId,
                     mapContext context
                 )
+            | SemanticNodeKind.CapabilityConstruct _
             | SemanticNodeKind.FunctionReference _ -> kind
             | SemanticNodeKind.FunctionInvoke(value, arguments) -> SemanticNodeKind.FunctionInvoke(mapNodeId value, List.map mapNodeId arguments)
             | SemanticNodeKind.DirectCall(functionId, arguments) ->

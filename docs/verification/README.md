@@ -35,6 +35,8 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Effect declaration authoring (M4)](m4-effect-authoring-20260915.md)
 - [Capability and operation declaration authoring (M4)](m4-capability-authoring-20260915.md)
 
+- [Program-defined capability implementations](program-capability-implementations-20260926.md)
+
 ## Live agent probes
 
 - [Codex CLI MCP maintenance probe, Run 1](codex-cli-mcp-maintenance-probe.md) — host approval blocker

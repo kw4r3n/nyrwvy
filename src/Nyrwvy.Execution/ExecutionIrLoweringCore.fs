@@ -361,6 +361,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAll(source, callback, lowered))
+                        | TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+                            Ok(addInstruction currentBlock node (ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations)))
                         | TypedSemanticNodeKind.FunctionReference target ->
                             Ok(addInstruction currentBlock node (ExecutionInstructionKind.FunctionReference target))
                         | TypedSemanticNodeKind.FunctionInvoke(value, arguments) ->
@@ -625,6 +627,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _
                         | TypedSemanticNodeKind.ListAll _
+                        | TypedSemanticNodeKind.CapabilityConstruct _
                         | TypedSemanticNodeKind.FunctionReference _
                         | TypedSemanticNodeKind.FunctionInvoke _
                         | TypedSemanticNodeKind.DirectCall _

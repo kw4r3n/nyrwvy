@@ -5,8 +5,9 @@ namespace Nyrwvy.Core
 module ExecutionCallGraph =
     let instructions (fn: ExecutionFunction) = fn.Blocks |> List.collect (fun block -> block.Instructions)
 
-    let target (instruction: ExecutionInstruction) =
+    let targets (instruction: ExecutionInstruction) =
         match instruction.Kind with
+        | ExecutionInstructionKind.CapabilityConstruct(_, implementations) -> List.map snd implementations
         | ExecutionInstructionKind.FunctionReference functionId
         | ExecutionInstructionKind.DirectCall(functionId, _)
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
@@ -16,8 +17,8 @@ module ExecutionCallGraph =
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
-        | ExecutionInstructionKind.ListAll(_, functionId, _) -> Some functionId
-        | _ -> None
+        | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ functionId ]
+        | _ -> []
 
     let reachable (program: ExecutionProgram) roots =
         let functions = program.Functions |> List.map (fun fn -> fn.SemanticFunctionId, fn) |> Map.ofList
@@ -28,7 +29,7 @@ module ExecutionCallGraph =
             | id :: rest ->
                 let targets =
                     Map.tryFind id functions
-                    |> Option.map (instructions >> List.choose target)
+                    |> Option.map (instructions >> List.collect targets)
                     |> Option.defaultValue []
                 visit (Set.add id seen) (targets @ rest)
         visit Set.empty roots

@@ -107,3 +107,13 @@ instance of a capability used in workers must assert support. A concurrent fake
 or another host of that type cannot override a sequential instance. Rejection
 happens before building or invoking host code. Call logging on a host wrapper
 records invocation admission only; the provider controls its own operation order.
+
+## Program-defined implementations
+
+The [program implementation slice](program-capability-implementations.md) admits
+only stateless, transitively pure mapped functions. These values can be shared
+without adding a host assertion to the semantic graph. The existing backend
+profile still checks all worker operations, and the common runner still rejects
+an unsafe host instance even when the same Capability type also has a program
+implementation. Selecting a pure implementation does not erase the operation's
+nominal effect or impose an order between workers.

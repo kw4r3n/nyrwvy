@@ -275,6 +275,7 @@ module Transaction =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
                 | SemanticNodeKind.FunctionReference _
                 | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
@@ -709,6 +710,7 @@ module Transaction =
                                   ValueNodeId = request.ResolutionValueNodeId }
                             { node with
                                 Kind = SemanticNodeKind.DirectCall(targetFunctionId, arguments @ [ binding ]) }
+                        | SemanticNodeKind.CapabilityConstruct _
                         | SemanticNodeKind.FunctionReference _
                         | SemanticNodeKind.FunctionInvoke _
                         | SemanticNodeKind.ParameterReference _

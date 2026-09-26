@@ -62,6 +62,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
@@ -120,6 +121,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
@@ -934,6 +936,9 @@ module SnapshotValidator =
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId predicateFunctionId context true
+                    | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+                        for code, message in CapabilityImplementations.validate snapshot capabilityId implementations do
+                            add code ($"Capability construction '{StableId.value node.Id}': " + message)
                     | SemanticNodeKind.FunctionReference target ->
                         match Map.tryFind target functionsById with
                         | None -> add "UnknownFunctionReference" $"Function reference '{StableId.value node.Id}' names unknown function '{StableId.value target}'."
@@ -1341,6 +1346,7 @@ module SnapshotValidator =
                             add
                                 "InvalidObligationResolutionValue"
                                 $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
+                | SemanticNodeKind.CapabilityConstruct _
                 | SemanticNodeKind.FunctionReference _
                 | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.ParameterReference _

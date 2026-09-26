@@ -71,6 +71,7 @@ module internal ExecutionIrAnalysis =
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
         | TypedSemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | TypedSemanticNodeKind.DirectCall(_, arguments) -> arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -144,6 +145,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
             | TypedSemanticNodeKind.ListAll _
+            | TypedSemanticNodeKind.CapabilityConstruct _
             | TypedSemanticNodeKind.FunctionReference _
             | TypedSemanticNodeKind.FunctionInvoke _
             | TypedSemanticNodeKind.DirectCall _
@@ -203,6 +205,7 @@ module internal ExecutionIrAnalysis =
             graphHasEffects functionsById someArm.Body || graphHasEffects functionsById noneBody
         | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
             graphHasEffects functionsById okArm.Body || graphHasEffects functionsById errArm.Body
+        | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _
         | TypedSemanticNodeKind.FunctionInvoke _
         | TypedSemanticNodeKind.ParameterReference _
@@ -371,6 +374,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
             | TypedSemanticNodeKind.ListAll _
+            | TypedSemanticNodeKind.CapabilityConstruct _
             | TypedSemanticNodeKind.FunctionReference _
             | TypedSemanticNodeKind.FunctionInvoke _
             | TypedSemanticNodeKind.DirectCall _

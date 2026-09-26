@@ -68,6 +68,8 @@ type ExpressionRecipe =
     | OptionSome of ExpressionRecipe
     | ResultOk of errorType: TypeRef * value: ExpressionRecipe
     | ResultErr of okType: TypeRef * error: ExpressionRecipe
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
     | FunctionReference of FunctionId
     | FunctionInvoke of functionValue: ExpressionRecipe * arguments: ExpressionRecipe list
     | DirectCall of targetFunctionId: FunctionId * arguments: (ParameterId * ExpressionRecipe) list
@@ -168,6 +170,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)
+        | ExpressionRecipe.CapabilityConstruct _
         | ExpressionRecipe.FunctionReference _ -> recipe
         | ExpressionRecipe.FunctionInvoke(value, arguments) -> ExpressionRecipe.FunctionInvoke(go value, List.map go arguments)
         | ExpressionRecipe.DirectCall(functionId, arguments) -> ExpressionRecipe.DirectCall(functionId, pairs arguments)
@@ -281,6 +284,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | ExpressionRecipe.ProductConstruct(_, fields)
         | ExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
+        | ExpressionRecipe.CapabilityConstruct _
         | ExpressionRecipe.FunctionReference _ -> Seq.empty
         | ExpressionRecipe.FunctionInvoke(value, arguments) -> seq { yield value; yield! arguments }
         | ExpressionRecipe.DirectCall(_, arguments) -> arguments |> Seq.map snd
@@ -921,6 +925,10 @@ module AgentExpressionStructuralWorkflow =
                 match validateTypeRef snapshot okType with
                 | Error error -> Error error
                 | Ok() -> infer frames error |> Result.map (resultType okType)
+            | ExpressionRecipe.CapabilityConstruct(capabilityId, implementations) ->
+                match CapabilityImplementations.validate snapshot capabilityId implementations with
+                | (code, message) :: _ -> Error(diagnostic code message)
+                | [] -> Ok(TypeRef.Capability capabilityId)
             | ExpressionRecipe.FunctionReference target ->
                 match Map.tryFind target functionsById with
                 | None -> Error(diagnostic "UnknownFunctionReference" "The referenced function does not exist.")
@@ -1318,6 +1326,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error
+        | ExpressionRecipe.CapabilityConstruct(capabilityId, implementations) ->
+            let id = StableIdAllocator.newGraphNodeId ()
+            [ { Id = id; Kind = SemanticNodeKind.CapabilityConstruct(capabilityId, List.sortBy fst implementations) } ], id
         | ExpressionRecipe.FunctionReference target ->
             let id = StableIdAllocator.newGraphNodeId ()
             [ { Id = id; Kind = SemanticNodeKind.FunctionReference target } ], id

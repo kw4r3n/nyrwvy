@@ -100,6 +100,7 @@ module CSharpBackendNames =
     let capabilityOperationName (id: CapabilityOperationId) = stable "Op_" id
     let capabilityParameterName (id: CapabilityParameterId) = stable "cp_" id
     let capabilityAdapterName (id: CapabilityId) = stable "NyA_" id
+    let capabilityImplementationName (id: GraphNodeId) = stable "NyI_" id
 
     let executionValueName (id: ExecutionValueId) =
         "v_" + utf8Hex (ExecutionValueId.value id)

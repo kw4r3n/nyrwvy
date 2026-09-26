@@ -138,3 +138,11 @@ See [pure function values](pure-function-values.md) for the exact wire shapes an
 restrictions. Focused inspection retains reference dependencies and shows
 function-valued node types; review validates referenced signatures and purity
 before publication.
+
+## Program-defined capability implementations
+
+Use `nyrwvy_recipe_reference` with `kind: "capabilityConstruct"` to discover the
+operation/function mapping recipe. `nyrwvy_create_function` can define a factory
+returning a Capability; `nyrwvy_replace` edits that mapping with the existing
+review/commit path. Inspect exposes exact capability, operation and function IDs.
+See [program capability implementations](program-capability-implementations.md).

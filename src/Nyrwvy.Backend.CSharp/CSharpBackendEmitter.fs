@@ -323,6 +323,30 @@ module CSharpBackend =
                 writer.Line("}")
                 writer.Line("")
 
+    let private emitProgramImplementations (writer: SourceWriter) (context: CSharpBackendValidation.Context) (program: ExecutionProgram) =
+        for instruction in program.Functions |> List.collect ExecutionCallGraph.instructions |> List.sortBy (fun item -> StableId.value item.OriginNodeId) do
+            match instruction.Kind with
+            | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
+                let capability = Map.find capabilityId context.CapabilitiesById
+                let implementationName = CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId
+                writer.Line("internal sealed class " + implementationName + " : " + CSharpBackendNames.capabilityName capabilityId)
+                writer.Line("{")
+                writer.Push()
+                for operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) do
+                    let functionId = implementations |> List.find (fun (id, _) -> id = operation.Id) |> snd
+                    let fn = Map.find functionId context.FunctionsById
+                    let parameters = operation.Parameters |> List.map capabilityParameter |> String.concat ", "
+                    // Declaration order defines the correspondence. Name each target parameter
+                    // explicitly, independently of the operation parameter identities.
+                    let arguments = List.zip fn.Parameters operation.Parameters |> List.map (fun (parameter, supplied) ->
+                        CSharpBackendNames.parameterName parameter.SemanticParameterId + ": " + CSharpBackendNames.capabilityParameterName supplied.Id) |> String.concat ", "
+                    writer.Line("public " + formatType operation.ResultType + " " + CSharpBackendNames.capabilityOperationName operation.Id + "(" + parameters + ") => "
+                                + CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId + "(" + arguments + ");")
+                writer.Pop()
+                writer.Line("}")
+                writer.Line("")
+            | _ -> ()
+
     let private valueName (valueId: ExecutionValueId) =
         CSharpBackendNames.executionValueName valueId
 
@@ -577,6 +601,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.CapabilityConstruct _ ->
+            writer.Line(target + " = new " + CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId + "();")
         | ExecutionInstructionKind.FunctionReference functionId ->
             writer.Line(target + " = " + CSharpBackendNames.functionName functionId + ";")
         | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
@@ -835,6 +861,7 @@ module CSharpBackend =
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program
+            emitProgramImplementations writer context program
             emitFunctions writer program
             writer.Line("#pragma warning restore CS0219")
             Ok

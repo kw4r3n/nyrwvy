@@ -98,3 +98,13 @@ reachability, so selecting one entry retains the referenced implementation and
 its transitive dependencies. These representations implement the
 [pure function-value contract](pure-function-values.md); delegate identity and
 captures are not new semantic capabilities.
+
+## Program-defined capabilities
+
+[CapabilityConstruct](program-capability-implementations.md) emits a stateless
+class implementing the existing capability interface. Its methods call the
+mapped generated Nyrwvy functions with positional semantic correspondence
+expressed as named C# arguments. The profile's existing interface binding and
+parallel-sharing checks remain in force; internally constructed values require
+no host implementation source in the common runner. Typed Semantic IR schema 7
+and Execution IR schema 6 carry the operation/function mapping.

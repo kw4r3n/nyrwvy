@@ -36,7 +36,7 @@ module internal CSharpBackendValidation =
     let private collectFunctionTargets (program: ExecutionProgram) =
         program.Functions
         |> List.collect ExecutionCallGraph.instructions
-        |> List.choose ExecutionCallGraph.target
+        |> List.collect ExecutionCallGraph.targets
         |> List.distinct
         |> List.sortBy StableId.value
 

@@ -220,6 +220,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
     | FunctionReference of FunctionId
     | FunctionInvoke of functionValueNodeId: GraphNodeId * arguments: GraphNodeId list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
@@ -336,6 +338,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
                 | SemanticNodeKind.FunctionReference _
                 | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
@@ -420,6 +423,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
                 | SemanticNodeKind.FunctionReference _
                 | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _

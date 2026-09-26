@@ -51,6 +51,7 @@ module SemanticFacts =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
@@ -143,6 +144,7 @@ module SemanticFacts =
             | SemanticNodeKind.ListFilter _
             | SemanticNodeKind.ListAny _
             | SemanticNodeKind.ListAll _
+            | SemanticNodeKind.CapabilityConstruct _
             | SemanticNodeKind.FunctionReference _
             | SemanticNodeKind.FunctionInvoke _
             | SemanticNodeKind.DirectCall _
@@ -364,6 +366,7 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting mapper context [ itemType ] ]))
                         | _ -> None
+                    | SemanticNodeKind.CapabilityConstruct(capabilityId, _) -> Some(TypeRef.Capability capabilityId)
                     | SemanticNodeKind.FunctionReference target ->
                         Map.tryFind target index.Functions |> Option.map (fun fn -> TypeRef.Function(List.map (fun (p: SemanticParameter) -> p.Type) fn.Parameters, fn.ResultType))
                     | SemanticNodeKind.FunctionInvoke(value, _) ->

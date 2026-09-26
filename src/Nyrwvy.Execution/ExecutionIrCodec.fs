@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 5
+    let schemaVersion = 6
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -333,6 +333,10 @@ module ExecutionIrCodec =
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
+            [ property "kind" (quote "capabilityConstruct"); property "capabilityId" (stableIdValue capabilityId)
+              property "implementations" (implementations |> List.sortBy fst |> List.map (fun (operationId, functionId) ->
+                  objectValue [ property "operationId" (stableIdValue operationId); property "functionId" (stableIdValue functionId) ]) |> arrayValue) ]
         | ExecutionInstructionKind.FunctionReference target ->
             [ property "kind" (quote "functionReference"); property "functionId" (stableIdValue target) ]
         | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->

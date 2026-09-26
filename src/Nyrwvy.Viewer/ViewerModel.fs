@@ -76,6 +76,7 @@ type ViewerNodeRole =
     | ListFilter
     | ListAny
     | ListAll
+    | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
     | FunctionReference
     | FunctionInvoke
     | DirectCall
@@ -227,6 +228,10 @@ module ViewerProjection =
             ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
         | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations),
+            (implementations |> List.map snd |> List.distinct |> List.map (fun functionId ->
+                { Kind = ViewerRelationKind.ReferencesFunction; Target = ViewerTarget.Function functionId }))
         | SemanticNodeKind.FunctionReference functionId ->
             ViewerNodeRole.FunctionReference,
             [ { Kind = ViewerRelationKind.ReferencesFunction
@@ -376,6 +381,7 @@ module ViewerProjection =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
                 | SemanticNodeKind.FunctionReference _
                 | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _

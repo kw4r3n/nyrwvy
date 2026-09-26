@@ -333,10 +333,10 @@ module ListTests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":6", typedJson)
+        Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"kind\":\"list\"", typedJson)
         Assert.Contains("\"listConstruct\"", typedJson)
-        Assert.Contains("\"schemaVersion\":5", executionJson)
+        Assert.Contains("\"schemaVersion\":6", executionJson)
         Assert.Contains("\"listConstruct\"", executionJson)
 
     [<Fact>]

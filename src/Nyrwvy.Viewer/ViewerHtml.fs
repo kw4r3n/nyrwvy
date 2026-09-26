@@ -139,6 +139,9 @@ module ViewerHtml =
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
+        | ViewerNodeRole.CapabilityConstruct(capabilityId, implementations) ->
+            "capability construction " + StableId.value capabilityId + " (" +
+            (implementations |> List.map (fun (operationId, functionId) -> StableId.value operationId + " -> " + StableId.value functionId) |> String.concat "; ") + ")"
         | ViewerNodeRole.FunctionReference -> "function reference"
         | ViewerNodeRole.FunctionInvoke -> "function invocation"
         | ViewerNodeRole.DirectCall -> "direct call"

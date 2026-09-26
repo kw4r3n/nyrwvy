@@ -30,6 +30,7 @@ The implemented subset includes:
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
 - internal direct function calls;
 - pure capture-free function types, named references, and positional invocation;
+- program-defined stateless Capability values backed by pure named functions;
 - external capability invocation;
 - explicit effects and capability requirements.
 
@@ -80,6 +81,10 @@ ListAll
 ```
 
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
+
+## Program-defined capability values
+
+`CapabilityConstruct` maps every operation of an existing Capability to a monomorphic pure function with the same positional parameter types and result type. The resulting value can be passed to existing consumers; invocation still requires the operation's declared Effect. See [program capability implementations](../specs/program-capability-implementations.md) for validation, authoring, review and versioned persistence. State, capture and effectful implementations are outside this slice.
 
 ## Pure function values
 
@@ -170,6 +175,7 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
+CapabilityConstruct
 FunctionReference
 FunctionInvoke
 DirectCall

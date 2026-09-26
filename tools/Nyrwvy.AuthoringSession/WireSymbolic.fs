@@ -376,6 +376,14 @@ module internal WireSymbolic =
                 typeRef declarations (property "okType" element),
                 recipe declarations parameterContext (property "error" element)
             )
+        | "capabilityConstruct" ->
+            ensureFields "Capability construction recipe" [ "kind"; "capability"; "implementations" ] [ "kind"; "capability"; "implementations" ] element
+            let capability = resolveCapability declarations (requiredString "capability" element)
+            let implementations = array "implementations" element |> List.map (fun item ->
+                ensureFields "Capability implementation" [ "operation"; "function" ] [ "operation"; "function" ] item
+                (capabilityOperation capability (requiredString "operation" item)).Id,
+                (resolveFunction declarations (requiredString "function" item)).Id)
+            ExpressionRecipe.CapabilityConstruct(capability.Id, implementations)
         | "functionReference" ->
             ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
             ExpressionRecipe.FunctionReference((resolveFunction declarations (requiredString "function" element)).Id)

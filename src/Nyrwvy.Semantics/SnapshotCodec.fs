@@ -19,6 +19,7 @@ type SnapshotCodecError =
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
     let private schemaVersion = 9
+    let private capabilitySchemaVersion = 10
     // Retain the writer's existing depth allowance and apply it to reads too:
     // nested graph envelopes must not make a successfully saved snapshot unreadable.
     let private maxJsonDepth = 1000
@@ -490,6 +491,16 @@ module SnapshotCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            writer.WriteString("kind", "capabilityConstruct")
+            writer.WriteString("capabilityId", StableId.value capabilityId)
+            writer.WriteStartArray("implementations")
+            for operationId, functionId in implementations |> List.sortBy (fst >> StableId.value) do
+                writer.WriteStartObject()
+                writer.WriteString("operationId", StableId.value operationId)
+                writer.WriteString("functionId", StableId.value functionId)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
         | SemanticNodeKind.FunctionReference target ->
             writer.WriteString("kind", "functionReference")
             writer.WriteString("targetFunctionId", StableId.value target)
@@ -670,7 +681,7 @@ module SnapshotCodec =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", schemaVersion)
+        writer.WriteNumber("schemaVersion", if CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
         match dependencyMarker with
         | Some(id, fingerprint) ->
@@ -1064,6 +1075,16 @@ module SnapshotCodec =
             | "listAll" ->
                 readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAll(source, callback, context))
+            | "capabilityConstruct" ->
+                let fields = set [ "id"; "kind"; "capabilityId"; "implementations" ]
+                ensureProperties "Capability construction" fields fields element
+                let implementations =
+                    readArray "implementations" (fun item -> item) element
+                    |> List.map (fun item ->
+                        let fields = set [ "operationId"; "functionId" ]
+                        ensureProperties "Capability implementation" fields fields item
+                        readId<CapabilityOperationTag> "operationId" item, readId<FunctionTag> "functionId" item)
+                SemanticNodeKind.CapabilityConstruct(readId<CapabilityTag> "capabilityId" element, implementations)
             | "functionReference" ->
                 ensureProperties "Function reference" (set [ "id"; "kind"; "targetFunctionId" ]) (set [ "id"; "kind"; "targetFunctionId" ]) element
                 SemanticNodeKind.FunctionReference(readId<FunctionTag> "targetFunctionId" element)
@@ -1214,7 +1235,7 @@ module SnapshotCodec =
                        || readString "digest" marker <> dependencyDigest imported then
                         invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
-                if version <> schemaVersion then
+                if version <> schemaVersion && version <> capabilitySchemaVersion then
                     Error(SnapshotCodecError.UnsupportedSchemaVersion version)
                 else
                     let parentId =
@@ -1229,6 +1250,8 @@ module SnapshotCodec =
                           Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
+                    if version = schemaVersion && CapabilityImplementations.isUsed snapshot then
+                        invalidShape "Capability construction requires snapshot schemaVersion 10."
                     let resolved =
                         match dependency with
                         | None -> snapshot
