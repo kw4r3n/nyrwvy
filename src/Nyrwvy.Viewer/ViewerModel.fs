@@ -15,6 +15,7 @@ type ViewerTarget =
 type ViewerRelationKind =
     | DependsOn
     | CallsFunction
+    | ReferencesFunction
     | ReadsParameter
     | ReadsPatternBinding
     | InvokesCapabilityOperation
@@ -81,6 +82,9 @@ type ViewerNodeRole =
     | ListFilter
     | ListAny
     | ListAll
+    | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
+    | FunctionReference
+    | FunctionInvoke
     | DirectCall
     | CapabilityInvoke
     | ProductConstruct
@@ -89,6 +93,7 @@ type ViewerNodeRole =
     | OptionNone
     | OptionSome
     | ResultOk
+    | Abort
     | ResultErr
     | Conditional
     | MatchUnion
@@ -140,6 +145,8 @@ type ViewerFunctionSignature =
 type ViewerFocusModel =
     { SnapshotId: SnapshotId
       Function: ViewerFunctionSignature
+      BodyEffectRequirements: BodyEffectRequirements
+      Aborts: QueryFunctionAbort list
       Graph: ViewerGraph
       Callers: QueryCallSite list
       Callees: QueryCallSite list
@@ -235,6 +242,15 @@ module ViewerProjection =
             ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
         | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations),
+            (implementations |> List.map snd |> List.distinct |> List.map (fun functionId ->
+                { Kind = ViewerRelationKind.ReferencesFunction; Target = ViewerTarget.Function functionId }))
+        | SemanticNodeKind.FunctionReference functionId ->
+            ViewerNodeRole.FunctionReference,
+            [ { Kind = ViewerRelationKind.ReferencesFunction
+                Target = ViewerTarget.Function functionId } ]
+        | SemanticNodeKind.FunctionInvoke _ -> ViewerNodeRole.FunctionInvoke, []
         | SemanticNodeKind.DirectCall(functionId, _) ->
             ViewerNodeRole.DirectCall,
             [ { Kind = ViewerRelationKind.CallsFunction
@@ -258,6 +274,7 @@ module ViewerProjection =
         | SemanticNodeKind.OptionNone _ -> ViewerNodeRole.OptionNone, []
         | SemanticNodeKind.OptionSome _ -> ViewerNodeRole.OptionSome, []
         | SemanticNodeKind.ResultOk _ -> ViewerNodeRole.ResultOk, []
+        | SemanticNodeKind.Abort _ -> ViewerNodeRole.Abort, []
         | SemanticNodeKind.ResultErr _ -> ViewerNodeRole.ResultErr, []
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
             ViewerNodeRole.Conditional,
@@ -385,6 +402,9 @@ module ViewerProjection =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -393,6 +413,7 @@ module ViewerProjection =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> []
 
             { Id = node.Id
@@ -422,6 +443,8 @@ module ViewerProjection =
               ResultType = source.Function.ResultType
               RequiredEffects = source.Function.RequiredEffects }
           Graph = projectGraph nodeTypes source.Function.Body
+          BodyEffectRequirements = source.BodyEffectRequirements
+          Aborts = source.Aborts
           Callers = source.Callers
           Callees = source.Callees
           RelatedFunctionSignatures = source.RelatedFunctionSignatures

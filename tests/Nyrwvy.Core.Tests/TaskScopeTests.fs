@@ -267,7 +267,13 @@ module TaskScopeTests =
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains("\"taskStart\"", TypedSemanticIrCodec.serialize typed)
             Assert.Contains("\"taskWait\"", ExecutionIrCodec.serialize execution)
-            let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]) |> unwrap "emit"
+            // Members run concurrently, so the capabilities they use need a concurrent binding assertion.
+            let profile = CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]
+            match session.EmitCSharp profile with
+            | Error(AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired _)) -> ()
+            | other -> failwithf "Task members bypassed the concurrent binding check: %A" other
+            let artifact =
+                session.EmitCSharp(profile |> CSharpBackendProfile.withConcurrentCapabilities [ agentId; workspacesId ]) |> unwrap "emit"
             Assert.Contains("public sealed class NyTaskScope", artifact.Source)
             let reject parameters resultType body =
                 match session.SimulateCreateFunction(request session "bad" parameters resultType [ effectId ] body) with

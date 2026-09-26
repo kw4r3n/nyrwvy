@@ -72,6 +72,9 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.ListAny _
                 | TypedSemanticNodeKind.ListAll _
+                | TypedSemanticNodeKind.CapabilityConstruct _
+                | TypedSemanticNodeKind.FunctionReference _
+                | TypedSemanticNodeKind.FunctionInvoke _
                 | TypedSemanticNodeKind.DirectCall _
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _
@@ -80,6 +83,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.OptionNone
                 | TypedSemanticNodeKind.OptionSome _
                 | TypedSemanticNodeKind.ResultOk _
+                | TypedSemanticNodeKind.Abort _
                 | TypedSemanticNodeKind.ResultErr _ -> []
 
             node :: nested)

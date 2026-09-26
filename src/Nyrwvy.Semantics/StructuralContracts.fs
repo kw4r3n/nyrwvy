@@ -13,6 +13,8 @@ type ValueDependencyRole =
     | Item
     | TaskScope
     | ListItem of int
+    | FunctionValue
+    | FunctionArgument of int
     | CallArgument of ParameterId
     | CapabilityValue
     | CapabilityArgument of CapabilityParameterId
@@ -109,6 +111,10 @@ module ValueDependency =
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+            { Role = ValueDependencyRole.FunctionValue; NodeId = value } :: (arguments |> List.mapi (fun index id -> { Role = ValueDependencyRole.FunctionArgument index; NodeId = id }))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments
             |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
@@ -131,6 +137,7 @@ module ValueDependency =
         | SemanticNodeKind.OptionSome valueNodeId
         | SemanticNodeKind.ResultOk(_, valueNodeId) ->
             [ create ValueDependencyRole.Value valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) ->
             [ create ValueDependencyRole.Error errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->

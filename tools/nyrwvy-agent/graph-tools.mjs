@@ -55,7 +55,7 @@ function defineTool(definition) { return definition }
  */
 export function createGraphTools(schema) {
   const object = schema.record(schema.string(), schema.unknown())
-  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, builtinGeneric with generic option/result/list and arguments, or {kind:"typeParameter",name:"T"} in the parameter types of a new function (makes it generic; the same name means the same parameter, and callers get type arguments by argument matching).')
+  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, builtinGeneric with generic option/result/list and arguments, {kind:"function",parameters:[<typeRef>,...],resultType:<typeRef>} for pure capture-free function values, or {kind:"typeParameter",name:"T"} in the parameter types of a new function (makes it generic; the same name means the same parameter, and callers get type arguments by argument matching).')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   return {
     open: defineTool({
@@ -67,7 +67,7 @@ export function createGraphTools(schema) {
         args.mode === "upgrade" ? { expectedFingerprint: args.expectedFingerprint ?? "", replaces: args.replaces } : undefined),
     }),
     inspect: defineTool({
-      description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes and callers. Pass exactly one function name or functionId for the function view.",
+      description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes, callers, and declared versus derived body effect requirements with semantic evidence. Pass exactly one function name or functionId for the function view.",
       args: { view: schema.enum(["status", "declarations", "function"]), function: schema.string().optional(), functionId: schema.string().optional() },
       /** @param {{ view: "status" | "declarations" | "function"; function?: string; functionId?: string }} args */
       execute(args, context) {
@@ -117,7 +117,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "reject", ...args }, context),
     }),
     request: defineTool({
-      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, deleteCapabilityOperation for unused operations, atomic migrations (parameter type, result type, Product field type, Union variant like an existing one), readiness, emission, and explicit runPure verification of committed functions (capability parameters bound to scripted fakeCapability responses or hostCapability implementations from explicit hostSources) with Unit/scalars and bounded nesting (including recursive named types) through List/Option, Product/Union fields and Result payloads; mismatches and runtime failures report semantic paths and function frames. A request id is supplied by the bridge; simulations never auto-commit.",
+      description: "Call any maintained AuthoringSession operation using a structured object. Includes exact-ID editing, rename, effects/capabilities, deleteCapabilityOperation for unused operations, atomic migrations (parameter type, result type, Product field type, Union variant like an existing one), readiness, emission, and explicit runPure verification of committed functions (capability parameters bound to scripted fakeCapability responses or hostCapability implementations from explicit hostSources; ParallelAll host bindings require supportsConcurrentCalls: true) with Unit/scalars and bounded nesting (including recursive named types) through List/Option, Product/Union fields and Result payloads; mismatches and runtime failures report semantic paths and function frames. A request id is supplied by the bridge; simulations never auto-commit.",
       args: { op: schema.string(), arguments: object },
       /** @param {{ op: string; arguments: Record<string, unknown> }} args */
       execute(args, context) {

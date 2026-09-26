@@ -19,6 +19,11 @@ type SnapshotCodecError =
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
     let private schemaVersion = 9
+    let private capabilitySchemaVersion = 10
+    let private abortSchemaVersion = 11
+    // Retain the writer's existing depth allowance and apply it to reads too:
+    // nested graph envelopes must not make a successfully saved snapshot unreadable.
+    let private maxJsonDepth = 1000
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -149,6 +154,14 @@ module SnapshotCodec =
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
             )
+        | TypeRef.Function(arguments, result) ->
+            writer.WriteString("kind", "function")
+            writer.WritePropertyName("parameters")
+            writer.WriteStartArray()
+            arguments |> List.iter (writeTypeRef writer)
+            writer.WriteEndArray()
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer result
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
@@ -511,6 +524,26 @@ module SnapshotCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            writer.WriteString("kind", "capabilityConstruct")
+            writer.WriteString("capabilityId", StableId.value capabilityId)
+            writer.WriteStartArray("implementations")
+            for operationId, functionId in implementations |> List.sortBy (fst >> StableId.value) do
+                writer.WriteStartObject()
+                writer.WriteString("operationId", StableId.value operationId)
+                writer.WriteString("functionId", StableId.value functionId)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
+        | SemanticNodeKind.FunctionReference target ->
+            writer.WriteString("kind", "functionReference")
+            writer.WriteString("targetFunctionId", StableId.value target)
+        | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+            writer.WriteString("kind", "functionInvoke")
+            writer.WriteString("functionValueNodeId", StableId.value value)
+            writer.WritePropertyName("arguments")
+            writer.WriteStartArray()
+            arguments |> List.iter (fun id -> writer.WriteStringValue(StableId.value id))
+            writer.WriteEndArray()
         | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("targetFunctionId", StableId.value targetFunctionId)
@@ -564,6 +597,9 @@ module SnapshotCodec =
             writer.WritePropertyName("errorType")
             writeTypeRef writer errorType
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Abort errorNodeId ->
+            writer.WriteString("kind", "abort")
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
         | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
             writer.WriteString("kind", "resultErr")
             writer.WritePropertyName("okType")
@@ -679,9 +715,9 @@ module SnapshotCodec =
 
     let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
         use stream = new MemoryStream()
-        use writer = new Utf8JsonWriter(stream)
+        use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", schemaVersion)
+        writer.WriteNumber("schemaVersion", if FunctionAbort.isUsed snapshot then abortSchemaVersion elif CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
         match dependencyMarker with
         | Some(id, fingerprint) ->
@@ -766,6 +802,9 @@ module SnapshotCodec =
         | "named" ->
             ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId" ]) element
             TypeRef.Named(readId<TypeTag> "typeId" element)
+        | "function" ->
+            ensureProperties "Function type" (set [ "kind"; "parameters"; "resultType" ]) (set [ "kind"; "parameters"; "resultType" ]) element
+            TypeRef.Function(readArray "parameters" readTypeRef element, readTypeRef (requireProperty "resultType" element))
         | "typeParameter" ->
             ensureProperties "Type parameter reference" (set [ "kind"; "typeParameterId"; "displayName" ]) (set [ "kind"; "typeParameterId"; "displayName" ]) element
             TypeRef.TypeParameter(readId<TypeParameterTag> "typeParameterId" element, readString "displayName" element)
@@ -1110,6 +1149,22 @@ module SnapshotCodec =
             | "listAll" ->
                 readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAll(source, callback, context))
+            | "capabilityConstruct" ->
+                let fields = set [ "id"; "kind"; "capabilityId"; "implementations" ]
+                ensureProperties "Capability construction" fields fields element
+                let implementations =
+                    readArray "implementations" (fun item -> item) element
+                    |> List.map (fun item ->
+                        let fields = set [ "operationId"; "functionId" ]
+                        ensureProperties "Capability implementation" fields fields item
+                        readId<CapabilityOperationTag> "operationId" item, readId<FunctionTag> "functionId" item)
+                SemanticNodeKind.CapabilityConstruct(readId<CapabilityTag> "capabilityId" element, implementations)
+            | "functionReference" ->
+                ensureProperties "Function reference" (set [ "id"; "kind"; "targetFunctionId" ]) (set [ "id"; "kind"; "targetFunctionId" ]) element
+                SemanticNodeKind.FunctionReference(readId<FunctionTag> "targetFunctionId" element)
+            | "functionInvoke" ->
+                ensureProperties "Function invocation" (set [ "id"; "kind"; "functionValueNodeId"; "arguments" ]) (set [ "id"; "kind"; "functionValueNodeId"; "arguments" ]) element
+                SemanticNodeKind.FunctionInvoke(readId<GraphNodeTag> "functionValueNodeId" element, readIdArray<GraphNodeTag> "arguments" element)
             | "directCall" ->
                 ensureProperties "Direct call node" (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) (set [ "id"; "kind"; "targetFunctionId"; "arguments" ]) element
                 SemanticNodeKind.DirectCall(readId<FunctionTag> "targetFunctionId" element, readArray "arguments" readArgument element)
@@ -1142,6 +1197,9 @@ module SnapshotCodec =
             | "resultOk" ->
                 ensureProperties "Result.Ok node" (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) element
                 SemanticNodeKind.ResultOk(readTypeRef (requireProperty "errorType" element), readId<GraphNodeTag> "valueNodeId" element)
+            | "abort" ->
+                ensureProperties "Abort node" (set [ "id"; "kind"; "errorNodeId" ]) (set [ "id"; "kind"; "errorNodeId" ]) element
+                SemanticNodeKind.Abort(readId<GraphNodeTag> "errorNodeId" element)
             | "resultErr" ->
                 ensureProperties "Result.Err node" (set [ "id"; "kind"; "okType"; "errorNodeId" ]) (set [ "id"; "kind"; "okType"; "errorNodeId" ]) element
                 SemanticNodeKind.ResultErr(readTypeRef (requireProperty "okType" element), readId<GraphNodeTag> "errorNodeId" element)
@@ -1240,7 +1298,7 @@ module SnapshotCodec =
             Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
         else
             try
-                use document = JsonDocument.Parse(json)
+                use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
                 let root = document.RootElement
                 let required = set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ]
                 let allowed = Set.add "parentSnapshotId" required
@@ -1254,7 +1312,7 @@ module SnapshotCodec =
                        || readString "digest" marker <> dependencyDigest imported then
                         invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
-                if version <> schemaVersion then
+                if version <> schemaVersion && version <> capabilitySchemaVersion && version <> abortSchemaVersion then
                     Error(SnapshotCodecError.UnsupportedSchemaVersion version)
                 else
                     let parentId =
@@ -1269,6 +1327,10 @@ module SnapshotCodec =
                           Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
+                    if version <> abortSchemaVersion && FunctionAbort.isUsed snapshot then
+                        invalidShape "Function abort requires snapshot schemaVersion 11."
+                    if version = schemaVersion && CapabilityImplementations.isUsed snapshot then
+                        invalidShape "Capability construction requires snapshot schemaVersion 10."
                     let resolved =
                         match dependency with
                         | None -> snapshot

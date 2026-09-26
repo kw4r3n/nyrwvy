@@ -29,6 +29,8 @@ The implemented subset includes:
 - explicit conditionals;
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
 - internal direct function calls;
+- pure capture-free function types, named references, and positional invocation;
+- program-defined stateless Capability values backed by pure named functions;
 - external capability invocation;
 - explicit effects and capability requirements.
 
@@ -57,7 +59,7 @@ Wrapping arithmetic uses two's-complement modulo-`2^64` behavior. Checked arithm
 
 `StringEqual(left, right)` compares two `String` values exactly by ordinal code-unit equality, without culture or case folding. For non-null strings, testing ordinal `StringContains` in both directions is also equivalent to equality; `StringEqual` expresses that intent directly rather than requiring two containment checks. Both operands must be String; its result is Bool. The C# backend uses `StringComparison.Ordinal`. `StringConcat(left, right)` accepts two Strings and yields their literal left-to-right concatenation, with no separator, normalization, or culture-dependent conversion; empty strings are identities. It does not implicitly format non-string values. `Int64ToString(value)` formats an Int64 as canonical invariant decimal text: ASCII digits, a leading `-` only for negative values, no `+`, grouping or padding (`Int64.MinValue` is `"-9223372036854775808"`). `StringParseInt64(text)` yields `Option<Int64>`: `Some` only when the whole String is an optional `-` followed by one or more ASCII digits and the value fits Int64. Leading zeros and `-0` are accepted; `+`, whitespace, separators, non-ASCII digits, exponents, hex, empty text and overflow yield `None`. Parsing never fails at runtime, so callers branch with `MatchOption`. `StringLength(text)` yields the number of code points as `Int64`: a surrogate pair counts once, and an unpaired surrogate code unit also counts once, so it is not the UTF-16 length. `StringSlice(text, start, end)` yields the code points at positions `[start, end)`. Both bounds are clamped to `[0, StringLength(text)]`, and `end <= start` yields `""`, so slicing never fails at runtime and never splits a surrogate pair. Negative positions are clamped, not counted from the end. Both operations scan the text, so their cost is linear in its length. Together they express bounded display text such as keeping the head and tail of a long String.
 
-Function type parameters (`TypeRef.TypeParameter`) make a function generic over the types its parameter types mention; see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks) for derivation of type arguments and scope rules. `List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. An authored Product accumulator carrying a runtime key, a found flag, and an `Option<T>` result can implement first-match lookup over `List<TItem>` without introducing an application-specific search node. The folder must preserve the accumulated result after the first match; an absent key or empty source yields `None`. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition is not a built-in `ListAt`, does not stop the fold early, and must currently be authored again for each concrete element type until type abstraction is available.
+Function type parameters (`TypeRef.TypeParameter`) make a function generic over the types its parameter types mention; see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks) for derivation of type arguments and scope rules. `List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. An authored Product accumulator carrying a runtime key, a found flag, and an `Option<T>` result can implement first-match lookup over `List<TItem>` without introducing an application-specific search node. The folder must preserve the accumulated result after the first match; an absent key or empty source yields `None`. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition is not a built-in `ListAt`, does not stop the fold early, and can be generalized with function type parameters.
 
 The current collection surface includes:
 
@@ -79,6 +81,22 @@ ListAll
 ```
 
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
+
+## Program-defined capability values
+
+`CapabilityConstruct` maps every operation of an existing Capability to a monomorphic pure function with the same positional parameter types and result type. The resulting value can be passed to existing consumers; invocation still requires the operation's declared Effect. See [program capability implementations](../specs/program-capability-implementations.md) for validation, authoring, review and versioned persistence. State, capture and effectful implementations are outside this slice.
+
+## Pure function values
+
+`TypeRef.Function(parameters, resultType)` describes a pure capture-free callable.
+`FunctionReference` produces a value referring to a monomorphic named function;
+`FunctionInvoke` checks positional arity and exact argument types. References
+require transitive purity, including absence of ambient cancellation reads.
+Generic functions can consume, forward, return and invoke function values using
+their type parameters. `find<T>` can therefore receive a predicate as a value and
+pass it to a `ListFold` folder through callback context. Capturing closures,
+effectful function types and direct references to generic functions are excluded;
+use a concrete wrapper for the latter. See [the contract](../specs/pure-function-values.md).
 
 ## `Float64`
 
@@ -159,6 +177,9 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
+CapabilityConstruct
+FunctionReference
+FunctionInvoke
 DirectCall
 CapabilityInvoke
 Bind
@@ -204,7 +225,7 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 - explicitly adding or removing an existing `EffectId` from a function's `RequiredEffects`;
 - adding a Product field with an explicit existing typed value for **every** affected `ProductConstruct`, including nested branches; the new `FieldId` is allocated by the system while existing type, function and node IDs remain stable;
 - removing a Product field and its constructor bindings when all field accesses have already been repaired; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
-- deleting an unused function only after all direct calls and List callbacks are gone, and when no obligation targets its body;
+- deleting an unused function only after all direct calls, function-value references and List callbacks are gone, and when no obligation targets its body;
 - deleting an unreferenced Product or Union declaration, including its field/variant identities; dependent functions can be removed in the **same** reviewed transaction, but any surviving references (including nested type references) prevent publication;
 - deleting an unreferenced Capability and Effect declaration after consumers have been repaired or removed; one reviewed batch may remove the dependent function, Capability, then Effect in that order, and the diff retains removed operation/parameter identities;
 - simulation, Change Review, reviewed publication or rejection, and stale-proposal failure.
@@ -288,3 +309,17 @@ Invalid semantic structure, explicit unresolved work, backend readiness failure,
 Milestone 1 is complete for its accepted bounded-operation claim, including its recorded agent evaluation.
 
 Milestone 2 is complete for its accepted bounded structural-editing claim, including the Float64 and ListMap controlled evaluation records. Subsequent maintained extensions may reuse that evidence while their interaction-model assumptions remain materially unchanged; scoped lexical control-flow authoring was verified separately because it introduced a new interaction assumption rather than changing the completed M2 milestone.
+
+## Typed function abort
+
+`Abort(E)` ends the current `Result<T,E>` function invocation with `Err(E)`.
+The exact-ID and symbolic recipe is `{"kind":"abort","error":<recipe>}`. It is
+allowed at graph results, including nested Bind/match/conditional bodies, and
+has no normal value. Only normally completing arms contribute a branch result
+type. There is no user-visible Never type or implicit propagation through callees.
+
+The caller can recover from the returned Err. UseResource releases after its
+body function exits; ParallelAll requests cancellation on a worker Err, joins
+every worker, and chooses the lowest-index typed failure. Host-fault precedence
+is unchanged. See the [implemented contract](../specs/typed-function-abort.md)
+and [ordinary-tool example](../../examples/function-abort/README.md).

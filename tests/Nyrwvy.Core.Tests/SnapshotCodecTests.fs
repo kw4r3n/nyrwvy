@@ -39,6 +39,54 @@ module SnapshotCodecTests =
         Assert.Equal(fixture.RunCallNodeId, restoredRun.Body.ResultNodeId)
         Assert.Equal(3, restoredRun.Body.Nodes.Length)
 
+    [<Theory>]
+    [<InlineData(20)>]
+    [<InlineData(331)>]
+    let ``deep conditional snapshots roundtrip standalone and dependency resolved codecs`` depth =
+        let nodeId suffix = StableId.createForTesting<GraphNodeTag> suffix
+        let literal suffix value: ValueGraph =
+            let id = nodeId suffix
+            { Nodes = [ { Id = id; Kind = SemanticNodeKind.BoolLiteral value } ]
+              ResultNodeId = id }
+        let rec body level =
+            if level = 0 then literal "node-deep-leaf" true
+            else
+                let conditionId = nodeId (sprintf "node-deep-condition-%03d" level)
+                let resultId = nodeId (sprintf "node-deep-result-%03d" level)
+                { Nodes =
+                    [ { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral true }
+                      { Id = resultId
+                        Kind =
+                            SemanticNodeKind.Conditional(
+                                conditionId,
+                                body (level - 1),
+                                literal (sprintf "node-deep-false-%03d" level) false
+                            ) } ]
+                  ResultNodeId = resultId }
+        let snapshot =
+            { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-deep") with
+                Functions =
+                    [ { Id = StableId.createForTesting<FunctionTag> "function-deep"
+                        DisplayName = "deep"
+                        Parameters = []
+                        ResultType = TypeRef.Primitive PrimitiveType.Bool
+                        RequiredEffects = []
+                        Body = body depth } ] }
+        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
+        let encoded = SnapshotCodec.serialize snapshot |> unwrap
+        let restored = SnapshotCodec.deserialize encoded |> unwrap
+        Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
+        let resolved = SnapshotCodec.serializeResolved dependency snapshot |> unwrap
+        let restoredResolved = SnapshotCodec.deserializeResolved dependency resolved |> unwrap
+        Assert.Equal(resolved, SnapshotCodec.serializeResolved dependency restoredResolved |> unwrap)
+
+    [<Fact>]
+    let ``snapshot codec retains a finite JSON depth limit`` () =
+        let json = String.replicate 1001 "[" + "0" + String.replicate 1001 "]"
+        match SnapshotCodec.deserialize json with
+        | Error(SnapshotCodecError.InvalidJson _) -> ()
+        | result -> failwithf "Expected excessive JSON depth to be rejected, got %A" result
+
     [<Fact>]
     let ``snapshot codec preserves open missing-argument obligations`` () =
         let fixture = TestGraph.create ()

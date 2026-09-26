@@ -467,6 +467,42 @@ module AuthoringSessionTests =
             if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
+    let ``JSONL committed twenty level conditional reopens with identical fingerprints`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let rec body depth =
+                if depth = 0 then """{"kind":"boolLiteral","value":true}"""
+                else
+                    sprintf """{"kind":"conditional","condition":{"kind":"boolLiteral","value":true},"whenTrue":%s,"whenFalse":{"kind":"boolLiteral","value":false}}""" (body (depth - 1))
+            let request =
+                sprintf """{"id":"deep","op":"simulateCreateFunctionByName","displayName":"deep","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" (body 20)
+            use proposed =
+                JsonDocument.Parse(AuthoringProtocol.executeLine session request, JsonDocumentOptions(MaxDepth = 256))
+            Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
+            let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use committed =
+                AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
+                |> requireOk
+            let before = status session
+            let functionBefore = List.exactlyOne (session.Declarations().Functions)
+            Assert.Equal(61, ValueGraph.collectNodes functionBefore.Body |> List.length)
+            session.Close()
+            use reopened = openSession path
+            Assert.Equal(before.SnapshotId, (status reopened).SnapshotId)
+            Assert.Equal(before.SnapshotFingerprint, (status reopened).SnapshotFingerprint)
+            Assert.Equal(before.SemanticFingerprint, (status reopened).SemanticFingerprint)
+            let functionAfter = List.exactlyOne (reopened.Declarations().Functions)
+            Assert.Equal(functionBefore.Id, functionAfter.Id)
+            Assert.Equal(functionBefore.Body.ResultNodeId, functionAfter.Body.ResultNodeId)
+            let nodeIds (fn: SemanticFunction) =
+                ValueGraph.collectNodes fn.Body |> List.map (fun node -> node.Id) |> Set.ofList
+            Assert.Equal<Set<GraphNodeId>>(nodeIds functionBefore, nodeIds functionAfter)
+        finally
+            Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL authors ordinal StringEqual with typed operands and reopens stable node`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

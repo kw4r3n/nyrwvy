@@ -136,8 +136,11 @@ module ExecutionIrTests =
                 | _ -> false
         )
 
-    [<Fact>]
-    let ``lowering rejects independent effectful nodes instead of inventing an order`` () =
+    [<Theory>]
+    [<InlineData(1, false)>]
+    [<InlineData(36, false)>]
+    [<InlineData(36, true)>]
+    let ``lowering promptly distinguishes independent and ordered effects through a shared DAG`` sharedNodeCount ordered =
         let fixture = MilestoneZeroGraph.create ()
         let operation =
             fixture.Snapshot.Capabilities
@@ -146,8 +149,11 @@ module ExecutionIrTests =
                 capability.Operations
                 |> List.find (fun operation -> operation.Id = fixture.ConsoleWriteLineOperationId)
         let operationParameter = List.exactlyOne operation.Parameters
-        let extraTextNodeId = StableId.createForTesting<GraphNodeTag> "node-main-extra-text"
+        let extraTextNodeId index =
+            StableId.createForTesting<GraphNodeTag> (sprintf "node-main-extra-text-%02d" index)
         let extraInvokeNodeId = StableId.createForTesting<GraphNodeTag> "node-main-extra-console"
+        let orderListNodeId = StableId.createForTesting<GraphNodeTag> "node-main-order-list"
+        let orderLengthNodeId = StableId.createForTesting<GraphNodeTag> "node-main-order-length"
 
         let main =
             fixture.Snapshot.Functions
@@ -160,9 +166,30 @@ module ExecutionIrTests =
             |> List.find (fun node ->
                 node.Kind = SemanticNodeKind.ParameterReference consoleParameter.Id)
 
-        let extraTextNode: SemanticNode =
-            { Id = extraTextNodeId
-              Kind = SemanticNodeKind.StringLiteral "extra output" }
+        let orderNodes: SemanticNode list =
+            if ordered then
+                [ { Id = orderListNodeId
+                    Kind =
+                        SemanticNodeKind.ListConstruct(
+                            TypeRef.Primitive PrimitiveType.Unit,
+                            [ main.Body.ResultNodeId ]
+                        ) }
+                  { Id = orderLengthNodeId
+                    Kind = SemanticNodeKind.ListLength orderListNodeId } ]
+            else
+                []
+
+        // Each concat shares both preceding subgraphs: only 36 nodes, but millions of paths.
+        let extraTextNodes: SemanticNode list =
+            [ for index in 0 .. sharedNodeCount - 1 ->
+                { Id = extraTextNodeId index
+                  Kind =
+                    if index = 0 && ordered then
+                        SemanticNodeKind.Int64ToString orderLengthNodeId
+                    elif index < 2 then
+                        SemanticNodeKind.StringLiteral "extra output"
+                    else
+                        SemanticNodeKind.StringConcat(extraTextNodeId (index - 1), extraTextNodeId (index - 2)) } ]
         let extraInvokeNode: SemanticNode =
             { Id = extraInvokeNodeId
               Kind =
@@ -170,7 +197,7 @@ module ExecutionIrTests =
                     consoleNode.Id,
                     fixture.ConsoleWriteLineOperationId,
                     [ { TargetCapabilityParameterId = operationParameter.Id
-                        ValueNodeId = extraTextNodeId } ]
+                        ValueNodeId = extraTextNodeId (sharedNodeCount - 1) } ]
                 ) }
 
         let functions =
@@ -182,7 +209,7 @@ module ExecutionIrTests =
                     { functionEntity with
                         Body =
                             { functionEntity.Body with
-                                Nodes = functionEntity.Body.Nodes @ [ extraTextNode; extraInvokeNode ] } })
+                                Nodes = functionEntity.Body.Nodes @ orderNodes @ extraTextNodes @ [ extraInvokeNode ] } })
 
         let snapshot = { fixture.Snapshot with Functions = functions }
         Assert.Empty(SnapshotValidator.validate snapshot)
@@ -192,12 +219,70 @@ module ExecutionIrTests =
             | Ok value -> value
             | Error error -> failwithf "Unexpected Typed Semantic IR error: %A" error
 
-        match ExecutionIr.lower typedProgram with
-        | Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
+        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+        let result = ExecutionIr.lower typedProgram
+        stopwatch.Stop()
+        Assert.True(stopwatch.Elapsed < System.TimeSpan.FromSeconds 5.0, sprintf "Lowering took %O" stopwatch.Elapsed)
+
+        match ordered, result with
+        | false, Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
             Assert.Equal(fixture.MainFunctionId, functionId)
-            let pair = Set.ofList [ first; second ]
-            let expected = Set.ofList [ fixture.MainValidateCallNodeId; extraInvokeNodeId ]
-            if pair = expected then
-                failwith "The pure validate call was incorrectly classified as effectful."
-            Assert.Contains(extraInvokeNodeId, pair)
-        | result -> failwithf "Expected AmbiguousEffectOrder, got %A" result
+            Assert.Equal<Set<GraphNodeId>>(
+                Set.ofList [ main.Body.ResultNodeId; extraInvokeNodeId ],
+                Set.ofList [ first; second ]
+            )
+        | true, Ok execution ->
+            let loweredMain = functionById fixture.MainFunctionId execution
+            let entry = loweredMain.Blocks |> List.find (fun block -> block.Id = loweredMain.EntryBlockId)
+            let effects =
+                entry.Instructions
+                |> List.choose (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.DirectCall(functionId, _) when functionId = fixture.ReportFunctionId ->
+                        Some instruction.OriginNodeId
+                    | ExecutionInstructionKind.CapabilityInvoke _ -> Some instruction.OriginNodeId
+                    | _ -> None)
+            Assert.Equal<GraphNodeId list>([ main.Body.ResultNodeId; extraInvokeNodeId ], effects)
+        | _ -> failwithf "Unexpected lowering result (ordered = %b): %A" ordered result
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``lowering cyclic typed graphs preserves effect ordering error precedence`` ordered =
+        let fixture = MilestoneZeroGraph.create ()
+        let program = typed fixture
+        let parameterId = StableId.createForTesting<ParameterTag> "parameter-cycle-unit"
+        let valueNodeId = StableId.createForTesting<GraphNodeTag> "node-cycle-unit"
+        let firstNodeId = StableId.createForTesting<GraphNodeTag> "node-cycle-a"
+        let secondNodeId = StableId.createForTesting<GraphNodeTag> "node-cycle-b"
+        let unitType = TypeRef.Primitive PrimitiveType.Unit
+        let call nodeId argumentId: TypedSemanticNode =
+            { OriginNodeId = nodeId
+              Completion = GraphCompletion.Normal unitType
+              Kind =
+                TypedSemanticNodeKind.DirectCall(
+                    fixture.MainFunctionId,
+                    [ { TargetParameterId = parameterId; ValueNodeId = argumentId } ]
+                ) }
+        let functionEntity: TypedSemanticFunction =
+            { Id = fixture.MainFunctionId
+              Parameters = [ { Id = parameterId; Type = unitType } ]
+              ResultType = unitType
+              RequiredEffects = [ fixture.ConsoleEffectId ]
+              Body =
+                { Nodes =
+                    [ { OriginNodeId = valueNodeId; Completion = GraphCompletion.Normal unitType; Kind = TypedSemanticNodeKind.UnitLiteral }
+                      call firstNodeId firstNodeId
+                      call secondNodeId (if ordered then firstNodeId else valueNodeId) ]
+                  ResultNodeId = secondNodeId } }
+
+        // lower accepts typed programs directly, without snapshot cycle validation.
+        match ordered, ExecutionIr.lower { program with Functions = [ functionEntity ] } with
+        | false, Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
+            Assert.Equal(fixture.MainFunctionId, functionId)
+            Assert.Equal(firstNodeId, first)
+            Assert.Equal(secondNodeId, second)
+        | true, Error(ExecutionIrError.UnresolvedDependencies(functionId, nodes)) ->
+            Assert.Equal(fixture.MainFunctionId, functionId)
+            Assert.Equal<GraphNodeId list>([ firstNodeId; secondNodeId ], nodes)
+        | ordered, result -> failwithf "Unexpected cyclic lowering result (ordered = %b): %A" ordered result

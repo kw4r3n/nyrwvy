@@ -32,7 +32,7 @@ This is a split of responsibility, not a package hierarchy.
 | Capability operation | A typed runtime request (parameters, result, failure type, effect) invoked on a capability value. | Edit operation. |
 | Effect | A declared, nominal description of actions a function may perform. It has no operations of its own. | A set of operation names. |
 | Capability | A value that grants access to a resource, authority, or implementation, and carries its operations. | The implementation behind it. |
-| Handler | Interpretation of runtime requests within a scope. **Nyrwvy has no in-language handler;** see the gaps below. | Backend binding. |
+| Handler | Interpretation of runtime requests within a scope. Program-defined capability values provide bounded implementation selection; resumable handlers remain absent. | Backend binding. |
 | Backend binding | The realization of capability operations chosen by a backend profile, by `CapabilityOperationId`. | Program meaning. |
 
 Choosing an interpretation composes program meaning; choosing a backend only realizes it. A fixed clock and a system clock are different interpretations, not equivalent realizations.
@@ -43,7 +43,7 @@ Choosing an interpretation composes program meaning; choosing a backend only rea
 | --- | --- | --- |
 | Identity | Resolution is `(snapshot, entity)`. Names never decide identity. | Storage layout and indexes. |
 | Value update vs shared mutation | Building an updated value leaves other holders with the old value. Changing shared state is possible only through a capability operation, so its effect is declared and visible. | Copying or structural sharing of values. |
-| Abort vs fallback | Fallback (`match` on `Result`/`Option`) continues with another value. An abort, once defined, must never continue. | How an abort propagates, such as `Result` threading or an internal exception. |
+| Abort vs fallback | Fallback (`match` on `Result`/`Option`) continues with another value. An abort exits its owning invocation; that invocation never resumes. | How an abort propagates, such as `Result` threading or an internal exception. |
 | Declared vs inferred requirements | A function's declared `RequiredEffects` is its public contract. Requirements computed from its body must be a subset; widening the contract requires an explicit reviewed edit. | How the check is implemented. |
 | `Bind` and ordering | Its input is evaluated once, before its body. Independent effectful siblings stay an `AmbiguousEffectOrder` error rather than taking a backend order. | Evaluation strategy that keeps this order. |
 | `ParallelAll` | Waits for every worker. The first `Err` requests cancellation; the result is the `Err` of the lowest failing index, or all values in source order. | Scheduling and degree of parallelism. |
@@ -74,11 +74,8 @@ Each gap is classified as missing semantics, an authoring limitation, or unsuppo
 
 | Gap | Class | Smallest change | Open decisions |
 | --- | --- | --- | --- |
-| No function values: callbacks reference a fixed `FunctionId`, and `TypeRef` has no function type. A reusable `find<T>(list, predicate)` therefore cannot take its predicate as an argument. | Missing semantics | A function type and function-reference values, reusing existing callback context binding. | Capture, effects of function values, identity of references. |
-| No scoped interpretation: capability values arrive only from the host, so a program cannot choose a fake or alternate implementation. | Missing semantics | A declaration that implements each operation of a capability with a Nyrwvy function, producing a capability value that is passed like any other. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
-| No abort: only fallback exists, and `Result` propagation needs an explicit match at each step. | Missing semantics | Define abort's meaning (never continues, runs `UseResource` release) before any construct. | Whether abort is typed, and how it crosses `ParallelAll`. |
-| Inferred requirements are checked but not reported. | Authoring limitation | Expose computed requirements as a derived, non-authoritative review fact. | None beyond presentation. |
-| No contract for one capability value used by several `ParallelAll` workers. | Missing semantics | State which ordering and visibility guarantees hold, instead of inheriting the backend's. | Whether capabilities declare concurrency safety (see [Q-010](../decisions/open-questions.md)). |
+| Broader scoped interpretation: stateful/effectful implementations and resumable handlers are absent. Pure stateless program implementations are now available. | Missing semantics | The bounded pure case is covered by [program capability implementations](../specs/program-capability-implementations.md). Extend only for a concrete consumer. | Whether an implementation may introduce effects the caller must declare. Resumable handlers and continuations stay out of scope. |
+| Function-local abort is implemented; propagation through callers still needs explicit matching. | Implemented bounded control flow | [Typed function abort](../specs/typed-function-abort.md) implements local early exit as Err from a Result-returning function, with cleanup and the existing worker-failure contract. | Exact authoring, versioned persistence and explicit IR termination are implemented; broader non-local abort remains outside this contract. |
 | Runtime state identity is not distinguished from definition identity. | Missing semantics, deferred | None until a use case needs it. | Relation to [Q-012](../decisions/open-questions.md). |
 | No per-declaration content hash. | Not a gap yet | Add one only when dependency upgrade or semantic diff needs "unchanged" per declaration. | Normalization and dependency rules. |
 
@@ -91,13 +88,23 @@ These examples test the direction; they are not an implementation mandate.
 | Probe | Current result |
 | --- | --- |
 | Value update vs shared mutation | Distinguishable: pure construction versus a capability operation with a declared effect. |
-| Abort vs fallback | Fallback only. |
-| Generic list search | A search with one fixed predicate works through `ListFold` and a type parameter. A search reusable across predicates does not, because predicates cannot be passed as values. |
-| Alternate request interpretation | Only by host binding. |
+| Abort vs fallback | Fallback and typed function-local abort are implemented; recovery belongs to the caller. |
+| Generic list search | `find<T>(list, predicate)` composes `ListFold`, callback context, and pure capture-free function values. The same body accepts different predicates and element types. |
+| Alternate request interpretation | Pure stateless implementations can be chosen and passed by the program; host binding remains available. |
 
 ## Acceptance question
 
-Can a new computation be defined by composing existing meanings, stay inspectable, editable, and reviewable at that level, and report backend non-support without changing its meaning? Today the third part holds; the first two fail for computations that need function values or program-chosen interpretation.
+The function-value gap is covered by [pure function values](../specs/pure-function-values.md), with monomorphic named references and generic consumers. Capturing closures and effectful function values remain outside this slice.
+
+The effect-reporting gap is covered by [body effect requirements](../specs/body-effect-requirements.md): inspect and review show the derived requirements and their semantic evidence separately from the declared contract.
+
+The former shared-capability gap is now covered by the accepted
+[ParallelAll sharing contract](../specs/parallel-capability-sharing.md): no
+cross-worker order is promised; host bindings explicitly assert concurrent safety
+and visibility, and emission checks transitive worker operations. This resolution
+does not promote the other proposals in this document to accepted specifications.
+
+Can a new computation be defined by composing existing meanings, stay inspectable, editable, and reviewable at that level, and report backend non-support without changing its meaning? All three hold for the bounded pure implementation slice. Stateful/effectful interpretation remains an open extension.
 
 ## Out of scope
 

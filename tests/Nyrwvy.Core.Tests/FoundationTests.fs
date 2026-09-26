@@ -24,6 +24,9 @@ module FoundationTests =
             |> List.choose (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.DirectCall(targetFunctionId, arguments) -> Some(node.Id, targetFunctionId, arguments)
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -81,6 +84,7 @@ module FoundationTests =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _

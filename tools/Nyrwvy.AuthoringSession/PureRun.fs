@@ -46,7 +46,8 @@ type PureRunValue =
     | FakeCapability of capabilityId: CapabilityId * operations: PureRunFakeOperation list
     /// An explicitly registered host implementation of the capability interface, compiled from the
     /// request's host sources. `implementation` is a C# type name with a parameterless constructor.
-    | HostCapability of capabilityId: CapabilityId * implementation: string
+    /// `supportsConcurrentCalls` asserts the shared-state contract across all operations and aliases.
+    | HostCapability of capabilityId: CapabilityId * implementation: string * supportsConcurrentCalls: bool
 
 and PureRunFakeOperation =
     { OperationId: CapabilityOperationId
@@ -115,8 +116,8 @@ type PureRunResult =
       Calls: PureRunCall list }
 
 /// Bounded T3 execution path: typed values, including nesting through List/Option layers,
-/// Product/Union fields and Result payloads. Capabilities are bound only to scripted fakes, never
-/// to host services or caller-authored C# source. Runs in a separate, bounded child process.
+/// Product/Union fields and Result payloads. Capabilities use scripted fakes or explicitly registered
+/// host sources. Runs in a separate, bounded child process.
 [<RequireQualifiedAccess>]
 module PureRun =
     let private listType primitive = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive primitive ])
@@ -146,7 +147,7 @@ module PureRun =
     let private valueType = function
         | PureRunValue.Unit -> TypeRef.Primitive PrimitiveType.Unit
         | PureRunValue.FakeCapability(capabilityId, _)
-        | PureRunValue.HostCapability(capabilityId, _) -> TypeRef.Capability capabilityId
+        | PureRunValue.HostCapability(capabilityId, _, _) -> TypeRef.Capability capabilityId
         | PureRunValue.ResultValue(okType, errorType, _, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
         | PureRunValue.ListValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
         | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
@@ -735,7 +736,7 @@ module PureRun =
                 Error("RunBindingTypeUnsupported", "Every operation of a bound capability needs parameter and result types that runPure values support.")
             | Some capability -> Ok capability
         match value with
-        | PureRunValue.HostCapability(capabilityId, implementation) ->
+        | PureRunValue.HostCapability(capabilityId, implementation, _) ->
             match capabilityProblem capabilityId with
             | Error problem -> Some problem
             | Ok _ when isNull implementation || implementation.Length > 512 || not (hostTypeName.IsMatch implementation) ->
@@ -810,12 +811,28 @@ module PureRun =
         | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (wellFormedUtf16 >> not) ->
             Error(diagnostic "RunInvalidString" "String arguments and expectations must contain well-formed UTF-16.")
         | Some fn ->
-            // Every declared operation is an external implementation; the runner supplies only fakes.
+            // Check only functions reachable from this entry; unrelated parallel functions do not
+            // make a sequential host binding require a concurrency assertion.
             let emitted =
                 session.ProjectExecution()
                 |> Result.bind (fun program ->
+                    let program = ExecutionCallGraph.forEntry program functionId
                     let operationIds = program.Capabilities |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id))
-                    session.EmitCSharp(CSharpBackendProfile.externalImplementations operationIds)
+                    // The assertion is capability-wide: one unsafe instance prevents a safe fake or
+                    // another asserted host of the same type from laundering it into the profile.
+                    let sequentialHosts =
+                        arguments |> List.choose (function
+                            | PureRunValue.HostCapability(id, _, false) -> Some id
+                            | _ -> None) |> Set.ofList
+                    let concurrentIds =
+                        program.Capabilities |> List.filter (fun capability -> not (List.isEmpty capability.Operations))
+                        |> List.map (fun capability -> capability.Id)
+                        |> List.filter (fun id -> not (Set.contains id sequentialHosts))
+                    let profile =
+                        CSharpBackendProfile.externalImplementations operationIds
+                        |> CSharpBackendProfile.withConcurrentCapabilities concurrentIds
+                    CSharpBackend.emit program profile
+                    |> Result.mapError AuthoringSessionError.BackendFailure
                     |> Result.map (fun artifact -> program, artifact))
             match emitted, session.Status() with
             | Error error, _
@@ -850,7 +867,7 @@ module PureRun =
                                 match value with
                                 | PureRunValue.FakeCapability(capabilityId, operations) ->
                                     Some(index, parameter.Id, capability capabilityId, Choice1Of2 operations)
-                                | PureRunValue.HostCapability(capabilityId, implementation) ->
+                                | PureRunValue.HostCapability(capabilityId, implementation, _) ->
                                     Some(index, parameter.Id, capability capabilityId, Choice2Of2 implementation)
                                 | _ -> None)
                         let sites =
@@ -952,12 +969,11 @@ module PureRun =
                                         let answer =
                                             match binding with
                                             | Choice1Of2 _ ->
-                                                $"        switch (System.Threading.Interlocked.Increment(ref {name}Next) - 1)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
-                                            | Choice2Of2 _ -> $"        return inner.{name}({names});\n"
+                                                $"        int response;\n        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n            response = {name}Next++;\n        }}\n        switch (response)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
+                                            | Choice2Of2 _ -> $"        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n"
                                         let text =
                                             (match binding with Choice1Of2 _ -> $"    int {name}Next;\n" | Choice2Of2 _ -> "")
                                             + $"    public {sourceType operation.ResultType} {name}({parameters})\n    {{\n"
-                                            + $"        FakeLog.Record({site}, new object[] {{ {values} }});\n"
                                             + answer + "    }\n"
                                         site <- site + 1
                                         text)

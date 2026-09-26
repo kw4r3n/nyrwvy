@@ -173,9 +173,24 @@ module internal WireRecipe =
         | "resultOk" ->
             ensureFields "result-ok recipe" [ "kind"; "errorType"; "value" ] [ "kind"; "errorType"; "value" ] element
             ExpressionRecipe.ResultOk(typeRef (property "errorType" element), recipe (property "value" element))
+        | "abort" ->
+            ensureFields "abort recipe" [ "kind"; "error" ] [ "kind"; "error" ] element
+            ExpressionRecipe.Abort(recipe (property "error" element))
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(typeRef (property "okType" element), recipe (property "error" element))
+        | "capabilityConstruct" ->
+            ensureFields "Capability construction recipe" [ "kind"; "capabilityId"; "implementations" ] [ "kind"; "capabilityId"; "implementations" ] element
+            let implementations = array "implementations" element |> List.map (fun item ->
+                ensureFields "Capability implementation" [ "operationId"; "functionId" ] [ "operationId"; "functionId" ] item
+                id<CapabilityOperationTag> "operationId" item, id<FunctionTag> "functionId" item)
+            ExpressionRecipe.CapabilityConstruct(id<CapabilityTag> "capabilityId" element, implementations)
+        | "functionReference" ->
+            ensureFields "Function reference recipe" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
+            ExpressionRecipe.FunctionReference(id<FunctionTag> "functionId" element)
+        | "functionInvoke" ->
+            ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
+            ExpressionRecipe.FunctionInvoke(recipe (property "functionValue" element), array "arguments" element |> List.map (recipe))
         | "directCall" ->
             ensureFields "direct-call recipe" [ "kind"; "functionId"; "arguments" ] [ "kind"; "functionId"; "arguments" ] element
             ExpressionRecipe.DirectCall(id<FunctionTag> "functionId" element, callArguments "arguments")

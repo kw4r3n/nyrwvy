@@ -25,6 +25,7 @@ type AgentParameterTypeMigrationDiff =
 
 type AgentParameterTypeMigrationReview =
     { RequestedChange: AgentParameterTypeMigrationRequest
+      FunctionEffects: FunctionEffectSummary list
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       ResultingChange: AgentParameterTypeMigrationDiff }
@@ -79,6 +80,7 @@ type AgentResultTypeMigrationDiff =
 
 type AgentResultTypeMigrationReview =
     { RequestedChange: AgentResultTypeMigrationRequest
+      FunctionEffects: FunctionEffectSummary list
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       ResultingChange: AgentResultTypeMigrationDiff }
@@ -187,6 +189,11 @@ module internal SignatureMigrationCore =
                         $"{prefix}ParameterSlotUnavailable"
                         "Migration recipes must reference existing parameters by stable ID."
                 )
+            | ExpressionRecipe.CapabilityConstruct _
+            | ExpressionRecipe.FunctionReference _ -> Ok recipe
+            | ExpressionRecipe.FunctionInvoke(value, arguments) ->
+                rewrite value |> Result.bind (fun target ->
+                    rewriteAll arguments |> Result.map (fun values -> ExpressionRecipe.FunctionInvoke(target, values)))
             | ExpressionRecipe.DirectCall(functionId, arguments) ->
                 rewritePairs arguments
                 |> Result.map (fun mappedArguments ->
@@ -271,6 +278,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.UnionConstruct(variantId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, fields))
             | ExpressionRecipe.ResultOk(errorType, value) -> one (fun value -> ExpressionRecipe.ResultOk(errorType, value)) value
+            | ExpressionRecipe.Abort error -> one ExpressionRecipe.Abort error
             | ExpressionRecipe.ResultErr(okType, error) -> one (fun error -> ExpressionRecipe.ResultErr(okType, error)) error
             | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
                 rewrite capabilityValue
@@ -739,6 +747,7 @@ module AgentParameterTypeMigrationWorkflow =
                             { RequestedChange = request
                               Receipt = simulated.Receipt
                               Readiness = simulated.Readiness
+                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
                               ResultingChange =
                                 { ParameterChange =
                                     { FunctionId = prepared.Target.Id
@@ -830,6 +839,7 @@ module AgentResultTypeMigrationWorkflow =
                             { RequestedChange = request
                               Receipt = simulated.Receipt
                               Readiness = simulated.Readiness
+                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
                               ResultingChange =
                                 { ResultChange =
                                     { FunctionId = prepared.Target.Id

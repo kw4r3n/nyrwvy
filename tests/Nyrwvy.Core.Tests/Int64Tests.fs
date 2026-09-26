@@ -279,7 +279,7 @@ module Int64Tests =
 
         let typedJson = TypedSemanticIrCodec.serialize typed
         let executionJson = ExecutionIrCodec.serialize execution
-        Assert.Contains("\"schemaVersion\":6", typedJson)
+        Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"primitiveInt64\"", typedJson)
         Assert.Contains("\"int64WrappingAdd\"", executionJson)
 

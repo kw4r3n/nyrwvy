@@ -20,6 +20,8 @@ module internal WireEncodeCommon =
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
             objectValue [ "kind", box "primitive"; "primitive", box name ]
+        | TypeRef.Function(arguments, result) ->
+            objectValue [ "kind", box "function"; "parameters", arguments |> List.map typeRef |> arrayValue; "resultType", typeRef result ]
         | TypeRef.Named typeId ->
             objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId) ]
         | TypeRef.Capability capabilityId ->
@@ -174,10 +176,34 @@ module internal WireEncodeCommon =
               "callNodeId", box (StableId.value value.CallNodeId)
               "calleeFunctionId", box (StableId.value value.CalleeFunctionId) ]
 
+    let bodyEffectRequirements (value: BodyEffectRequirements) =
+        objectValue
+            [ "effectIds", value.EffectIds |> List.map (StableId.value >> box) |> arrayValue
+              "evidence", value.Evidence |> List.map (fun item ->
+                  let source =
+                      match item.Source with
+                      | EffectRequirementSource.FunctionContract id -> objectValue [ "kind", box "functionContract"; "functionId", box (StableId.value id) ]
+                      | EffectRequirementSource.CapabilityOperation id -> objectValue [ "kind", box "capabilityOperation"; "operationId", box (StableId.value id) ]
+                  objectValue [ "effectId", box (StableId.value item.EffectId); "nodeId", box (StableId.value item.NodeId); "source", source ]) |> arrayValue
+              "unresolvedFunctionIds", value.UnresolvedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
+              "unresolvedOperationIds", value.UnresolvedOperationIds |> List.map (StableId.value >> box) |> arrayValue ]
+
+    let aborts (values: QueryFunctionAbort list) =
+        values |> List.map (fun item ->
+            objectValue
+                [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                  "nodeId", box (StableId.value item.NodeId)
+                  "errorNodeId", box (StableId.value item.ErrorNodeId)
+                  "errorType", optional item.ErrorType typeRef
+                  "enclosingControlNodeIds", item.EnclosingControlNodeIds |> List.map (StableId.value >> box) |> arrayValue
+                  "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
+
     let focusWith encodeFunction (value: FunctionFocusView) =
         objectValue
             [ "snapshotId", box (StableId.value value.SnapshotId)
               "function", encodeFunction value.Function
+              "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
+              "aborts", aborts value.Aborts
               "nodeTypes",
                 value.NodeTypes
                 |> List.map (fun item ->

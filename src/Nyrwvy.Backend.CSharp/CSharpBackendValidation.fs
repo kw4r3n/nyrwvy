@@ -35,26 +35,42 @@ module internal CSharpBackendValidation =
 
     let private collectFunctionTargets (program: ExecutionProgram) =
         program.Functions
-        |> List.collect (fun (functionEntity: ExecutionFunction) ->
-            functionEntity.Blocks
-            |> List.collect (fun (block: ExecutionBlock) ->
-                block.Instructions
-                |> List.choose (fun (instruction: ExecutionInstruction) ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.DirectCall(functionId, _)
-                    | ExecutionInstructionKind.ListFold(_, _, functionId, _)
-                    | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _)
-                    | ExecutionInstructionKind.UseResource(_, _, _, functionId, _)
-                    | ExecutionInstructionKind.ParallelAll(_, functionId, _)
-                    | ExecutionInstructionKind.TaskScope(functionId, _)
-                    | ExecutionInstructionKind.TaskStart(_, functionId, _, _)
-                    | ExecutionInstructionKind.ListMap(_, functionId, _)
-                    | ExecutionInstructionKind.ListFilter(_, functionId, _)
-                    | ExecutionInstructionKind.ListAny(_, functionId, _)
-                    | ExecutionInstructionKind.ListAll(_, functionId, _) -> Some functionId
-                    | _ -> None)))
+        |> List.collect ExecutionCallGraph.instructions
+        |> List.collect ExecutionCallGraph.targets
         |> List.distinct
         |> List.sortBy StableId.value
+
+    let private concurrentBindingProblem (program: ExecutionProgram) (profile: CSharpBackendProfile) operationsById =
+        let boundCapabilities =
+            profile.CapabilityBindings
+            |> List.map (fun binding -> fst (Map.find binding.OperationId operationsById))
+            |> Set.ofList
+        match Set.difference profile.ConcurrentCapabilityIds boundCapabilities |> Set.toList |> List.tryHead with
+        | Some id -> Some(CSharpBackendError.InvalidConcurrentCapabilityBinding id)
+        | None ->
+            let workers =
+                program.Functions
+                |> List.collect ExecutionCallGraph.instructions
+                |> List.choose (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.ParallelAll(_, worker, _)
+                    | ExecutionInstructionKind.TaskStart(_, worker, _, _) -> Some worker
+                    | _ -> None)
+                |> ExecutionCallGraph.reachable program
+            program.Functions
+            |> List.filter (fun fn -> Set.contains fn.SemanticFunctionId workers)
+            |> List.sortBy (fun fn -> StableId.value fn.SemanticFunctionId)
+            |> List.tryPick (fun fn ->
+                ExecutionCallGraph.instructions fn
+                |> List.sortBy (fun instruction -> StableId.value instruction.OriginNodeId)
+                |> List.tryPick (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _)
+                    | ExecutionInstructionKind.UseResource(_, _, operationId, _, _) ->
+                        let capabilityId, _ = Map.find operationId operationsById
+                        if Set.contains capabilityId profile.ConcurrentCapabilityIds then None
+                        else Some(CSharpBackendError.ConcurrentCapabilityBindingRequired(fn.SemanticFunctionId, instruction.OriginNodeId, capabilityId, operationId))
+                    | _ -> None))
 
     let private isSystemConsoleWriteLineCompatible (operation: ExecutionCapabilityOperation) =
         match operation.Parameters, operation.ResultType, operation.FailureType with
@@ -203,11 +219,14 @@ module internal CSharpBackendValidation =
                                         with
                                         | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
                                         | None ->
-                                            Ok
-                                                { FunctionsById = functionsById
-                                                  TypesById = typesById
-                                                  VariantsById = variantsById
-                                                  FieldsById = fieldsById
-                                                  CapabilitiesById = capabilitiesById
-                                                  OperationsById = operationsById
-                                                  BindingsByOperation = bindingsByOperation }
+                                            match concurrentBindingProblem program profile operationsById with
+                                            | Some error -> Error error
+                                            | None ->
+                                                Ok
+                                                    { FunctionsById = functionsById
+                                                      TypesById = typesById
+                                                      VariantsById = variantsById
+                                                      FieldsById = fieldsById
+                                                      CapabilitiesById = capabilitiesById
+                                                      OperationsById = operationsById
+                                                      BindingsByOperation = bindingsByOperation }

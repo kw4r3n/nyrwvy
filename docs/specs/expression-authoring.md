@@ -81,6 +81,9 @@ ExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
+  | CapabilityConstruct(CapabilityId, implementations: (CapabilityOperationId * FunctionId) list)
+  | FunctionReference(FunctionId)
+  | FunctionInvoke(functionValue, arguments)
   | DirectCall(targetFunctionId, argumentBindings)
   | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
   | Bind(value, body)
@@ -208,6 +211,27 @@ The supplied types are construction intent, not raw graph payloads. Before mater
 - `Result<T,E>` requires two type arguments;
 - nested type arguments are validated recursively.
 
+## Program-defined capability values
+
+`CapabilityConstruct` constructs an existing Capability type by assigning a named, monomorphic pure function to each operation. It is a leaf recipe: no capture or state values are evaluated. Full snapshot validation checks the exact operation set, positional signature and transitive purity both at creation and after later edits. Calls retain their nominal Effect requirements. See [the implementation contract](program-capability-implementations.md) for wire shapes and version boundaries.
+
+## Pure function values
+
+`FunctionReference(functionId)` accepts only a monomorphic named function with a
+pure transitive body: no declared effects, capability calls, resource/parallel
+execution, or ambient cancellation reads. It neither executes nor captures the
+body. `FunctionInvoke(functionValue, arguments)` evaluates the value and ordered
+argument dependencies, checks the exact positional signature, and returns the
+function result. Materialization visits the value, then arguments, then the
+invocation; evaluation of independent effectful inputs still requires `Bind`.
+Function type parameters are matched recursively inside function types.
+
+Name-resolved wire recipes use `functionReference` with `function`; exact-ID
+recipes use `functionId`. `functionInvoke` takes `functionValue` and `arguments`.
+The TypeRef shape is `{ "kind": "function", "parameters": [<TypeRef>],
+"resultType": <TypeRef> }`. See [pure function values](pure-function-values.md)
+for purity, persistence, dependency and host-boundary contracts.
+
 ## Higher-order List callbacks
 
 `ListFold`, `ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
@@ -220,13 +244,13 @@ For a source `List<T>`:
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
-**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without closures or function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
+**Context arguments.** Each of these cases takes an optional `context: [(ParameterId, recipe)]` (`[]` when absent). The listed parameters of the callback are bound by stable identity to values evaluated once, in the callback's parameter order, before the traversal; the arities above then apply to the callback's **unbound** parameters, taken in declaration order. For example, `ListFilter(items, above, [threshold, limit])` calls `above(threshold = limit, item = x)` for each item. Context parameters must exist on the callback, occur at most once, and match the value's type exactly. This is how one callback serves several runtime contexts without duplicating its body, and without capturing closures. Context can also carry pure function values. The persisted node stores the context as `ArgumentBinding`s whose value nodes are ordinary dependencies. JSON, Nyason and IR codecs write `context` only when it is non-empty, so context-free graphs keep their exact bytes and fingerprints, and an empty `context` array is rejected on read. Wire recipes accept `"context": [{ "parameterId", "value" }]`, and name-resolved recipes accept `"context": [{ "parameter": "<callback parameter name>", "value" }]`. The C# backend emits a lambda that passes context and iteration values by parameter name.
 
 Effectful callbacks remain rejected by these pure traversals, even when the target declares their effects.
 
 **Generic functions.** `TypeRef.TypeParameter(id, displayName)` names a function type parameter. A function's type parameters are exactly those occurring in its parameter types (first-occurrence order). Its result type, pattern bindings and body type references may use only those (`TypeParameterNotDeclared`). Each belongs to one function (`TypeParameterSharedAcrossFunctions`), keeps one display name, and never appears in a Product/Union field or capability signature (`TypeParameterOutsideFunction`); declared types stay monomorphic. Identities are system-owned: function creation replaces every type parameter in the request (wire: `{ "kind": "typeParameter", "name": "T" }`; the same name is the same parameter) with a fresh `TypeParameterId`, keeping the name. Existing parameters are referenced as `{ "kind": "typeParameter", "typeParameterId", "displayName" }`. At a `DirectCall`, the callee's type arguments come from **matching** each parameter type against its argument's type. For List callbacks, `ListEffectFold` and `UseResource` bodies, they come from matching context, item, accumulator and resource types. This is deterministic structural matching, not general inference, and a conflict is a type mismatch. Results are the callee's result type under that substitution. Inside a generic body, a type parameter is opaque: only operations generic in it (List construction and traversal, Option/Result wrapping and matching, calls, passing values through) typecheck. There are no constraints or type classes. `runPure` rejects a generic entry point (`RunGenericEntryUnsupported`); run a concrete function that calls it.
 
-**Structured concurrency.** `ParallelAll(source, workerFunctionId, context)` runs the worker once per item of `source : List<T>`, concurrently. The worker has exactly one parameter not bound by context (the item) and returns `Result<U, E>`; its effects must be declared by the enclosing function, and capabilities arrive as context. The node always waits for **every** worker before it completes, so no task outlives it. Workers start at once. When a worker returns `Err` or raises a host exception, cancellation is requested for the others. Cancellation is cooperative: `CancellationRequested : Bool` reads whether the current worker's cancellation was requested (`false` outside a worker), and external implementations observe the same ambient token. Result: a host exception is rethrown (the lowest-index one) after all workers finish. Otherwise the lowest-index `Err` is returned, independent of timing; otherwise `Ok` of all values in source order. An empty source yields `Ok []`. `CancellationRequested` is effectful for ordering. Combine with `UseResource` so that cleanup runs after every worker has stopped.
+**Structured concurrency.** `ParallelAll(source, workerFunctionId, context)` runs the worker once per item of `source : List<T>`, concurrently. The worker has exactly one parameter not bound by context (the item) and returns `Result<U, E>`; its effects must be declared by the enclosing function, and capabilities arrive as context. The node always waits for **every** worker before it completes, so no task outlives it. Workers are scheduled without a source-index start order; simultaneous execution and a particular degree of parallelism are not guaranteed. When a worker returns `Err` or raises a host exception, cancellation is requested for the others. Cancellation is cooperative: `CancellationRequested : Bool` reads whether the current worker's cancellation was requested (`false` outside a worker), and external implementations observe the same ambient token. Result: a host exception is rethrown (the lowest-index one) after all workers finish. Otherwise the lowest-index `Err` is returned, independent of timing; otherwise `Ok` of all values in source order. An empty source yields `Ok []`. `CancellationRequested` is effectful for ordering. Combine with `UseResource` so that cleanup runs after every worker has stopped. Shared capabilities retain one provider/state; worker calls require an explicitly concurrent host binding. The [capability-sharing contract](parallel-capability-sharing.md) defines ordering, visibility, conservative admission checks, and the common runner protocol.
 
 **Task scopes.** For control that `ParallelAll` cannot express (start members one at a time, wait for any of them, stop one), a task scope owns individually started tasks. The [concurrency-control decision](../decisions/concurrency-control.md) records why; this is its phase 1, without time limits.
 
@@ -390,7 +414,7 @@ Branch recipes become nested child `ValueGraph`s. No caller-supplied raw graph, 
 
 Existing declaration references such as callback/callee `FunctionId`, callee `ParameterId`, capability `CapabilityOperationId` / `CapabilityParameterId`, product `TypeId`, union `VariantId`, and `FieldId` remain references; the workflow does not allocate or mutate those declarations.
 
-Bind adds a persisted semantic node role. The current snapshot JSON schema is **9**, Nyason schema is **`nayamnyam.snapshot.v5`**, and Typed Semantic IR serialization schema is **6**. Snapshot and semantic fingerprint domains advance to **v6**. Execution IR remains **5**, since existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
+Bind adds a persisted semantic node role. The Bind-era snapshot JSON schema is **9** and Nyason schema is **`nayamnyam.snapshot.v5`**; these remain the canonical formats for graphs without `CapabilityConstruct` or `Abort`. That new construct uses JSON **10** and Nyason **v6** as defined in [program capability implementations](program-capability-implementations.md). Graphs without Abort retain Typed Semantic IR **7** and Execution IR **6**. Abort uses JSON **11**, Nyason **v7**, Typed Semantic IR **8**, and Execution IR **7**; see [typed function abort](typed-function-abort.md). Snapshot and semantic fingerprint domains advance to **v6**. Bind itself needs no new execution instruction: existing jumps and block parameters preserve both order and provenance. The legacy `nayamnyam` spelling is retained in schema/domain identifiers.
 
 Snapshot JSON 8 and Nyason v4 are now rejected explicitly, including for graphs without Bind. There is no implicit migration or inferred ordering of older graphs. Older artifacts require the matching older reader or a separately reviewed meaning-preserving migration; no migration is added in this slice. Typed Semantic IR currently has a serializer, not a round-trip reader. Frozen evaluation protocols/corpora are not extended with Bind.
 
@@ -442,3 +466,19 @@ The maintained recipe does not author:
 - semantic merge/rebase or multi-proposal composition.
 
 These exclusions are deliberate authority or semantic boundaries rather than missing encodings of the current feature.
+
+## Typed local early exit
+
+The `abort` recipe has exactly `kind` and `error` fields. Both name-resolved and
+exact-ID authoring support it in a `Result<T,E>` function when the error recipe
+has type `E`. Abort has no normal value and is valid only at a graph result,
+including a branch or Bind body. It cannot be a call argument, container element
+or Bind initializer. A mixed branch can abort on one side and produce a normal
+value on the other. All-aborting branches propagate abrupt completion.
+
+Targeted replacement can switch a graph-result expression between normal and
+abrupt completion while preserving the target identity. The entire proposed
+snapshot must still validate; an existing ordinary value use cannot consume an
+abort. Review reports the owning function, payload and dependent continuations.
+See the [complete contract](typed-function-abort.md), including cleanup, worker
+cancellation, ordering and schema compatibility.

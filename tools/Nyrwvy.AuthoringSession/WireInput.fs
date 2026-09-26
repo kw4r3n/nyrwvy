@@ -98,6 +98,9 @@ module internal WireInput =
 
     let rec typeRef (element: JsonElement): TypeRef =
         match requiredString "kind" element with
+        | "function" ->
+            ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
+            TypeRef.Function(array "parameters" element |> List.map (typeRef), typeRef (property "resultType" element))
         | "primitive" ->
             ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
             match requiredString "primitive" element with

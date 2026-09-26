@@ -58,6 +58,7 @@
     <Compile Include="ExecutionIrCodecTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />
+    <Compile Include="EffectRequirementsTests.fs" />
     <Compile Include="ChangeReviewQueryTests.fs" />
     <Compile Include="ViewerTests.fs" />
     <Compile Include="ViewerArtifactTests.fs" />
@@ -75,8 +76,12 @@
     <Compile Include="ListEffectFoldTests.fs" />
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
+    <Compile Include="FunctionValueTests.fs" />
+    <Compile Include="FunctionAbortTests.fs" />
+    <Compile Include="CapabilityImplementationTests.fs" />
     <Compile Include="ParallelAllTests.fs" />
     <Compile Include="TaskScopeTests.fs" />
+    <Compile Include="TaskScopeCompositionTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

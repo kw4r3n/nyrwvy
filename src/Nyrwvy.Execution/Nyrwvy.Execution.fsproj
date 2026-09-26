@@ -4,6 +4,7 @@
     <Compile Include="AgentExecution.fs" />
     <Compile Include="TypedSemanticIrCodec.fs" />
     <Compile Include="ExecutionIrModel.fs" />
+    <Compile Include="ExecutionCallGraph.fs" />
     <Compile Include="ExecutionIrAnalysis.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />

@@ -126,6 +126,10 @@ type ExecutionInstructionKind =
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
+    | FunctionReference of FunctionId
+    | FunctionInvoke of ExecutionValueId * ExecutionValueId list
     | DirectCall of FunctionId * ExecutionCallArgument list
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list
@@ -155,6 +159,7 @@ type ExecutionUnionTarget =
 
 [<RequireQualifiedAccess>]
 type ExecutionTerminator =
+    | Abort of originNodeId: GraphNodeId * errorValueId: ExecutionValueId
     | Return of ExecutionValueId
     | Jump of ExecutionBlockId * ExecutionJumpArgument list
     | Branch of conditionValueId: ExecutionValueId * whenTrue: ExecutionBlockId * whenFalse: ExecutionBlockId

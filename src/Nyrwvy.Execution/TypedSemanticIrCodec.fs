@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 6
+    let schemaVersion = 8
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -23,6 +23,14 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "primitiveInt64")
         | TypeRef.Primitive PrimitiveType.Float64 ->
             writer.WriteString("kind", "primitiveFloat64")
+        | TypeRef.Function(arguments, result) ->
+            writer.WriteString("kind", "function")
+            writer.WritePropertyName("parameters")
+            writer.WriteStartArray()
+            arguments |> List.iter (writeTypeRef writer)
+            writer.WriteEndArray()
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer result
         | TypeRef.Named typeId ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
@@ -276,8 +284,11 @@ module TypedSemanticIrCodec =
     and private writeNode (writer: Utf8JsonWriter) (node: TypedSemanticNode) =
         writer.WriteStartObject()
         writer.WriteString("originNodeId", StableId.value node.OriginNodeId)
-        writer.WritePropertyName("type")
-        writeTypeRef writer node.Type
+        match node.Completion with
+        | GraphCompletion.Normal value ->
+            writer.WritePropertyName("type")
+            writeTypeRef writer value
+        | GraphCompletion.Aborts -> writer.WriteString("completion", "abort")
 
         match node.Kind with
         | TypedSemanticNodeKind.ParameterReference parameterId ->
@@ -429,6 +440,26 @@ module TypedSemanticIrCodec =
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            writer.WriteString("kind", "capabilityConstruct")
+            writer.WriteString("capabilityId", StableId.value capabilityId)
+            writer.WriteStartArray("implementations")
+            for operationId, functionId in implementations |> List.sortBy (fst >> StableId.value) do
+                writer.WriteStartObject()
+                writer.WriteString("operationId", StableId.value operationId)
+                writer.WriteString("functionId", StableId.value functionId)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
+        | TypedSemanticNodeKind.FunctionReference target ->
+            writer.WriteString("kind", "functionReference")
+            writer.WriteString("functionId", StableId.value target)
+        | TypedSemanticNodeKind.FunctionInvoke(value, arguments) ->
+            writer.WriteString("kind", "functionInvoke")
+            writer.WriteString("functionValueNodeId", StableId.value value)
+            writer.WritePropertyName("arguments")
+            writer.WriteStartArray()
+            arguments |> List.iter (fun id -> writer.WriteStringValue(StableId.value id))
+            writer.WriteEndArray()
         | TypedSemanticNodeKind.DirectCall(functionId, arguments) ->
             writer.WriteString("kind", "directCall")
             writer.WriteString("functionId", StableId.value functionId)
@@ -477,6 +508,9 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.ResultOk valueNodeId ->
             writer.WriteString("kind", "resultOk")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Abort errorNodeId ->
+            writer.WriteString("kind", "abort")
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
         | TypedSemanticNodeKind.ResultErr errorNodeId ->
             writer.WriteString("kind", "resultErr")
             writer.WriteString("errorNodeId", StableId.value errorNodeId)
@@ -542,7 +576,17 @@ module TypedSemanticIrCodec =
         use writer = new Utf8JsonWriter(stream)
 
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", schemaVersion)
+        let rec hasAbort (graph: TypedSemanticGraph) =
+            graph.Nodes |> List.exists (fun node ->
+                match node.Kind with
+                | TypedSemanticNodeKind.Abort _ -> true
+                | TypedSemanticNodeKind.Conditional(_, a, b) -> hasAbort a || hasAbort b
+                | TypedSemanticNodeKind.Bind(_, arm) -> hasAbort arm.Body
+                | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> hasAbort arm.Body)
+                | TypedSemanticNodeKind.MatchOption(_, arm, other) -> hasAbort arm.Body || hasAbort other
+                | TypedSemanticNodeKind.MatchResult(_, a, b) -> hasAbort a.Body || hasAbort b.Body
+                | _ -> false)
+        writer.WriteNumber("schemaVersion", if program.Functions |> List.exists (fun fn -> hasAbort fn.Body) then schemaVersion else 7)
         writer.WriteString("sourceSnapshotId", StableId.value program.SourceSnapshotId)
 
         writer.WritePropertyName("types")

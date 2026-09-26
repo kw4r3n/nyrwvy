@@ -177,11 +177,34 @@ Add a property only when validation, planning, execution, review, or another con
 
 ### Current position
 
-The proven synchronous Console boundary carries only the facts needed by current validators, lowering, backend binding, and viewer behavior.
+The synchronous Console boundary retains its existing typed operations. Concurrent
+use now consumes an explicit capability-wide host binding assertion: all worker
+calls, including transitive calls and cleanup, require concurrent support before
+emission. Sharing order and visibility are defined by the
+[ParallelAll capability-sharing contract](../specs/parallel-capability-sharing.md).
+This does not add speculative properties to semantic declarations or an ownership
+system. [Program-defined capability implementations](../specs/program-capability-implementations.md)
+now admit stateless, monomorphic pure functions with exact operation signatures.
+They introduce no additional effects and do not remove the invocation's declared
+effect. This derived restriction does not replace assertions about external host
+implementations. Stateful/effectful implementations and other properties remain open.
 
 ### Resolution target
 
 Extend capability contracts feature-by-feature when a new external behavior requires the distinction.
+
+---
+
+## Typed abort follow-up
+
+- **Status:** First bounded implementation complete
+- The [typed function-abort contract](../specs/typed-function-abort.md) fixes the
+  first boundary as local early exit from a Result-returning function. The error
+  type comes from that result; cleanup and ParallelAll retain their current
+  failure/termination contracts.
+- Exact persisted/wire forms and lowering are implemented and covered by the
+  [verification gates](../verification/typed-function-abort-20260926.md). Non-local scopes, resumable handlers and implicit propagation
+  through callers are not part of this first slice.
 
 ---
 

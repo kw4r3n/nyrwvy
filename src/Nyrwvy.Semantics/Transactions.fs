@@ -281,6 +281,9 @@ module Transaction =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -289,6 +292,7 @@ module Transaction =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
@@ -713,6 +717,9 @@ module Transaction =
                                   ValueNodeId = request.ResolutionValueNodeId }
                             { node with
                                 Kind = SemanticNodeKind.DirectCall(targetFunctionId, arguments @ [ binding ]) }
+                        | SemanticNodeKind.CapabilityConstruct _
+                        | SemanticNodeKind.FunctionReference _
+                        | SemanticNodeKind.FunctionInvoke _
                         | SemanticNodeKind.ParameterReference _
                         | SemanticNodeKind.PatternReference _
                         | SemanticNodeKind.StringLiteral _
@@ -770,6 +777,7 @@ module Transaction =
                         | SemanticNodeKind.OptionNone _
                         | SemanticNodeKind.OptionSome _
                         | SemanticNodeKind.ResultOk _
+                        | SemanticNodeKind.Abort _
                         | SemanticNodeKind.ResultErr _
                         | SemanticNodeKind.Conditional _
                         | SemanticNodeKind.MatchUnion _

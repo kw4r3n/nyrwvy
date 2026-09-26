@@ -327,9 +327,9 @@ module ViewerTests =
         let fixture = MilestoneZeroGraph.create ()
         let pureDocument = focus fixture fixture.ValidateFunctionId |> ViewerHtml.renderFocusDocument
         let effectfulDocument = focus fixture fixture.MainFunctionId |> ViewerHtml.renderFocusDocument
-        let effectText = "<p>Required effects: <code>effect:" + StableId.value fixture.ConsoleEffectId + "</code></p>"
+        let effectText = "<p>Declared required effects: <code>effect:" + StableId.value fixture.ConsoleEffectId + "</code></p>"
 
-        Assert.Contains("<p>Required effects: None.</p>", pureDocument)
+        Assert.Contains("<p>Declared required effects: None.</p>", pureDocument)
         Assert.Contains(effectText, effectfulDocument)
         let relatedSignatures =
             effectfulDocument.Substring(effectfulDocument.IndexOf("<details><summary>Related function signatures", StringComparison.Ordinal))

@@ -14,7 +14,9 @@ type CSharpCapabilityBinding =
       Kind: CSharpCapabilityBindingKind }
 
 type CSharpBackendProfile =
-    { CapabilityBindings: CSharpCapabilityBinding list }
+    { CapabilityBindings: CSharpCapabilityBinding list
+      /// Host assertion covering every operation and every supplied instance of these capabilities.
+      ConcurrentCapabilityIds: Set<CapabilityId> }
 
 type CSharpSymbol<'Id> =
     { Id: 'Id
@@ -44,6 +46,8 @@ type CSharpBackendError =
     | UnknownCapabilityBindingOperation of CapabilityOperationId
     | IncompatibleSystemConsoleWriteLineBinding of CapabilityOperationId
     | MixedCapabilityBindingKinds of CapabilityId
+    | InvalidConcurrentCapabilityBinding of CapabilityId
+    | ConcurrentCapabilityBindingRequired of FunctionId * GraphNodeId * CapabilityId * CapabilityOperationId
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId
     | UnknownCapabilityOperation of CapabilityOperationId
@@ -55,19 +59,24 @@ type CSharpBackendError =
 
 [<RequireQualifiedAccess>]
 module CSharpBackendProfile =
-    let empty: CSharpBackendProfile = { CapabilityBindings = [] }
+    let empty: CSharpBackendProfile = { CapabilityBindings = []; ConcurrentCapabilityIds = Set.empty }
 
     let systemConsoleWriteLine (operationId: CapabilityOperationId): CSharpBackendProfile =
-        { CapabilityBindings =
-            [ { OperationId = operationId
-                Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
+        { empty with
+            CapabilityBindings =
+                [ { OperationId = operationId
+                    Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine } ] }
 
     let externalImplementations (operationIds: CapabilityOperationId list): CSharpBackendProfile =
-        { CapabilityBindings =
-            operationIds
-            |> List.map (fun operationId ->
-                { OperationId = operationId
-                  Kind = CSharpCapabilityBindingKind.ExternalImplementation }) }
+        { empty with
+            CapabilityBindings =
+                operationIds
+                |> List.map (fun operationId ->
+                    { OperationId = operationId
+                      Kind = CSharpCapabilityBindingKind.ExternalImplementation }) }
+
+    let withConcurrentCapabilities (capabilityIds: CapabilityId list) (profile: CSharpBackendProfile) =
+        { profile with ConcurrentCapabilityIds = Set.ofList capabilityIds }
 
 [<RequireQualifiedAccess>]
 module CSharpBackendNames =
@@ -91,6 +100,7 @@ module CSharpBackendNames =
     let capabilityOperationName (id: CapabilityOperationId) = stable "Op_" id
     let capabilityParameterName (id: CapabilityParameterId) = stable "cp_" id
     let capabilityAdapterName (id: CapabilityId) = stable "NyA_" id
+    let capabilityImplementationName (id: GraphNodeId) = stable "NyI_" id
 
     let executionValueName (id: ExecutionValueId) =
         "v_" + utf8Hex (ExecutionValueId.value id)

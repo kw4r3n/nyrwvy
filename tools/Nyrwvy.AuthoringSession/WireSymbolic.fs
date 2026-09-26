@@ -49,6 +49,9 @@ module internal WireSymbolic =
 
     let rec typeRef (declarations: AuthoringDeclarations) (element: JsonElement): TypeRef =
         match requiredString "kind" element with
+        | "function" ->
+            ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
+            TypeRef.Function(array "parameters" element |> List.map (typeRef declarations), typeRef declarations (property "resultType" element))
         | "primitive" ->
             ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
             match requiredString "primitive" element with
@@ -395,12 +398,29 @@ module internal WireSymbolic =
                 typeRef declarations (property "errorType" element),
                 recipe declarations parameterContext (property "value" element)
             )
+        | "abort" ->
+            ensureFields "abort recipe" [ "kind"; "error" ] [ "kind"; "error" ] element
+            ExpressionRecipe.Abort(recipe declarations parameterContext (property "error" element))
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(
                 typeRef declarations (property "okType" element),
                 recipe declarations parameterContext (property "error" element)
             )
+        | "capabilityConstruct" ->
+            ensureFields "Capability construction recipe" [ "kind"; "capability"; "implementations" ] [ "kind"; "capability"; "implementations" ] element
+            let capability = resolveCapability declarations (requiredString "capability" element)
+            let implementations = array "implementations" element |> List.map (fun item ->
+                ensureFields "Capability implementation" [ "operation"; "function" ] [ "operation"; "function" ] item
+                (capabilityOperation capability (requiredString "operation" item)).Id,
+                (resolveFunction declarations (requiredString "function" item)).Id)
+            ExpressionRecipe.CapabilityConstruct(capability.Id, implementations)
+        | "functionReference" ->
+            ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
+            ExpressionRecipe.FunctionReference((resolveFunction declarations (requiredString "function" element)).Id)
+        | "functionInvoke" ->
+            ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
+            ExpressionRecipe.FunctionInvoke(recipe declarations parameterContext (property "functionValue" element), array "arguments" element |> List.map (recipe declarations parameterContext))
         | "directCall" ->
             ensureFields
                 "direct-call recipe"

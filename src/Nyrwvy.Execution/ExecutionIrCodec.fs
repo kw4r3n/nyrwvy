@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 5
+    let schemaVersion = 7
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -48,6 +48,8 @@ module ExecutionIrCodec =
                 [ property "kind" (quote "typeParameter")
                   property "typeParameterId" (quote (StableId.value typeParameterId))
                   property "displayName" (quote displayName) ]
+        | TypeRef.Function(arguments, result) ->
+            objectValue [ property "kind" (quote "function"); property "parameters" (arrayValue (List.map writeTypeRef arguments)); property "resultType" (writeTypeRef result) ]
         | TypeRef.Named typeId ->
             objectValue
                 [ property "kind" (quote "named")
@@ -365,6 +367,15 @@ module ExecutionIrCodec =
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
+            [ property "kind" (quote "capabilityConstruct"); property "capabilityId" (stableIdValue capabilityId)
+              property "implementations" (implementations |> List.sortBy fst |> List.map (fun (operationId, functionId) ->
+                  objectValue [ property "operationId" (stableIdValue operationId); property "functionId" (stableIdValue functionId) ]) |> arrayValue) ]
+        | ExecutionInstructionKind.FunctionReference target ->
+            [ property "kind" (quote "functionReference"); property "functionId" (stableIdValue target) ]
+        | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
+            [ property "kind" (quote "functionInvoke"); property "functionValueId" (executionValueIdValue value)
+              property "arguments" (arguments |> List.map executionValueIdValue |> arrayValue) ]
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             [ property "kind" (quote "directCall")
               property "functionId" (stableIdValue functionId)
@@ -449,6 +460,11 @@ module ExecutionIrCodec =
 
     let private writeTerminator (terminator: ExecutionTerminator): string =
         match terminator with
+        | ExecutionTerminator.Abort(nodeId, valueId) ->
+            objectValue
+                [ property "kind" (quote "abort")
+                  property "originNodeId" (stableIdValue nodeId)
+                  property "errorValueId" (executionValueIdValue valueId) ]
         | ExecutionTerminator.Return valueId ->
             objectValue
                 [ property "kind" (quote "return")
@@ -526,7 +542,7 @@ module ExecutionIrCodec =
 
     let serialize (program: ExecutionProgram): string =
         objectValue
-            [ property "schemaVersion" (string schemaVersion)
+            [ property "schemaVersion" (string (if program.Functions |> List.exists (fun fn -> fn.Blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)) then schemaVersion else 6))
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)
               property
                   "types"

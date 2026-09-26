@@ -134,7 +134,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 ## Immediate execution queue
 
-The real-host MCP probe and the [general-purpose programming roadmap](general-purpose-programming-roadmap.md) are complete. The next implementation targets come from two sources: a 2026-09-25 rrawrlet slice probe, and the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps).
+The real-host MCP probe is complete. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the current bounded outcomes; its original G1-G4/T1-T3 plan is complete. The next implementation targets come from two sources: a 2026-09-25 rrawrlet slice probe, and the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps).
 
 The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
@@ -148,14 +148,14 @@ The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared 
 | 4 | Stable IDs still required | Effect/Capability creation has no name-resolved form, and `runPure` values take only TypeId/FieldId; the probe needed a 30-line name→ID helper. | Name-resolved forms with the same ambiguity rejection as other graph tools. |
 | 5 | No Bool and/or/not, no Map | Expressible (nested conditionals; `List` of entries with a fold upsert), but verbose: 2 extra types and 2 extra functions in the probe. | Decide whether the review and authoring cost justifies dedicated constructs. |
 
-The remaining semantic-independence gaps follow without a fixed order: scoped interpretation (program-chosen capability implementation), function values, and reporting inferred requirements (small and independent, so it may be taken earlier). Abort and the shared-capability contract are covered by item 1. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
+Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. The T3 non-support (Float64 run values, `failureType` operations) is picked up only when a concrete consumer appears.
 
 Preserve these constraints:
 
 1. **Use the maintained ordinary graph tools and MCP surface as the baseline.** Reuse the recorded Codex result; do not repeat the same live boundary without a relevant change or unresolved decision.
 2. **Reuse the recipe-discovery evidence.** The bounded external-consumer follow-up removed the prior recipe trial-and-error; do not rerun it unless the interaction surface changes or a new real task shows comparable discovery friction.
 3. **Keep #109 deferred.** Current evidence does not justify build-architecture work.
-4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first so work is not duplicated.
+4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first. Dependency-tool exposure, retained pins, multiple/transitive dependencies, and reviewed upgrades are implemented; use the maintained roadmap rather than the original PR #214 review-date status.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
 

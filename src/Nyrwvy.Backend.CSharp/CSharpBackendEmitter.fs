@@ -55,6 +55,8 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
+        | TypeRef.Function(arguments, result) ->
+            "NyFunction" + string arguments.Length + "<" + (arguments @ [ result ] |> List.map formatType |> String.concat ", ") + ">"
         | TypeRef.TypeParameter(typeParameterId, _) -> CSharpBackendNames.typeParameterName typeParameterId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
             "NyOption<" + formatType itemType + ">"
@@ -329,6 +331,27 @@ module CSharpBackend =
             for line in taskRuntime do
                 writer.Line(line)
 
+    let private emitFunctionTypes (writer: SourceWriter) (program: ExecutionProgram) =
+        let rec arities = function
+            | TypeRef.Function(arguments, result) -> arguments.Length :: List.collect arities (arguments @ [ result ])
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.collect arities arguments
+            | _ -> []
+        let declaredTypes = program.Types |> List.collect (fun t ->
+            match t.Kind with
+            | ExecutionTypeKind.Product fields -> fields |> List.map (fun f -> f.Type)
+            | ExecutionTypeKind.Union variants -> variants |> List.collect (fun v -> v.Fields |> List.map (fun f -> f.Type)))
+        let capabilityTypes = program.Capabilities |> List.collect (fun c -> c.Operations |> List.collect (fun op -> op.ResultType :: List.map (fun (p: ExecutionCapabilityParameter) -> p.Type) op.Parameters))
+        let functionTypes = program.Functions |> List.collect (fun fn ->
+            fn.ResultType :: (fn.Parameters |> List.map (fun p -> p.Value.Type))
+            @ (fn.Blocks |> List.collect (fun block -> List.map (fun (p: ExecutionValue) -> p.Type) block.Parameters @ List.map (fun i -> i.Result.Type) block.Instructions)))
+        let requiredArities = declaredTypes @ capabilityTypes @ functionTypes |> List.collect arities |> List.distinct |> List.sort
+        for count in requiredArities do
+            let types = [ for index in 0 .. count - 1 -> "T" + string index ]
+            let generics = String.concat ", " (types @ [ "TResult" ])
+            let arguments = types |> List.mapi (fun index t -> t + " arg" + string index) |> String.concat ", "
+            writer.Line("public delegate TResult NyFunction" + string count + "<" + generics + ">(" + arguments + ");")
+        if not (List.isEmpty requiredArities) then writer.Line("")
+
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
             let typeName = CSharpBackendNames.typeName typeEntity.Id
@@ -420,6 +443,30 @@ module CSharpBackend =
                 writer.Pop()
                 writer.Line("}")
                 writer.Line("")
+
+    let private emitProgramImplementations (writer: SourceWriter) (context: CSharpBackendValidation.Context) (program: ExecutionProgram) =
+        for instruction in program.Functions |> List.collect ExecutionCallGraph.instructions |> List.sortBy (fun item -> StableId.value item.OriginNodeId) do
+            match instruction.Kind with
+            | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
+                let capability = Map.find capabilityId context.CapabilitiesById
+                let implementationName = CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId
+                writer.Line("internal sealed class " + implementationName + " : " + CSharpBackendNames.capabilityName capabilityId)
+                writer.Line("{")
+                writer.Push()
+                for operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) do
+                    let functionId = implementations |> List.find (fun (id, _) -> id = operation.Id) |> snd
+                    let fn = Map.find functionId context.FunctionsById
+                    let parameters = operation.Parameters |> List.map capabilityParameter |> String.concat ", "
+                    // Declaration order defines the correspondence. Name each target parameter
+                    // explicitly, independently of the operation parameter identities.
+                    let arguments = List.zip fn.Parameters operation.Parameters |> List.map (fun (parameter, supplied) ->
+                        CSharpBackendNames.parameterName parameter.SemanticParameterId + ": " + CSharpBackendNames.capabilityParameterName supplied.Id) |> String.concat ", "
+                    writer.Line("public " + formatType operation.ResultType + " " + CSharpBackendNames.capabilityOperationName operation.Id + "(" + parameters + ") => "
+                                + CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId + "(" + arguments + ");")
+                writer.Pop()
+                writer.Line("}")
+                writer.Line("")
+            | _ -> ()
 
     let private valueName (valueId: ExecutionValueId) =
         CSharpBackendNames.executionValueName valueId
@@ -680,6 +727,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
             // Structured: every worker is awaited before the node completes. The first Err or host
             // exception cancels the shared token; faults win, then the lowest-index Err, else all Ok.
+            // Link the ambient token so cancellation also reaches workers of nested ParallelAll nodes.
             let itemType =
                 match valueTypeOf sourceListValueId with
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> formatType item
@@ -695,7 +743,7 @@ module CSharpBackend =
             writer.Line("{")
             writer.Push()
             writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
-            writer.Line("using var " + cts + " = new System.Threading.CancellationTokenSource();")
+            writer.Line("using var " + cts + " = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value);")
             writer.Line("var " + tasks + " = new System.Threading.Tasks.Task<" + workerResult + ">[" + items + ".Count];")
             writer.Line("for (var " + index + " = 0; " + index + " < " + items + ".Count; " + index + "++)")
             writer.Line("{")
@@ -733,6 +781,12 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.CapabilityConstruct _ ->
+            writer.Line(target + " = new " + CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId + "();")
+        | ExecutionInstructionKind.FunctionReference functionId ->
+            writer.Line(target + " = " + CSharpBackendNames.functionName functionId + ";")
+        | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
+            writer.Line(target + " = " + valueName value + "(" + (arguments |> List.map valueName |> String.concat ", ") + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let functionName = CSharpBackendNames.functionName functionId
             writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
@@ -766,10 +820,13 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName inputValueId + ".ErrorValue;")
 
     let private emitTerminator
+        (resultType: TypeRef)
         (writer: SourceWriter)
         (block: ExecutionBlock)
         (terminator: ExecutionTerminator) =
         match terminator with
+        | ExecutionTerminator.Abort(_, errorValueId) ->
+            writer.Line("return " + formatType resultType + ".Err(" + valueName errorValueId + ");")
         | ExecutionTerminator.Return resultValueId ->
             writer.Line("return " + valueName resultValueId + ";")
         | ExecutionTerminator.Jump(targetBlockId, arguments) ->
@@ -878,7 +935,7 @@ module CSharpBackend =
             writer.Push()
             for instruction in block.Instructions do
                 emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
-            emitTerminator writer block block.Terminator
+            emitTerminator functionEntity.ResultType writer block block.Terminator
             writer.Line("")
 
         writer.Pop()
@@ -983,9 +1040,11 @@ module CSharpBackend =
             writer.Line("")
             emitRuntime writer
             emitConcurrencyRuntime writer program
+            emitFunctionTypes writer program
             emitTypes writer program
             emitCapabilities writer program
             emitAdapters writer context program
+            emitProgramImplementations writer context program
             emitFunctions writer program
             writer.Line("#pragma warning restore CS0219")
             Ok

@@ -64,6 +64,9 @@ module SnapshotValidator =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
@@ -79,6 +82,7 @@ module SnapshotValidator =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             [ conditionNodeId; whenTrue.ResultNodeId; whenFalse.ResultNodeId ]
@@ -127,6 +131,9 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -137,6 +144,7 @@ module SnapshotValidator =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
@@ -185,12 +193,6 @@ module SnapshotValidator =
 
         nodesById |> Map.exists (fun nodeId _ -> visit Set.empty nodeId)
 
-    let private commonType (types: TypeRef option list): TypeRef option =
-        match types with
-        | [] -> None
-        | Some first :: rest when rest |> List.forall (fun item -> item = Some first) -> Some first
-        | Some _ :: _
-        | None :: _ -> None
 
     let private validateUncached (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
@@ -368,6 +370,7 @@ module SnapshotValidator =
 
         let rec validateTypeRef (context: string) (typeRef: TypeRef) =
             match typeRef with
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter (validateTypeRef context)
             | TypeRef.Primitive _ -> ()
             | TypeRef.TypeParameter(_, displayName) ->
                 // Function scope is checked per function; declarations reject type parameters.
@@ -519,7 +522,7 @@ module SnapshotValidator =
                 | ObligationStatus.Resolved _ -> None)
             |> Set.ofList
 
-        let createNodeTypeResolver = SemanticFacts.createNodeTypeResolverFactory snapshot
+        let createCompletionResolver = SemanticFacts.createNodeCompletionResolverFactory snapshot
 
         for functionEntity in snapshot.Functions do
             let allNodes = ValueGraph.collectNodes functionEntity.Body
@@ -529,7 +532,14 @@ module SnapshotValidator =
                 |> List.map (fun parameter -> parameter.Id, parameter)
                 |> Map.ofList
             let requiredEffects = Set.ofList functionEntity.RequiredEffects
-            let nodeType = createNodeTypeResolver functionEntity
+            let completion = createCompletionResolver functionEntity
+            let nodeType nodeId = completion nodeId |> Option.bind GraphCompletion.normalType
+            let compatibleArms graphs = graphs |> List.map (SemanticFacts.graphCompletion completion) |> GraphCompletion.merge |> Option.isSome
+
+            for node in allNodes do
+                for dependency in SemanticFacts.directValueDependencies node do
+                    if completion dependency = Some GraphCompletion.Aborts then
+                        add "AbortValueUse" $"Node '{StableId.value node.Id}' uses abrupt node '{StableId.value dependency}' as a value in function '{StableId.value functionEntity.Id}'."
 
             let requireNodeType code message expectedType nodeId =
                 match nodeType nodeId with
@@ -1030,6 +1040,28 @@ module SnapshotValidator =
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId predicateFunctionId context true
+                    | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+                        for code, message in CapabilityImplementations.validate snapshot capabilityId implementations do
+                            add code ($"Capability construction '{StableId.value node.Id}': " + message)
+                    | SemanticNodeKind.FunctionReference target ->
+                        match Map.tryFind target functionsById with
+                        | None -> add "UnknownFunctionReference" $"Function reference '{StableId.value node.Id}' names unknown function '{StableId.value target}'."
+                        | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
+                            add "GenericFunctionReferenceUnsupported" "A function value must reference a monomorphic function; use a concrete wrapper."
+                        | Some _ when not (PureFunctions.isPure snapshot target) ->
+                            add "ImpureFunctionReference" "A function value must reference a pure function, including its transitive calls and ambient cancellation behavior."
+                        | Some _ -> ()
+                    | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+                        match nodeType value with
+                        | Some(TypeRef.Function(parameters, _)) when parameters.Length <> arguments.Length ->
+                            add "FunctionInvokeArityMismatch" "Function invocation must supply exactly one value for each positional parameter."
+                        | Some(TypeRef.Function(parameters, _)) ->
+                            List.zip parameters arguments |> List.iter (fun (expected, argument) ->
+                                match nodeType argument with
+                                | Some actual when actual <> expected -> add "FunctionInvokeArgumentTypeMismatch" "Function invocation argument has the wrong type."
+                                | _ -> ())
+                        | Some _ -> add "FunctionInvokeTargetTypeMismatch" "Function invocation requires a function value."
+                        | None -> ()
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with
                         | None ->
@@ -1173,6 +1205,15 @@ module SnapshotValidator =
                             validateFieldBindings $"Union node '{StableId.value node.Id}'" variant.Fields fields
                     | SemanticNodeKind.OptionNone itemType ->
                         validateTypeRef $"Option.None node '{StableId.value node.Id}'" itemType
+                    | SemanticNodeKind.Abort errorNodeId ->
+                        if node.Id <> graph.ResultNodeId then
+                            add "AbortNotGraphResult" $"Abort node '{StableId.value node.Id}' in function '{StableId.value functionEntity.Id}' must be its graph result."
+                        match functionEntity.ResultType with
+                        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) ->
+                            requireNodeType "AbortPayloadTypeMismatch"
+                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {errorType} of function '{StableId.value functionEntity.Id}'."
+                                errorType errorNodeId
+                        | _ -> add "AbortOwnerResultTypeMismatch" $"Abort node '{StableId.value node.Id}' requires function '{StableId.value functionEntity.Id}' to return Result<T, E>."
                     | SemanticNodeKind.OptionSome _ -> ()
                     | SemanticNodeKind.ResultOk(errorType, _) ->
                         validateTypeRef $"Result.Ok node '{StableId.value node.Id}' error type" errorType
@@ -1187,7 +1228,7 @@ module SnapshotValidator =
                                 $"Conditional node '{StableId.value node.Id}' requires a Bool condition."
                         | None -> ()
 
-                        if commonType [ nodeType whenTrue.ResultNodeId; nodeType whenFalse.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ whenTrue; whenFalse ]) then
                             add
                                 "ConditionalBranchTypeMismatch"
                                 $"Conditional node '{StableId.value node.Id}' branches do not produce one common type."
@@ -1275,8 +1316,8 @@ module SnapshotValidator =
                                 $"Union match node '{StableId.value node.Id}' requires a declared union input."
                         | None -> ()
 
-                        let armTypes = arms |> List.map (fun arm -> nodeType arm.Body.ResultNodeId)
-                        if commonType armTypes |> Option.isNone then
+                        let armGraphs = arms |> List.map (fun arm -> arm.Body)
+                        if not (compatibleArms armGraphs) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Union match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1304,7 +1345,7 @@ module SnapshotValidator =
                                 $"Option match node '{StableId.value node.Id}' requires Option<T> input."
                         | None -> ()
 
-                        if commonType [ nodeType someArm.Body.ResultNodeId; nodeType noneBody.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ someArm.Body; noneBody ]) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Option match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1336,7 +1377,7 @@ module SnapshotValidator =
                                 $"Result match node '{StableId.value node.Id}' requires Result<T,E> input."
                         | None -> ()
 
-                        if commonType [ nodeType okArm.Body.ResultNodeId; nodeType errArm.Body.ResultNodeId ] |> Option.isNone then
+                        if not (compatibleArms [ okArm.Body; errArm.Body ]) then
                             add
                                 "MatchArmTypeMismatch"
                                 $"Result match node '{StableId.value node.Id}' arms do not produce one common type."
@@ -1364,6 +1405,11 @@ module SnapshotValidator =
                     "FunctionResultTypeMismatch"
                     $"Function '{StableId.value functionEntity.Id}' result node type does not match its declared result type."
             | Some _
+            | None -> ()
+
+            match GraphOrder.tryAbortOrderConflict functionsById functionEntity with
+            | Some(first, second) ->
+                add "AmbiguousEffectOrder" $"Function '{StableId.value functionEntity.Id}' has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow."
             | None -> ()
 
             if hasDependencyCycle nodesById then
@@ -1418,6 +1464,9 @@ module SnapshotValidator =
                             add
                                 "InvalidObligationResolutionValue"
                                 $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -1475,6 +1524,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _

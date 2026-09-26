@@ -21,6 +21,12 @@ External behavior is bound through stable capability-operation identity. A requi
 
 Bindings must not be inferred from display names. The profile supports `SystemConsoleWriteLine` for its existing narrow signature and `ExternalImplementation` for a host-supplied implementation of the **generated typed capability interface**. A host must explicitly bind every operation of an externally implemented capability (by `CapabilityOperationId`) and pass its implementation as the function's capability argument. The emitter generates the interface and symbol manifest, but **no adapter or implementation** for that capability. Mixed Console/external bindings on one capability are rejected; unbound operations remain backend-readiness failures. `emitCSharp` accepts `{ "kind": "externalImplementations", "operationIds": ["<stable ID>", ...] }` as an explicit profile. This profile does not load or execute arbitrary source text.
 
+Shared capability use by `ParallelAll` additionally requires the profile's explicit
+`ConcurrentCapabilityIds` assertion (wire: `concurrentCapabilityIds` on an
+`externalImplementations` profile). Missing support is diagnosed before emission,
+including transitive worker calls and resource releases. No implicit serialization
+adapter is generated. See the [sharing contract](parallel-capability-sharing.md).
+
 ## Generated identifiers
 
 Generated C# identifiers are deterministic backend artifacts, not semantic identity. Their construction must be injective for the identities they encode and must not depend on mutable display names.
@@ -82,3 +88,32 @@ If a semantically valid program cannot be represented or bound by the selected b
 ## Historical design evidence
 
 The original Milestone 0 backend design gate and implementation chronology remain in the [pre-reorganization archive](../../docs-archive/2026-08-pre-reorg/csharp-backend-design-20260825.md). This maintained specification intentionally excludes historical CI state and milestone-specific verification instructions.
+
+## Pure function values
+
+Function types lower to invariant `NyFunctionN<..., TResult>` delegates, emitted
+only for the arities used by the program. Named monomorphic references lower to
+method groups; invocation calls the typed delegate. References remain in entry
+reachability, so selecting one entry retains the referenced implementation and
+its transitive dependencies. These representations implement the
+[pure function-value contract](pure-function-values.md); delegate identity and
+captures are not new semantic capabilities.
+
+## Program-defined capabilities
+
+[CapabilityConstruct](program-capability-implementations.md) emits a stateless
+class implementing the existing capability interface. Its methods call the
+mapped generated Nyrwvy functions with positional semantic correspondence
+expressed as named C# arguments. The profile's existing interface binding and
+parallel-sharing checks remain in force; internally constructed values require
+no host implementation source in the common runner. Typed Semantic IR schema 7
+and Execution IR schema 6 carry the operation/function mapping.
+
+## Typed function abort
+
+The backend consumes the explicit Execution IR `abort` terminator (schema 7)
+and emits a local typed Err return. Structured branches with no normal completion
+do not create merge values. No host exception or hidden default value represents
+an abort. Existing UseResource and ParallelAll cleanup/failure policies apply at
+the callee/worker Result boundary. See [typed function abort](typed-function-abort.md).
+Programs without an abort terminator retain Execution IR serialization schema 6.

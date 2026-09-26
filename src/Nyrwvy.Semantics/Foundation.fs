@@ -80,10 +80,36 @@ type TypeRef =
     | Primitive of PrimitiveType
     | Named of TypeId
     | Capability of CapabilityId
+    /// Pure, capture-free callable; parameter order is semantic, parameter identities are not.
+    | Function of parameters: TypeRef list * resultType: TypeRef
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
     /// A type parameter of the function whose parameter types mention it. Its identity is
     /// system-owned; the display name is fixed with it and carried for presentation only.
     | TypeParameter of id: TypeParameterId * displayName: string
+
+/// Completion is a derived control-flow fact, never a language value type.
+[<RequireQualifiedAccess>]
+type GraphCompletion =
+    /// The value type on normal paths; other paths may still abort.
+    | Normal of TypeRef
+    /// There is no normally completing path through this expression.
+    | Aborts
+
+[<RequireQualifiedAccess>]
+module GraphCompletion =
+    let normalType = function
+        | GraphCompletion.Normal value -> Some value
+        | GraphCompletion.Aborts -> None
+
+    /// Unknown or inconsistent arms remain unknown; only abrupt arms are ignored.
+    let merge (arms: GraphCompletion option list) =
+        if List.isEmpty arms || List.exists Option.isNone arms then None
+        else
+            let normal = arms |> List.choose (Option.bind normalType)
+            match normal with
+            | [] -> Some GraphCompletion.Aborts
+            | first :: rest when List.forall ((=) first) rest -> Some(GraphCompletion.Normal first)
+            | _ -> None
 
 type SemanticField =
     { Id: FieldId
@@ -247,6 +273,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
+    /// Construct a stateless capability using named pure functions, one per operation.
+    | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
+    | FunctionReference of FunctionId
+    | FunctionInvoke of functionValueNodeId: GraphNodeId * arguments: GraphNodeId list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
@@ -254,6 +284,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | OptionNone of itemType: TypeRef
     | OptionSome of valueNodeId: GraphNodeId
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
+    | Abort of errorNodeId: GraphNodeId
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: ValueGraph * whenFalse: ValueGraph
     | MatchUnion of inputNodeId: GraphNodeId * arms: UnionMatchArm list
@@ -367,6 +398,9 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -375,6 +409,7 @@ module ValueGraph =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> []
 
             node :: nested
@@ -455,6 +490,9 @@ module ValueGraph =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
+                | SemanticNodeKind.CapabilityConstruct _
+                | SemanticNodeKind.FunctionReference _
+                | SemanticNodeKind.FunctionInvoke _
                 | SemanticNodeKind.DirectCall _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
@@ -463,11 +501,19 @@ module ValueGraph =
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
                 | SemanticNodeKind.ResultOk _
+                | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _ -> node.Kind
 
             transform { node with Kind = kind }
 
         { graph with Nodes = graph.Nodes |> List.map mapNode }
+
+[<RequireQualifiedAccess>]
+module FunctionAbort =
+    let isUsed (snapshot: Snapshot) =
+        snapshot.Functions |> List.exists (fun fn ->
+            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
+                match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false))
 
 [<RequireQualifiedAccess>]
 module Snapshot =
@@ -488,6 +534,7 @@ module TaskTypes =
         match typeRef with
         | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> true
         | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentions arguments
+        | TypeRef.Function(parameters, result) -> List.exists mentions parameters || mentions result
         | TypeRef.Primitive _
         | TypeRef.Named _
         | TypeRef.Capability _
@@ -504,6 +551,7 @@ module TypeParameters =
             match current with
             | TypeRef.TypeParameter(id, name) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
             | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.fold collect collected
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.fold collect collected
             | TypeRef.Primitive _
             | TypeRef.Named _
@@ -519,6 +567,7 @@ module TypeParameters =
     let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
         match typeRef with
         | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.Function(arguments, result) -> TypeRef.Function(arguments |> List.map (substitute substitution), substitute substitution result)
         | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
         | TypeRef.Primitive _
         | TypeRef.Named _
@@ -532,6 +581,9 @@ module TypeParameters =
             | Some bound when bound = actual -> Some substitution
             | Some _ -> None
             | None -> Some(Map.add id actual substitution)
+        | TypeRef.Function(declaredArguments, declaredResult), TypeRef.Function(actualArguments, actualResult) when declaredArguments.Length = actualArguments.Length ->
+            List.zip (declaredArguments @ [ declaredResult ]) (actualArguments @ [ actualResult ])
+            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
         | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
             when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
             List.zip declaredArguments actualArguments

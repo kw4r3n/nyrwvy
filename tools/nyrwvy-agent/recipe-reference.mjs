@@ -2,6 +2,8 @@ const typeRef = {
   primitive: { kind: "primitive", primitive: "<string|bool|unit|int64|float64>" },
   named: { kind: "named", name: "<type display name>" },
   capability: { kind: "capability", name: "<capability display name>" },
+  function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
+  typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
   builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|task|taskScope>", arguments: ["<typeRef>"] },
 }
 
@@ -20,8 +22,8 @@ const categories = {
   tasks: ["taskScope", "taskStart", "taskWait", "taskCancel"],
   structured: ["productConstruct", "fieldAccess", "unionConstruct"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
-  calls: ["directCall", "capabilityInvoke"],
-  control: ["conditional", "matchUnion", "bind", "matchOption", "matchResult"],
+  calls: ["directCall", "functionReference", "functionInvoke", "capabilityConstruct", "capabilityInvoke"],
+  control: ["abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult"],
 }
 
 export const recipeKinds = Object.freeze(Object.values(categories).flat())
@@ -114,10 +116,23 @@ const references = {
   optionNone: { shape: { kind: "optionNone", itemType: type }, typeRef },
   optionSome: unary("optionSome"),
   resultOk: { shape: { kind: "resultOk", errorType: type, value: recipe }, typeRef },
+  abort: { shape: { kind: "abort", error: recipe }, notes: "Terminates the current Result<T,E> function with Err(error). Only allowed at graph results, including Bind and branch bodies; it has no normal value. The payload must have type E." },
   resultErr: { shape: { kind: "resultErr", okType: type, error: recipe }, typeRef },
+  functionReference: {
+    shape: { kind: "functionReference", function: "<monomorphic pure function display name>" },
+    notes: "A capture-free function value, without executing the function. Transitive effects and ambient cancellation reads are rejected. Use a concrete wrapper for a generic target.",
+  },
+  functionInvoke: {
+    shape: { kind: "functionInvoke", functionValue: recipe, arguments: [recipe] },
+    notes: "Invokes a pure function value with positional arguments in signature order; arity and types must match exactly.",
+  },
   directCall: {
     shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }] },
     notes: "arguments must cover the callee parameters exactly; argument order is not semantic.",
+  },
+  capabilityConstruct: {
+    shape: { kind: "capabilityConstruct", capability: "<capability display name>", implementations: [{ operation: "<operation display name>", function: "<monomorphic pure function display name>" }] },
+    notes: "Cover every operation exactly once. Implementation parameters match operation parameter types in declaration order, with the exact result type. No state or captures; construction does not invoke the functions. Invocation still requires the operation's declared effect.",
   },
   capabilityInvoke: {
     shape: { kind: "capabilityInvoke", capabilityValue: recipe, capability: "<capability display name>", operation: "<operation display name>", arguments: [{ parameter: "<operation parameter display name>", value: recipe }] },
@@ -125,7 +140,7 @@ const references = {
   },
   conditional: {
     shape: { kind: "conditional", condition: recipe, whenTrue: recipe, whenFalse: recipe },
-    notes: "condition must produce Bool; both branches must produce the same type.",
+    notes: "condition must produce Bool; normally completing branches must produce the same type. An aborting branch contributes no normal value type.",
   },
   matchUnion: {
     shape: { kind: "matchUnion", type: "<union type display name>", input: recipe, arms: [{ variant: "<variant display name>", body: recipe }] },

@@ -92,6 +92,11 @@ This is a read projection, not a new accepted snapshot encoding or a raw graph-e
 
 All simulation operations accept optional `structuredReview: true`. This selects the same structured function/focus projection inside the existing review; receipts, diffs, proposal handles, validation and commit semantics are unchanged. The default remains the existing wire format. Ordinary tools request structured review automatically. Targeted review includes both base and proposed focus so the agent can inspect actual old/new literal values and their branch context before publication.
 
+Inspect and review distinguish declared `requiredEffects` from derived
+`bodyEffectRequirements`, with effect, node, and referenced declaration IDs as
+evidence. See [body effect requirements](body-effect-requirements.md) for report
+scope and incomplete-reference handling; inspection never widens a declaration.
+
 Name resolution happens at simulation. Commit still binds the exact simulated proposal, never a re-resolved name or regenerated body. Stale proposals remain rejected. Closing a session drops pending proposals; reopening preserves only committed semantic identities.
 
 ## Named recipe reference guide
@@ -126,3 +131,18 @@ OpenCode UI discovery and a real model choosing the tools are a distinct live in
 ## Maintainer rule
 
 Exercise new authoring operations through the ordinary tools before introducing workload-specific authoring scripts or evaluation adapters. Keep semantic construction and validation in Core; keep the bridge transport-only. Preserve usable exact-ID access rather than treating name-only authoring as the final architecture. Verification should cover the real contract or observed regression, not one test per serializer branch. Host adapters must reuse the shared tool definitions rather than fork their behavior. Keep the on-demand recipe reference aligned with the maintained name-resolved `WireSymbolic` surface; add focused regression checks for observed discovery failures rather than one test per recipe variant.
+
+Pure function types and the `functionReference` / `functionInvoke` recipes are
+available through the shared recipe reference and ordinary name/ID authoring.
+See [pure function values](pure-function-values.md) for the exact wire shapes and
+restrictions. Focused inspection retains reference dependencies and shows
+function-valued node types; review validates referenced signatures and purity
+before publication.
+
+## Program-defined capability implementations
+
+Use `nyrwvy_recipe_reference` with `kind: "capabilityConstruct"` to discover the
+operation/function mapping recipe. `nyrwvy_create_function` can define a factory
+returning a Capability; `nyrwvy_replace` edits that mapping with the existing
+review/commit path. Inspect exposes exact capability, operation and function IDs.
+See [program capability implementations](program-capability-implementations.md).

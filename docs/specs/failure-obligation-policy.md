@@ -259,3 +259,11 @@ Before adding an error path, answer:
 6. Can an agent distinguish and repair the condition from structured data without parsing prose?
 
 If these answers are unclear, the feature contract is not ready to implement.
+
+## Typed function abort
+
+The implemented [typed function abort](typed-function-abort.md) preserves this
+classification: an explicitly typed, local early exit delivers an ordinary Err
+at the function boundary. Host faults and backend readiness errors remain
+separate. ResultErr remains ordinary data that can be matched within the same
+invocation; Abort skips the invocation's remaining ordinary operations.

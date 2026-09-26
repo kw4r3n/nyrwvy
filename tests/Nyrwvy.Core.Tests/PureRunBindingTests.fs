@@ -253,7 +253,7 @@ public sealed class Broken : {capability}
         withFixture (fun fixture ->
             let before = File.ReadAllText fixture.Path
             let query = (fixture.Function "query").Id
-            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name)
+            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name, false)
             let reject arguments sources code =
                 match PureRun.runWithHost fixture.Session query arguments None sources with
                 | Error(PureRunError.Unsupported(actual, _)) -> Assert.Equal(code, actual)
@@ -265,7 +265,7 @@ public sealed class Broken : {capability}
             reject [ request fixture "k"; host "Example.Hosts.Directory" ] [ "Missing.cs" ] "RunHostSourceInvalid"
             reject [ request fixture "k"; host "Example.Hosts.Directory" ] [ fixture.Path ] "RunHostSourceInvalid"
             reject [ request fixture "k"; host "Example.Hosts.Directory(); System.Environment.Exit(0" ] [ "Hosts.cs" ] "RunBindingShapeMismatch"
-            reject [ request fixture "k"; PureRunValue.HostCapability(fixture.Log.Id, "Example.Hosts.Directory") ] [ "Hosts.cs" ] "RunArgumentTypeMismatch"
+            reject [ request fixture "k"; PureRunValue.HostCapability(fixture.Log.Id, "Example.Hosts.Directory", false) ] [ "Hosts.cs" ] "RunArgumentTypeMismatch"
             Assert.Equal(before, File.ReadAllText fixture.Path))
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -274,7 +274,7 @@ public sealed class Broken : {capability}
             let before = File.ReadAllText fixture.Path
             let query = fixture.Function "query"
             File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Hosts.cs"), hostSource fixture)
-            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name)
+            let host name = PureRunValue.HostCapability(fixture.Provider.Id, name, false)
             let found = PureRun.runWithHost fixture.Session query.Id [ request fixture "yes"; host "Example.Hosts.Directory" ] (Some(PureRunValue.String "found")) [ "Hosts.cs" ] |> unwrap "found"
             Assert.Equal(Some true, found.Matches)
             Assert.Equal<PureRunCall list>(

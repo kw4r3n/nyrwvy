@@ -31,6 +31,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
+        | TypeRef.Function(arguments, result) -> "(" + (arguments |> List.map typeRefText |> String.concat ", ") + ") -> " + typeRefText result
         | TypeRef.TypeParameter(_, displayName) -> displayName
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
             "Option<" + typeRefText item + ">"
@@ -67,6 +68,7 @@ module ViewerHtml =
         match kind with
         | ViewerRelationKind.DependsOn -> "depends on"
         | ViewerRelationKind.CallsFunction -> "calls function"
+        | ViewerRelationKind.ReferencesFunction -> "references function"
         | ViewerRelationKind.ReadsParameter -> "reads parameter"
         | ViewerRelationKind.ReadsPatternBinding -> "reads pattern binding"
         | ViewerRelationKind.InvokesCapabilityOperation -> "invokes capability operation"
@@ -90,6 +92,8 @@ module ViewerHtml =
         | ValueDependencyRole.Source -> "source"
         | ValueDependencyRole.Item -> "item"
         | ValueDependencyRole.ListItem index -> "list item [" + string index + "]"
+        | ValueDependencyRole.FunctionValue -> "function value"
+        | ValueDependencyRole.FunctionArgument index -> "function argument " + string index
         | ValueDependencyRole.CallArgument parameterId -> "call argument " + stableText "parameter:" parameterId
         | ValueDependencyRole.CapabilityValue -> "capability value"
         | ValueDependencyRole.CapabilityArgument parameterId ->
@@ -152,6 +156,11 @@ module ViewerHtml =
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.ListAny -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
+        | ViewerNodeRole.CapabilityConstruct(capabilityId, implementations) ->
+            "capability construction " + StableId.value capabilityId + " (" +
+            (implementations |> List.map (fun (operationId, functionId) -> StableId.value operationId + " -> " + StableId.value functionId) |> String.concat "; ") + ")"
+        | ViewerNodeRole.FunctionReference -> "function reference"
+        | ViewerNodeRole.FunctionInvoke -> "function invocation"
         | ViewerNodeRole.DirectCall -> "direct call"
         | ViewerNodeRole.CapabilityInvoke -> "capability invoke"
         | ViewerNodeRole.ProductConstruct -> "product construct"
@@ -160,6 +169,7 @@ module ViewerHtml =
         | ViewerNodeRole.OptionNone -> "Option.None"
         | ViewerNodeRole.OptionSome -> "Option.Some"
         | ViewerNodeRole.ResultOk -> "Result.Ok"
+        | ViewerNodeRole.Abort -> "Abort (function exit)"
         | ViewerNodeRole.ResultErr -> "Result.Err"
         | ViewerNodeRole.Conditional -> "conditional"
         | ViewerNodeRole.MatchUnion -> "union match"
@@ -244,7 +254,23 @@ module ViewerHtml =
                 |> List.sortBy StableId.value
                 |> List.map (stableText "effect:" >> code)
                 |> String.concat ", "
-        writer.Line("<p>Required effects: " + text + "</p>")
+        writer.Line("<p>Declared required effects: " + text + "</p>")
+
+    let private emitBodyEffects (writer: HtmlWriter) (report: BodyEffectRequirements) =
+        writer.Line("<section><h2>Body effect requirements (derived)</h2>")
+        if List.isEmpty report.Evidence then writer.Line("<p>No resolved nominal effect requirements.</p>")
+        else
+            writer.Line("<ul>")
+            for item in report.Evidence do
+                let source =
+                    match item.Source with
+                    | EffectRequirementSource.FunctionContract id -> stableText "function:" id
+                    | EffectRequirementSource.CapabilityOperation id -> stableText "operation:" id
+                writer.Line("<li>" + code (stableText "effect:" item.EffectId) + " at " + code (stableText "node:" item.NodeId) + " from " + code source + "</li>")
+            writer.Line("</ul>")
+        for id in report.UnresolvedFunctionIds do writer.Line("<p>Unresolved function contract: " + code (stableText "function:" id) + "</p>")
+        for id in report.UnresolvedOperationIds do writer.Line("<p>Unresolved operation contract: " + code (stableText "operation:" id) + "</p>")
+        writer.Line("</section>")
 
     let private emitCallSites
         (writer: HtmlWriter)
@@ -417,6 +443,15 @@ module ViewerHtml =
         emitParameters writer model.Function.Parameters
         emitRequiredEffects writer model.Function.RequiredEffects
         writer.Line("</section>")
+        emitBodyEffects writer model.BodyEffectRequirements
+        if not (List.isEmpty model.Aborts) then
+            writer.Line("<section><h2>Function abort boundaries</h2>")
+            for boundary in model.Aborts do
+                writer.Line("<p>Abort " + code (StableId.value boundary.NodeId) + " exits function " + code (StableId.value boundary.OwnerFunctionId)
+                    + " with error " + code (StableId.value boundary.ErrorNodeId) + " : " + code (boundary.ErrorType |> Option.map typeRefText |> Option.defaultValue "unknown") + ".</p>")
+                let ids values = values |> List.map (StableId.value >> code) |> String.concat ", "
+                writer.Line("<p>Enclosing controls: " + ids boundary.EnclosingControlNodeIds + ". Dependent continuations: " + ids boundary.DependentContinuationNodeIds + ".</p>")
+            writer.Line("</section>")
         emitCallSites writer "Direct callers" model.Callers (fun site -> site.CallerFunctionId)
         emitCallSites writer "Direct callees" model.Callees (fun site -> site.CalleeFunctionId)
         emitObligations writer model.OpenObligations

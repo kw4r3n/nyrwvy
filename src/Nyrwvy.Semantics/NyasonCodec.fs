@@ -16,6 +16,8 @@ exception private NyasonSchemaException of string
 [<RequireQualifiedAccess>]
 module NyasonCodec =
     let schemaId = "nayamnyam.snapshot.v5"
+    let abortSchemaId = "nayamnyam.snapshot.v7"
+    let capabilitySchemaId = "nayamnyam.snapshot.v6"
 
     let private shape message = raise (NyasonShapeException message)
 
@@ -116,6 +118,8 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.Unit -> record "primitive-unit" []
         | TypeRef.Primitive PrimitiveType.Int64 -> record "primitive-int64" []
         | TypeRef.Primitive PrimitiveType.Float64 -> record "primitive-float64" []
+        | TypeRef.Function(arguments, result) ->
+            record "function-type" [ "parameters", NyasonValue.List(List.map encodeTypeRef arguments); "result", encodeTypeRef result ]
         | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ]
@@ -158,6 +162,9 @@ module NyasonCodec =
         | NyasonValue.Record("primitive-float64", _) ->
             recordFields "primitive-float64" [] [] value |> ignore
             TypeRef.Primitive PrimitiveType.Float64
+        | NyasonValue.Record("function-type", _) ->
+            let fields = recordFields "function-type" [ "parameters"; "result" ] [] value
+            TypeRef.Function(decodeList decodeTypeRef (require "parameters" fields), decodeTypeRef (require "result" fields))
         | NyasonValue.Record("type-parameter", _) ->
             let fields = recordFields "type-parameter" [ "id"; "name" ] [] value
             TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields), decodeText (require "name" fields))
@@ -575,6 +582,15 @@ module NyasonCodec =
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-all" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            record "capability-construct"
+                [ nodeId; "capability", encodeId "capability" capabilityId
+                  "implementations", list (implementations |> List.sortBy (fst >> StableId.value) |> List.map (fun (operationId, functionId) ->
+                      record "implementation" [ "operation", encodeId "capability-operation" operationId; "function", encodeId "function" functionId ])) ]
+        | SemanticNodeKind.FunctionReference target ->
+            record "function-reference" [ nodeId; "target", encodeId "function" target ]
+        | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+            record "function-invoke" [ nodeId; "value", encodeId "node" value; "arguments", list (List.map (encodeId "node") arguments) ]
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             record
                 "direct-call"
@@ -628,6 +644,7 @@ module NyasonCodec =
             record
                 "result-ok"
                 [ nodeId; "error-type", encodeTypeRef errorType; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId -> record "abort" [ nodeId; "error", encodeId "node" errorNodeId ]
         | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
             record
                 "result-err"
@@ -913,6 +930,21 @@ module NyasonCodec =
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-all", _) ->
             decodeListCallbackNode "list-all" value (fun source callback context -> SemanticNodeKind.ListAll(source, callback, context))
+        | NyasonValue.Record("capability-construct", _) ->
+            let fields = recordFields "capability-construct" [ "id"; "capability"; "implementations" ] [] value
+            let implementations = decodeList (fun item ->
+                let fields = recordFields "implementation" [ "operation"; "function" ] [] item
+                decodeId<CapabilityOperationTag> "capability-operation" (require "operation" fields), decodeId<FunctionTag> "function" (require "function" fields)) (require "implementations" fields)
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.CapabilityConstruct(decodeId<CapabilityTag> "capability" (require "capability" fields), implementations) }
+        | NyasonValue.Record("function-reference", _) ->
+            let fields = recordFields "function-reference" [ "id"; "target" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.FunctionReference(decodeId<FunctionTag> "function" (require "target" fields)) }
+        | NyasonValue.Record("function-invoke", _) ->
+            let fields = recordFields "function-invoke" [ "id"; "value"; "arguments" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.FunctionInvoke(decodeId<GraphNodeTag> "node" (require "value" fields), decodeList (decodeId<GraphNodeTag> "node") (require "arguments" fields)) }
         | NyasonValue.Record("direct-call", _) ->
             let fields = recordFields "direct-call" [ "id"; "target-function"; "arguments" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -971,6 +1003,10 @@ module NyasonCodec =
                     decodeTypeRef (require "error-type" fields),
                     decodeId<GraphNodeTag> "node" (require "value" fields)
                 ) }
+        | NyasonValue.Record("abort", _) ->
+            let fields = recordFields "abort" [ "id"; "error" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Abort(decodeId<GraphNodeTag> "node" (require "error" fields)) }
         | NyasonValue.Record("result-err", _) ->
             let fields = recordFields "result-err" [ "id"; "ok-type"; "error" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1155,7 +1191,7 @@ module NyasonCodec =
             let root =
                 record
                     "nyason"
-                    [ "schema", text schemaId
+                    [ "schema", text (if FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
                       "snapshot", encodeSnapshot snapshot ]
             Ok(NyasonSyntax.render root)
 
@@ -1166,10 +1202,14 @@ module NyasonCodec =
             try
                 let fields = recordFields "nyason" [ "schema"; "snapshot" ] [] root
                 let actualSchema = decodeText (require "schema" fields)
-                if actualSchema <> schemaId then
+                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId && actualSchema <> abortSchemaId then
                     raise (NyasonSchemaException actualSchema)
 
                 let snapshot = decodeSnapshot (require "snapshot" fields)
+                if actualSchema <> abortSchemaId && FunctionAbort.isUsed snapshot then
+                    raise (NyasonShapeException "Function abort requires nayamnyam.snapshot.v7.")
+                if actualSchema = schemaId && CapabilityImplementations.isUsed snapshot then
+                    raise (NyasonShapeException "Capability construction requires nayamnyam.snapshot.v6.")
                 match SnapshotValidator.validate snapshot with
                 | [] -> Ok snapshot
                 | issues -> Error(NyasonCodecError.InvalidSnapshot issues)

@@ -22,10 +22,22 @@ type QueryFunctionSignature =
       ResultType: TypeRef
       RequiredEffects: EffectId list }
 
+/// A static local exit boundary; continuation IDs are value dependents of its enclosing controls,
+/// not a claim about runtime reachability on every branch.
+type QueryFunctionAbort =
+    { OwnerFunctionId: FunctionId
+      NodeId: GraphNodeId
+      ErrorNodeId: GraphNodeId
+      ErrorType: TypeRef option
+      EnclosingControlNodeIds: GraphNodeId list
+      DependentContinuationNodeIds: GraphNodeId list }
+
 type FunctionFocusView =
     { SnapshotId: SnapshotId
       Function: SemanticFunction
+      BodyEffectRequirements: BodyEffectRequirements
       NodeTypes: QueryNodeType list
+      Aborts: QueryFunctionAbort list
       Callers: QueryCallSite list
       Callees: QueryCallSite list
       RelatedFunctionSignatures: QueryFunctionSignature list
@@ -50,9 +62,11 @@ module SemanticQuery =
         snapshot.Functions
         |> List.collect (fun owner ->
             ValueGraph.collectNodes owner.Body
-            |> List.choose (fun node ->
-                let calleeId =
+            |> List.collect (fun node ->
+                let calleeIds =
                     match node.Kind with
+                    | SemanticNodeKind.CapabilityConstruct(_, implementations) -> List.map snd implementations
+                    | SemanticNodeKind.FunctionReference functionId
                     | SemanticNodeKind.DirectCall(functionId, _)
                     | SemanticNodeKind.ListFold(_, _, functionId, _)
                     | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
@@ -63,7 +77,8 @@ module SemanticQuery =
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
-                    | SemanticNodeKind.ListAll(_, functionId, _) -> Some functionId
+                    | SemanticNodeKind.ListAll(_, functionId, _) -> [ functionId ]
+                    | SemanticNodeKind.FunctionInvoke _
                     | SemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.TaskWait _
                     | SemanticNodeKind.TaskCancel _
@@ -111,15 +126,17 @@ module SemanticQuery =
                     | SemanticNodeKind.OptionNone _
                     | SemanticNodeKind.OptionSome _
                     | SemanticNodeKind.ResultOk _
+                    | SemanticNodeKind.Abort _
                     | SemanticNodeKind.ResultErr _
                     | SemanticNodeKind.Conditional _
                     | SemanticNodeKind.MatchUnion _
                     | SemanticNodeKind.Bind _
                     | SemanticNodeKind.MatchOption _
-                    | SemanticNodeKind.MatchResult _ -> None
+                    | SemanticNodeKind.MatchResult _ -> []
 
-                calleeId
-                |> Option.map (fun functionId ->
+                calleeIds
+                |> List.distinct
+                |> List.map (fun functionId ->
                     { CallerFunctionId = owner.Id
                       CallNodeId = node.Id
                       CalleeFunctionId = functionId })))
@@ -247,6 +264,7 @@ module SemanticQuery =
             match typeRef with
             | TypeRef.Primitive _
             | TypeRef.TypeParameter _ -> ()
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter visitTypeRef
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
             | TypeRef.Named typeId ->
                 if not (Set.contains typeId typeIds) then
@@ -288,6 +306,34 @@ module SemanticQuery =
           Parameters = functionEntity.Parameters
           ResultType = functionEntity.ResultType
           RequiredEffects = functionEntity.RequiredEffects }
+
+    let private abortBoundaries (functionEntity: SemanticFunction) (nodeTypes: QueryNodeType list) =
+        let nodes = ValueGraph.collectNodes functionEntity.Body
+        let types = nodeTypes |> List.map (fun item -> item.NodeId, item.Type) |> Map.ofList
+        let rec visit parents (graph: ValueGraph) =
+            graph.Nodes |> List.collect (fun node ->
+                match node.Kind with
+                | SemanticNodeKind.Abort error ->
+                    let seeds = node.Id :: parents |> Set.ofList
+                    let mutable dependent = seeds
+                    let mutable changed = true
+                    while changed do
+                        let next = nodes |> List.fold (fun found candidate ->
+                            if SemanticFacts.directValueDependencies candidate |> List.exists (fun id -> Set.contains id found)
+                            then Set.add candidate.Id found else found) dependent
+                        changed <- next <> dependent
+                        dependent <- next
+                    [ { OwnerFunctionId = functionEntity.Id; NodeId = node.Id; ErrorNodeId = error
+                        ErrorType = Map.tryFind error types |> Option.flatten
+                        EnclosingControlNodeIds = parents
+                        DependentContinuationNodeIds = Set.difference dependent seeds |> Set.toList |> List.sortBy StableId.value } ]
+                | SemanticNodeKind.Conditional(_, a, b) -> visit (node.Id :: parents) a @ visit (node.Id :: parents) b
+                | SemanticNodeKind.Bind(_, arm) -> visit (node.Id :: parents) arm.Body
+                | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.collect (fun arm -> visit (node.Id :: parents) arm.Body)
+                | SemanticNodeKind.MatchOption(_, arm, other) -> visit (node.Id :: parents) arm.Body @ visit (node.Id :: parents) other
+                | SemanticNodeKind.MatchResult(_, a, b) -> visit (node.Id :: parents) a.Body @ visit (node.Id :: parents) b.Body
+                | _ -> [])
+        visit [] functionEntity.Body |> List.sortBy (fun item -> StableId.value item.NodeId)
 
     let focusFunction
         (snapshot: Snapshot)
@@ -376,7 +422,9 @@ module SemanticQuery =
                 Ok
                     { SnapshotId = snapshot.Id
                       Function = functionEntity
+                      BodyEffectRequirements = EffectRequirements.derive snapshot functionEntity
                       NodeTypes = nodeTypes
+                      Aborts = abortBoundaries functionEntity nodeTypes
                       Callers = callers
                       Callees = callees
                       RelatedFunctionSignatures = relatedSignatures

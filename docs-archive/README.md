@@ -2,7 +2,7 @@
 
 **Status:** Historical
 
-This directory contains frozen or superseded Nyrwvy documentation (written while the project was named NyamNyam) kept for design history, implementation evidence, and auditability.
+This directory contains frozen or superseded Nyrwvy documentation (including material written while the project was named NyamNyam) kept for design history, implementation evidence, and auditability.
 
 Archive material is **not authoritative for current behavior**. Start from the maintained [documentation portal](../docs/README.md) for current concepts, reference, specifications, decisions, plans, and verification records.
 
@@ -12,9 +12,11 @@ When archived prose conflicts with maintained documentation, tests, or the curre
 
 ## Organization
 
-Archive material should be grouped one level deeper by coherent phase, event, or time period when a flat archive would become noisy. The first frozen collection is:
+Archive material should be grouped one level deeper by coherent phase, event, or time period when a flat archive would become noisy. Collections include:
 
 - [`2026-08-pre-reorg/`](2026-08-pre-reorg/) — the complete documentation tree immediately before Issue #30 reorganized current documentation by purpose.
+
+- [`2026-09-general-purpose-programming/`](2026-09-general-purpose-programming/) — the original general-purpose roadmap and staged implementation history, separated from the maintained current status on 2026-09-26.
 
 ## Retention
 
