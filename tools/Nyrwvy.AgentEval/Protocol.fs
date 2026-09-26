@@ -279,6 +279,8 @@ module private Encode =
         | BuiltinGenericType.Option -> "Option"
         | BuiltinGenericType.Result -> "Result"
         | BuiltinGenericType.List -> "List"
+        | BuiltinGenericType.Task -> "Task"
+        | BuiltinGenericType.TaskScope -> "TaskScope"
 
     let rec typeRef = function
         | TypeRef.Primitive primitive ->

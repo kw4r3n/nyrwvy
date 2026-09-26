@@ -26,6 +26,8 @@ type ExpressionRecipe =
     | StringIsEmpty of ExpressionRecipe
     | Int64ToString of ExpressionRecipe
     | StringParseInt64 of ExpressionRecipe
+    | StringLength of ExpressionRecipe
+    | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
@@ -55,6 +57,11 @@ type ExpressionRecipe =
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | CancellationRequested
+    /// The body's one unbound parameter receives the new `TaskScope`.
+    | TaskScope of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | TaskStart of scope: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list * item: ExpressionRecipe
+    | TaskWait of tasks: ExpressionRecipe * mode: TaskWaitMode
+    | TaskCancel of task: ExpressionRecipe
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -129,6 +136,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringIsEmpty value -> ExpressionRecipe.StringIsEmpty(go value)
         | ExpressionRecipe.Int64ToString value -> ExpressionRecipe.Int64ToString(go value)
         | ExpressionRecipe.StringParseInt64 value -> ExpressionRecipe.StringParseInt64(go value)
+        | ExpressionRecipe.StringLength value -> ExpressionRecipe.StringLength(go value)
+        | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringConcat(left, right) -> ExpressionRecipe.StringConcat(go left, go right)
@@ -159,6 +168,10 @@ module ExpressionRecipeTypes =
             ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
         | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
         | ExpressionRecipe.CancellationRequested -> recipe
+        | ExpressionRecipe.TaskScope(body, context) -> ExpressionRecipe.TaskScope(body, pairs context)
+        | ExpressionRecipe.TaskStart(scope, worker, context, item) -> ExpressionRecipe.TaskStart(go scope, worker, pairs context, go item)
+        | ExpressionRecipe.TaskWait(tasks, mode) -> ExpressionRecipe.TaskWait(go tasks, mode)
+        | ExpressionRecipe.TaskCancel task -> ExpressionRecipe.TaskCancel(go task)
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
@@ -247,6 +260,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringIsEmpty child
         | ExpressionRecipe.Int64ToString child
         | ExpressionRecipe.StringParseInt64 child
+        | ExpressionRecipe.StringLength child
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
@@ -256,6 +270,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultOk(_, child)
         | ExpressionRecipe.Abort child
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
+        | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.StringConcat(left, right)
@@ -282,6 +297,10 @@ module AgentExpressionStructuralWorkflow =
             seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
         | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.CancellationRequested -> Seq.empty
+        | ExpressionRecipe.TaskScope(_, context) -> context |> Seq.map snd
+        | ExpressionRecipe.TaskStart(scope, _, context, item) -> seq { yield scope; yield item; yield! context |> Seq.map snd }
+        | ExpressionRecipe.TaskWait(tasks, _) -> Seq.singleton tasks
+        | ExpressionRecipe.TaskCancel task -> Seq.singleton task
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
@@ -330,8 +349,10 @@ module AgentExpressionStructuralWorkflow =
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with
+                    | BuiltinGenericType.TaskScope -> 0
                     | BuiltinGenericType.Option
-                    | BuiltinGenericType.List -> 1
+                    | BuiltinGenericType.List
+                    | BuiltinGenericType.Task -> 1
                     | BuiltinGenericType.Result -> 2
 
                 if List.length arguments <> expectedArity then
@@ -657,6 +678,19 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
             | ExpressionRecipe.StringParseInt64 value ->
                 unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+            | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
+            | ExpressionRecipe.StringSlice(value, start, stop) ->
+                match unary "StringSlice" stringType stringType value with
+                | Error error -> Error error
+                | Ok _ ->
+                    match infer frames start with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "start" int64Type actual)
+                    | Ok _ ->
+                        match infer frames stop with
+                        | Error error -> Error error
+                        | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "end" int64Type actual)
+                        | Ok _ -> Ok stringType
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
@@ -826,6 +860,58 @@ module AgentExpressionStructuralWorkflow =
                             | _ -> fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
                 | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {actual}."
             | ExpressionRecipe.CancellationRequested -> Ok boolType
+            | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
+                match Map.tryFind bodyFunctionId functionsById with
+                | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"TaskScope body '{StableId.value bodyFunctionId}' does not exist.")
+                | Some body ->
+                    match validateCallbackContext "TaskScope" body context (infer frames) with
+                    | Error error -> Error error
+                    | Ok(unbound, substitution) ->
+                        let scopeType = TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
+                        match (match unbound with [ scope ] -> TypeParameters.matchType substitution scope.Type scopeType | _ -> None),
+                              body.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                        | None, _ -> Error(diagnostic "TaskScopeBodyMismatch" "TaskScope body must have exactly one parameter not bound by context, of type TaskScope.")
+                        | _, Some effectId ->
+                            Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskScope body '{StableId.value body.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                        | Some current, None ->
+                            match TypeParameters.substitute current body.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result -> Ok result
+                            | _ -> Error(diagnostic "TaskScopeResultMismatch" "TaskScope body must return Result<T, E>.")
+            | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
+                match infer frames scope, infer frames item with
+                | Error error, _
+                | _, Error error -> Error error
+                | Ok scopeType, _ when scopeType <> TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ->
+                    Error(diagnostic "TaskStartScopeTypeMismatch" $"TaskStart scope must be a TaskScope, not {scopeType}.")
+                | Ok _, Ok itemType ->
+                    match Map.tryFind workerFunctionId functionsById with
+                    | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"TaskStart worker '{StableId.value workerFunctionId}' does not exist.")
+                    | Some worker ->
+                        match validateCallbackContext "TaskStart" worker context (infer frames) with
+                        | Error error -> Error error
+                        | Ok(unbound, substitution) ->
+                            let matched = match unbound with [ parameter ] -> TypeParameters.matchType substitution parameter.Type itemType | _ -> None
+                            match matched, worker.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                            | None, _ ->
+                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "TaskStart worker must have exactly one parameter not bound by context, of the item type.")
+                            | _, Some effectId ->
+                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskStart worker '{StableId.value worker.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                            | Some current, None ->
+                                match TypeParameters.substitute current worker.ResultType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result ->
+                                    Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]))
+                                | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "TaskStart worker must return Result<U, E>.")
+            | ExpressionRecipe.TaskWait(tasks, _) ->
+                match infer frames tasks with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ])) ->
+                    Ok(listType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ result ])))
+                | Ok actual -> Error(diagnostic "TaskWaitInputTypeMismatch" $"TaskWait requires List<Task<T>>, not {actual}.")
+            | ExpressionRecipe.TaskCancel task ->
+                match infer frames task with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ])) -> Ok unitType
+                | Ok actual -> Error(diagnostic "TaskCancelInputTypeMismatch" $"TaskCancel requires Task<T>, not {actual}.")
             | ExpressionRecipe.ParallelAll(source, workerFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1262,6 +1348,15 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringIsEmpty value -> unary SemanticNodeKind.StringIsEmpty value
         | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
         | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
+        | ExpressionRecipe.StringLength value -> unary SemanticNodeKind.StringLength value
+        | ExpressionRecipe.StringSlice(value, start, stop) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let startNodes, startResult = materializeRecipe start
+            let stopNodes, stopResult = materializeRecipe stop
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ startNodes @ stopNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringSlice(valueResult, startResult, stopResult) } ],
+            nodeId
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right
@@ -1315,6 +1410,22 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.CancellationRequested ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.CancellationRequested } ], nodeId
+        | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
+            let contextNodes, contextBindings = materializeContext bodyFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskScope(bodyFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
+            let scopeNodes, scopeResult = materializeRecipe scope
+            let itemNodes, itemResult = materializeRecipe item
+            let contextNodes, contextBindings = materializeContext workerFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            scopeNodes @ itemNodes @ contextNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskStart(scopeResult, workerFunctionId, contextBindings, itemResult) } ], nodeId
+        | ExpressionRecipe.TaskWait(tasks, mode) ->
+            let tasksNodes, tasksResult = materializeRecipe tasks
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            tasksNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskWait(tasksResult, mode) } ], nodeId
+        | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context

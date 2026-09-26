@@ -32,6 +32,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringIsEmpty _
                 | TypedSemanticNodeKind.Int64ToString _
                 | TypedSemanticNodeKind.StringParseInt64 _
+                | TypedSemanticNodeKind.StringLength _
+                | TypedSemanticNodeKind.StringSlice _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringConcat _
@@ -62,6 +64,10 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.UseResource _
                 | TypedSemanticNodeKind.ParallelAll _
                 | TypedSemanticNodeKind.CancellationRequested
+                | TypedSemanticNodeKind.TaskScope _
+                | TypedSemanticNodeKind.TaskStart _
+                | TypedSemanticNodeKind.TaskWait _
+                | TypedSemanticNodeKind.TaskCancel _
                 | TypedSemanticNodeKind.ListMap _
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.ListAny _

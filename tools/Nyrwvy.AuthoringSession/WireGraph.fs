@@ -57,6 +57,9 @@ module internal WireGraph =
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
         | SemanticNodeKind.Int64ToString value -> unary "int64ToString" value
         | SemanticNodeKind.StringParseInt64 value -> unary "stringParseInt64" value
+        | SemanticNodeKind.StringLength value -> unary "stringLength" value
+        | SemanticNodeKind.StringSlice(value, start, stop) ->
+            tagged "stringSlice" [ "valueNodeId", identity value; "startNodeId", identity start; "endNodeId", identity stop ]
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringConcat(left, right) -> tagged "stringConcat" [ "leftNodeId", identity left; "rightNodeId", identity right ]
@@ -96,6 +99,12 @@ module internal WireGraph =
         | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
             tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
         | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
+        | SemanticNodeKind.TaskScope(body, bindings) -> tagged "taskScope" ([ "bodyFunctionId", identity body ] @ context bindings)
+        | SemanticNodeKind.TaskStart(scope, worker, bindings, item) ->
+            tagged "taskStart" ([ "scopeNodeId", identity scope; "workerFunctionId", identity worker; "itemNodeId", identity item ] @ context bindings)
+        | SemanticNodeKind.TaskWait(tasks, mode) ->
+            tagged "taskWait" [ "tasksNodeId", identity tasks; "mode", box (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all") ]
+        | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

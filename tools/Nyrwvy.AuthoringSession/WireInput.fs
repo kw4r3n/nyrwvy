@@ -47,6 +47,12 @@ module internal WireInput =
         if value.ValueKind <> JsonValueKind.String then fail $"Property '{name}' must be a JSON string."
         value.GetString()
 
+    let taskWaitMode (element: JsonElement): TaskWaitMode =
+        match requiredString "mode" element with
+        | "any" -> TaskWaitMode.Any
+        | "all" -> TaskWaitMode.All
+        | value -> fail $"Unsupported task wait mode '{value}'; expected 'any' or 'all'."
+
     let requiredBool (name: string) (element: JsonElement): bool =
         let value = property name element
         if value.ValueKind <> JsonValueKind.True && value.ValueKind <> JsonValueKind.False then
@@ -126,6 +132,8 @@ module internal WireInput =
                 | "option" -> BuiltinGenericType.Option
                 | "result" -> BuiltinGenericType.Result
                 | "list" -> BuiltinGenericType.List
+                | "task" -> BuiltinGenericType.Task
+                | "taskScope" -> BuiltinGenericType.TaskScope
                 | value -> fail $"Unsupported builtin generic '{value}'."
             TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map typeRef)
         | value -> fail $"Unsupported type kind '{value}'."

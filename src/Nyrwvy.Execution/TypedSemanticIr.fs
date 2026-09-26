@@ -83,6 +83,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringIsEmpty of valueNodeId: GraphNodeId
     | Int64ToString of valueNodeId: GraphNodeId
     | StringParseInt64 of valueNodeId: GraphNodeId
+    | StringLength of valueNodeId: GraphNodeId
+    | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -111,6 +113,10 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
     | CancellationRequested
+    | TaskScope of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
+    | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list * itemNodeId: GraphNodeId
+    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode
+    | TaskCancel of taskNodeId: GraphNodeId
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -261,6 +267,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
                     | SemanticNodeKind.StringParseInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
+                    | SemanticNodeKind.StringLength valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringLength valueNodeId)
+                    | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId))
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -320,6 +330,12 @@ module TypedSemanticIr =
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, projectContext context))
                     | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
+                    | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.TaskScope(bodyFunctionId, projectContext context))
+                    | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, projectContext context, itemNodeId))
+                    | SemanticNodeKind.TaskWait(tasksNodeId, mode) -> Ok(TypedSemanticNodeKind.TaskWait(tasksNodeId, mode))
+                    | SemanticNodeKind.TaskCancel taskNodeId -> Ok(TypedSemanticNodeKind.TaskCancel taskNodeId)
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

@@ -72,12 +72,16 @@ module SemanticQuery =
                     | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
                     | SemanticNodeKind.UseResource(_, _, _, functionId, _)
                     | SemanticNodeKind.ParallelAll(_, functionId, _)
+                    | SemanticNodeKind.TaskScope(functionId, _)
+                    | SemanticNodeKind.TaskStart(_, functionId, _, _)
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
                     | SemanticNodeKind.ListAll(_, functionId, _) -> [ functionId ]
                     | SemanticNodeKind.FunctionInvoke _
                     | SemanticNodeKind.CancellationRequested
+                    | SemanticNodeKind.TaskWait _
+                    | SemanticNodeKind.TaskCancel _
                     | SemanticNodeKind.ParameterReference _
                     | SemanticNodeKind.PatternReference _
                     | SemanticNodeKind.StringLiteral _
@@ -88,6 +92,8 @@ module SemanticQuery =
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.Int64ToString _
                     | SemanticNodeKind.StringParseInt64 _
+                    | SemanticNodeKind.StringLength _
+                    | SemanticNodeKind.StringSlice _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.StringConcat _

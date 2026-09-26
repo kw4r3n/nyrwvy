@@ -180,6 +180,8 @@ module SnapshotCodec =
                 | BuiltinGenericType.Option -> "option"
                 | BuiltinGenericType.Result -> "result"
                 | BuiltinGenericType.List -> "list"
+                | BuiltinGenericType.Task -> "task"
+                | BuiltinGenericType.TaskScope -> "taskScope"
             )
             writer.WritePropertyName("arguments")
             writer.WriteStartArray()
@@ -392,6 +394,14 @@ module SnapshotCodec =
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringLength valueNodeId ->
+            writer.WriteString("kind", "stringLength")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringSlice")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -484,6 +494,28 @@ module SnapshotCodec =
             writeCallbackContext writer context
         | SemanticNodeKind.CancellationRequested ->
             writer.WriteString("kind", "cancellationRequested")
+        | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+            writer.WriteString("kind", "taskScope")
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+            writer.WriteString("kind", "taskStart")
+            writer.WriteString("scopeNodeId", StableId.value scopeNodeId)
+            writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+            writer.WriteString("kind", "taskWait")
+            writer.WriteString("tasksNodeId", StableId.value tasksNodeId)
+            writer.WriteString(
+                "mode",
+                match mode with
+                | TaskWaitMode.Any -> "any"
+                | TaskWaitMode.All -> "all"
+            )
+        | SemanticNodeKind.TaskCancel taskNodeId ->
+            writer.WriteString("kind", "taskCancel")
+            writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -786,6 +818,8 @@ module SnapshotCodec =
                 | "option" -> BuiltinGenericType.Option
                 | "result" -> BuiltinGenericType.Result
                 | "list" -> BuiltinGenericType.List
+                | "task" -> BuiltinGenericType.Task
+                | "taskScope" -> BuiltinGenericType.TaskScope
                 | value -> invalidShape $"Unsupported builtin generic type '{value}'."
             TypeRef.BuiltinGeneric(genericType, readArray "arguments" readTypeRef element)
         | value -> invalidShape $"Unsupported type reference kind '{value}'."
@@ -965,6 +999,20 @@ module SnapshotCodec =
             | "stringParseInt64" ->
                 ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringLength" ->
+                ensureProperties "StringLength node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringLength(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringSlice" ->
+                ensureProperties
+                    "StringSlice node"
+                    (set [ "id"; "kind"; "valueNodeId"; "startNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "startNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.StringSlice(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "startNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
+                )
             | "stringContains" ->
                 ensureProperties
                     "StringContains node"
@@ -1067,6 +1115,28 @@ module SnapshotCodec =
             | "cancellationRequested" ->
                 ensureProperties "CancellationRequested node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
                 SemanticNodeKind.CancellationRequested
+            | "taskScope" ->
+                ensureProperties "TaskScope node" (set [ "id"; "kind"; "bodyFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "context" ]) element
+                SemanticNodeKind.TaskScope(readId<FunctionTag> "bodyFunctionId" element, readCallbackContext element)
+            | "taskStart" ->
+                let required = set [ "id"; "kind"; "scopeNodeId"; "workerFunctionId"; "itemNodeId" ]
+                ensureProperties "TaskStart node" required (Set.add "context" required) element
+                SemanticNodeKind.TaskStart(
+                    readId<GraphNodeTag> "scopeNodeId" element,
+                    readId<FunctionTag> "workerFunctionId" element,
+                    readCallbackContext element,
+                    readId<GraphNodeTag> "itemNodeId" element)
+            | "taskWait" ->
+                ensureProperties "TaskWait node" (set [ "id"; "kind"; "tasksNodeId"; "mode" ]) (set [ "id"; "kind"; "tasksNodeId"; "mode" ]) element
+                let mode =
+                    match readString "mode" element with
+                    | "any" -> TaskWaitMode.Any
+                    | "all" -> TaskWaitMode.All
+                    | value -> invalidShape $"Unsupported task wait mode '{value}'."
+                SemanticNodeKind.TaskWait(readId<GraphNodeTag> "tasksNodeId" element, mode)
+            | "taskCancel" ->
+                ensureProperties "TaskCancel node" (set [ "id"; "kind"; "taskNodeId" ]) (set [ "id"; "kind"; "taskNodeId" ]) element
+                SemanticNodeKind.TaskCancel(readId<GraphNodeTag> "taskNodeId" element)
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))

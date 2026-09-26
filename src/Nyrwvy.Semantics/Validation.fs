@@ -24,7 +24,9 @@ module SnapshotValidator =
         | SemanticNodeKind.OptionNone _ -> []
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringLength valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
@@ -65,6 +67,11 @@ module SnapshotValidator =
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
+        | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -93,7 +100,9 @@ module SnapshotValidator =
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringLength valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
@@ -146,6 +155,11 @@ module SnapshotValidator =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
+        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -388,6 +402,17 @@ module SnapshotValidator =
                         "BuiltinGenericArityMismatch"
                         $"{context} uses List with {arguments.Length} type arguments; exactly 1 is required."
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+                if arguments.Length <> 1 then
+                    add
+                        "BuiltinGenericArityMismatch"
+                        $"{context} uses Task with {arguments.Length} type arguments; exactly 1 is required."
+                arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+                if not arguments.IsEmpty then
+                    add
+                        "BuiltinGenericArityMismatch"
+                        $"{context} uses TaskScope with {arguments.Length} type arguments; none are allowed."
 
         for typeEntity in snapshot.Types do
             match typeEntity.Kind with
@@ -425,10 +450,15 @@ module SnapshotValidator =
             for field in fields do
                 if mentionsTypeParameter field.Type then
                     add "TypeParameterOutsideFunction" $"Field '{StableId.value field.Id}' uses a function type parameter; declared types are monomorphic."
+                if TaskTypes.mentions field.Type then
+                    add "TaskTypeInDeclaredType" $"Field '{StableId.value field.Id}' uses Task or TaskScope; task values cannot be stored in declared types."
         for _, operation in capabilityOperationEntries do
             let types = operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)) @ Option.toList operation.FailureType
             if types |> List.exists mentionsTypeParameter then
                 add "TypeParameterOutsideFunction" $"Capability operation '{StableId.value operation.Id}' uses a function type parameter."
+            // Task handles and scopes live inside one run; they never cross the host boundary.
+            if types |> List.exists TaskTypes.mentions then
+                add "TaskTypeAtCapabilityBoundary" $"Capability operation '{StableId.value operation.Id}' uses Task or TaskScope, which cannot cross a capability boundary."
         // Each type parameter belongs to one function, keeps one display name, and is introduced by
         // that function's parameter types before its result or body can use it.
         let typeParameterOwners =
@@ -733,6 +763,28 @@ module SnapshotValidator =
                             $"StringParseInt64 node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringLength valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringLength node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                    | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringSlice node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringSlice node '{StableId.value node.Id}' requires an Int64 start."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            startNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringSlice node '{StableId.value node.Id}' requires an Int64 end."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            endNodeId
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -913,6 +965,55 @@ module SnapshotValidator =
                         | Some _, _, _ -> add "UseResourceAcquireTypeMismatch" $"UseResource node '{StableId.value node.Id}' acquisition must produce Result<R, E>."
                         | None, _, _ -> ()
                     | SemanticNodeKind.CancellationRequested -> ()
+                    | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+                        match Map.tryFind bodyFunctionId functionsById with
+                        | None -> add "UnknownCallTarget" $"TaskScope node '{StableId.value node.Id}' references an unknown body function."
+                        | Some body ->
+                            let unbound, contextSubstitution = validateCallbackContext node.Id body context
+                            let bodySubstitution =
+                                match unbound with
+                                | [ scope ] -> TypeParameters.matchType contextSubstitution scope.Type (TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []))
+                                | _ -> None
+                            if Option.isNone bodySubstitution then
+                                add "TaskScopeBodyMismatch" $"TaskScope node '{StableId.value node.Id}' body must have exactly one unbound parameter of type TaskScope."
+                            match TypeParameters.substitute (bodySubstitution |> Option.defaultValue contextSubstitution) body.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
+                            | _ -> add "TaskScopeResultMismatch" $"TaskScope node '{StableId.value node.Id}' body must return Result<T, E>."
+                            for effectId in body.RequiredEffects do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' runs task scope body '{StableId.value body.Id}' but does not declare required effect '{StableId.value effectId}'."
+                    | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                        match nodeType scopeNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])) | None -> ()
+                        | Some _ -> add "TaskStartScopeTypeMismatch" $"TaskStart node '{StableId.value node.Id}' requires a TaskScope value as its scope."
+                        match nodeType itemNodeId, Map.tryFind workerFunctionId functionsById with
+                        | Some itemType, Some worker ->
+                            let unbound, contextSubstitution = validateCallbackContext node.Id worker context
+                            let substitution =
+                                match unbound with
+                                | [ item ] -> TypeParameters.matchType contextSubstitution item.Type itemType
+                                | _ -> None
+                            match substitution with
+                            | None -> add "ListCallbackParameterTypeMismatch" $"TaskStart node '{StableId.value node.Id}' worker must take exactly one unbound parameter of the item type."
+                            | Some current ->
+                                match TypeParameters.substitute current worker.ResultType with
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
+                                | _ -> add "ListCallbackResultTypeMismatch" $"TaskStart node '{StableId.value node.Id}' worker must return Result<U, E>."
+                            for effectId in worker.RequiredEffects do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' starts '{StableId.value worker.Id}' as a task but does not declare required effect '{StableId.value effectId}'."
+                        | _, None -> add "UnknownListCallbackFunction" $"TaskStart node '{StableId.value node.Id}' references an unknown worker."
+                        | None, _ -> ()
+                    | SemanticNodeKind.TaskWait(tasksNodeId, _) ->
+                        match nodeType tasksNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ]) ]))
+                        | None -> ()
+                        | Some _ -> add "TaskWaitInputTypeMismatch" $"TaskWait node '{StableId.value node.Id}' requires List<Task<T>> input."
+                    | SemanticNodeKind.TaskCancel taskNodeId ->
+                        match nodeType taskNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ]))
+                        | None -> ()
+                        | Some _ -> add "TaskCancelInputTypeMismatch" $"TaskCancel node '{StableId.value node.Id}' requires a Task<T> input."
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         match nodeType sourceListNodeId, Map.tryFind workerFunctionId functionsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
@@ -1376,6 +1477,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _
@@ -1406,6 +1509,10 @@ module SnapshotValidator =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

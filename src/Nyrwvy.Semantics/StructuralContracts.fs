@@ -5,10 +5,13 @@ type ValueDependencyRole =
     | Value
     | Error
     | Substring
+    | SliceStart
+    | SliceEnd
     | LeftOperand
     | RightOperand
     | Source
     | Item
+    | TaskScope
     | ListItem of int
     | FunctionValue
     | FunctionArgument of int
@@ -36,8 +39,13 @@ module ValueDependency =
         match node.Kind with
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
-        | SemanticNodeKind.StringParseInt64 sourceNodeId ->
+        | SemanticNodeKind.StringParseInt64 sourceNodeId
+        | SemanticNodeKind.StringLength sourceNodeId ->
             [ create ValueDependencyRole.Source sourceNodeId ]
+        | SemanticNodeKind.StringSlice(sourceNodeId, startNodeId, endNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.SliceStart startNodeId
+              create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.StringContains(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
@@ -92,6 +100,14 @@ module ValueDependency =
             create ValueDependencyRole.Source sourceNodeId
             :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.TaskScope(_, context) ->
+            context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId)
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            [ create ValueDependencyRole.TaskScope scopeNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ create ValueDependencyRole.Source tasksNodeId ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ create ValueDependencyRole.Value taskNodeId ]
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]

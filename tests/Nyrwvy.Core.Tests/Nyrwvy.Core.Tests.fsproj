@@ -68,6 +68,7 @@
     <Compile Include="ListFoldTests.fs" />
     <Compile Include="StringConcatTests.fs" />
     <Compile Include="Int64TextTests.fs" />
+    <Compile Include="StringSliceTests.fs" />
     <Compile Include="ResultTypeMigrationTests.fs" />
     <Compile Include="UnionVariantWithFieldsTests.fs" />
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
@@ -79,6 +80,7 @@
     <Compile Include="FunctionAbortTests.fs" />
     <Compile Include="CapabilityImplementationTests.fs" />
     <Compile Include="ParallelAllTests.fs" />
+    <Compile Include="TaskScopeTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

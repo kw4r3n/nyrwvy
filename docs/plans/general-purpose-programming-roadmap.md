@@ -18,10 +18,10 @@ rrawrletは不足を発見する題材であり、製品固有のLeader、Member
 
 | ID | 到達点 | 現在の対応 | 残る境界 |
 | --- | --- | --- | --- |
-| G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Setや追加文字列操作は具体的要求に応じて選ぶ。 |
+| G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換、code point単位の`StringLength`と範囲を丸める`StringSlice`。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Setや追加文字列操作は具体的要求に応じて選ぶ。 |
 | G2 | 本体を複製しない文脈・型・述語の再利用 | 関数型パラメーター、明示的な文脈引数、[純粋・captureなしの関数値](../specs/pure-function-values.md)。 | 一般closure、型パラメーター付きProduct/Union、制約付き型パラメーター、効果付き関数値。 |
 | G3 | 別モジュールの外部実装と型付き値・失敗の接続 | 明示的なC# `ExternalImplementation`、共通runnerの`hostSources`/`hostCapability`、複合値・`Result`・host例外の診断。[純粋なプログラム内実装](../specs/program-capability-implementations.md)。 | 状態・効果を持つプログラム内Capability実装。`FailureType`はC# backendで明示的に非対応。 |
-| G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)。 | 非構造的task値、タイムアウト、独自scheduler、所有権・借用は未導入。 |
+| G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)、[task scope](../decisions/concurrency-control.md)内のtask開始・待機（Any/All）・個別キャンセル（第1段階）。 | タイムアウト（第2段階）、独自scheduler、所有権・借用は未導入。 |
 | T1 | reviewを伴う宣言変更・削除 | Product field追加・削除・型移行、引数/戻り値型移行、field付きvariant追加、不要関数・型・Effect・Capability/Operationの削除。 | Capability signature移行、Union variant field型移行、自動書き換え、汎用migration DSL。 |
 | T2 | 複数・多段依存の再現と明示的更新 | 内容保持sidecar、同一内容の同一IDのみ共有、ダイヤモンド依存、更新previewとreview済みfingerprintに束縛した適用。 | 更新と局所migrationの同時公開、registry、オンライン配布、semantic merge。 |
 | T3 | 共通の実行・テスト・診断経路 | `runPure`による型付き入出力・期待値・fake/host Capability実行、semantic ID付き診断、通常ツール/MCP。 | 新しい意味論に必要な入出力・診断を個別に追加する。完全なdebuggerは前提にしない。 |
@@ -39,6 +39,8 @@ G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[�
 | 3 | abortの意味論を仕様化・実装（完了） | [型付き関数abort](../specs/typed-function-abort.md)は`Result<T,E>`関数のローカルな早期終了を定義する。解放・失敗優先順位・並行workerのキャンセルと終了待ちを明記した。[実装・検証も完了](../verification/typed-function-abort-20260926.md)。通常authoring、保存・再オープン、C#実行、解放と並行workerの失敗契約を確認した。 |
 
 Capability実装は呼び出し側の既存Effect契約を自動で狭めない。実装が新たな効果を導入する一般形、状態・capture、継続を再開するhandlerはこの最初の段階に含めない。[Semantic independence](../concepts/semantic-independence.md)全体を採用したという意味でもない。
+
+rrawrlet sliceの調査結果に基づく実装キューは[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)で管理する。
 
 当該3作業とabort実装は完了。[通常ツールだけで構築する実用例](../../examples/function-abort/README.md)も追加した。次の機能拡張はこの経路で実際の処理を構築し、不足が確認されたものから選ぶ。
 

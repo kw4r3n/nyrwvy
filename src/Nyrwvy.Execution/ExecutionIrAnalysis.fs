@@ -32,7 +32,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.Int64ToString valueNodeId
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId
+        | TypedSemanticNodeKind.StringLength valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
@@ -70,6 +72,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
+        | TypedSemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
+        | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
@@ -114,6 +121,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringLength _
+            | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -142,6 +151,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ParallelAll _
             | TypedSemanticNodeKind.CancellationRequested
+            | TypedSemanticNodeKind.TaskScope _
+            | TypedSemanticNodeKind.TaskStart _
+            | TypedSemanticNodeKind.TaskWait _
+            | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _
@@ -190,6 +203,10 @@ module internal ExecutionIrAnalysis =
             | None -> false
         | TypedSemanticNodeKind.UseResource _ -> true
         | TypedSemanticNodeKind.CancellationRequested -> true
+        | TypedSemanticNodeKind.TaskScope _
+        | TypedSemanticNodeKind.TaskStart _
+        | TypedSemanticNodeKind.TaskWait _
+        | TypedSemanticNodeKind.TaskCancel _ -> true
         | TypedSemanticNodeKind.ParallelAll(_, functionId, _) ->
             match Map.tryFind functionId functionsById with
             | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
@@ -220,6 +237,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.Int64ToString _
         | TypedSemanticNodeKind.StringParseInt64 _
+        | TypedSemanticNodeKind.StringLength _
+        | TypedSemanticNodeKind.StringSlice _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringConcat _
@@ -313,6 +332,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringLength _
+            | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -341,6 +362,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.UseResource _
             | TypedSemanticNodeKind.ParallelAll _
             | TypedSemanticNodeKind.CancellationRequested
+            | TypedSemanticNodeKind.TaskScope _
+            | TypedSemanticNodeKind.TaskStart _
+            | TypedSemanticNodeKind.TaskWait _
+            | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
             | TypedSemanticNodeKind.ListAny _

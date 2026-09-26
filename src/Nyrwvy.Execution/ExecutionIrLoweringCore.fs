@@ -266,6 +266,19 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
+                        | TypedSemanticNodeKind.StringLength valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringLength
+                        | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                            match
+                                requireNodeValue environment valueNodeId,
+                                requireNodeValue environment startNodeId,
+                                requireNodeValue environment endNodeId
+                            with
+                            | Ok valueId, Ok startId, Ok endId ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringSlice(valueId, startId, endId)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->
@@ -350,6 +363,22 @@ module ExecutionIr =
                                 ExecutionInstructionKind.ParallelAll(source, worker, lowered))
                         | TypedSemanticNodeKind.CancellationRequested ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.CancellationRequested)
+                        | TypedSemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+                            lowerCallArguments context
+                            |> Result.map (fun lowered -> addInstruction currentBlock node (ExecutionInstructionKind.TaskScope(bodyFunctionId, lowered)))
+                        | TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                            match requireNodeValue environment scopeNodeId, requireNodeValue environment itemNodeId, lowerCallArguments context with
+                            | Ok scope, Ok item, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.TaskStart(scope, workerFunctionId, lowered, item)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+                            requireNodeValue environment tasksNodeId
+                            |> Result.map (fun tasks -> addInstruction currentBlock node (ExecutionInstructionKind.TaskWait(tasks, mode)))
+                        | TypedSemanticNodeKind.TaskCancel taskNodeId ->
+                            requireNodeValue environment taskNodeId
+                            |> Result.map (fun task -> addInstruction currentBlock node (ExecutionInstructionKind.TaskCancel task))
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
@@ -611,6 +640,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.Int64ToString _
                         | TypedSemanticNodeKind.StringParseInt64 _
+                        | TypedSemanticNodeKind.StringLength _
+                        | TypedSemanticNodeKind.StringSlice _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringConcat _
@@ -641,6 +672,10 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.UseResource _
                         | TypedSemanticNodeKind.ParallelAll _
                         | TypedSemanticNodeKind.CancellationRequested
+                        | TypedSemanticNodeKind.TaskScope _
+                        | TypedSemanticNodeKind.TaskStart _
+                        | TypedSemanticNodeKind.TaskWait _
+                        | TypedSemanticNodeKind.TaskCancel _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
                         | TypedSemanticNodeKind.ListAny _

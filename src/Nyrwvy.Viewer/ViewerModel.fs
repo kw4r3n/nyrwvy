@@ -42,6 +42,8 @@ type ViewerNodeRole =
     | StringIsEmpty
     | Int64ToString
     | StringParseInt64
+    | StringLength
+    | StringSlice
     | StringContains
     | StringEqual
     | StringConcat
@@ -72,6 +74,10 @@ type ViewerNodeRole =
     | UseResource
     | ParallelAll
     | CancellationRequested
+    | TaskScope
+    | TaskStart
+    | TaskWait of mode: TaskWaitMode
+    | TaskCancel
     | ListMap
     | ListFilter
     | ListAny
@@ -188,6 +194,8 @@ module ViewerProjection =
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.Int64ToString _ -> ViewerNodeRole.Int64ToString, []
         | SemanticNodeKind.StringParseInt64 _ -> ViewerNodeRole.StringParseInt64, []
+        | SemanticNodeKind.StringLength _ -> ViewerNodeRole.StringLength, []
+        | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.StringConcat _ -> ViewerNodeRole.StringConcat, []
@@ -222,6 +230,10 @@ module ViewerProjection =
         | SemanticNodeKind.ParallelAll(_, workerFunctionId, _) ->
             ViewerNodeRole.ParallelAll, callbackRelation workerFunctionId
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
+        | SemanticNodeKind.TaskScope(bodyFunctionId, _) -> ViewerNodeRole.TaskScope, callbackRelation bodyFunctionId
+        | SemanticNodeKind.TaskStart(_, workerFunctionId, _, _) -> ViewerNodeRole.TaskStart, callbackRelation workerFunctionId
+        | SemanticNodeKind.TaskWait(_, mode) -> ViewerNodeRole.TaskWait mode, []
+        | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
         | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
@@ -350,6 +362,8 @@ module ViewerProjection =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _
@@ -380,6 +394,10 @@ module ViewerProjection =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

@@ -63,6 +63,17 @@ type BuiltinGenericType =
     | Option
     | Result
     | List
+    /// `Task<T>`: a handle to a task started in a task scope. Its only operations are TaskWait and TaskCancel.
+    | Task
+    /// `TaskScope`: the opaque scope value a TaskScope body receives; takes no type arguments.
+    | TaskScope
+
+[<RequireQualifiedAccess>]
+type TaskWaitMode =
+    /// Returns once at least one listed task has finished (at once for an empty list).
+    | Any
+    /// Returns once every listed task has finished.
+    | All
 
 [<RequireQualifiedAccess>]
 type TypeRef =
@@ -199,6 +210,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
     /// range; any other text, including '+', whitespace or an empty String, is None.
     | StringParseInt64 of valueNodeId: GraphNodeId
+    /// Number of code points in the String, as an Int64. A surrogate pair counts once; an unpaired
+    /// surrogate code unit counts as one code point.
+    | StringLength of valueNodeId: GraphNodeId
+    /// The code points at positions [start, end) of the String. Both bounds are clamped to
+    /// [0, StringLength], and end <= start yields the empty String, so slicing never fails.
+    | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -235,9 +252,21 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// (or host exception) requests cancellation of the others; the result is the Err of the lowest
     /// failing index, or Ok of every worker's value in source order.
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: ArgumentBinding list
-    /// Whether cancellation was requested for the ParallelAll worker evaluating it; false elsewhere.
+    /// Whether cancellation was requested for the ParallelAll worker, task or TaskScope body evaluating it; false elsewhere.
     | CancellationRequested
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
+    /// Runs the body function with a new `TaskScope` value (other parameters bound by `context`).
+    /// When the body exits by Ok, Err or host exception, every unfinished task of the scope is
+    /// cancelled and awaited before the node completes. The result is the body's `Result<T, E>`.
+    | TaskScope of bodyFunctionId: FunctionId * context: ArgumentBinding list
+    /// Starts the worker with the item as a new task of the scope and returns its `Task<Result<U, E>>`
+    /// handle at once. A task's Err does not cancel its siblings.
+    | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: ArgumentBinding list * itemNodeId: GraphNodeId
+    /// Waits until the mode is satisfied and returns `Some result` for every finished task and `None`
+    /// for every running one, in input order. Tasks keep running after it returns.
+    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode
+    /// Requests cooperative cancellation of one task without waiting for it. Idempotent.
+    | TaskCancel of taskNodeId: GraphNodeId
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
@@ -331,6 +360,8 @@ module ValueGraph =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -359,6 +390,10 @@ module ValueGraph =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -417,6 +452,8 @@ module ValueGraph =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -445,6 +482,10 @@ module ValueGraph =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _
@@ -484,6 +525,20 @@ module Snapshot =
           Capabilities = []
           Functions = []
           Obligations = [] }
+
+/// `Task<T>` and `TaskScope` values exist only inside one run of a function: declared types and
+/// capability operations may not mention them.
+[<RequireQualifiedAccess>]
+module TaskTypes =
+    let rec mentions (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> true
+        | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentions arguments
+        | TypeRef.Function(parameters, result) -> List.exists mentions parameters || mentions result
+        | TypeRef.Primitive _
+        | TypeRef.Named _
+        | TypeRef.Capability _
+        | TypeRef.TypeParameter _ -> false
 
 /// Function type parameters. A function's type parameters are those occurring in its parameter
 /// types; at a call or callback, type arguments are derived by matching each parameter type

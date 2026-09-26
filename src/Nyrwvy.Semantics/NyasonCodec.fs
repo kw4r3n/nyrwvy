@@ -131,12 +131,19 @@ module NyasonCodec =
             record "result-type" [ "ok", encodeTypeRef okType; "error", encodeTypeRef errorType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             record "list-type" [ "item", encodeTypeRef itemType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
+            record "task-type" [ "result", encodeTypeRef resultType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> record "task-scope-type" []
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Validated Option type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Validated Result type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"Validated List type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
+            invalidOp $"Validated Task type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
+            invalidOp $"Validated TaskScope type unexpectedly has {arguments.Length} type arguments."
 
     let rec private decodeTypeRef value =
         match value with
@@ -179,6 +186,12 @@ module NyasonCodec =
         | NyasonValue.Record("list-type", _) ->
             let fields = recordFields "list-type" [ "item" ] [] value
             TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ decodeTypeRef (require "item" fields) ])
+        | NyasonValue.Record("task-type", _) ->
+            let fields = recordFields "task-type" [ "result" ] [] value
+            TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ decodeTypeRef (require "result" fields) ])
+        | NyasonValue.Record("task-scope-type", _) ->
+            recordFields "task-scope-type" [] [] value |> ignore
+            TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
         | NyasonValue.Record(tag, _) -> shape $"Unsupported type reference tag '{tag}'."
         | _ -> shape "Expected tagged type reference."
 
@@ -452,6 +465,15 @@ module NyasonCodec =
             record "int64-to-string" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             record "string-parse-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringLength valueNodeId ->
+            record "string-length" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+            record
+                "string-slice"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "start", encodeId "node" startNodeId
+                  "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             record
                 "string-contains"
@@ -535,6 +557,23 @@ module NyasonCodec =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
             record "parallel-all" ([ nodeId; "source", encodeId "node" sourceListNodeId; "worker", encodeId "function" workerFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.CancellationRequested -> record "cancellation-requested" [ nodeId ]
+        | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
+            record "task-scope" ([ nodeId; "body", encodeId "function" bodyFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+            record
+                "task-start"
+                ([ nodeId
+                   "scope", encodeId "node" scopeNodeId
+                   "worker", encodeId "function" workerFunctionId
+                   "item", encodeId "node" itemNodeId ]
+                 @ encodeCallbackContext context)
+        | SemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+            let modeAtom =
+                match mode with
+                | TaskWaitMode.Any -> "any"
+                | TaskWaitMode.All -> "all"
+            record "task-wait" [ nodeId; "tasks", encodeId "node" tasksNodeId; "mode", atom modeAtom ]
+        | SemanticNodeKind.TaskCancel taskNodeId -> record "task-cancel" [ nodeId; "task", encodeId "node" taskNodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -741,6 +780,19 @@ module NyasonCodec =
             let fields = recordFields "string-parse-int64" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringParseInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-length", _) ->
+            let fields = recordFields "string-length" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringLength(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-slice", _) ->
+            let fields = recordFields "string-slice" [ "id"; "value"; "start"; "end" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.StringSlice(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "start" fields),
+                    decodeId<GraphNodeTag> "node" (require "end" fields)
+                ) }
         | NyasonValue.Record("string-contains", _) ->
             let fields = recordFields "string-contains" [ "id"; "value"; "substring" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -844,6 +896,32 @@ module NyasonCodec =
         | NyasonValue.Record("cancellation-requested", _) ->
             let fields = recordFields "cancellation-requested" [ "id" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.CancellationRequested }
+        | NyasonValue.Record("task-scope", _) ->
+            let fields = recordFields "task-scope" [ "id"; "body" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.TaskScope(decodeId<FunctionTag> "function" (require "body" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("task-start", _) ->
+            let fields = recordFields "task-start" [ "id"; "scope"; "worker"; "item" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.TaskStart(
+                    decodeId<GraphNodeTag> "node" (require "scope" fields),
+                    decodeId<FunctionTag> "function" (require "worker" fields),
+                    decodeCallbackContext fields,
+                    decodeId<GraphNodeTag> "node" (require "item" fields)) }
+        | NyasonValue.Record("task-wait", _) ->
+            let fields = recordFields "task-wait" [ "id"; "tasks"; "mode" ] [] value
+            let mode =
+                match require "mode" fields with
+                | NyasonValue.Atom "any" -> TaskWaitMode.Any
+                | NyasonValue.Atom "all" -> TaskWaitMode.All
+                | _ -> shape "Expected task wait mode atom 'any' or 'all'."
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.TaskWait(decodeId<GraphNodeTag> "node" (require "tasks" fields), mode) }
+        | NyasonValue.Record("task-cancel", _) ->
+            let fields = recordFields "task-cancel" [ "id"; "task" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.TaskCancel(decodeId<GraphNodeTag> "node" (require "task" fields)) }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->

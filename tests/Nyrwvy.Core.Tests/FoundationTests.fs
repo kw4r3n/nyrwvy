@@ -37,6 +37,8 @@ module FoundationTests =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringLength _
+                | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _
@@ -67,6 +69,10 @@ module FoundationTests =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.TaskStart _
+                | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListAny _

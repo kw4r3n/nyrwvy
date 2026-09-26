@@ -216,6 +216,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
             | ExpressionRecipe.Int64ToString value -> one ExpressionRecipe.Int64ToString value
             | ExpressionRecipe.StringParseInt64 value -> one ExpressionRecipe.StringParseInt64 value
+            | ExpressionRecipe.StringLength value -> one ExpressionRecipe.StringLength value
+            | ExpressionRecipe.StringSlice(value, start, stop) -> three ExpressionRecipe.StringSlice value start stop
             | ExpressionRecipe.Float64IsNaN value -> one ExpressionRecipe.Float64IsNaN value
             | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
@@ -258,6 +260,14 @@ module internal SignatureMigrationCore =
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
+            | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
+                rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context))
+            | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
+                two (fun (scope, item) -> scope, item) scope item
+                |> Result.bind (fun (scope, item) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item)))
+            | ExpressionRecipe.TaskWait(tasks, mode) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode)) tasks
+            | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
