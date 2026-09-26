@@ -500,6 +500,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.ParallelAll(sourceListValueId, workerFunctionId, context) ->
             // Structured: every worker is awaited before the node completes. The first Err or host
             // exception cancels the shared token; faults win, then the lowest-index Err, else all Ok.
+            // Link the ambient token so cancellation also reaches workers of nested ParallelAll nodes.
             let itemType =
                 match valueTypeOf sourceListValueId with
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> formatType item
@@ -515,7 +516,7 @@ module CSharpBackend =
             writer.Line("{")
             writer.Push()
             writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
-            writer.Line("using var " + cts + " = new System.Threading.CancellationTokenSource();")
+            writer.Line("using var " + cts + " = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value);")
             writer.Line("var " + tasks + " = new System.Threading.Tasks.Task<" + workerResult + ">[" + items + ".Count];")
             writer.Line("for (var " + index + " = 0; " + index + " < " + items + ".Count; " + index + "++)")
             writer.Line("{")

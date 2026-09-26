@@ -107,6 +107,7 @@ module ParallelAllTests =
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap "nyason") |> unwrap "nyason decode"))
             let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun item -> item.Id))) |> unwrap "emit"
             Assert.Contains("public static class NyRuntime", artifact.Source)
+            Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value)", artifact.Source)
             // A program without concurrency never contains the runtime helper.
             Assert.DoesNotContain("NyRuntime", SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "plain")) |> unwrap "plain"))
 
@@ -140,3 +141,66 @@ module ParallelAllTests =
                 Assert.Equal(2, failure.Calls.Length)
             | other -> failwithf "Worker host exception did not propagate after the others finished: %A" other
             Assert.Equal(PureRunValue.Bool false, (run "notCancelled" [ PureRunValue.String "x" ] |> unwrap "outside").Actual))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``nested ParallelAll inherits cancellation joins every worker and preserves failure precedence`` () =
+        withFixture (fun fixture ->
+            let session = fixture.Session
+            let slot = ExpressionRecipe.ParameterSlot
+            let parameter (fn: SemanticFunction) name = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
+            let create name parameters resultType body =
+                creation session name parameters resultType [ fixture.Effect.Id ] body
+                |> session.SimulateCreateFunction |> unwrap name |> publish session
+                fixture.Function name
+            let operation = List.exactlyOne fixture.Jobs.Operations
+            let invoke receiver argument =
+                ExpressionRecipe.CapabilityInvoke(receiver, operation.Id, [ (List.exactlyOne operation.Parameters).Id, argument ])
+            let capabilityType = TypeRef.Capability fixture.Jobs.Id
+            // Separate fakes keep response assignment independent of worker scheduling. The second
+            // call records completion only after the first call's cancellation wait has returned.
+            let leaf =
+                create "waitAndFinish" [ "waiting", capabilityType; "finished", capabilityType; "name", stringType ] (result stringType)
+                    (ExpressionRecipe.Bind(invoke (slot 0) (slot 2), invoke (slot 1) (slot 2)))
+            let nested =
+                create "nestedWorker" [ "waiting", capabilityType; "finished", capabilityType; "name", stringType ] (result (listOf stringType))
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.StringEqual(slot 2, ExpressionRecipe.StringLiteral "outer"),
+                        ExpressionRecipe.ResultErr(listOf stringType, ExpressionRecipe.StringLiteral "outer failure"),
+                        ExpressionRecipe.ParallelAll(
+                            ExpressionRecipe.ListConstruct(stringType, [ ExpressionRecipe.StringLiteral "child-a"; ExpressionRecipe.StringLiteral "child-b" ]),
+                            leaf.Id, [ parameter leaf "waiting", slot 0; parameter leaf "finished", slot 1 ])))
+            let entry =
+                create "runNested" [ "names", listOf stringType; "waiting", capabilityType; "finished", capabilityType ] (result (listOf (listOf stringType)))
+                    (ExpressionRecipe.ParallelAll(slot 0, nested.Id, [ parameter nested "waiting", slot 1; parameter nested "finished", slot 2 ]))
+            let run names response =
+                // The outer Err is the only way out of both inner waits, even if it occurs before
+                // the inner CTS is created. PureRun bounds execution, so a regression cannot hang.
+                PureRun.run session entry.Id
+                    [ PureRunValue.StringList names
+                      jobs fixture (List.replicate 2 (PureRunFakeResponse.AwaitCancellation(okText "cancelled")))
+                      jobs fixture (List.replicate 2 response) ] None
+            let assertJoined (calls: PureRunCall list) =
+                Assert.Equal(4, calls.Length)
+                for name in [ "waiting"; "finished" ] do
+                    let arguments =
+                        calls
+                        |> List.filter (fun call -> call.ParameterId = parameter entry name)
+                        |> List.map (fun call -> (List.exactlyOne call.Arguments) |> snd)
+                        |> List.sort
+                    Assert.Equal<PureRunValue list>([ PureRunValue.String "child-a"; PureRunValue.String "child-b" ], arguments)
+            // Inner errors necessarily finish after the outer Err triggered cancellation, but
+            // selection still follows input index rather than completion order at the outer node.
+            for names, response, expected in
+                [ [ "nested"; "outer" ], okText "stopped", "outer failure"
+                  [ "nested"; "outer" ], errText "inner failure", "inner failure"
+                  [ "outer"; "nested" ], errText "inner failure", "outer failure" ] do
+                let completed = run names (PureRunFakeResponse.Return response) |> unwrap "nested cancellation"
+                Assert.Equal(PureRunValue.ResultValue(listOf (listOf stringType), stringType, false, PureRunValue.String expected), completed.Actual)
+                assertJoined completed.Calls
+            match run [ "outer"; "nested" ] (PureRunFakeResponse.Throw "inner crash") with
+            | Error(PureRunError.RuntimeFailure failure) ->
+                // A nested host exception wins even over an earlier, lower-index outer Err.
+                Assert.Equal("inner crash", failure.Message)
+                Assert.False(failure.BindingExhausted)
+                assertJoined failure.Calls
+            | other -> failwithf "Nested host exception did not propagate after all workers finished: %A" other)

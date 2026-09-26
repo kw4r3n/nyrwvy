@@ -53,8 +53,19 @@ module SemanticFingerprint =
     let private neutralSnapshotId: SnapshotId = stable<SnapshotTag> "semantic-fingerprint-root"
     let private neutralTransactionId: TransactionId = stable<TransactionTag> "semantic-fingerprint-transaction"
 
+    let rec private normalizeTypeRef (typeRef: TypeRef): TypeRef =
+        match typeRef with
+        | TypeRef.TypeParameter(id, _) -> TypeRef.TypeParameter(id, displayPlaceholder)
+        | TypeRef.BuiltinGeneric(generic, arguments) ->
+            TypeRef.BuiltinGeneric(generic, arguments |> List.map normalizeTypeRef)
+        | TypeRef.Primitive _
+        | TypeRef.Named _
+        | TypeRef.Capability _ -> typeRef
+
     let private normalizeField (field: SemanticField) =
-        { field with DisplayName = displayPlaceholder }
+        { field with
+            DisplayName = displayPlaceholder
+            Type = normalizeTypeRef field.Type }
 
     let private normalizeVariant (variant: SemanticVariant) =
         { variant with
@@ -77,12 +88,16 @@ module SemanticFingerprint =
         { effect with DisplayName = displayPlaceholder }
 
     let private normalizeCapabilityParameter (parameter: SemanticCapabilityParameter) =
-        { parameter with DisplayName = displayPlaceholder }
+        { parameter with
+            DisplayName = displayPlaceholder
+            Type = normalizeTypeRef parameter.Type }
 
     let private normalizeCapabilityOperation (operation: SemanticCapabilityOperation) =
         { operation with
             DisplayName = displayPlaceholder
-            Parameters = operation.Parameters |> List.map normalizeCapabilityParameter }
+            Parameters = operation.Parameters |> List.map normalizeCapabilityParameter
+            ResultType = normalizeTypeRef operation.ResultType
+            FailureType = operation.FailureType |> Option.map normalizeTypeRef }
 
     let private normalizeCapability (capability: SemanticCapability) =
         { capability with
@@ -90,14 +105,28 @@ module SemanticFingerprint =
             Operations = capability.Operations |> List.map normalizeCapabilityOperation }
 
     let private normalizeParameter (parameter: SemanticParameter) =
-        { parameter with DisplayName = displayPlaceholder }
+        { parameter with
+            DisplayName = displayPlaceholder
+            Type = normalizeTypeRef parameter.Type }
 
     let private normalizePatternBinding (binding: PatternBinding) =
-        { binding with DisplayName = None }
+        { binding with
+            DisplayName = None
+            Type = normalizeTypeRef binding.Type }
 
     let private normalizeNode (node: SemanticNode) =
         let kind =
             match node.Kind with
+            | SemanticNodeKind.ListEmpty itemType ->
+                SemanticNodeKind.ListEmpty(normalizeTypeRef itemType)
+            | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+                SemanticNodeKind.ListConstruct(normalizeTypeRef itemType, itemNodeIds)
+            | SemanticNodeKind.OptionNone itemType ->
+                SemanticNodeKind.OptionNone(normalizeTypeRef itemType)
+            | SemanticNodeKind.ResultOk(errorType, valueNodeId) ->
+                SemanticNodeKind.ResultOk(normalizeTypeRef errorType, valueNodeId)
+            | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
+                SemanticNodeKind.ResultErr(normalizeTypeRef okType, errorNodeId)
             | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                 let normalizedArms =
                     arms
@@ -131,6 +160,7 @@ module SemanticFingerprint =
         { functionEntity with
             DisplayName = displayPlaceholder
             Parameters = functionEntity.Parameters |> List.map normalizeParameter
+            ResultType = normalizeTypeRef functionEntity.ResultType
             Body = functionEntity.Body |> ValueGraph.mapNodes normalizeNode }
 
     let private obligationKey (obligation: MissingArgumentObligation) =

@@ -257,19 +257,19 @@ module internal ExecutionIrAnalysis =
             |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
             |> Map.ofList
 
-        let rec dependsOn (visiting: Set<GraphNodeId>) nodeId targetId =
-            if nodeId = targetId then
-                true
-            elif Set.contains nodeId visiting then
-                false
-            else
-                match Map.tryFind nodeId localNodes with
-                | None -> false
-                | Some node ->
-                    let next = Set.add nodeId visiting
-                    dependencies node
-                    |> List.exists (fun dependencyId ->
-                        dependencyId = targetId || dependsOn next dependencyId targetId)
+        let dependsOn nodeId targetId =
+            // Share visits across branches, but not across queries or graph scopes.
+            let visited = System.Collections.Generic.HashSet<GraphNodeId>()
+            let rec visit currentId =
+                if currentId = targetId then
+                    true
+                elif not (visited.Add currentId) then
+                    false
+                else
+                    match Map.tryFind currentId localNodes with
+                    | None -> false
+                    | Some node -> dependencies node |> List.exists visit
+            visit nodeId
 
         let effectfulNodes: TypedSemanticNode list =
             graph.Nodes
@@ -284,8 +284,8 @@ module internal ExecutionIrAnalysis =
                 let unorderedSecond =
                     rest
                     |> List.tryFind (fun second ->
-                        not (dependsOn Set.empty first.OriginNodeId second.OriginNodeId)
-                        && not (dependsOn Set.empty second.OriginNodeId first.OriginNodeId))
+                        not (dependsOn first.OriginNodeId second.OriginNodeId)
+                        && not (dependsOn second.OriginNodeId first.OriginNodeId))
                 match unorderedSecond with
                 | Some second ->
                     Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first.OriginNodeId, second.OriginNodeId))

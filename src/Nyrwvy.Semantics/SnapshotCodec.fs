@@ -19,6 +19,9 @@ type SnapshotCodecError =
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
     let private schemaVersion = 9
+    // Retain the writer's existing depth allowance and apply it to reads too:
+    // nested graph envelopes must not make a successfully saved snapshot unreadable.
+    let private maxJsonDepth = 1000
 
     let private invalidShape message = raise (InvalidDataException message)
 
@@ -647,7 +650,7 @@ module SnapshotCodec =
 
     let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
         use stream = new MemoryStream()
-        use writer = new Utf8JsonWriter(stream)
+        use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         writer.WriteStartObject()
         writer.WriteNumber("schemaVersion", schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
@@ -1170,7 +1173,7 @@ module SnapshotCodec =
             Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
         else
             try
-                use document = JsonDocument.Parse(json)
+                use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
                 let root = document.RootElement
                 let required = set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ]
                 let allowed = Set.add "parentSnapshotId" required
