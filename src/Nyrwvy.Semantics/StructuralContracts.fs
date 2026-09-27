@@ -12,6 +12,7 @@ type ValueDependencyRole =
     | Source
     | Item
     | TaskScope
+    | Limit
     | ListItem of int
     | FunctionValue
     | FunctionArgument of int
@@ -106,7 +107,8 @@ module ValueDependency =
             [ create ValueDependencyRole.TaskScope scopeNodeId
               create ValueDependencyRole.Item itemNodeId ]
             @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
-        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ create ValueDependencyRole.Source tasksNodeId ]
+        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) ->
+            create ValueDependencyRole.Source tasksNodeId :: (limitNodeId |> Option.map (create ValueDependencyRole.Limit) |> Option.toList)
         | SemanticNodeKind.TaskCancel taskNodeId -> [ create ValueDependencyRole.Value taskNodeId ]
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId

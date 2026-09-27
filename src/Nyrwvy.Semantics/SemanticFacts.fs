@@ -59,7 +59,7 @@ module SemanticFacts =
         | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -401,7 +401,7 @@ module SemanticFacts =
                         | Some itemType, Some worker ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ callbackResult nextVisiting worker context [ itemType ] ]))
                         | _ -> None
-                    | SemanticNodeKind.TaskWait(tasksNodeId, _) ->
+                    | SemanticNodeKind.TaskWait(tasksNodeId, _, _) ->
                         match tryNodeType nextVisiting tasksNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ resultType ]) ]))

@@ -425,10 +425,11 @@ module TypedSemanticIrCodec =
             writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
             writeCallbackContext writer context
-        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
             writer.WriteString("kind", "taskWait")
             writer.WriteString("tasksNodeId", StableId.value tasksNodeId)
             writer.WriteString("mode", (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all"))
+            limitNodeId |> Option.iter (fun limit -> writer.WriteString("limitNodeId", StableId.value limit))
         | TypedSemanticNodeKind.TaskCancel taskNodeId ->
             writer.WriteString("kind", "taskCancel")
             writer.WriteString("taskNodeId", StableId.value taskNodeId)

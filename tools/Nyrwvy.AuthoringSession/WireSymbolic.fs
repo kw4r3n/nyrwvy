@@ -333,8 +333,11 @@ module internal WireSymbolic =
                 callbackContext worker,
                 recipe declarations parameterContext (property "item" element))
         | "taskWait" ->
-            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode" ] [ "kind"; "tasks"; "mode" ] element
-            ExpressionRecipe.TaskWait(recipe declarations parameterContext (property "tasks" element), WireInput.taskWaitMode element)
+            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode"; "limit" ] [ "kind"; "tasks"; "mode" ] element
+            ExpressionRecipe.TaskWait(
+                recipe declarations parameterContext (property "tasks" element),
+                WireInput.taskWaitMode element,
+                tryProperty "limit" element |> Option.map (recipe declarations parameterContext))
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))

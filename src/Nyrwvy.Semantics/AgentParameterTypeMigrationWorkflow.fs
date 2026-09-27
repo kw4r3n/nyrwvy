@@ -266,7 +266,9 @@ module internal SignatureMigrationCore =
                 two (fun (scope, item) -> scope, item) scope item
                 |> Result.bind (fun (scope, item) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item)))
-            | ExpressionRecipe.TaskWait(tasks, mode) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode)) tasks
+            | ExpressionRecipe.TaskWait(tasks, mode, None) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode, None)) tasks
+            | ExpressionRecipe.TaskWait(tasks, mode, Some limit) ->
+                two (fun (tasks, limit) -> ExpressionRecipe.TaskWait(tasks, mode, Some limit)) tasks limit
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context

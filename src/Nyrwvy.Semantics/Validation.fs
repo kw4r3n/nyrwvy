@@ -70,7 +70,7 @@ module SnapshotValidator =
         | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments |> List.map (fun argument -> argument.ValueNodeId)
@@ -158,7 +158,7 @@ module SnapshotValidator =
         | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
@@ -1004,11 +1004,15 @@ module SnapshotValidator =
                                     add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' starts '{StableId.value worker.Id}' as a task but does not declare required effect '{StableId.value effectId}'."
                         | _, None -> add "UnknownListCallbackFunction" $"TaskStart node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
-                    | SemanticNodeKind.TaskWait(tasksNodeId, _) ->
+                    | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) ->
                         match nodeType tasksNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ]) ]))
                         | None -> ()
                         | Some _ -> add "TaskWaitInputTypeMismatch" $"TaskWait node '{StableId.value node.Id}' requires List<Task<T>> input."
+                        match limitNodeId |> Option.bind nodeType with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
+                        | None -> ()
+                        | Some _ -> add "TaskWaitLimitTypeMismatch" $"TaskWait node '{StableId.value node.Id}' requires an Option<Int64> limit."
                     | SemanticNodeKind.TaskCancel taskNodeId ->
                         match nodeType taskNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ]))

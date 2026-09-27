@@ -33,6 +33,16 @@ module AuthoringProtocol =
         | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
         | _ -> fail "Scalar run values must be string, bool or int64."
 
+    /// Wraps a fake response in its optional `delayMillis` of virtual time; absent or 0 means none.
+    let private delayed (element: JsonElement) (response: PureRunFakeResponse) =
+        match tryProperty "delayMillis" element with
+        | None -> response
+        | Some _ ->
+            match requiredInt64 "delayMillis" element with
+            | delay when delay < 0L -> fail "Fake delayMillis must not be negative."
+            | 0L -> response
+            | delay -> PureRunFakeResponse.Delayed(delay, response)
+
     let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
@@ -81,11 +91,11 @@ module AuthoringProtocol =
                         responses |> List.map (fun response ->
                             match requiredString "kind" response with
                             | "return" ->
-                                ensureFields "Fake return" [ "kind"; "value" ] [ "kind"; "value" ] response
-                                PureRunFakeResponse.Return(pureValueAt remaining (depth + 1) (property "value" response))
+                                ensureFields "Fake return" [ "kind"; "value"; "delayMillis" ] [ "kind"; "value" ] response
+                                delayed response (PureRunFakeResponse.Return(pureValueAt remaining (depth + 1) (property "value" response)))
                             | "throw" ->
-                                ensureFields "Fake throw" [ "kind"; "message" ] [ "kind"; "message" ] response
-                                PureRunFakeResponse.Throw(requiredString "message" response)
+                                ensureFields "Fake throw" [ "kind"; "message"; "delayMillis" ] [ "kind"; "message" ] response
+                                delayed response (PureRunFakeResponse.Throw(requiredString "message" response))
                             | "awaitCancellation" ->
                                 ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
                                 PureRunFakeResponse.AwaitCancellation(pureValueAt remaining (depth + 1) (property "value" response))
@@ -205,17 +215,19 @@ module AuthoringProtocol =
         | PureRunValue.HostCapability(capabilityId, implementation, concurrent) ->
             objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation; "supportsConcurrentCalls", box concurrent ]
         | PureRunValue.FakeCapability(capabilityId, operations) ->
-            let response = function
-                | PureRunFakeResponse.Return value -> objectValue [ "kind", box "return"; "value", encodePureValue value ]
-                | PureRunFakeResponse.Throw message -> objectValue [ "kind", box "throw"; "message", box message ]
+            let rec response delay = function
+                | PureRunFakeResponse.Return value -> objectValue ([ "kind", box "return"; "value", encodePureValue value ] @ delay)
+                | PureRunFakeResponse.Throw message -> objectValue ([ "kind", box "throw"; "message", box message ] @ delay)
                 | PureRunFakeResponse.AwaitCancellation value -> objectValue [ "kind", box "awaitCancellation"; "value", encodePureValue value ]
+                | PureRunFakeResponse.Delayed(millis, inner) ->
+                    response [ "delayMillis", box (millis.ToString(Globalization.CultureInfo.InvariantCulture)) ] inner
             objectValue
                 [ "kind", box "fakeCapability"
                   "capabilityId", box (StableId.value capabilityId)
                   "operations", operations |> List.map (fun operation ->
                       objectValue
                           [ "operationId", box (StableId.value operation.OperationId)
-                            "responses", operation.Responses |> List.map response |> arrayValue ]) |> arrayValue ]
+                            "responses", operation.Responses |> List.map (response []) |> arrayValue ]) |> arrayValue ]
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]

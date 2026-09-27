@@ -373,9 +373,15 @@ module ExecutionIr =
                             | Error error, _, _
                             | _, Error error, _
                             | _, _, Error error -> Error error
-                        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode) ->
-                            requireNodeValue environment tasksNodeId
-                            |> Result.map (fun tasks -> addInstruction currentBlock node (ExecutionInstructionKind.TaskWait(tasks, mode)))
+                        | TypedSemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
+                            let limit =
+                                match limitNodeId with
+                                | Some limitNodeId -> requireNodeValue environment limitNodeId |> Result.map Some
+                                | None -> Ok None
+                            match requireNodeValue environment tasksNodeId, limit with
+                            | Ok tasks, Ok limit -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.TaskWait(tasks, mode, limit)))
+                            | Error error, _
+                            | _, Error error -> Error error
                         | TypedSemanticNodeKind.TaskCancel taskNodeId ->
                             requireNodeValue environment taskNodeId
                             |> Result.map (fun task -> addInstruction currentBlock node (ExecutionInstructionKind.TaskCancel task))

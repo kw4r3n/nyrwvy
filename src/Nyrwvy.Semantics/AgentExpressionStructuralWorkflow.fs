@@ -60,7 +60,8 @@ type ExpressionRecipe =
     /// The body's one unbound parameter receives the new `TaskScope`.
     | TaskScope of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | TaskStart of scope: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list * item: ExpressionRecipe
-    | TaskWait of tasks: ExpressionRecipe * mode: TaskWaitMode
+    /// `limit` is an optional `Option<Int64>` of milliseconds; absent means no limit.
+    | TaskWait of tasks: ExpressionRecipe * mode: TaskWaitMode * limit: ExpressionRecipe option
     | TaskCancel of task: ExpressionRecipe
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -170,7 +171,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.CancellationRequested -> recipe
         | ExpressionRecipe.TaskScope(body, context) -> ExpressionRecipe.TaskScope(body, pairs context)
         | ExpressionRecipe.TaskStart(scope, worker, context, item) -> ExpressionRecipe.TaskStart(go scope, worker, pairs context, go item)
-        | ExpressionRecipe.TaskWait(tasks, mode) -> ExpressionRecipe.TaskWait(go tasks, mode)
+        | ExpressionRecipe.TaskWait(tasks, mode, limit) -> ExpressionRecipe.TaskWait(go tasks, mode, Option.map go limit)
         | ExpressionRecipe.TaskCancel task -> ExpressionRecipe.TaskCancel(go task)
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
@@ -299,7 +300,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.CancellationRequested -> Seq.empty
         | ExpressionRecipe.TaskScope(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskStart(scope, _, context, item) -> seq { yield scope; yield item; yield! context |> Seq.map snd }
-        | ExpressionRecipe.TaskWait(tasks, _) -> Seq.singleton tasks
+        | ExpressionRecipe.TaskWait(tasks, _, limit) -> seq { yield tasks; yield! Option.toList limit }
         | ExpressionRecipe.TaskCancel task -> Seq.singleton task
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
@@ -901,12 +902,19 @@ module AgentExpressionStructuralWorkflow =
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result ->
                                     Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]))
                                 | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "TaskStart worker must return Result<U, E>.")
-            | ExpressionRecipe.TaskWait(tasks, _) ->
-                match infer frames tasks with
-                | Error error -> Error error
-                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ])) ->
+            | ExpressionRecipe.TaskWait(tasks, _, limit) ->
+                let limitType =
+                    match limit |> Option.map (infer frames) with
+                    | None -> Ok()
+                    | Some(Error error) -> Error error
+                    | Some(Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))) -> Ok()
+                    | Some(Ok actual) -> Error(diagnostic "TaskWaitLimitTypeMismatch" $"TaskWait limit requires Option<Int64>, not {actual}.")
+                match infer frames tasks, limitType with
+                | Error error, _
+                | _, Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ])), Ok() ->
                     Ok(listType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ result ])))
-                | Ok actual -> Error(diagnostic "TaskWaitInputTypeMismatch" $"TaskWait requires List<Task<T>>, not {actual}.")
+                | Ok actual, Ok() -> Error(diagnostic "TaskWaitInputTypeMismatch" $"TaskWait requires List<Task<T>>, not {actual}.")
             | ExpressionRecipe.TaskCancel task ->
                 match infer frames task with
                 | Error error -> Error error
@@ -1421,10 +1429,14 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             scopeNodes @ itemNodes @ contextNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskStart(scopeResult, workerFunctionId, contextBindings, itemResult) } ], nodeId
-        | ExpressionRecipe.TaskWait(tasks, mode) ->
+        | ExpressionRecipe.TaskWait(tasks, mode, limit) ->
             let tasksNodes, tasksResult = materializeRecipe tasks
+            let limitNodes, limitResult =
+                match limit with
+                | Some limit -> materializeRecipe limit |> fun (nodes, result) -> nodes, Some result
+                | None -> [], None
             let nodeId = StableIdAllocator.newGraphNodeId ()
-            tasksNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskWait(tasksResult, mode) } ], nodeId
+            tasksNodes @ limitNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskWait(tasksResult, mode, limitResult) } ], nodeId
         | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context

@@ -102,8 +102,10 @@ module internal WireGraph =
         | SemanticNodeKind.TaskScope(body, bindings) -> tagged "taskScope" ([ "bodyFunctionId", identity body ] @ context bindings)
         | SemanticNodeKind.TaskStart(scope, worker, bindings, item) ->
             tagged "taskStart" ([ "scopeNodeId", identity scope; "workerFunctionId", identity worker; "itemNodeId", identity item ] @ context bindings)
-        | SemanticNodeKind.TaskWait(tasks, mode) ->
-            tagged "taskWait" [ "tasksNodeId", identity tasks; "mode", box (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all") ]
+        | SemanticNodeKind.TaskWait(tasks, mode, limit) ->
+            tagged "taskWait"
+                ([ "tasksNodeId", identity tasks; "mode", box (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all") ]
+                 @ (limit |> Option.map (fun limit -> "limitNodeId", identity limit) |> Option.toList))
         | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings

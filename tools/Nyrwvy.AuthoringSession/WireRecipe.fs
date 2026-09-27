@@ -139,8 +139,8 @@ module internal WireRecipe =
             ensureFields "task-start recipe" [ "kind"; "scope"; "workerFunctionId"; "item"; "context" ] [ "kind"; "scope"; "workerFunctionId"; "item" ] element
             ExpressionRecipe.TaskStart(recipe (property "scope" element), id<FunctionTag> "workerFunctionId" element, callbackContext (), recipe (property "item" element))
         | "taskWait" ->
-            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode" ] [ "kind"; "tasks"; "mode" ] element
-            ExpressionRecipe.TaskWait(recipe (property "tasks" element), WireInput.taskWaitMode element)
+            ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode"; "limit" ] [ "kind"; "tasks"; "mode" ] element
+            ExpressionRecipe.TaskWait(recipe (property "tasks" element), WireInput.taskWaitMode element, tryProperty "limit" element |> Option.map recipe)
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe (property "task" element))
