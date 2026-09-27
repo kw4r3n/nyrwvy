@@ -173,7 +173,7 @@ The maintained operation set is:
 | `reject` | Reject and forget one ephemeral `proposalId`. |
 | `executionReadiness` | Project and lower the current committed snapshot without running it. |
 | `emitCSharp` | Emit through the existing C# backend using an explicit existing profile. |
-| `runPure` | Build and run one function with Unit/String/Bool/Int64, List/Option, Product/Union or Result arguments/results (bounded nesting through container items, fields and Result payloads, including recursive named types), scripted fakes for capability parameters, and optional expected value; report identity, actual result, match, mismatch path and fake calls. |
+| `runPure` / `runPureByName` | Build and run one function with Unit/String/Bool/Int64, List/Option, Product/Union or Result arguments/results (bounded nesting through container items, fields and Result payloads, including recursive named types), scripted fakes for capability parameters, and optional expected value; report identity, actual result, match, mismatch path and fake calls. |
 
 `simulateOperations` also accepts `{ "kind": "addProductField", "typeId": "<existing>", "displayName": "<new>", "type": <TypeRef>, "constructions": [{ "constructNodeId": "<existing>", "valueNodeId": "<existing>" }] }`. Every affected Product construction (including nested branches) needs exactly one plan. The field ID is system-owned; plans must select existing values with the exact new field type and valid lexical scope. The review diff reports `productFieldsAdded` and `productFieldsBound`. `{ "kind": "removeProductField", "fieldId": "<existing>" }` removes a Product field and its constructor bindings only after field accesses have been repaired. Affected functions must have no declared effects; otherwise the operation refuses to risk discarding effectful evaluation. Its review diff reports `productFieldsRemoved` with affected constructor IDs. `{ "kind": "deleteFunction", "functionId": "<existing>" }` deletes only an unreferenced function with no obligations targeting its body; its removed node IDs appear in `functionsRemoved`. `{ "kind": "deleteType", "typeId": "<existing>" }` removes an unreferenced Product or Union; the diff lists its removed type, variant and field IDs in `typesRemoved`. References from functions, other types, capabilities, graph nodes, or obligations must be repaired or removed first. Dependent functions may be deleted earlier in the **same** operation batch; field edits and deletion of that type must be reviewed in separate transactions to avoid misleading net diffs. `{ "kind": "deleteCapability", "capabilityId": "<existing>" }` and `{ "kind": "deleteEffect", "effectId": "<existing>" }` remove unused declarations only after all references have been repaired or removed. `capabilitiesRemoved` lists operation and parameter identities; `effectsRemoved` lists the effect identity. A dependent function, its Capability, and the required Effect may be removed in one reviewed batch in that order. These operations use the same reviewed transaction and stale-base protection as the existing operations.
 
@@ -254,6 +254,8 @@ The maintained protocol also exposes a convenience layer for AI tool use when pe
 - `simulateCreateTypeByName`
 - `simulateCreateFunctionByName`
 - `simulateReplaceBodyByName`
+- `simulateCreateCapabilityByName`
+- `runPureByName`
 
 This layer is not a textual source language and does not become program authority. Resolution happens inside the current single-writer session; ambiguous or missing names are rejected. `simulateCreateFunctionByName` also rejects an exact display name already held by any local or imported function before registering a proposal. Existing snapshots and exact-ID authoring can still contain duplicate display names; this is a guard on the convenience operation, not a new semantic uniqueness rule. Simulation, review, validation, system-owned identity allocation, commit policy, and publication are otherwise unchanged.
 
@@ -282,6 +284,26 @@ A whole-body change therefore needs only the semantic target name and replacemen
 ```
 
 The session resolves the target `FunctionId` and current result node before constructing the ordinary reviewed replacement request.
+
+`simulateCreateCapabilityByName` takes the `simulateCreateCapability` shape with name-resolved `TypeRef`s and `"effect": "<effect display name>"` in place of `effectId`. Like function creation, it rejects a display name already held by any local or imported capability. `simulateCreateEffect` already takes no references and has no separate name form.
+
+`runPureByName` takes the `runPure` request with `"function": "<display name>"` in place of `functionId`. Its run values use the same selectors as expression recipes, each resolved within its owner:
+
+| Run value | Exact-ID key | Name key (resolved within) |
+| --- | --- | --- |
+| Product | `typeId`, fields `fieldId` | `type`, fields `field` (the Product) |
+| Union | `typeId`, `variantId`, fields `fieldId` | `type`, `variant` (the Union), fields `field` (the variant) |
+| Nested List/Option/Result | `itemType`/`okType`/`errorType` exact `TypeRef` | the same keys with name-resolved `TypeRef` |
+| `hostCapability` | `capabilityId` | `capability` |
+| `fakeCapability` | `capabilityId`, operations `operationId`, case arguments `capabilityParameterId` | `capability`, `operation` (the capability), `parameter` (the operation) |
+
+```json
+{"kind": "fakeCapability", "capability": "Provider", "operations": [
+  {"operation": "lookup", "cases": [{"arguments": [{"parameter": "key", "value": {"kind": "string", "value": "a"}}],
+                                     "responses": [{"kind": "return", "value": {"kind": "union", "type": "Answer", "variant": "Missing", "fields": []}}]}]}]}
+```
+
+Each operation accepts only its own vocabulary: exact-ID keys in a `…ByName` request, or name keys in an exact-ID request, fail as malformed input. An unknown or ambiguous name, or a name of the wrong kind (such as a Union for a Product value), is a `ProtocolError` before anything is built or run. Once resolved, the values pass through the ordinary `runPure` validation, so shape and binding failures keep their `Run*` codes, and results, mismatch paths and calls are still reported with exact IDs.
 
 This direction is consistent with evidence from structure-aware coding-agent interfaces such as [CODESTRUCT (ACL 2026)](https://aclanthology.org/2026.acl-long.607/), which found that operating on named AST entities instead of text spans can improve reliability and reduce token use. Nyrwvy does not treat that work as design authority or as evidence that every graph interface is superior. The relevant hypothesis is narrower: an AI-facing structured action space can remove text-position and identity-reconstruction work. Nyrwvy applies that idea to its authoritative typed semantic graph rather than translating the edit back into authoritative source text.
 

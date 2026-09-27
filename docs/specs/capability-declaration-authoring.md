@@ -32,7 +32,7 @@ AgentCreateCapabilityDeclarationRequest =
   Operations: AgentCapabilityOperationIntent list
 ```
 
-The request contains existing published `EffectId` references because operation effects are already semantic facts. It never contains production capability, operation, or parameter identities.
+The request contains existing published `EffectId` references because operation effects are already semantic facts. It never contains production capability, operation, or parameter identities. The maintained session's `simulateCreateCapabilityByName` convenience resolves effect and type display names to these IDs before building the same request (see [Name-resolved AI authoring](agent-authoring-session.md#name-resolved-ai-authoring)).
 
 Operation and parameter order are carried as ordinary declaration structure. Display names are presentation metadata; this operation does not introduce name-based identity or uniqueness semantics.
 

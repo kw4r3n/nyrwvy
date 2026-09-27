@@ -43,7 +43,9 @@ module AuthoringProtocol =
             | 0L -> response
             | delay -> PureRunFakeResponse.Delayed(delay, response)
 
-    let rec private pureValueAt (remaining: int ref) depth (item: JsonElement): PureRunValue =
+    /// Decodes a run value. `names` selects the name-resolved wire form (`runPureByName`): semantic
+    /// references are exact display names resolved against those declarations instead of stable IDs.
+    let rec private pureValueAt (names: AuthoringDeclarations option) (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
         if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "unit" then
@@ -62,32 +64,47 @@ module AuthoringProtocol =
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
+        let key idKey nameKey = if names.IsSome then nameKey else idKey
+        let typeRef element =
+            match names with
+            | Some declarations -> WireSymbolic.typeRef declarations element
+            | None -> typeRef element
         match kind with
         | "list" when tryProperty "itemType" item |> Option.isSome ->
             ensureFields "Nested List run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
             let items = array "items" item
             if items.Length > 4096 then fail "Lists may contain at most 4096 items."
-            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt remaining (depth + 1)))
+            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
         | "option" when tryProperty "itemType" item |> Option.isSome ->
             let hasValue = requiredBool "hasValue" item
             let fields = [ "kind"; "itemType"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
             ensureFields "Nested Option run value" fields fields item
             PureRunValue.OptionValue(typeRef (property "itemType" item),
-                if hasValue then Some(pureValueAt remaining (depth + 1) (property "value" item)) else None)
+                if hasValue then Some(pureValueAt names remaining (depth + 1) (property "value" item)) else None)
         | "unit" ->
             ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
             PureRunValue.Unit
         | "hostCapability" ->
-            ensureFields "Host capability" [ "kind"; "capabilityId"; "implementation"; "supportsConcurrentCalls" ] [ "kind"; "capabilityId"; "implementation" ] item
-            PureRunValue.HostCapability(id<CapabilityTag> "capabilityId" item, requiredString "implementation" item, optionalBool "supportsConcurrentCalls" false item)
+            let capabilityKey = key "capabilityId" "capability"
+            ensureFields "Host capability" [ "kind"; capabilityKey; "implementation"; "supportsConcurrentCalls" ] [ "kind"; capabilityKey; "implementation" ] item
+            let capabilityId =
+                match names with
+                | Some declarations -> (WireSymbolic.resolveCapability declarations (requiredString capabilityKey item)).Id
+                | None -> id<CapabilityTag> capabilityKey item
+            PureRunValue.HostCapability(capabilityId, requiredString "implementation" item, optionalBool "supportsConcurrentCalls" false item)
         | "fakeCapability" ->
-            ensureFields "Fake capability" [ "kind"; "capabilityId"; "operations" ] [ "kind"; "capabilityId"; "operations" ] item
+            let capabilityKey, operationKey, parameterKey =
+                key "capabilityId" "capability", key "operationId" "operation", key "capabilityParameterId" "parameter"
+            ensureFields "Fake capability" [ "kind"; capabilityKey; "operations" ] [ "kind"; capabilityKey; "operations" ] item
             let operations = array "operations" item
             if operations.Length > 256 then fail "A fake capability may script at most 256 operations."
+            let capability = names |> Option.map (fun declarations -> WireSymbolic.resolveCapability declarations (requiredString capabilityKey item))
             PureRunValue.FakeCapability(
-                id<CapabilityTag> "capabilityId" item,
+                (match capability with
+                 | Some capability -> capability.Id
+                 | None -> id<CapabilityTag> capabilityKey item),
                 operations |> List.map (fun operation ->
-                    ensureFields "Fake operation" [ "operationId"; "responses"; "cases" ] [ "operationId" ] operation
+                    ensureFields "Fake operation" [ operationKey; "responses"; "cases" ] [ operationKey ] operation
                     let parseResponses owner =
                         let values = array "responses" owner
                         if values.Length > 256 then fail "A fake operation may script at most 256 responses."
@@ -95,15 +112,23 @@ module AuthoringProtocol =
                             match requiredString "kind" response with
                             | "return" ->
                                 ensureFields "Fake return" [ "kind"; "value"; "delayMillis" ] [ "kind"; "value" ] response
-                                delayed response (PureRunFakeResponse.Return(pureValueAt remaining (depth + 1) (property "value" response)))
+                                delayed response (PureRunFakeResponse.Return(pureValueAt names remaining (depth + 1) (property "value" response)))
                             | "throw" ->
                                 ensureFields "Fake throw" [ "kind"; "message"; "delayMillis" ] [ "kind"; "message" ] response
                                 delayed response (PureRunFakeResponse.Throw(requiredString "message" response))
                             | "awaitCancellation" ->
                                 ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
-                                PureRunFakeResponse.AwaitCancellation(pureValueAt remaining (depth + 1) (property "value" response))
+                                PureRunFakeResponse.AwaitCancellation(pureValueAt names remaining (depth + 1) (property "value" response))
                             | other -> fail $"Unsupported fake response kind '{other}'.")
-                    let operationId = id<CapabilityOperationTag> "operationId" operation
+                    let resolvedOperation = capability |> Option.map (fun capability -> WireSymbolic.capabilityOperation capability (requiredString operationKey operation))
+                    let operationId =
+                        match resolvedOperation with
+                        | Some resolved -> resolved.Id
+                        | None -> id<CapabilityOperationTag> operationKey operation
+                    let parameterId argument =
+                        match resolvedOperation with
+                        | Some resolved -> (WireSymbolic.capabilityParameter resolved (requiredString parameterKey argument)).Id
+                        | None -> id<CapabilityParameterTag> parameterKey argument
                     match tryProperty "responses" operation, tryProperty "cases" operation with
                     | Some _, None -> { OperationId = operationId; Responses = parseResponses operation; Cases = None }
                     | None, Some _ ->
@@ -114,8 +139,8 @@ module AuthoringProtocol =
                             let arguments = array "arguments" item
                             if arguments.Length > 256 then fail "A fake case may contain at most 256 arguments."
                             { Arguments = arguments |> List.map (fun argument ->
-                                ensureFields "Fake case argument" [ "capabilityParameterId"; "value" ] [ "capabilityParameterId"; "value" ] argument
-                                id<CapabilityParameterTag> "capabilityParameterId" argument, pureValueAt remaining (depth + 1) (property "value" argument))
+                                ensureFields "Fake case argument" [ parameterKey; "value" ] [ parameterKey; "value" ] argument
+                                parameterId argument, pureValueAt names remaining (depth + 1) (property "value" argument))
                               Responses = parseResponses item })
                         if cases |> List.sumBy (fun item -> item.Responses.Length) > 256 then fail "A fake operation may script at most 256 total responses."
                         { OperationId = operationId; Responses = []; Cases = Some cases }
@@ -126,16 +151,31 @@ module AuthoringProtocol =
             | PureRunScalar.Bool value -> PureRunValue.Bool value
             | PureRunScalar.Int64 value -> PureRunValue.Int64 value
         | "product" | "union" as kind ->
-            let properties = [ "kind"; "typeId"; "fields" ] @ (if kind = "union" then [ "variantId" ] else [])
+            let typeKey, variantKey, fieldKey = key "typeId" "type", key "variantId" "variant", key "fieldId" "field"
+            let properties = [ "kind"; typeKey; "fields" ] @ (if kind = "union" then [ variantKey ] else [])
             ensureFields "Named run value" properties properties item
             let fields = array "fields" item
             if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
+            // Name form: fields resolve within the named type (Product) or the named variant (Union).
+            let typeId, variantId, fieldId =
+                match names with
+                | None ->
+                    id<TypeTag> typeKey item,
+                    (if kind = "union" then Some(id<VariantTag> variantKey item) else None),
+                    fun field -> id<FieldTag> fieldKey field
+                | Some declarations ->
+                    let owner = WireSymbolic.resolveType declarations (requiredString typeKey item)
+                    if kind = "union" then
+                        let variant = WireSymbolic.unionVariant owner (requiredString variantKey item)
+                        owner.Id, Some variant.Id, fun field -> (WireSymbolic.variantField variant (requiredString fieldKey field)).Id
+                    else
+                        owner.Id, None, fun field -> (WireSymbolic.productField owner (requiredString fieldKey field)).Id
             let fields = fields |> List.map (fun field ->
-                ensureFields "Named run field" [ "fieldId"; "value" ] [ "fieldId"; "value" ] field
-                id<FieldTag> "fieldId" field, pureValueAt remaining (depth + 1) (property "value" field))
-            let typeId = id<TypeTag> "typeId" item
-            if kind = "union" then PureRunValue.Union(typeId, id<VariantTag> "variantId" item, fields)
-            else PureRunValue.Product(typeId, fields)
+                ensureFields "Named run field" [ fieldKey; "value" ] [ fieldKey; "value" ] field
+                fieldId field, pureValueAt names remaining (depth + 1) (property "value" field))
+            match variantId with
+            | Some variantId -> PureRunValue.Union(typeId, variantId, fields)
+            | None -> PureRunValue.Product(typeId, fields)
         | "result" when tryProperty "okType" item |> Option.isSome ->
             let fields = [ "kind"; "okType"; "errorType"; "isOk"; "value" ]
             ensureFields "Nested Result run value" fields fields item
@@ -143,7 +183,7 @@ module AuthoringProtocol =
                 typeRef (property "okType" item),
                 typeRef (property "errorType" item),
                 requiredBool "isOk" item,
-                pureValueAt remaining (depth + 1) (property "value" item))
+                pureValueAt names remaining (depth + 1) (property "value" item))
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -197,7 +237,7 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
-    let private pureValue item = pureValueAt (ref 8192) 0 item
+    let private pureValue names item = pureValueAt names (ref 8192) 0 item
 
     let private encodePureScalar value =
         let kind, payload =
@@ -682,6 +722,23 @@ module AuthoringProtocol =
                 match session.SimulateCreateCapability request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateCreateCapabilityByName" ->
+                ensureFields
+                    "simulateCreateCapabilityByName request"
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "operations" ]
+                    root
+                let declarations = session.Declarations()
+                let displayName = requiredString "displayName" root
+                if declarations.Capabilities |> List.exists (fun item -> item.DisplayName = displayName) then
+                    WireInput.fail $"Capability display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
+                let request: AgentCreateCapabilityDeclarationRequest =
+                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                      DisplayName = displayName
+                      Operations = array "operations" root |> List.map (WireSymbolic.capabilityOperationIntent declarations) }
+                match session.SimulateCreateCapability request with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateReplaceBody" ->
                 ensureFields
                     "simulateReplaceBody request"
@@ -785,15 +842,20 @@ module AuthoringProtocol =
                               "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
                               "functionCount", box execution.Functions.Length ])
                 | Error error -> sessionFailure requestId error
-            | "runPure" ->
+            | "runPure" | "runPureByName" as op ->
+                let names = if op = "runPureByName" then Some(session.Declarations()) else None
+                let functionKey = if names.IsSome then "function" else "functionId"
                 ensureFields
-                    "runPure request"
-                    [ "id"; "op"; "functionId"; "arguments"; "expected"; "hostSources" ]
-                    [ "id"; "op"; "functionId"; "arguments" ]
+                    $"{op} request"
+                    [ "id"; "op"; functionKey; "arguments"; "expected"; "hostSources" ]
+                    [ "id"; "op"; functionKey; "arguments" ]
                     root
-                let functionId = id<FunctionTag> "functionId" root
-                let arguments = array "arguments" root |> List.map pureValue
-                let expected = tryProperty "expected" root |> Option.map pureValue
+                let functionId =
+                    match names with
+                    | Some declarations -> (WireSymbolic.resolveFunction declarations (requiredString functionKey root)).Id
+                    | None -> id<FunctionTag> functionKey root
+                let arguments = array "arguments" root |> List.map (pureValue names)
+                let expected = tryProperty "expected" root |> Option.map (pureValue names)
                 let hostSources =
                     tryProperty "hostSources" root
                     |> Option.map (fun _ ->

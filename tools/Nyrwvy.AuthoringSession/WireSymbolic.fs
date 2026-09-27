@@ -21,30 +21,30 @@ module internal WireSymbolic =
     let resolveEffect (declarations: AuthoringDeclarations) displayName =
         exactOne "effect" displayName declarations.Effects (fun item -> item.DisplayName)
 
-    let private resolveCapability (declarations: AuthoringDeclarations) displayName =
+    let resolveCapability (declarations: AuthoringDeclarations) displayName =
         exactOne "capability" displayName declarations.Capabilities (fun item -> item.DisplayName)
 
-    let private productField (owner: SemanticType) displayName =
+    let productField (owner: SemanticType) displayName =
         match owner.Kind with
         | SemanticTypeKind.Product fields ->
             exactOne $"field on {owner.DisplayName}" displayName fields (fun item -> item.DisplayName)
         | SemanticTypeKind.Union _ ->
             fail $"Type '{owner.DisplayName}' is not a product type."
 
-    let private unionVariant (owner: SemanticType) displayName =
+    let unionVariant (owner: SemanticType) displayName =
         match owner.Kind with
         | SemanticTypeKind.Union variants ->
             exactOne $"variant on {owner.DisplayName}" displayName variants (fun item -> item.DisplayName)
         | SemanticTypeKind.Product _ ->
             fail $"Type '{owner.DisplayName}' is not a union type."
 
-    let private variantField (variant: SemanticVariant) displayName =
+    let variantField (variant: SemanticVariant) displayName =
         exactOne $"field on variant {variant.DisplayName}" displayName variant.Fields (fun item -> item.DisplayName)
 
-    let private capabilityOperation (capability: SemanticCapability) displayName =
+    let capabilityOperation (capability: SemanticCapability) displayName =
         exactOne $"operation on {capability.DisplayName}" displayName capability.Operations (fun item -> item.DisplayName)
 
-    let private capabilityParameter (operation: SemanticCapabilityOperation) displayName =
+    let capabilityParameter (operation: SemanticCapabilityOperation) displayName =
         exactOne $"parameter on operation {operation.DisplayName}" displayName operation.Parameters (fun item -> item.DisplayName)
 
     let rec typeRef (declarations: AuthoringDeclarations) (element: JsonElement): TypeRef =
@@ -106,6 +106,29 @@ module internal WireSymbolic =
                       Fields = array "fields" item |> List.map (typeFieldIntent declarations) })
             AgentTypeDeclarationKindIntent.Union variants
         | value -> fail $"Unsupported type declaration kind '{value}'."
+
+    /// Name-resolved capability operation: types use symbolic TypeRefs and `effect` names an existing effect.
+    let capabilityOperationIntent declarations (item: JsonElement): AgentCapabilityOperationIntent =
+        ensureFields
+            "capability operation"
+            [ "displayName"; "parameters"; "resultType"; "failureType"; "effect" ]
+            [ "displayName"; "parameters"; "resultType"; "effect" ]
+            item
+        let failureType =
+            match tryProperty "failureType" item with
+            | None -> None
+            | Some value when value.ValueKind = JsonValueKind.Null -> None
+            | Some value -> Some(typeRef declarations value)
+        { DisplayName = requiredString "displayName" item
+          Parameters =
+            array "parameters" item
+            |> List.map (fun parameter ->
+                ensureFields "capability parameter" [ "displayName"; "type" ] [ "displayName"; "type" ] parameter
+                { DisplayName = requiredString "displayName" parameter
+                  Type = typeRef declarations (property "type" parameter) })
+          ResultType = typeRef declarations (property "resultType" item)
+          FailureType = failureType
+          EffectId = (resolveEffect declarations (requiredString "effect" item)).Id }
 
     let functionParameters declarations (element: JsonElement) =
         array "parameters" element
