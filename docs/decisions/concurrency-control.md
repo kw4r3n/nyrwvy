@@ -118,7 +118,7 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 - Validation gains: `TaskStart` worker shape (same rules and diagnostics family as `ParallelAll`), `TaskWait` element type agreement, `TaskScope` body shape (same family as `UseResource`), and the effect rule that all three are effectful.
 - Persistence, typed IR, execution IR, viewer, wire recipes and C# emission each gain the four constructs and `Task<T>`, following the `ParallelAll`/`UseResource` pattern.
 - `runPure` gains `Task<T>` in the value model only as far as results are concerned. A handle is not a run value and cannot be an argument or an expectation (`RunBindingPlacement`-style rejection). It also gains the virtual clock and `delayMillis` fake responses.
-- The fake-targeting gap (queue item 3) becomes more pressing. Per-task deterministic ordering helps, but "only member 2 fails" still needs argument-keyed responses. It should follow directly after this work.
+- The fake-targeting gap (queue item 3) is now addressed by [argument-keyed response queues](../specs/agent-authoring-session.md#argument-keyed-fake-responses), including delayed responses.
 
 ## Implementation phases
 

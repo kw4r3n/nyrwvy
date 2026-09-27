@@ -131,9 +131,9 @@ module UseResourceTests =
             let errUnit (text: string) = PureRunValue.ResultValue(unitType, stringType, false, PureRunValue.String text)
             let files opened read closed =
                 PureRunValue.FakeCapability(fixture.Files.Id,
-                    [ { OperationId = (fixture.Operation "open").Id; Responses = opened }
-                      { OperationId = (fixture.Operation "read").Id; Responses = read }
-                      { OperationId = (fixture.Operation "close").Id; Responses = closed } ])
+                    [ { OperationId = (fixture.Operation "open").Id; Cases = None; Responses = opened }
+                      { OperationId = (fixture.Operation "read").Id; Cases = None; Responses = read }
+                      { OperationId = (fixture.Operation "close").Id; Cases = None; Responses = closed } ])
             let returns value = [ PureRunFakeResponse.Return value ]
             let names (calls: PureRunCall list) =
                 calls |> List.map (fun call -> (fixture.Files.Operations |> List.find (fun item -> item.Id = call.OperationId)).DisplayName)
@@ -159,8 +159,8 @@ module UseResourceTests =
             | other -> failwithf "Host exception did not propagate after release: %A" other
             let lock =
                 PureRunValue.FakeCapability(fixture.Lock.Id,
-                    [ { OperationId = (fixture.Lock.Operations |> List.find (fun item -> item.DisplayName = "acquire")).Id; Responses = returns (okText "t1") }
-                      { OperationId = (fixture.Lock.Operations |> List.find (fun item -> item.DisplayName = "release")).Id; Responses = returns PureRunValue.Unit } ])
+                    [ { OperationId = (fixture.Lock.Operations |> List.find (fun item -> item.DisplayName = "acquire")).Id; Cases = None; Responses = returns (okText "t1") }
+                      { OperationId = (fixture.Lock.Operations |> List.find (fun item -> item.DisplayName = "release")).Id; Cases = None; Responses = returns PureRunValue.Unit } ])
             let locked = PureRun.run fixture.Session (fixture.Function "withLock").Id [ PureRunValue.String "n"; lock ] (Some(okText "t1")) |> unwrap "lock"
             Assert.Equal(Some true, locked.Matches)
             Assert.Equal(2, locked.Calls.Length))

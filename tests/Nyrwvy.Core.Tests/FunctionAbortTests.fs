@@ -65,7 +65,7 @@ module FunctionAbortTests =
         ExpressionRecipe.CapabilityInvoke(receiver, op.Id, [ op.Parameters.Head.Id, value ])
     let private fake (cap: SemanticCapability) responses =
         PureRunValue.FakeCapability(cap.Id, cap.Operations |> List.map (fun op ->
-            { OperationId = op.Id; Responses = responses |> List.tryFind (fun (name, _) -> name = op.DisplayName) |> Option.map snd |> Option.defaultValue [] }))
+            { OperationId = op.Id; Cases = None; Responses = responses |> List.tryFind (fun (name, _) -> name = op.DisplayName) |> Option.map snd |> Option.defaultValue [] }))
     let private returns value = PureRunFakeResponse.Return value
     let private calls (cap: SemanticCapability) (values: PureRunCall list) =
         values |> List.map (fun call -> (cap.Operations |> List.find (fun op -> op.Id = call.OperationId)).DisplayName)
