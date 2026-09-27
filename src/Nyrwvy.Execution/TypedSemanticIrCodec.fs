@@ -8,7 +8,7 @@ open System.Text.Json
 /// This is an IR schema, not a semantic-graph persistence format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrCodec =
-    let schemaVersion = 8
+    let schemaVersion = 9
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -577,17 +577,22 @@ module TypedSemanticIrCodec =
         use writer = new Utf8JsonWriter(stream)
 
         writer.WriteStartObject()
-        let rec hasAbort (graph: TypedSemanticGraph) =
+        let rec has matches (graph: TypedSemanticGraph) =
             graph.Nodes |> List.exists (fun node ->
-                match node.Kind with
-                | TypedSemanticNodeKind.Abort _ -> true
-                | TypedSemanticNodeKind.Conditional(_, a, b) -> hasAbort a || hasAbort b
-                | TypedSemanticNodeKind.Bind(_, arm) -> hasAbort arm.Body
-                | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> hasAbort arm.Body)
-                | TypedSemanticNodeKind.MatchOption(_, arm, other) -> hasAbort arm.Body || hasAbort other
-                | TypedSemanticNodeKind.MatchResult(_, a, b) -> hasAbort a.Body || hasAbort b.Body
-                | _ -> false)
-        writer.WriteNumber("schemaVersion", if program.Functions |> List.exists (fun fn -> hasAbort fn.Body) then schemaVersion else 7)
+                matches node.Kind
+                || match node.Kind with
+                   | TypedSemanticNodeKind.Conditional(_, a, b) -> has matches a || has matches b
+                   | TypedSemanticNodeKind.Bind(_, arm) -> has matches arm.Body
+                   | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> has matches arm.Body)
+                   | TypedSemanticNodeKind.MatchOption(_, arm, other) -> has matches arm.Body || has matches other
+                   | TypedSemanticNodeKind.MatchResult(_, a, b) -> has matches a.Body || has matches b.Body
+                   | _ -> false)
+        let uses matches = program.Functions |> List.exists (fun fn -> has matches fn.Body)
+        let version =
+            if uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then schemaVersion
+            elif uses (function TypedSemanticNodeKind.Abort _ -> true | _ -> false) then 8
+            else 7
+        writer.WriteNumber("schemaVersion", version)
         writer.WriteString("sourceSnapshotId", StableId.value program.SourceSnapshotId)
 
         writer.WritePropertyName("types")

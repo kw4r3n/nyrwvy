@@ -17,6 +17,7 @@ exception private NyasonSchemaException of string
 module NyasonCodec =
     let schemaId = "nayamnyam.snapshot.v5"
     let abortSchemaId = "nayamnyam.snapshot.v7"
+    let timedWaitSchemaId = "nayamnyam.snapshot.v8"
     let capabilitySchemaId = "nayamnyam.snapshot.v6"
 
     let private shape message = raise (NyasonShapeException message)
@@ -1193,7 +1194,7 @@ module NyasonCodec =
             let root =
                 record
                     "nyason"
-                    [ "schema", text (if FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
+                    [ "schema", text (if TaskTimeLimits.isUsed snapshot then timedWaitSchemaId elif FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
                       "snapshot", encodeSnapshot snapshot ]
             Ok(NyasonSyntax.render root)
 
@@ -1204,12 +1205,14 @@ module NyasonCodec =
             try
                 let fields = recordFields "nyason" [ "schema"; "snapshot" ] [] root
                 let actualSchema = decodeText (require "schema" fields)
-                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId && actualSchema <> abortSchemaId then
+                if actualSchema <> schemaId && actualSchema <> capabilitySchemaId && actualSchema <> abortSchemaId && actualSchema <> timedWaitSchemaId then
                     raise (NyasonSchemaException actualSchema)
 
                 let snapshot = decodeSnapshot (require "snapshot" fields)
-                if actualSchema <> abortSchemaId && FunctionAbort.isUsed snapshot then
+                if actualSchema <> abortSchemaId && actualSchema <> timedWaitSchemaId && FunctionAbort.isUsed snapshot then
                     raise (NyasonShapeException "Function abort requires nayamnyam.snapshot.v7.")
+                if actualSchema <> timedWaitSchemaId && TaskTimeLimits.isUsed snapshot then
+                    raise (NyasonShapeException "Timed TaskWait requires nayamnyam.snapshot.v8.")
                 if actualSchema = schemaId && CapabilityImplementations.isUsed snapshot then
                     raise (NyasonShapeException "Capability construction requires nayamnyam.snapshot.v6.")
                 match SnapshotValidator.validate snapshot with

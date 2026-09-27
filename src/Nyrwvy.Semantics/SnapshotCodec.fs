@@ -21,6 +21,7 @@ module SnapshotCodec =
     let private schemaVersion = 9
     let private capabilitySchemaVersion = 10
     let private abortSchemaVersion = 11
+    let private timedWaitSchemaVersion = 12
     // Retain the writer's existing depth allowance and apply it to reads too:
     // nested graph envelopes must not make a successfully saved snapshot unreadable.
     let private maxJsonDepth = 1000
@@ -718,7 +719,7 @@ module SnapshotCodec =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", if FunctionAbort.isUsed snapshot then abortSchemaVersion elif CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
+        writer.WriteNumber("schemaVersion", if TaskTimeLimits.isUsed snapshot then timedWaitSchemaVersion elif FunctionAbort.isUsed snapshot then abortSchemaVersion elif CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
         match dependencyMarker with
         | Some(id, fingerprint) ->
@@ -1316,7 +1317,7 @@ module SnapshotCodec =
                        || readString "digest" marker <> dependencyDigest imported then
                         invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
-                if version <> schemaVersion && version <> capabilitySchemaVersion && version <> abortSchemaVersion then
+                if version <> schemaVersion && version <> capabilitySchemaVersion && version <> abortSchemaVersion && version <> timedWaitSchemaVersion then
                     Error(SnapshotCodecError.UnsupportedSchemaVersion version)
                 else
                     let parentId =
@@ -1331,8 +1332,10 @@ module SnapshotCodec =
                           Capabilities = readArray "capabilities" readCapability root
                           Functions = readArray "functions" readFunction root
                           Obligations = readArray "obligations" readObligation root }
-                    if version <> abortSchemaVersion && FunctionAbort.isUsed snapshot then
+                    if version < abortSchemaVersion && FunctionAbort.isUsed snapshot then
                         invalidShape "Function abort requires snapshot schemaVersion 11."
+                    if version < timedWaitSchemaVersion && TaskTimeLimits.isUsed snapshot then
+                        invalidShape "Timed TaskWait requires snapshot schemaVersion 12."
                     if version = schemaVersion && CapabilityImplementations.isUsed snapshot then
                         invalidShape "Capability construction requires snapshot schemaVersion 10."
                     let resolved =

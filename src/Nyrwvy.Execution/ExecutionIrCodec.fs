@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 7
+    let schemaVersion = 8
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -542,8 +542,17 @@ module ExecutionIrCodec =
                    |> arrayValue) ]
 
     let serialize (program: ExecutionProgram): string =
+        let blocks = program.Functions |> List.collect (fun fn -> fn.Blocks)
+        let hasLimit =
+            blocks |> List.exists (fun block ->
+                block.Instructions |> List.exists (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.TaskWait(_, _, Some _) -> true
+                    | _ -> false))
+        let hasAbort = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)
+        let version = if hasLimit then schemaVersion elif hasAbort then 7 else 6
         objectValue
-            [ property "schemaVersion" (string (if program.Functions |> List.exists (fun fn -> fn.Blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)) then schemaVersion else 6))
+            [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)
               property
                   "types"

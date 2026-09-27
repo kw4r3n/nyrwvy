@@ -934,8 +934,8 @@ module PureRun =
             match emitted, session.Status() with
             | Error error, _
             | _, Error error -> Error(PureRunError.SessionFailure error)
-            | Ok(_, artifact), Ok _ when
-                not (artifact.Source.Contains("public static class NyRuntime"))
+            | Ok(program, _), Ok _ when
+                not (CSharpBackend.usesConcurrencyRuntime program)
                 && arguments |> List.exists (function
                     | PureRunValue.FakeCapability(_, operations) ->
                         operations |> List.exists (fun operation ->
@@ -1120,7 +1120,7 @@ module PureRun =
                             + (if checksText then "long textRemaining = 65536;\n" else "")
                             + "try\n{\n"
                             // Concurrent programs run on a virtual clock, so waits and delays are deterministic.
-                            + (if artifact.Source.Contains("public sealed class NyVirtualClock") then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
+                            + (if CSharpBackend.usesConcurrencyRuntime program then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
                             + $"    var result = NyFunctions.{entry}({args});\n"
                             + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
                             + "}\n"

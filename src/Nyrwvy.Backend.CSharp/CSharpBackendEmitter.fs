@@ -284,9 +284,17 @@ module CSharpBackend =
           "                clock.Block(any ? () => Array.Exists(running, task => task.IsCompleted) : () => Array.TrueForAll(running, task => task.IsCompleted), millis);"
           "            else"
           "            {"
-          "                var timeout = millis is long value ? (int)Math.Min(value, int.MaxValue) : System.Threading.Timeout.Infinite;"
-          "                if (any) System.Threading.Tasks.Task.WaitAny(running, timeout);"
-          "                else { try { System.Threading.Tasks.Task.WaitAll(running, timeout); } catch (AggregateException) { } }"
+          "                // One Task wait accepts at most int.MaxValue ms (~24.8 days), so longer limits wait in steps."
+          "                var watch = System.Diagnostics.Stopwatch.StartNew();"
+          "                while (true)"
+          "                {"
+          "                    long left = millis is long total ? Math.Max(0L, total - watch.ElapsedMilliseconds) : -1L;"
+          "                    int timeout = left < 0L ? System.Threading.Timeout.Infinite : (int)Math.Min(left, int.MaxValue);"
+          "                    bool done;"
+          "                    if (any) done = System.Threading.Tasks.Task.WaitAny(running, timeout) >= 0;"
+          "                    else { try { done = System.Threading.Tasks.Task.WaitAll(running, timeout); } catch (AggregateException) { done = true; } }"
+          "                    if (done || left <= int.MaxValue) break;"
+          "                }"
           "            }"
           "        }"
           "        return NyList<NyOption<T>>.Create(items.ConvertAll(task => task.Snapshot()).ToArray());"
@@ -453,23 +461,26 @@ module CSharpBackend =
                            | ExecutionInstructionKind.TaskCancel _ -> true
                            | _ -> false))))
 
+    /// Whether the generated source contains NyRuntime and NyVirtualClock, so a runner can install a
+    /// virtual clock without inspecting the source text.
+    let usesConcurrencyRuntime (program: ExecutionProgram) =
+        usesTaskTypes program
+        || program.Functions
+           |> List.exists (fun functionEntity ->
+               functionEntity.Blocks
+               |> List.exists (fun block ->
+                   block.Instructions
+                   |> List.exists (fun instruction ->
+                       match instruction.Kind with
+                       | ExecutionInstructionKind.ParallelAll _
+                       | ExecutionInstructionKind.CancellationRequested -> true
+                       | _ -> false)))
+
     /// Ambient cancellation for ParallelAll workers and tasks, emitted only for programs that use
     /// concurrency so other generated programs are unchanged. External implementations read the same token.
     let private emitConcurrencyRuntime (writer: SourceWriter) (program: ExecutionProgram) =
         let usesTasks = usesTaskTypes program
-        let usesConcurrency =
-            usesTasks
-            || program.Functions
-               |> List.exists (fun functionEntity ->
-                   functionEntity.Blocks
-                   |> List.exists (fun block ->
-                       block.Instructions
-                       |> List.exists (fun instruction ->
-                           match instruction.Kind with
-                           | ExecutionInstructionKind.ParallelAll _
-                           | ExecutionInstructionKind.CancellationRequested -> true
-                           | _ -> false)))
-        if usesConcurrency then
+        if usesConcurrencyRuntime program then
             for line in concurrencyRuntime do
                 writer.Line(line)
         if usesTasks then
