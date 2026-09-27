@@ -32,13 +32,9 @@ This changes verification input only; snapshot and IR schemas are unchanged.
 
 | Command | Result |
 | --- | --- |
-| `./scripts/test-fast.fish --no-restore` | 487 F# and 29 Node/script tests passed. |
-| `./scripts/test-extended.fish --no-restore` | 55 Core Extended and 31 Extended-project tests passed. |
-| `npm run typecheck` | Adapter and Bun configurations passed. |
-| `npm run test:adapters` | 8 passed. |
+| `./scripts/test-fast.fish` | 486 F# and 29 Node/script tests passed. |
+| `./scripts/test-extended.fish` | 52 Core Extended and 31 Extended-project tests passed. |
 | `npm run test:node` | 41 Node and 11 MCP tests passed. |
-| `npm run test:bun` | 31 passed. |
-| `node --experimental-strip-types examples/task-time-limits/run.mjs` | All five cases passed. |
 
 Counts overlap. These are local Linux deterministic tests, not a new live-model
 trial. Identical argument values intentionally share a queue and retain call-order
