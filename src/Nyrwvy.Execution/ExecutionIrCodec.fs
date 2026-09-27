@@ -253,6 +253,9 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringLength valueId ->
             [ property "kind" (quote "stringLength")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.BoolNot valueId ->
+            [ property "kind" (quote "boolNot")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringSlice(valueId, startId, endId) ->
             [ property "kind" (quote "stringSlice")
               property "valueId" (executionValueIdValue valueId)

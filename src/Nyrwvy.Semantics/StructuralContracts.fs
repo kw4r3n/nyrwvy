@@ -41,7 +41,8 @@ module ValueDependency =
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
-        | SemanticNodeKind.StringLength sourceNodeId ->
+        | SemanticNodeKind.StringLength sourceNodeId
+        | SemanticNodeKind.BoolNot sourceNodeId ->
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.StringSlice(sourceNodeId, startNodeId, endNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
@@ -142,6 +143,10 @@ module ValueDependency =
         | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) ->
             [ create ValueDependencyRole.Error errorNodeId ]
+        // The right operand of BoolAnd/BoolOr is a child ValueGraph, like a Conditional branch.
+        | SemanticNodeKind.BoolAnd(leftNodeId, _)
+        | SemanticNodeKind.BoolOr(leftNodeId, _) ->
+            [ create ValueDependencyRole.LeftOperand leftNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
             [ create ValueDependencyRole.BranchCondition conditionNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) ->

@@ -268,6 +268,8 @@ module ExecutionIr =
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
                         | TypedSemanticNodeKind.StringLength valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringLength
+                        | TypedSemanticNodeKind.BoolNot operandNodeId ->
+                            lowerUnaryNode node operandNodeId ExecutionInstructionKind.BoolNot
                         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
                             match
                                 requireNodeValue environment valueNodeId,
@@ -438,6 +440,8 @@ module ExecutionIr =
                             requireNodeValue environment errorNodeId
                             |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
                         | TypedSemanticNodeKind.Abort _
+                        | TypedSemanticNodeKind.BoolAnd _
+                        | TypedSemanticNodeKind.BoolOr _
                         | TypedSemanticNodeKind.Conditional _
                         | TypedSemanticNodeKind.MatchUnion _
                         | TypedSemanticNodeKind.Bind _
@@ -520,6 +524,30 @@ module ExecutionIr =
                             continueAt node merge
                         | Error error, _
                         | _, Error error -> failure <- Some error
+
+                /// BoolAnd/BoolOr use the branch shape of their conditional expansions. The block
+                /// where left decides the result forwards left itself (false for And, true for Or)
+                /// to the merge; only the other block lowers, and so evaluates, the right graph.
+                let lowerBoolJunction
+                    (node: TypedSemanticNode)
+                    (leftNodeId: GraphNodeId)
+                    (right: TypedSemanticGraph)
+                    (evaluateRightWhen: bool) =
+                    match requireNodeValue environment leftNodeId with
+                    | Error error -> failure <- Some error
+                    | Ok leftValueId ->
+                        let rightBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "right") []
+                        let decidedBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "decided") []
+                        let merge = makeMerge node
+                        let trueBlock, falseBlock =
+                            if evaluateRightWhen then rightBlock, decidedBlock else decidedBlock, rightBlock
+                        setTerminator currentBlock (ExecutionTerminator.Branch(leftValueId, trueBlock.Id, falseBlock.Id))
+                        match lowerGraph rightBlock environment right with
+                        | Ok rightEnd ->
+                            connect rightEnd merge
+                            connect (Some(decidedBlock, leftValueId)) merge
+                            continueAt node merge
+                        | Error error -> failure <- Some error
 
                 let lowerUnionMatch
                     (node: TypedSemanticNode)
@@ -629,6 +657,8 @@ module ExecutionIr =
                                 stopped <- true
                         | TypedSemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                             lowerConditional node conditionNodeId whenTrue whenFalse
+                        | TypedSemanticNodeKind.BoolAnd(leftNodeId, right) -> lowerBoolJunction node leftNodeId right true
+                        | TypedSemanticNodeKind.BoolOr(leftNodeId, right) -> lowerBoolJunction node leftNodeId right false
                         | TypedSemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                             lowerUnionMatch node inputNodeId arms
                         | TypedSemanticNodeKind.Bind(inputNodeId, body) -> lowerBind node inputNodeId body
@@ -648,6 +678,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringParseInt64 _
                         | TypedSemanticNodeKind.StringLength _
                         | TypedSemanticNodeKind.StringSlice _
+                        | TypedSemanticNodeKind.BoolNot _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringConcat _

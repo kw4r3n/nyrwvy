@@ -287,6 +287,9 @@ module internal SignatureMigrationCore =
                 |> Result.bind (fun capabilityValue ->
                     rewritePairs arguments
                     |> Result.map (fun arguments -> ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments)))
+            | ExpressionRecipe.BoolNot operand -> one ExpressionRecipe.BoolNot operand
+            | ExpressionRecipe.BoolAnd(left, right) -> two ExpressionRecipe.BoolAnd left right
+            | ExpressionRecipe.BoolOr(left, right) -> two ExpressionRecipe.BoolOr left right
             | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) -> three ExpressionRecipe.Conditional condition whenTrue whenFalse
             | ExpressionRecipe.MatchUnion(input, arms) ->
                 rewrite input |> Result.bind (fun input -> rewritePairs arms |> Result.map (fun arms -> ExpressionRecipe.MatchUnion(input, arms)))
@@ -471,6 +474,10 @@ module internal SignatureMigrationCore =
                                     mapTargetParameter
                                         argument.TargetParameterId })
                     )
+                | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+                    SemanticNodeKind.BoolAnd(leftNodeId, remapGraph ownerParameterMap temporaryTarget targetFunctionId right)
+                | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+                    SemanticNodeKind.BoolOr(leftNodeId, remapGraph ownerParameterMap temporaryTarget targetFunctionId right)
                 | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                     SemanticNodeKind.Conditional(
                         conditionNodeId,

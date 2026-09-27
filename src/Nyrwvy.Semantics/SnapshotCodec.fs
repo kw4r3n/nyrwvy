@@ -607,6 +607,19 @@ module SnapshotCodec =
             writer.WritePropertyName("okType")
             writeTypeRef writer okType
             writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | SemanticNodeKind.BoolNot operandNodeId ->
+            writer.WriteString("kind", "boolNot")
+            writer.WriteString("operandNodeId", StableId.value operandNodeId)
+        | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+            writer.WriteString("kind", "boolAnd")
+            writer.WriteString("leftNodeId", StableId.value leftNodeId)
+            writer.WritePropertyName("right")
+            writeGraph writer right
+        | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+            writer.WriteString("kind", "boolOr")
+            writer.WriteString("leftNodeId", StableId.value leftNodeId)
+            writer.WritePropertyName("right")
+            writeGraph writer right
         | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             writer.WriteString("kind", "conditional")
             writer.WriteString("conditionNodeId", StableId.value conditionNodeId)
@@ -1208,6 +1221,15 @@ module SnapshotCodec =
             | "resultErr" ->
                 ensureProperties "Result.Err node" (set [ "id"; "kind"; "okType"; "errorNodeId" ]) (set [ "id"; "kind"; "okType"; "errorNodeId" ]) element
                 SemanticNodeKind.ResultErr(readTypeRef (requireProperty "okType" element), readId<GraphNodeTag> "errorNodeId" element)
+            | "boolNot" ->
+                ensureProperties "BoolNot node" (set [ "id"; "kind"; "operandNodeId" ]) (set [ "id"; "kind"; "operandNodeId" ]) element
+                SemanticNodeKind.BoolNot(readId<GraphNodeTag> "operandNodeId" element)
+            | "boolAnd" ->
+                ensureProperties "BoolAnd node" (set [ "id"; "kind"; "leftNodeId"; "right" ]) (set [ "id"; "kind"; "leftNodeId"; "right" ]) element
+                SemanticNodeKind.BoolAnd(readId<GraphNodeTag> "leftNodeId" element, readGraph (requireProperty "right" element))
+            | "boolOr" ->
+                ensureProperties "BoolOr node" (set [ "id"; "kind"; "leftNodeId"; "right" ]) (set [ "id"; "kind"; "leftNodeId"; "right" ]) element
+                SemanticNodeKind.BoolOr(readId<GraphNodeTag> "leftNodeId" element, readGraph (requireProperty "right" element))
             | "conditional" ->
                 ensureProperties "Conditional node" (set [ "id"; "kind"; "conditionNodeId"; "whenTrue"; "whenFalse" ]) (set [ "id"; "kind"; "conditionNodeId"; "whenTrue"; "whenFalse" ]) element
                 SemanticNodeKind.Conditional(

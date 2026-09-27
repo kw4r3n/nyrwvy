@@ -652,6 +652,12 @@ module NyasonCodec =
             record
                 "result-err"
                 [ nodeId; "ok-type", encodeTypeRef okType; "error", encodeId "node" errorNodeId ]
+        | SemanticNodeKind.BoolNot operandNodeId ->
+            record "bool-not" [ nodeId; "operand", encodeId "node" operandNodeId ]
+        | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+            record "bool-and" [ nodeId; "left", encodeId "node" leftNodeId; "right", encodeGraph right ]
+        | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+            record "bool-or" [ nodeId; "left", encodeId "node" leftNodeId; "right", encodeGraph right ]
         | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             record
                 "conditional"
@@ -1017,6 +1023,26 @@ module NyasonCodec =
                 SemanticNodeKind.ResultErr(
                     decodeTypeRef (require "ok-type" fields),
                     decodeId<GraphNodeTag> "node" (require "error" fields)
+                ) }
+        | NyasonValue.Record("bool-not", _) ->
+            let fields = recordFields "bool-not" [ "id"; "operand" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.BoolNot(decodeId<GraphNodeTag> "node" (require "operand" fields)) }
+        | NyasonValue.Record("bool-and", _) ->
+            let fields = recordFields "bool-and" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.BoolAnd(
+                    decodeId<GraphNodeTag> "node" (require "left" fields),
+                    decodeGraph (require "right" fields)
+                ) }
+        | NyasonValue.Record("bool-or", _) ->
+            let fields = recordFields "bool-or" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.BoolOr(
+                    decodeId<GraphNodeTag> "node" (require "left" fields),
+                    decodeGraph (require "right" fields)
                 ) }
         | NyasonValue.Record("conditional", _) ->
             let fields = recordFields "conditional" [ "id"; "condition"; "when-true"; "when-false" ] [] value

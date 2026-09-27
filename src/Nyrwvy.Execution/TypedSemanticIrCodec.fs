@@ -515,6 +515,19 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.ResultErr errorNodeId ->
             writer.WriteString("kind", "resultErr")
             writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | TypedSemanticNodeKind.BoolNot operandNodeId ->
+            writer.WriteString("kind", "boolNot")
+            writer.WriteString("operandNodeId", StableId.value operandNodeId)
+        | TypedSemanticNodeKind.BoolAnd(leftNodeId, right) ->
+            writer.WriteString("kind", "boolAnd")
+            writer.WriteString("leftNodeId", StableId.value leftNodeId)
+            writer.WritePropertyName("right")
+            writeGraph writer right
+        | TypedSemanticNodeKind.BoolOr(leftNodeId, right) ->
+            writer.WriteString("kind", "boolOr")
+            writer.WriteString("leftNodeId", StableId.value leftNodeId)
+            writer.WritePropertyName("right")
+            writeGraph writer right
         | TypedSemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             writer.WriteString("kind", "conditional")
             writer.WriteString("conditionNodeId", StableId.value conditionNodeId)
@@ -582,6 +595,8 @@ module TypedSemanticIrCodec =
                 matches node.Kind
                 || match node.Kind with
                    | TypedSemanticNodeKind.Conditional(_, a, b) -> has matches a || has matches b
+                   | TypedSemanticNodeKind.BoolAnd(_, right)
+                   | TypedSemanticNodeKind.BoolOr(_, right) -> has matches right
                    | TypedSemanticNodeKind.Bind(_, arm) -> has matches arm.Body
                    | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> has matches arm.Body)
                    | TypedSemanticNodeKind.MatchOption(_, arm, other) -> has matches arm.Body || has matches other

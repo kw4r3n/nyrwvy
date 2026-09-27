@@ -34,6 +34,9 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringParseInt64 _
                 | TypedSemanticNodeKind.StringLength _
                 | TypedSemanticNodeKind.StringSlice _
+                | TypedSemanticNodeKind.BoolNot _
+                | TypedSemanticNodeKind.BoolAnd _
+                | TypedSemanticNodeKind.BoolOr _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringConcat _

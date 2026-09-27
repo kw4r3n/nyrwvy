@@ -84,6 +84,9 @@ module SnapshotValidator =
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
+        | SemanticNodeKind.BoolNot operandNodeId -> [ operandNodeId ]
+        | SemanticNodeKind.BoolAnd(leftNodeId, right)
+        | SemanticNodeKind.BoolOr(leftNodeId, right) -> [ leftNodeId; right.ResultNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
             [ conditionNodeId; whenTrue.ResultNodeId; whenFalse.ResultNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
@@ -160,6 +163,9 @@ module SnapshotValidator =
             scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
+        | SemanticNodeKind.BoolNot operandNodeId
+        | SemanticNodeKind.BoolAnd(operandNodeId, _)
+        | SemanticNodeKind.BoolOr(operandNodeId, _) -> [ operandNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -1223,6 +1229,39 @@ module SnapshotValidator =
                         validateTypeRef $"Result.Ok node '{StableId.value node.Id}' error type" errorType
                     | SemanticNodeKind.ResultErr(okType, _) ->
                         validateTypeRef $"Result.Err node '{StableId.value node.Id}' ok type" okType
+                    | SemanticNodeKind.BoolNot operandNodeId ->
+                        requireNodeType
+                            "BoolOperandTypeMismatch"
+                            $"BoolNot node '{StableId.value node.Id}' requires a Bool operand."
+                            (TypeRef.Primitive PrimitiveType.Bool)
+                            operandNodeId
+                    | SemanticNodeKind.BoolAnd(leftNodeId, right)
+                    | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+                        let role =
+                            match node.Kind with
+                            | SemanticNodeKind.BoolAnd _ -> "BoolAnd"
+                            | _ -> "BoolOr"
+                        requireNodeType
+                            "BoolOperandTypeMismatch"
+                            $"{role} node '{StableId.value node.Id}' requires a Bool left operand."
+                            (TypeRef.Primitive PrimitiveType.Bool)
+                            leftNodeId
+
+                        // The right graph is a Conditional branch in all but name: an abrupt
+                        // completion is allowed, any normal completion must be Bool.
+                        match SemanticFacts.graphCompletion completion right with
+                        | Some(GraphCompletion.Normal actualType) when actualType <> TypeRef.Primitive PrimitiveType.Bool ->
+                            add
+                                "BoolOperandTypeMismatch"
+                                $"{role} node '{StableId.value node.Id}' requires a Bool right operand."
+                        | Some _
+                        | None -> ()
+
+                        validateGraph
+                            visibleNodes
+                            visiblePatterns
+                            $"{role} right operand of '{StableId.value node.Id}'"
+                            right
                     | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                         match nodeType conditionNodeId with
                         | Some(TypeRef.Primitive PrimitiveType.Bool) -> ()
@@ -1530,6 +1569,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.ResultOk _
                 | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
+                | SemanticNodeKind.BoolNot _
+                | SemanticNodeKind.BoolAnd _
+                | SemanticNodeKind.BoolOr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
                 | SemanticNodeKind.Bind _

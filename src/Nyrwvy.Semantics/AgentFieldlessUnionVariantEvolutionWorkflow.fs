@@ -320,6 +320,9 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
             | SemanticNodeKind.Abort errorNodeId -> SemanticNodeKind.Abort(mapNodeId errorNodeId)
             | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
                 SemanticNodeKind.ResultErr(okType, mapNodeId errorNodeId)
+            | SemanticNodeKind.BoolNot operandNodeId -> SemanticNodeKind.BoolNot(mapNodeId operandNodeId)
+            | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(mapNodeId leftNodeId, mapGraph right)
+            | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(mapNodeId leftNodeId, mapGraph right)
             | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                 SemanticNodeKind.Conditional(
                     mapNodeId conditionNodeId,
@@ -374,6 +377,10 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
             let repairKind kind =
                 match kind with
+                | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+                    SemanticNodeKind.BoolAnd(leftNodeId, repairNested right)
+                | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+                    SemanticNodeKind.BoolOr(leftNodeId, repairNested right)
                 | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                     SemanticNodeKind.Conditional(
                         conditionNodeId,

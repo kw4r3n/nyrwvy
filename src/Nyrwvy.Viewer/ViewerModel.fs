@@ -95,6 +95,9 @@ type ViewerNodeRole =
     | ResultOk
     | Abort
     | ResultErr
+    | BoolNot
+    | BoolAnd
+    | BoolOr
     | Conditional
     | MatchUnion
     | Bind
@@ -111,6 +114,8 @@ type ViewerBranchRole =
     | OptionNone
     | ResultOk
     | ResultErr
+    /// The right operand of BoolAnd (evaluated only when left is true) or BoolOr (only when left is false).
+    | RightOperand
 
 type ViewerPatternBinding =
     { Id: PatternBindingId
@@ -276,6 +281,9 @@ module ViewerProjection =
         | SemanticNodeKind.ResultOk _ -> ViewerNodeRole.ResultOk, []
         | SemanticNodeKind.Abort _ -> ViewerNodeRole.Abort, []
         | SemanticNodeKind.ResultErr _ -> ViewerNodeRole.ResultErr, []
+        | SemanticNodeKind.BoolNot _ -> ViewerNodeRole.BoolNot, []
+        | SemanticNodeKind.BoolAnd _ -> ViewerNodeRole.BoolAnd, []
+        | SemanticNodeKind.BoolOr _ -> ViewerNodeRole.BoolOr, []
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
             ViewerNodeRole.Conditional,
             [ { Kind = ViewerRelationKind.BranchCondition
@@ -326,6 +334,8 @@ module ViewerProjection =
                 | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
                     [ projectBranch ViewerBranchRole.WhenTrue [] whenTrue
                       projectBranch ViewerBranchRole.WhenFalse [] whenFalse ]
+                | SemanticNodeKind.BoolAnd(_, right)
+                | SemanticNodeKind.BoolOr(_, right) -> [ projectBranch ViewerBranchRole.RightOperand [] right ]
                 | SemanticNodeKind.MatchUnion(_, arms) ->
                     arms
                     |> List.sortBy (fun arm -> StableId.value arm.VariantId)
@@ -364,6 +374,7 @@ module ViewerProjection =
                 | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
+                | SemanticNodeKind.BoolNot _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _

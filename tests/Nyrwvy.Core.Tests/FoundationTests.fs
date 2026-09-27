@@ -39,6 +39,9 @@ module FoundationTests =
                 | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
+                | SemanticNodeKind.BoolNot _
+                | SemanticNodeKind.BoolAnd _
+                | SemanticNodeKind.BoolOr _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringConcat _

@@ -294,6 +294,9 @@ module Transaction =
                 | SemanticNodeKind.ResultOk _
                 | SemanticNodeKind.Abort _
                 | SemanticNodeKind.ResultErr _
+                | SemanticNodeKind.BoolNot _
+                | SemanticNodeKind.BoolAnd _
+                | SemanticNodeKind.BoolOr _
                 | SemanticNodeKind.Conditional _
                 | SemanticNodeKind.MatchUnion _
                 | SemanticNodeKind.Bind _
@@ -779,6 +782,9 @@ module Transaction =
                         | SemanticNodeKind.ResultOk _
                         | SemanticNodeKind.Abort _
                         | SemanticNodeKind.ResultErr _
+                        | SemanticNodeKind.BoolNot _
+                        | SemanticNodeKind.BoolAnd _
+                        | SemanticNodeKind.BoolOr _
                         | SemanticNodeKind.Conditional _
                         | SemanticNodeKind.MatchUnion _
                         | SemanticNodeKind.Bind _

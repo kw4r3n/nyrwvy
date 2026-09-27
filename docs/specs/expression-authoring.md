@@ -87,6 +87,9 @@ ExpressionRecipe =
   | DirectCall(targetFunctionId, argumentBindings)
   | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
   | Bind(value, body)
+  | BoolNot(expr)
+  | BoolAnd(left, right)
+  | BoolOr(left, right)
   | Conditional(condition, whenTrue, whenFalse)
   | MatchUnion(input, arms)
   | MatchOption(input, someBody, noneBody)
@@ -155,7 +158,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 18. `CapabilityInvoke` names an existing operation and its receiver produces that operation's exact owning capability type;
 19. every capability-operation parameter is bound exactly once by its stable `CapabilityParameterId`, with no unknown or omitted parameter and with exact child types;
 20. the target function already declares the capability operation's effect;
-21. every `Conditional` condition produces `Bool` and both branches produce exactly the same type;
+21. every `Conditional` condition produces `Bool` and both branches produce exactly the same type; every `BoolNot` operand and `BoolAnd`/`BoolOr` left operand produces `Bool`, and every `BoolAnd`/`BoolOr` right operand produces `Bool` or aborts;
 22. every match input has the required union/`Option<T>`/`Result<T,E>` shape;
 23. `MatchUnion` contains every declared variant exactly once, with no unknown or duplicate variants;
 24. all branches of one match produce exactly the same result type;
@@ -176,6 +179,7 @@ Equivalently, the union of all effect requirements in the recipe must be a subse
 DirectCall requirements = child requirements + callee.RequiredEffects
 CapabilityInvoke requirements = receiver/argument requirements + operation.EffectId
 Conditional / Match requirements = condition/input requirements + all branch requirements
+BoolAnd / BoolOr requirements = left requirements + right requirements
 ```
 
 Here `+` means set union, not execution order. Per-occurrence checks during recursive type/scope validation enforce this condition without a separate public effect-inference result.
@@ -371,6 +375,12 @@ Typed projection retains the input, typed binding, nested graph, and node origin
 `Conditional(condition, whenTrue, whenFalse)` requires a `Bool` condition. Both branches are validated in the same lexical pattern environment and must produce exactly one common type.
 
 The condition materializes in the current graph. Each branch materializes into its own child `ValueGraph`, followed by the parent `Conditional` node.
+
+### BoolNot, BoolAnd and BoolOr
+
+`BoolNot(expr)` requires a `Bool` operand and materializes as one node after it. `BoolAnd(left, right)` and `BoolOr(left, right)` require a `Bool` left operand and a right operand that produces `Bool` or aborts; all three produce `Bool`. The right operand is validated like a `Conditional` branch: in the same lexical pattern environment, without introducing a frame, and against the same target effect declaration.
+
+The left operand materializes in the current graph. The right operand materializes into its own child `ValueGraph`, followed by the parent `BoolAnd`/`BoolOr` node, so its effects stay local to it and it runs only when the left operand does not decide the result (true for `BoolAnd`, false for `BoolOr`). Execution lowering uses the branch shape of the conditional expansion: the block where the left operand decides forwards that value to the merge, and only the other block evaluates the right graph.
 
 ### MatchUnion
 

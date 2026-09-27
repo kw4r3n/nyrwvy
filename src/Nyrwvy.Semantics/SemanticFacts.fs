@@ -73,6 +73,9 @@ module SemanticFacts =
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.Abort errorNodeId
         | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
+        | SemanticNodeKind.BoolNot operandNodeId
+        | SemanticNodeKind.BoolAnd(operandNodeId, _)
+        | SemanticNodeKind.BoolOr(operandNodeId, _) -> [ operandNodeId ]
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -91,6 +94,8 @@ module SemanticFacts =
     let nestedGraphs (node: SemanticNode) =
         match node.Kind with
         | SemanticNodeKind.Conditional(_, a, b) -> [ a; b ]
+        | SemanticNodeKind.BoolAnd(_, right)
+        | SemanticNodeKind.BoolOr(_, right) -> [ right ]
         | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun arm -> arm.Body)
         | SemanticNodeKind.Bind(_, arm) -> [ arm.Body ]
         | SemanticNodeKind.MatchOption(_, arm, other) -> [ arm.Body; other ]
@@ -109,6 +114,8 @@ module SemanticFacts =
             match node.Kind with
             | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
                 collectPatternBindings whenTrue @ collectPatternBindings whenFalse
+            | SemanticNodeKind.BoolAnd(_, right)
+            | SemanticNodeKind.BoolOr(_, right) -> collectPatternBindings right
             | SemanticNodeKind.MatchUnion(_, arms) ->
                 arms
                 |> List.collect (fun arm ->
@@ -135,6 +142,7 @@ module SemanticFacts =
             | SemanticNodeKind.StringParseInt64 _
             | SemanticNodeKind.StringLength _
             | SemanticNodeKind.StringSlice _
+            | SemanticNodeKind.BoolNot _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
             | SemanticNodeKind.StringConcat _
@@ -313,7 +321,12 @@ module SemanticFacts =
                     | SemanticNodeKind.StringConcat _
                     | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
-                    | SemanticNodeKind.BoolLiteral _ ->
+                    // BoolAnd/BoolOr complete normally even when their right graph aborts,
+                    // because the left operand alone can decide the result.
+                    | SemanticNodeKind.BoolLiteral _
+                    | SemanticNodeKind.BoolNot _
+                    | SemanticNodeKind.BoolAnd _
+                    | SemanticNodeKind.BoolOr _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.UnitLiteral ->
                         Some(TypeRef.Primitive PrimitiveType.Unit)
