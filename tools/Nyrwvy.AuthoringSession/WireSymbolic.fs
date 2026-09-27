@@ -485,6 +485,9 @@ module internal WireSymbolic =
                 operation.Id,
                 arguments
             )
+        | "boolNot" -> unary "bool-not recipe" ExpressionRecipe.BoolNot
+        | "boolAnd" -> binary "bool-and recipe" ExpressionRecipe.BoolAnd
+        | "boolOr" -> binary "bool-or recipe" ExpressionRecipe.BoolOr
         | "conditional" ->
             ensureFields
                 "conditional recipe"

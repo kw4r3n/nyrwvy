@@ -67,6 +67,8 @@ The emitter preserves Execution IR behavior rather than reconstructing high-leve
 
 Execution functions lower deterministically to generated methods/blocks, with explicit transfer of execution values and explicit branch/return behavior corresponding to the IR.
 
+`BoolNot` emits `!operand`. `BoolAnd` and `BoolOr` reach the emitter as Execution IR branches, not as C# `&&`/`||`: the right operand's block runs only when the left operand does not decide the result, so short-circuit evaluation follows from the branch structure.
+
 ## Determinism
 
 For identical supported Execution IR and backend profile, generated C# must be deterministic. Declaration order, symbol allocation, control-flow emission, and runtime support generation must not depend on hash-map traversal or unrelated environment state.

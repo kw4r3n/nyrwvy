@@ -128,6 +128,9 @@ module SemanticQuery =
                     | SemanticNodeKind.ResultOk _
                     | SemanticNodeKind.Abort _
                     | SemanticNodeKind.ResultErr _
+                    | SemanticNodeKind.BoolNot _
+                    | SemanticNodeKind.BoolAnd _
+                    | SemanticNodeKind.BoolOr _
                     | SemanticNodeKind.Conditional _
                     | SemanticNodeKind.MatchUnion _
                     | SemanticNodeKind.Bind _
@@ -328,6 +331,8 @@ module SemanticQuery =
                         EnclosingControlNodeIds = parents
                         DependentContinuationNodeIds = Set.difference dependent seeds |> Set.toList |> List.sortBy StableId.value } ]
                 | SemanticNodeKind.Conditional(_, a, b) -> visit (node.Id :: parents) a @ visit (node.Id :: parents) b
+                | SemanticNodeKind.BoolAnd(_, right)
+                | SemanticNodeKind.BoolOr(_, right) -> visit (node.Id :: parents) right
                 | SemanticNodeKind.Bind(_, arm) -> visit (node.Id :: parents) arm.Body
                 | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.collect (fun arm -> visit (node.Id :: parents) arm.Body)
                 | SemanticNodeKind.MatchOption(_, arm, other) -> visit (node.Id :: parents) arm.Body @ visit (node.Id :: parents) other

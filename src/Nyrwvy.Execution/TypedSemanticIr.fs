@@ -137,6 +137,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ResultOk of valueNodeId: GraphNodeId
     | Abort of errorNodeId: GraphNodeId
     | ResultErr of errorNodeId: GraphNodeId
+    | BoolNot of operandNodeId: GraphNodeId
+    | BoolAnd of leftNodeId: GraphNodeId * right: TypedSemanticGraph
+    | BoolOr of leftNodeId: GraphNodeId * right: TypedSemanticGraph
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: TypedSemanticGraph * whenFalse: TypedSemanticGraph
     | MatchUnion of inputNodeId: GraphNodeId * TypedSemanticUnionArm list
     | Bind of inputNodeId: GraphNodeId * body: TypedSemanticValueArm
@@ -394,6 +397,14 @@ module TypedSemanticIr =
                     | SemanticNodeKind.Abort errorNodeId -> Ok(TypedSemanticNodeKind.Abort errorNodeId)
                     | SemanticNodeKind.ResultErr(_, errorNodeId) ->
                         Ok(TypedSemanticNodeKind.ResultErr errorNodeId)
+                    | SemanticNodeKind.BoolNot operandNodeId ->
+                        Ok(TypedSemanticNodeKind.BoolNot operandNodeId)
+                    | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+                        projectGraph snapshot functionEntity resolveType right
+                        |> Result.map (fun projectedRight -> TypedSemanticNodeKind.BoolAnd(leftNodeId, projectedRight))
+                    | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+                        projectGraph snapshot functionEntity resolveType right
+                        |> Result.map (fun projectedRight -> TypedSemanticNodeKind.BoolOr(leftNodeId, projectedRight))
                     | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
                         match
                             projectGraph snapshot functionEntity resolveType whenTrue,

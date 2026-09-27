@@ -172,6 +172,9 @@ module ViewerHtml =
         | ViewerNodeRole.ResultOk -> "Result.Ok"
         | ViewerNodeRole.Abort -> "Abort (function exit)"
         | ViewerNodeRole.ResultErr -> "Result.Err"
+        | ViewerNodeRole.BoolNot -> "bool not"
+        | ViewerNodeRole.BoolAnd -> "bool and"
+        | ViewerNodeRole.BoolOr -> "bool or"
         | ViewerNodeRole.Conditional -> "conditional"
         | ViewerNodeRole.MatchUnion -> "union match"
         | ViewerNodeRole.Bind -> "bind once"
@@ -188,6 +191,7 @@ module ViewerHtml =
         | ViewerBranchRole.OptionNone -> "Option.None"
         | ViewerBranchRole.ResultOk -> "Result.Ok"
         | ViewerBranchRole.ResultErr -> "Result.Err"
+        | ViewerBranchRole.RightOperand -> "right operand"
 
     let private readinessLabel (readiness: ChangeReviewReadiness): string =
         match readiness with

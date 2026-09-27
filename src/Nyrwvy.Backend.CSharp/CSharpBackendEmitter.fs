@@ -730,6 +730,8 @@ module CSharpBackend =
             writer.Line(target + " = digits && long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? NyOption<long>.Some(parsed) : NyOption<long>.None();")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.BoolNot sourceValueId ->
+            writer.Line(target + " = !" + valueName sourceValueId + ";")
         | ExecutionInstructionKind.StringLength sourceValueId ->
             // Code points: a surrogate pair counts once, an unpaired surrogate code unit counts once.
             writer.Line("{")

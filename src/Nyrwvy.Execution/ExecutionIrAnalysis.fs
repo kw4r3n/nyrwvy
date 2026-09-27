@@ -91,6 +91,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ResultOk valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.Abort errorNodeId
         | TypedSemanticNodeKind.ResultErr errorNodeId -> [ errorNodeId ]
+        | TypedSemanticNodeKind.BoolNot operandNodeId
+        | TypedSemanticNodeKind.BoolAnd(operandNodeId, _)
+        | TypedSemanticNodeKind.BoolOr(operandNodeId, _) -> [ operandNodeId ]
         | TypedSemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
         | TypedSemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
         | TypedSemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
@@ -102,6 +105,8 @@ module internal ExecutionIrAnalysis =
             match node.Kind with
             | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
                 graphFreeReferences whenTrue @ graphFreeReferences whenFalse
+            | TypedSemanticNodeKind.BoolAnd(_, right)
+            | TypedSemanticNodeKind.BoolOr(_, right) -> graphFreeReferences right
             | TypedSemanticNodeKind.MatchUnion(_, arms) ->
                 arms |> List.collect (fun (arm: TypedSemanticUnionArm) -> graphFreeReferences arm.Body)
             | TypedSemanticNodeKind.Bind(_, body) -> graphFreeReferences body.Body
@@ -123,6 +128,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
+            | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -217,6 +223,8 @@ module internal ExecutionIrAnalysis =
             | None -> false
         | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
             graphHasEffects functionsById whenTrue || graphHasEffects functionsById whenFalse
+        | TypedSemanticNodeKind.BoolAnd(_, right)
+        | TypedSemanticNodeKind.BoolOr(_, right) -> graphHasEffects functionsById right
         | TypedSemanticNodeKind.MatchUnion(_, arms) ->
             arms |> List.exists (fun (arm: TypedSemanticUnionArm) -> graphHasEffects functionsById arm.Body)
         | TypedSemanticNodeKind.Bind(_, body) -> graphHasEffects functionsById body.Body
@@ -239,6 +247,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringParseInt64 _
         | TypedSemanticNodeKind.StringLength _
         | TypedSemanticNodeKind.StringSlice _
+        | TypedSemanticNodeKind.BoolNot _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringConcat _
@@ -308,6 +317,8 @@ module internal ExecutionIrAnalysis =
                         | Ok () -> loop rest
                 loop arms
             | TypedSemanticNodeKind.Bind(_, body) -> validateEffectOrder functionId functionsById body.Body
+            | TypedSemanticNodeKind.BoolAnd(_, right)
+            | TypedSemanticNodeKind.BoolOr(_, right) -> validateEffectOrder functionId functionsById right
             | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                 match validateEffectOrder functionId functionsById someArm.Body,
                       validateEffectOrder functionId functionsById noneBody with
@@ -334,6 +345,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
+            | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _

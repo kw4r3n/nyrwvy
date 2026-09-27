@@ -287,6 +287,14 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
     | Abort of errorNodeId: GraphNodeId
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
+    /// Logical negation of a Bool operand; the dedicated form of Conditional(operand, false, true).
+    | BoolNot of operandNodeId: GraphNodeId
+    /// True when both operands are true. The nested right graph follows Conditional branch rules and
+    /// is evaluated only when left is true; the dedicated form of Conditional(left, right, false).
+    | BoolAnd of leftNodeId: GraphNodeId * right: ValueGraph
+    /// True when either operand is true. The nested right graph follows Conditional branch rules and
+    /// is evaluated only when left is false; the dedicated form of Conditional(left, true, right).
+    | BoolOr of leftNodeId: GraphNodeId * right: ValueGraph
     | Conditional of conditionNodeId: GraphNodeId * whenTrue: ValueGraph * whenFalse: ValueGraph
     | MatchUnion of inputNodeId: GraphNodeId * arms: UnionMatchArm list
     | Bind of inputNodeId: GraphNodeId * body: ValueMatchArm
@@ -342,6 +350,8 @@ module ValueGraph =
                 match node.Kind with
                 | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
                     collectNodes whenTrue @ collectNodes whenFalse
+                | SemanticNodeKind.BoolAnd(_, right)
+                | SemanticNodeKind.BoolOr(_, right) -> collectNodes right
                 | SemanticNodeKind.MatchUnion(_, arms) ->
                     arms |> List.collect (fun arm -> collectNodes arm.Body)
                 | SemanticNodeKind.Bind(_, body) -> collectNodes body.Body
@@ -363,6 +373,7 @@ module ValueGraph =
                 | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
+                | SemanticNodeKind.BoolNot _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
@@ -427,6 +438,10 @@ module ValueGraph =
                         mapNodes transform whenTrue,
                         mapNodes transform whenFalse
                     )
+                | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
+                    SemanticNodeKind.BoolAnd(leftNodeId, mapNodes transform right)
+                | SemanticNodeKind.BoolOr(leftNodeId, right) ->
+                    SemanticNodeKind.BoolOr(leftNodeId, mapNodes transform right)
                 | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                     let mappedArms =
                         arms
@@ -455,6 +470,7 @@ module ValueGraph =
                 | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
+                | SemanticNodeKind.BoolNot _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _

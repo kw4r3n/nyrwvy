@@ -197,6 +197,9 @@ module internal WireRecipe =
         | "capabilityInvoke" ->
             ensureFields "capability-invoke recipe" [ "kind"; "capabilityValue"; "operationId"; "arguments" ] [ "kind"; "capabilityValue"; "operationId"; "arguments" ] element
             ExpressionRecipe.CapabilityInvoke(recipe (property "capabilityValue" element), id<CapabilityOperationTag> "operationId" element, capabilityArguments "arguments")
+        | "boolNot" -> unary "bool-not recipe" ExpressionRecipe.BoolNot
+        | "boolAnd" -> binary "bool-and recipe" ExpressionRecipe.BoolAnd
+        | "boolOr" -> binary "bool-or recipe" ExpressionRecipe.BoolOr
         | "conditional" ->
             ensureFields "conditional recipe" [ "kind"; "condition"; "whenTrue"; "whenFalse" ] [ "kind"; "condition"; "whenTrue"; "whenFalse" ] element
             ExpressionRecipe.Conditional(recipe (property "condition" element), recipe (property "whenTrue" element), recipe (property "whenFalse" element))

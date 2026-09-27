@@ -27,6 +27,7 @@ The implemented subset includes:
 - `Option<T>`;
 - `Result<T,E>`;
 - explicit conditionals;
+- Bool negation and short-circuit Bool and/or;
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
 - internal direct function calls;
 - pure capture-free function types, named references, and positional invocation;
@@ -35,6 +36,8 @@ The implemented subset includes:
 - explicit effects and capability requirements.
 
 Wildcard/default match arms are not part of the current accepted subset where exhaustiveness is semantically important.
+
+`BoolNot(operand)` negates a Bool. `BoolAnd(left, right)` is true when both operands are true and `BoolOr(left, right)` when either is. Their `left` operand is an ordinary Bool value of the enclosing graph; their `right` operand is a nested value graph with the scope, typing and effect rules of a `Conditional` branch. It is evaluated at most once and only when `left` does not decide the result: for `BoolAnd` only when `left` is true, for `BoolOr` only when `left` is false. A right operand that aborts, invokes a capability or calls a failing function therefore has that effect only when it is evaluated. All operands and results are Bool; a right operand may instead abort. Each construct is the dedicated form of a checkable conditional expansion (`Conditional(operand, false, true)`, `Conditional(left, right, false)`, `Conditional(left, true, right)`); the graph keeps the dedicated node so review reads the intent directly (see the [decision](../decisions/bool-operators-and-map.md)). There is no Bool equality, Map or Set.
 
 ## `Int64`
 
@@ -183,6 +186,8 @@ FunctionInvoke
 DirectCall
 CapabilityInvoke
 Bind
+BoolNot
+BoolAnd / BoolOr
 Conditional
 MatchUnion
 MatchOption
@@ -209,7 +214,7 @@ Deterministic construction order is not a runtime sequencing guarantee. `Semanti
 
 `Bind(value, body)` explicitly evaluates its input once before its nested body, gives the body an immutable `Value` slot, and returns the body's result. It works for all supported value types, including `Unit` and capabilities; unused bindings retain initializer effects. Its binding is visible only in its body and nested scopes, not in its own initializer. Bind bodies consume one lexical scope depth just like match frames. The authoritative Bind node and system-owned `PatternBindingId` survive persistence and typed projection; existing Execution IR jumps and block parameters retain the order and provenance. Independent effectful siblings within either graph still reject.
 
-Scoped control flow remains part of the same ephemeral construction model rather than exposing child graphs directly. `Conditional` requires a `Bool` condition and equal branch result types. `MatchUnion` is exhaustive and canonicalizes arms and field bindings to declaration order. `MatchOption` and `MatchResult` introduce typed branch bindings. `RecipePatternReference` addresses visible Bind-body and match-arm slots by lexical `ScopeDepth`; structurally empty frames such as `Option.None` still consume one scope depth. Branch recipes materialize as nested `ValueGraph`s, while production pattern identities and binding types remain system-owned and derived from validated semantic facts. Static effect checks cover every branch without hoisting its runtime effects into the parent graph.
+Scoped control flow remains part of the same ephemeral construction model rather than exposing child graphs directly. `Conditional` requires a `Bool` condition and equal branch result types; `BoolAnd` and `BoolOr` require a `Bool` left operand and a right operand that produces `Bool` or aborts. `MatchUnion` is exhaustive and canonicalizes arms and field bindings to declaration order. `MatchOption` and `MatchResult` introduce typed branch bindings. `RecipePatternReference` addresses visible Bind-body and match-arm slots by lexical `ScopeDepth`; structurally empty frames such as `Option.None` still consume one scope depth. Branch recipes and the right operands of `BoolAnd`/`BoolOr` materialize as nested `ValueGraph`s, while production pattern identities and binding types remain system-owned and derived from validated semantic facts. Static effect checks cover every branch without hoisting its runtime effects into the parent graph.
 
 The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2. `ResultingChange.AddedNodes` recursively includes branch-local nodes so the review covers the complete materialized result rather than only the parent graph.
 

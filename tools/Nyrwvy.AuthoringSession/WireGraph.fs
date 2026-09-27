@@ -137,6 +137,9 @@ module internal WireGraph =
         | SemanticNodeKind.ResultOk(errorType, value) -> tagged "resultOk" [ "errorType", typeRef errorType; "valueNodeId", identity value ]
         | SemanticNodeKind.Abort error -> tagged "abort" [ "errorNodeId", identity error ]
         | SemanticNodeKind.ResultErr(okType, error) -> tagged "resultErr" [ "okType", typeRef okType; "errorNodeId", identity error ]
+        | SemanticNodeKind.BoolNot operand -> tagged "boolNot" [ "operandNodeId", identity operand ]
+        | SemanticNodeKind.BoolAnd(left, right) -> tagged "boolAnd" [ "leftNodeId", identity left; "right", graph right ]
+        | SemanticNodeKind.BoolOr(left, right) -> tagged "boolOr" [ "leftNodeId", identity left; "right", graph right ]
         | SemanticNodeKind.Conditional(condition, whenTrue, whenFalse) ->
             tagged "conditional" [ "conditionNodeId", identity condition; "whenTrue", graph whenTrue; "whenFalse", graph whenFalse ]
         | SemanticNodeKind.MatchUnion(input, arms) ->

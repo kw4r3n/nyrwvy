@@ -83,6 +83,11 @@ type ExpressionRecipe =
     | FunctionInvoke of functionValue: ExpressionRecipe * arguments: ExpressionRecipe list
     | DirectCall of targetFunctionId: FunctionId * arguments: (ParameterId * ExpressionRecipe) list
     | CapabilityInvoke of capabilityValue: ExpressionRecipe * operationId: CapabilityOperationId * arguments: (CapabilityParameterId * ExpressionRecipe) list
+    | BoolNot of ExpressionRecipe
+    /// The right operand becomes a nested value graph evaluated only when left is true.
+    | BoolAnd of left: ExpressionRecipe * right: ExpressionRecipe
+    /// The right operand becomes a nested value graph evaluated only when left is false.
+    | BoolOr of left: ExpressionRecipe * right: ExpressionRecipe
     | Conditional of condition: ExpressionRecipe * whenTrue: ExpressionRecipe * whenFalse: ExpressionRecipe
     | MatchUnion of input: ExpressionRecipe * arms: (VariantId * ExpressionRecipe) list
     | Bind of value: ExpressionRecipe * body: ExpressionRecipe
@@ -192,6 +197,9 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.DirectCall(functionId, arguments) -> ExpressionRecipe.DirectCall(functionId, pairs arguments)
         | ExpressionRecipe.CapabilityInvoke(capability, operation, arguments) ->
             ExpressionRecipe.CapabilityInvoke(go capability, operation, arguments |> List.map (fun (id, value) -> id, go value))
+        | ExpressionRecipe.BoolNot operand -> ExpressionRecipe.BoolNot(go operand)
+        | ExpressionRecipe.BoolAnd(left, right) -> ExpressionRecipe.BoolAnd(go left, go right)
+        | ExpressionRecipe.BoolOr(left, right) -> ExpressionRecipe.BoolOr(go left, go right)
         | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) -> ExpressionRecipe.Conditional(go condition, go whenTrue, go whenFalse)
         | ExpressionRecipe.MatchUnion(input, arms) -> ExpressionRecipe.MatchUnion(go input, pairs arms)
         | ExpressionRecipe.Bind(value, body) -> ExpressionRecipe.Bind(go value, go body)
@@ -262,6 +270,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64ToString child
         | ExpressionRecipe.StringParseInt64 child
         | ExpressionRecipe.StringLength child
+        | ExpressionRecipe.BoolNot child
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
@@ -276,6 +285,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.StringConcat(left, right)
         | ExpressionRecipe.Bind(left, right)
+        | ExpressionRecipe.BoolAnd(left, right)
+        | ExpressionRecipe.BoolOr(left, right)
         | ExpressionRecipe.Int64WrappingAdd(left, right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right)
         | ExpressionRecipe.Int64WrappingMultiply(left, right)
@@ -680,6 +691,22 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringParseInt64 value ->
                 unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
+            | ExpressionRecipe.BoolNot operand -> unary "BoolNot" boolType boolType operand
+            | ExpressionRecipe.BoolAnd(left, right)
+            | ExpressionRecipe.BoolOr(left, right) ->
+                let role =
+                    match recipe with
+                    | ExpressionRecipe.BoolAnd _ -> "BoolAnd"
+                    | _ -> "BoolOr"
+                match infer frames left with
+                | Error error -> Error error
+                | Ok actual when actual <> boolType -> Error(typeMismatch role "left" boolType actual)
+                | Ok _ ->
+                    // The right operand is a nested branch: it may abort, otherwise it must be Bool.
+                    match inferCompletion frames right with
+                    | Error error -> Error error
+                    | Ok(GraphCompletion.Normal actual) when actual <> boolType -> Error(typeMismatch role "right" boolType actual)
+                    | Ok _ -> Ok boolType
             | ExpressionRecipe.StringSlice(value, start, stop) ->
                 match unary "StringSlice" stringType stringType value with
                 | Error error -> Error error
@@ -1357,6 +1384,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
         | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
         | ExpressionRecipe.StringLength value -> unary SemanticNodeKind.StringLength value
+        | ExpressionRecipe.BoolNot operand -> unary SemanticNodeKind.BoolNot operand
         | ExpressionRecipe.StringSlice(value, start, stop) ->
             let valueNodes, valueResult = materializeRecipe value
             let startNodes, startResult = materializeRecipe start
@@ -1497,6 +1525,16 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             capabilityNodes @ argumentNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.CapabilityInvoke(capabilityResult, operationId, argumentBindings) } ], nodeId
+        | ExpressionRecipe.BoolAnd(left, right) ->
+            let leftNodes, leftResult = materializeRecipe left
+            let rightGraph = materializeGraph frames right
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            leftNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.BoolAnd(leftResult, rightGraph) } ], nodeId
+        | ExpressionRecipe.BoolOr(left, right) ->
+            let leftNodes, leftResult = materializeRecipe left
+            let rightGraph = materializeGraph frames right
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            leftNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.BoolOr(leftResult, rightGraph) } ], nodeId
         | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) ->
             let conditionNodes, conditionResult = materializeRecipe condition
             let trueGraph = materializeGraph frames whenTrue
@@ -1782,6 +1820,8 @@ module AgentExpressionStructuralWorkflow =
         let private childGraphs (node: SemanticNode) =
             match node.Kind with
             | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) -> [ whenTrue; whenFalse ]
+            | SemanticNodeKind.BoolAnd(_, right)
+            | SemanticNodeKind.BoolOr(_, right) -> [ right ]
             | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun arm -> arm.Body)
             | SemanticNodeKind.Bind(_, body) -> [ body.Body ]
             | SemanticNodeKind.MatchOption(_, someArm, noneBody) -> [ someArm.Body; noneBody ]
@@ -1808,6 +1848,8 @@ module AgentExpressionStructuralWorkflow =
                         choose
                             (tryFindTarget frames targetNodeId whenTrue)
                             (fun () -> tryFindTarget frames targetNodeId whenFalse)
+                    | SemanticNodeKind.BoolAnd(_, right)
+                    | SemanticNodeKind.BoolOr(_, right) -> tryFindTarget frames targetNodeId right
                     | SemanticNodeKind.MatchUnion(_, arms) ->
                         arms
                         |> List.tryPick (fun arm ->
@@ -2029,6 +2071,8 @@ module AgentExpressionStructuralWorkflow =
                         mapGraph whenTrue,
                         mapGraph whenFalse
                     )
+                | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(leftNodeId, mapGraph right)
+                | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(leftNodeId, mapGraph right)
                 | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                     SemanticNodeKind.MatchUnion(
                         inputNodeId,
