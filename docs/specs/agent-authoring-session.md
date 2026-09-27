@@ -199,9 +199,9 @@ When an expectation does not match, the response's `mismatch` locates the first 
 
 A failure raised by the program while it runs, rather than by the runner's value conversion, is `RunRuntimeFailure` with `exceptionType`, `message`, the entry `functionId`, `sourceSnapshotId`, and `frames`, innermost first: `{ "kind": "function", "functionId" }` or `{ "kind": "capabilityOperation", "operationId" }`. Frames are mapped from generated symbols through the emitted symbol manifest; frames without a semantic declaration (runtime helpers, the runner itself) are omitted, and at most 256 are kept. Unbounded `DirectCall` recursion is valid in the language and is reported as `System.StackOverflowException`, with frames recovered from the runtime's crash report. Output conversion limits (layers, value nodes, String budget, null Strings, unknown variants) remain `RunProcessFailure`, and timeouts remain `RunTimeout`.
 
-A capability parameter takes a fake instead of a value: `{ "kind": "fakeCapability", "capabilityId": "<stable CapabilityId>", "operations": [{ "operationId": "<stable CapabilityOperationId>", "responses": [{ "kind": "return", "value": <tagged value> }, { "kind": "throw", "message": "..." }] }] }`. Each call to an operation consumes its next response in order: `return` yields a value of the operation's declared result type, and `throw` raises a host exception from the operation, as a failing external implementation would. Operations that are not listed have no responses. `{ "kind": "awaitCancellation", "value": <tagged value> }` blocks like a long-running external process until the calling `ParallelAll` worker's or task's cancellation is requested, then returns the value. `return` and `throw` responses may add `"delayMillis": "<non-negative Int64>"`: the call then answers after that much virtual time. A delay is not interrupted by cancellation; use `awaitCancellation` for work that stops when asked. Both are accepted only for programs that use `ParallelAll`, a task construct or `CancellationRequested` (`RunBindingShapeMismatch` otherwise).
+A capability parameter takes a fake instead of a value: `{ "kind": "fakeCapability", "capabilityId": "<stable CapabilityId>", "operations": [{ "operationId": "<stable CapabilityOperationId>", "responses": [{ "kind": "return", "value": <tagged value> }, { "kind": "throw", "message": "..." }] }] }`. In this ordered form, each call to an operation consumes its next response in order (or use [argument-keyed cases](#argument-keyed-fake-responses)): `return` yields a value of the operation's declared result type, and `throw` raises a host exception from the operation, as a failing external implementation would. Operations that are not listed have no responses. `{ "kind": "awaitCancellation", "value": <tagged value> }` blocks like a long-running external process until the calling `ParallelAll` worker's or task's cancellation is requested, then returns the value. `return` and `throw` responses may add `"delayMillis": "<non-negative Int64>"`: the call then answers after that much virtual time. A delay is not interrupted by cancellation; use `awaitCancellation` for work that stops when asked. Both are accepted only for programs that use `ParallelAll`, a task construct or `CancellationRequested` (`RunBindingShapeMismatch` otherwise).
 
-Such programs run on a **virtual clock**, so a run is deterministic. One thread runs at a time: a started task or `ParallelAll` worker waits for its turn, and the running thread gives way only when it blocks (on a delay, `awaitCancellation`, `TaskWait`, a `ParallelAll` join or a scope's exit) or finishes. The next thread to resume is, in order: an elapsed delay, by (due time, start order), so everything due at a time has happened before a wait observes it; then a thread that can continue (a new task, or a wait whose condition holds or whose limit has elapsed), lowest start order first, with the entry function first and tasks and workers numbered as they start. Only when nothing can continue does virtual time jump to the earliest pending due time or `TaskWait` limit. Real elapsed time never affects the result, and fake responses are consumed in that deterministic order. If every thread is blocked and nothing is due, the run fails with `RunRuntimeFailure` (`InvalidOperationException`, "Every task is blocked and no delay is pending…") instead of hanging. Fakes are thread-safe: responses are consumed atomically in call order, and `calls` are recorded in the order they happen across workers and tasks. A call with no response left fails with `RunBindingExhausted`; a `throw` fails with `RunRuntimeFailure` and `exceptionType` `FakeCapabilityException`. Both carry frames (starting with the `capabilityOperation` frame) and the calls made so far. Fakes are accepted only as top-level arguments whose parameter has exactly that capability type. The capability must exist, operations must be distinct members of it (at most 256, each with at most 256 responses), and return values must match the declared result type (`RunBindingShapeMismatch`). A fake inside another value or response is `RunBindingPlacement`. Because the program may call any operation, **every** operation of a faked capability needs parameter and result types that run values support; otherwise the request fails with `RunBindingTypeUnsupported`. Unit values use `{ "kind": "unit" }`; containers of Unit use the nested form. Operations with a declared `failureType` remain unsupported by the C# backend and fail as a session backend error; express expected failures as `Result` return values. Response values and throw messages count toward the argument's value, String and UTF-16 limits.
+Such programs run on a **virtual clock**, so a run is deterministic. One thread runs at a time: a started task or `ParallelAll` worker waits for its turn, and the running thread gives way only when it blocks (on a delay, `awaitCancellation`, `TaskWait`, a `ParallelAll` join or a scope's exit) or finishes. The next thread to resume is, in order: an elapsed delay, by (due time, start order), so everything due at a time has happened before a wait observes it; then a thread that can continue (a new task, or a wait whose condition holds or whose limit has elapsed), lowest start order first, with the entry function first and tasks and workers numbered as they start. Only when nothing can continue does virtual time jump to the earliest pending due time or `TaskWait` limit. Real elapsed time never affects the result, and fake responses are consumed in that deterministic order. If every thread is blocked and nothing is due, the run fails with `RunRuntimeFailure` (`InvalidOperationException`, "Every task is blocked and no delay is pending…") instead of hanging. Fakes are thread-safe: responses are consumed atomically in call order within the selected queue, and `calls` are recorded in the order they happen across workers and tasks. A call with no response left fails with `RunBindingExhausted`; a `throw` fails with `RunRuntimeFailure` and `exceptionType` `FakeCapabilityException`. Both carry frames (starting with the `capabilityOperation` frame) and the calls made so far. Fakes are accepted only as top-level arguments whose parameter has exactly that capability type. The capability must exist, operations must be distinct members of it (at most 256, each with at most 256 responses), and return values must match the declared result type (`RunBindingShapeMismatch`). A fake inside another value or response is `RunBindingPlacement`. Because the program may call any operation, **every** operation of a faked capability needs parameter and result types that run values support; otherwise the request fails with `RunBindingTypeUnsupported`. Unit values use `{ "kind": "unit" }`; containers of Unit use the nested form. Operations with a declared `failureType` remain unsupported by the C# backend and fail as a session backend error; express expected failures as `Result` return values. Response values and throw messages count toward the argument's value, String and UTF-16 limits.
 
 A capability parameter may instead be bound to an explicitly registered host implementation: `{ "kind": "hostCapability", "capabilityId": "<stable CapabilityId>", "implementation": "Example.Hosts.Directory" }`, with the request's `hostSources: ["Hosts.cs"]` listing the C# files that define it. Paths resolve against the workspace directory; at most 16 existing `.cs` files of at most 1 MiB each are accepted, and `hostSources` must be present exactly when some argument is a `hostCapability` (otherwise `RunHostSourceInvalid`). `implementation` must be a dotted C# type name (`RunBindingShapeMismatch` otherwise) with a public parameterless constructor implementing the generated capability interface. Host authors write against the generated names reported by `emitCSharp`'s symbol manifest. The sources are compiled beside the generated program with warnings as errors, so compile errors are `RunProcessFailure`. The runner wraps the implementation in a generated decorator that records every call exactly as for fakes, so `calls` and runtime frames (host method and decorator as `capabilityOperation` frames, then callers) are reported for host bindings too. Host exceptions are `RunRuntimeFailure`; expected failures belong in the operation's `Result` type. Host code runs with the user's permissions in the bounded child process; registering sources is an explicit trust decision, not a sandbox.
 
@@ -311,3 +311,62 @@ continuation identities. Abort snapshots use JSON schema 11; their prior schema
 encodings remain unchanged when no Abort is present. See the
 [contract and compatibility table](typed-function-abort.md#representation-and-compatibility)
 and [ordinary-tool example](../../examples/function-abort/README.md).
+
+### Argument-keyed fake responses
+
+Each `fakeCapability` operation accepts exactly one script mode:
+
+- `responses`: the existing single call-order queue;
+- `cases`: independent response queues selected by **all** operation argument values.
+
+```json
+{
+  "operationId": "<published operation ID>",
+  "cases": [
+    {
+      "arguments": [
+        { "capabilityParameterId": "<published parameter ID>", "value": { "kind": "string", "value": "member-2" } }
+      ],
+      "responses": [
+        { "kind": "return", "value": { "kind": "result", "okKind": "string", "errorKind": "string", "isOk": false, "value": "member 2 failed" } }
+      ]
+    }
+  ]
+}
+```
+
+Every case must supply each operation parameter exactly once with its declared
+type. Argument and case array order does not select a winner: equality is exact,
+including ordinal Strings, list order, active Option/Result payloads, named type
+and variant identities, and Product/Union fields. Field and parameter order in
+the request is irrelevant. Keys support the same bounded typed run values as
+ordinary arguments; capabilities cannot be nested in a key. Float64 and other
+unsupported run values remain unsupported.
+
+Duplicate complete keys, missing/unknown/duplicate parameters, wrong types or
+mixing modes fail before host code runs. Malformed wire shapes are `ProtocolError`;
+semantic binding errors are `RunBindingShapeMismatch`. Invalid nested values keep
+their existing diagnostics. A zero-argument operation has one possible key, `[]`.
+There is no partial match, wildcard, implicit fallback, repeat-last response or
+case precedence.
+
+On a call, logging, exact selection and queue consumption happen under the same
+lock. Unrelated keys never consume each other's responses. Concurrent calls with
+the **same** arguments still consume their shared key's queue in call order.
+Return, throw, `delayMillis` and `awaitCancellation` retain their existing behavior;
+waiting and throwing occur after the consumption lock has been released.
+
+An unmatched call, including an empty `cases` array, produces `RunBindingNoMatch`
+with exception type `FakeArgumentsUnmatchedException`. A matched but exhausted
+queue produces `RunBindingExhausted`. Both carry semantic frames and the call log,
+including the failed call. Empty queues are allowed and never fall through to
+another case. Omitted operations retain the existing exhausted-binding behavior.
+
+Limits are 256 cases per operation, 256 arguments per case, and 256 total responses
+per operation across all cases. Key values participate in the existing String,
+node-count, nesting, type and placement checks. Running a script never changes
+the committed snapshot or persists its queues.
+
+Existing wire `responses` scripts need no migration; snapshot and IR schemas do
+not change. Direct F# `PureRunFakeOperation` construction adds `Cases = None` for
+ordered scripts, or `Cases = Some cases` with `Responses = []` for keyed scripts.

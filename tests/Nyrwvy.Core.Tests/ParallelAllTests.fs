@@ -88,7 +88,7 @@ module ParallelAllTests =
     let private errText text = PureRunValue.ResultErr(PureRunScalarKind.String, PureRunScalar.String text)
 
     let private jobs (fixture: Fixture) responses =
-        PureRunValue.FakeCapability(fixture.Jobs.Id, [ { OperationId = (List.exactlyOne fixture.Jobs.Operations).Id; Responses = responses } ])
+        PureRunValue.FakeCapability(fixture.Jobs.Id, [ { OperationId = (List.exactlyOne fixture.Jobs.Operations).Id; Cases = None; Responses = responses } ])
 
     let private profile (fixture: Fixture) =
         CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun op -> op.Id))
@@ -289,8 +289,9 @@ module ParallelAllTests =
             Assert.Equal(2, stopped.Calls.Length)
             let files =
                 PureRunValue.FakeCapability(fixture.Files.Id,
-                    [ { OperationId = (fixture.Files.Operations |> List.find (fun item -> item.DisplayName = "open")).Id; Responses = [ PureRunFakeResponse.Return(okText "h1") ] }
+                    [ { OperationId = (fixture.Files.Operations |> List.find (fun item -> item.DisplayName = "open")).Id; Cases = None; Responses = [ PureRunFakeResponse.Return(okText "h1") ] }
                       { OperationId = (fixture.Files.Operations |> List.find (fun item -> item.DisplayName = "close")).Id
+                        Cases = None
                         Responses = [ PureRunFakeResponse.Return(PureRunValue.ResultValue(unitType, stringType, true, PureRunValue.Unit)) ] } ])
             let cleaned = run "runInWorkspace" [ PureRunValue.String "/w"; names; jobs fixture failing; files ] |> unwrap "cleaned"
             Assert.Equal(PureRunValue.ResultValue(listOf stringType, stringType, false, PureRunValue.String "boom"), cleaned.Actual)

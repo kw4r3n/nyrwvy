@@ -118,7 +118,7 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 - Validation gains: `TaskStart` worker shape (same rules and diagnostics family as `ParallelAll`), `TaskWait` element type agreement, `TaskScope` body shape (same family as `UseResource`), and the effect rule that all three are effectful.
 - Persistence, typed IR, execution IR, viewer, wire recipes and C# emission each gain the four constructs and `Task<T>`, following the `ParallelAll`/`UseResource` pattern.
 - `runPure` gains `Task<T>` in the value model only as far as results are concerned. A handle is not a run value and cannot be an argument or an expectation (`RunBindingPlacement`-style rejection). It also gains the virtual clock and `delayMillis` fake responses.
-- The fake-targeting gap (queue item 3) becomes more pressing. Per-task deterministic ordering helps, but "only member 2 fails" still needs argument-keyed responses. It should follow directly after this work.
+- The fake-targeting gap (queue item 3) is now addressed by [argument-keyed response queues](../specs/agent-authoring-session.md#argument-keyed-fake-responses), including delayed responses.
 
 ## Implementation phases
 
@@ -140,7 +140,7 @@ Phase 1 is specified in [expression authoring](../specs/expression-authoring.md)
 
 Phase 2 is specified in [expression authoring](../specs/expression-authoring.md) (`TaskWait`) and the [authoring session](../specs/agent-authoring-session.md) (`delayMillis` fakes and the virtual clock), and passes its acceptance test (`TaskScopeTests`): four members with scripted delays give the same Any-wait and limited-wait reports on repeated runs, a member that exceeds a 250 ms limit is reported running, stopped and then observed as stopped, and a run whose tasks all block with nothing due fails instead of hanging. It settles these details:
 
-- The limit is an optional operand of type `Option<Int64>`. An absent operand means `None`, so phase 1 graphs and snapshots stay valid without migration, and a loop can still pass a limit that varies per turn. A negative limit counts as 0.
+- The limit is an optional operand of type `Option<Int64>`. An absent operand means `None`, so phase 1 graphs and snapshots stay valid without migration, and a loop can still pass a limit that varies per turn. A negative limit counts as 0. A graph that uses the operand is written with the next schema of every encoding (snapshot JSON 12, Nyason v8, Typed Semantic IR 9, Execution IR 8), so a reader that predates limits rejects it by version rather than by an unknown field.
 - `delayMillis` applies to `return` and `throw` fake responses and is not interrupted by cancellation. A fake that should stop when asked uses `awaitCancellation`.
 - The virtual clock runs one thread at a time, not only in time order. The note's rule ("advance only when every running task is blocked") alone would still let concurrently running tasks consume fake responses in a timing-dependent order, so a scripted delay could reach the wrong member. Running one thread at a time, in start order, makes the whole run deterministic, which also pins down fake order for `ParallelAll` under `runPure`. It does not by itself solve queue item 3: responses are still assigned by call order, not by argument.
 - When a delay and a wait become due at the same time, the delay completes first, so a wait observes everything due at its time.

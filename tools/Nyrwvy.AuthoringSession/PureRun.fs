@@ -42,7 +42,8 @@ type PureRunValue =
     /// always use the flat ResultOk/ResultErr representation.
     | ResultValue of okType: TypeRef * errorType: TypeRef * isOk: bool * payload: PureRunValue
     /// A scripted stand-in for a capability, accepted only as a top-level argument. Each operation
-    /// answers its calls with its responses in order; operations without responses fail when called.
+    /// selects an ordered response queue or a queue keyed by complete argument values.
+    /// Missing matches and exhausted queues fail explicitly when called.
     | FakeCapability of capabilityId: CapabilityId * operations: PureRunFakeOperation list
     /// An explicitly registered host implementation of the capability interface, compiled from the
     /// request's host sources. `implementation` is a C# type name with a parameterless constructor.
@@ -51,6 +52,12 @@ type PureRunValue =
 
 and PureRunFakeOperation =
     { OperationId: CapabilityOperationId
+      Responses: PureRunFakeResponse list
+      /// None retains the ordered script. Some selects independent queues by complete argument values.
+      Cases: PureRunFakeCase list option }
+
+and PureRunFakeCase =
+    { Arguments: (CapabilityParameterId * PureRunValue) list
       Responses: PureRunFakeResponse list }
 
 and [<RequireQualifiedAccess>] PureRunFakeResponse =
@@ -71,6 +78,14 @@ module PureRunFakeResponse =
         match response with
         | PureRunFakeResponse.Delayed(_, inner) -> immediate inner
         | other -> other
+
+[<RequireQualifiedAccess>]
+module PureRunFakeOperation =
+    let responses (operation: PureRunFakeOperation) =
+        operation.Responses @ (operation.Cases |> Option.defaultValue [] |> List.collect (fun item -> item.Responses))
+
+    let arguments (operation: PureRunFakeOperation) =
+        operation.Cases |> Option.defaultValue [] |> List.collect (fun item -> item.Arguments |> List.map snd)
 
 /// One call the program made to a fake capability, with its arguments in canonical ID order.
 type PureRunCall =
@@ -238,6 +253,55 @@ module PureRun =
             let literal = value.ToString(CultureInfo.InvariantCulture)
             $"long.Parse(\"{literal}\", CultureInfo.InvariantCulture)"
 
+    /// Compare the supported value structure, never CLR container reference identity.
+    /// Generation is bounded by the already validated key, including recursive named types.
+    let private sourceMatches prefix expected actual =
+        let mutable next = 0
+        let fresh () = next <- next + 1; prefix + "Key" + string next
+        let rec compare value actual =
+            let fields owner values =
+                values |> List.map (fun (id, value) -> compare value (owner + "." + CSharpBackendNames.fieldName id))
+                |> String.concat " && "
+            let list values =
+                let state, item = fresh (), fresh ()
+                let arms = values |> List.mapi (fun i value -> string i + " => " + compare value item) |> String.concat ", "
+                let cases = if List.isEmpty values then "_ => false" else arms + ", _ => false"
+                $"({actual} != null && {actual}.Length == {values.Length}L && {actual}.Fold((Index: 0, Equal: true), ({state}, {item}) => ({state}.Index + 1, {state}.Equal && ({state}.Index switch {{ {cases} }}))).Equal)"
+            let option value =
+                match value with
+                | None -> $"(!{actual}.HasValue)"
+                | Some item ->
+                    let selected = compare item (actual + ".Value")
+                    $"({actual}.HasValue && {selected})"
+            let result isOk payload =
+                let selected = if isOk then ".OkValue" else ".ErrorValue"
+                let flag = if isOk then "" else "!"
+                $"({flag}{actual}.IsOk && {compare payload (actual + selected)})"
+            match value with
+            | PureRunValue.Unit -> $"System.Collections.Generic.EqualityComparer<NyUnit>.Default.Equals({actual}, NyUnit.Value)"
+            | PureRunValue.String _ -> $"string.Equals({actual}, {sourceArgument value}, StringComparison.Ordinal)"
+            | PureRunValue.Bool _ | PureRunValue.Int64 _ -> $"({actual} == {sourceArgument value})"
+            | PureRunValue.StringList items -> list (List.map PureRunValue.String items)
+            | PureRunValue.BoolList items -> list (List.map PureRunValue.Bool items)
+            | PureRunValue.Int64List items -> list (List.map PureRunValue.Int64 items)
+            | PureRunValue.ListValue(_, items) -> list items
+            | PureRunValue.StringOption item -> option (Option.map PureRunValue.String item)
+            | PureRunValue.BoolOption item -> option (Option.map PureRunValue.Bool item)
+            | PureRunValue.Int64Option item -> option (Option.map PureRunValue.Int64 item)
+            | PureRunValue.OptionValue(_, item) -> option item
+            | PureRunValue.ResultOk(_, payload) -> result true (scalarValue payload)
+            | PureRunValue.ResultErr(_, payload) -> result false (scalarValue payload)
+            | PureRunValue.ResultValue(_, _, isOk, payload) -> result isOk payload
+            | PureRunValue.Product(_, values) ->
+                let body = fields actual values
+                if List.isEmpty values then $"({actual} != null)" else $"({actual} != null && {body})"
+            | PureRunValue.Union(_, variant, values) ->
+                let name = fresh ()
+                let head = actual + " is " + CSharpBackendNames.variantName variant + " " + name
+                if List.isEmpty values then "(" + head + ")" else "(" + head + " && " + fields name values + ")"
+            | PureRunValue.FakeCapability _ | PureRunValue.HostCapability _ -> invalidOp "Capability values cannot be fake keys."
+        compare expected actual
+
     let private diagnostic code message = PureRunError.Unsupported(code, message)
 
     let private wellFormedUtf16 (text: string) =
@@ -260,11 +324,12 @@ module PureRun =
         | PureRunValue.ResultValue(_, _, _, payload) -> [ payload ]
         | PureRunValue.FakeCapability(_, operations) ->
             operations |> List.collect (fun operation ->
-                operation.Responses |> List.map PureRunFakeResponse.immediate |> List.choose (function
+                PureRunFakeOperation.arguments operation @
+                (PureRunFakeOperation.responses operation |> List.map PureRunFakeResponse.immediate |> List.choose (function
                     | PureRunFakeResponse.Return value
                     | PureRunFakeResponse.AwaitCancellation value -> Some value
                     | PureRunFakeResponse.Throw _
-                    | PureRunFakeResponse.Delayed _ -> None))
+                    | PureRunFakeResponse.Delayed _ -> None)))
         | _ -> []
 
     let rec private strings value =
@@ -276,7 +341,7 @@ module PureRun =
         | PureRunValue.StringOption item -> Option.toList item
         | PureRunValue.FakeCapability(_, operations) ->
             (operations |> List.collect (fun operation ->
-                operation.Responses |> List.choose (PureRunFakeResponse.immediate >> function PureRunFakeResponse.Throw message -> Some message | _ -> None)))
+                PureRunFakeOperation.responses operation |> List.choose (PureRunFakeResponse.immediate >> function PureRunFakeResponse.Throw message -> Some message | _ -> None)))
             @ (children value |> List.collect strings)
         | _ -> children value |> List.collect strings
 
@@ -287,7 +352,7 @@ module PureRun =
             | PureRunValue.Product(_, fields)
             | PureRunValue.Union(_, _, fields) -> fields.Length > 256
             | PureRunValue.FakeCapability(_, operations) ->
-                operations.Length > 256 || operations |> List.exists (fun operation -> operation.Responses.Length > 256)
+                operations.Length > 256 || operations |> List.exists (fun operation -> (PureRunFakeOperation.responses operation).Length > 256 || (operation.Cases |> Option.exists (fun cases -> cases.Length > 256 || cases |> List.exists (fun item -> item.Arguments.Length > 256))))
             | PureRunValue.StringList items ->
                 items.Length > 4096 || (items |> List.sumBy (fun text -> if isNull text then 65537L else int64 text.Length)) > 65536L
             | PureRunValue.BoolList items -> items.Length > 4096
@@ -516,7 +581,12 @@ module PureRun =
                 | PureRunFakeResponse.AwaitCancellation value -> PureRunFakeResponse.AwaitCancellation(canonicalValue value)
                 | throw -> throw
             PureRunValue.FakeCapability(capabilityId,
-                operations |> List.map (fun operation -> { operation with Responses = List.map response operation.Responses })
+                operations |> List.map (fun operation ->
+                    { operation with
+                        Responses = List.map response operation.Responses
+                        Cases = operation.Cases |> Option.map (List.map (fun item ->
+                            { Arguments = item.Arguments |> List.map (fun (id, value) -> id, canonicalValue value) |> List.sortBy (fst >> StableId.value)
+                              Responses = item.Responses |> List.map response })) })
                 |> List.sortBy (fun operation -> StableId.value operation.OperationId))
         | value -> value
 
@@ -724,6 +794,10 @@ module PureRun =
             | PureRunValue.Int64Option item -> count (if Option.isSome item then 1 else 0)
             | PureRunValue.ResultOk _
             | PureRunValue.ResultErr _ -> count 1
+            | PureRunValue.FakeCapability(_, operations) ->
+                count (operations |> List.sumBy (fun op ->
+                    op.Cases |> Option.defaultValue [] |> List.sumBy (fun item -> 1 + item.Arguments.Length + item.Responses.Length)))
+                && (children value |> List.forall (visit (depth + 1)))
             | _ -> children value |> List.forall (visit (depth + 1))
         visit 0 value
 
@@ -764,7 +838,16 @@ module PureRun =
                 if List.distinct ids <> ids || ids |> List.exists (fun operationId -> not (Map.containsKey operationId declared)) then
                     Some("RunBindingShapeMismatch", "Fake operations must be distinct operations of the faked capability.")
                 elif operations |> List.exists (fun operation ->
-                    operation.Responses |> List.exists (PureRunFakeResponse.immediate >> function
+                    operation.Cases |> Option.exists (fun cases ->
+                        let parameters = declared[operation.OperationId].Parameters |> List.sortBy (fun p -> StableId.value p.Id)
+                        not (List.isEmpty operation.Responses)
+                        || cases |> List.exists (fun item ->
+                            item.Arguments.Length <> parameters.Length
+                            || not (List.forall2 (fun (id, value) (p: SemanticCapabilityParameter) -> id = p.Id && valueType value = p.Type) item.Arguments parameters))
+                        || (cases |> List.map (fun item -> item.Arguments) |> List.distinct |> List.length) <> cases.Length)) then
+                    Some("RunBindingShapeMismatch", "Keyed fakes require unique complete typed argument sets and cannot mix cases with ordered responses.")
+                elif operations |> List.exists (fun operation ->
+                    PureRunFakeOperation.responses operation |> List.exists (PureRunFakeResponse.immediate >> function
                         | PureRunFakeResponse.Return response
                         | PureRunFakeResponse.AwaitCancellation response -> valueType response <> declared[operation.OperationId].ResultType
                         | PureRunFakeResponse.Throw _
@@ -851,12 +934,12 @@ module PureRun =
             match emitted, session.Status() with
             | Error error, _
             | _, Error error -> Error(PureRunError.SessionFailure error)
-            | Ok(_, artifact), Ok _ when
-                not (artifact.Source.Contains("public static class NyRuntime"))
+            | Ok(program, _), Ok _ when
+                not (CSharpBackend.usesConcurrencyRuntime program)
                 && arguments |> List.exists (function
                     | PureRunValue.FakeCapability(_, operations) ->
                         operations |> List.exists (fun operation ->
-                            operation.Responses |> List.exists (function
+                            PureRunFakeOperation.responses operation |> List.exists (function
                                 | PureRunFakeResponse.AwaitCancellation _
                                 | PureRunFakeResponse.Delayed _ -> true
                                 | _ -> false))
@@ -970,12 +1053,26 @@ module PureRun =
                                         let names =
                                             operation.Parameters |> List.map (fun parameter -> CSharpBackendNames.capabilityParameterName parameter.Id)
                                             |> String.concat ", "
-                                        let responses =
+                                        let script =
                                             match binding with
-                                            | Choice1Of2 scripted ->
-                                                scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
-                                                |> Option.map (fun item -> item.Responses) |> Option.defaultValue []
-                                            | Choice2Of2 _ -> []
+                                            | Choice1Of2 scripted -> scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
+                                            | Choice2Of2 _ -> None
+                                        let keyed = script |> Option.bind (fun item -> item.Cases)
+                                        let responses = script |> Option.map PureRunFakeOperation.responses |> Option.defaultValue []
+                                        let selectResponse =
+                                            match keyed with
+                                            | None -> $"            response = {name}Next++;\n"
+                                            | Some keys ->
+                                                let mutable offset = 0
+                                                let branches =
+                                                    keys |> List.mapi (fun index item ->
+                                                        let conditions = item.Arguments |> List.map (fun (id, value) -> sourceMatches ("case" + string index + CSharpBackendNames.capabilityParameterName id) value (CSharpBackendNames.capabilityParameterName id))
+                                                        let condition = if List.isEmpty conditions then "true" else String.concat " && " conditions
+                                                        let prefix = if List.isEmpty conditions then "" elif index = 0 then "if (" + condition + ")" else "else if (" + condition + ")"
+                                                        let branch = $"            {prefix}\n            {{\n                int local = {name}Next[{index}]++;\n                if (local >= {item.Responses.Length}) throw new FakeResponsesExhaustedException();\n                response = {offset} + local;\n            }}\n"
+                                                        offset <- offset + item.Responses.Length
+                                                        branch) |> String.concat ""
+                                                branches + (if List.isEmpty keys then "            throw new FakeArgumentsUnmatchedException();\n" elif List.isEmpty operation.Parameters then "" else "            else throw new FakeArgumentsUnmatchedException();\n")
                                         let rec answer response =
                                             match response with
                                             | PureRunFakeResponse.Return value -> $"return {sourceArgument value};"
@@ -987,11 +1084,17 @@ module PureRun =
                                             |> String.concat ""
                                         let answer =
                                             match binding with
+                                            | Choice1Of2 _ when keyed = Some [] ->
+                                                $"        FakeLog.Record({site}, new object[] {{ {values} }});\n        throw new FakeArgumentsUnmatchedException();\n"
                                             | Choice1Of2 _ ->
-                                                $"        int response;\n        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n            response = {name}Next++;\n        }}\n        switch (response)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
+                                                $"        int response;\n        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n{selectResponse}        }}\n        switch (response)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
                                             | Choice2Of2 _ -> $"        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n"
                                         let text =
-                                            (match binding with Choice1Of2 _ -> $"    int {name}Next;\n" | Choice2Of2 _ -> "")
+                                            (match binding, keyed with
+                                             | Choice1Of2 _, Some [] -> ""
+                                             | Choice1Of2 _, Some keys -> $"    readonly int[] {name}Next = new int[{keys.Length}];\n"
+                                             | Choice1Of2 _, None -> $"    int {name}Next;\n"
+                                             | Choice2Of2 _, _ -> "")
                                             + $"    public {sourceType operation.ResultType} {name}({parameters})\n    {{\n"
                                             + answer + "    }\n"
                                         site <- site + 1
@@ -1017,7 +1120,7 @@ module PureRun =
                             + (if checksText then "long textRemaining = 65536;\n" else "")
                             + "try\n{\n"
                             // Concurrent programs run on a virtual clock, so waits and delays are deterministic.
-                            + (if artifact.Source.Contains("public sealed class NyVirtualClock") then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
+                            + (if CSharpBackend.usesConcurrencyRuntime program then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
                             + $"    var result = NyFunctions.{entry}({args});\n"
                             + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
                             + "}\n"
@@ -1041,6 +1144,7 @@ module PureRun =
                             + namedEncoders
                             + "sealed class RunnerException(string message) : Exception(message);\n"
                             + "sealed class FakeCapabilityException(string message) : Exception(message);\n"
+                            + "sealed class FakeArgumentsUnmatchedException() : Exception(\"No fake case matches the complete call arguments.\");\n"
                             + "sealed class FakeResponsesExhaustedException() : Exception(\"The fake operation has no scripted response left for this call.\");\n"
                             + "static class FakeLog\n{\n"
                             + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"

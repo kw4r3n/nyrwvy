@@ -139,7 +139,7 @@ module ListEffectFoldTests =
             let saved = PureRunValue.ResultValue(unitType, stringType, true, PureRunValue.Unit)
             let refused message = PureRunValue.ResultValue(unitType, stringType, false, PureRunValue.String message)
             let store responses =
-                PureRunValue.FakeCapability(fixture.Store.Id, [ { OperationId = fixture.Save.Id; Responses = responses |> List.map PureRunFakeResponse.Return } ])
+                PureRunValue.FakeCapability(fixture.Store.Id, [ { OperationId = fixture.Save.Id; Cases = None; Responses = responses |> List.map PureRunFakeResponse.Return } ])
             let keyOf (call: PureRunCall) = snd (List.exactlyOne call.Arguments)
             let stopped = PureRun.run fixture.Session (fixture.Function "saveAll").Id [ keys; store [ saved; saved; refused "full" ] ] None |> unwrap "stopped"
             Assert.Equal(PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String "full"), stopped.Actual)
@@ -149,7 +149,7 @@ module ListEffectFoldTests =
             Assert.Equal(4, complete.Calls.Length)
             let empty = PureRun.run fixture.Session (fixture.Function "saveAll").Id [ PureRunValue.StringList []; store [] ] None |> unwrap "empty"
             Assert.Equal(PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 0L), empty.Actual)
-            let log = PureRunValue.FakeCapability(fixture.Log.Id, [ { OperationId = fixture.Write.Id; Responses = List.replicate 3 (PureRunFakeResponse.Return PureRunValue.Unit) } ])
+            let log = PureRunValue.FakeCapability(fixture.Log.Id, [ { OperationId = fixture.Write.Id; Cases = None; Responses = List.replicate 3 (PureRunFakeResponse.Return PureRunValue.Unit) } ])
             let logged = PureRun.run fixture.Session (fixture.Function "logAll").Id [ PureRunValue.StringList [ "x"; "y"; "z" ]; log ] (Some(PureRunValue.Int64 3L)) |> unwrap "log"
             Assert.Equal(Some true, logged.Matches)
             Assert.Equal<PureRunValue list>([ PureRunValue.String "x"; PureRunValue.String "y"; PureRunValue.String "z" ], logged.Calls |> List.map keyOf))

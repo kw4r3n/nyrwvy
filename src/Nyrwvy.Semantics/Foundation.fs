@@ -516,6 +516,14 @@ module FunctionAbort =
             ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
                 match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false))
 
+/// A TaskWait with a limit operand needs a persisted schema newer than the one that introduced tasks.
+[<RequireQualifiedAccess>]
+module TaskTimeLimits =
+    let isUsed (snapshot: Snapshot) =
+        snapshot.Functions |> List.exists (fun fn ->
+            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
+                match node.Kind with SemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false))
+
 [<RequireQualifiedAccess>]
 module Snapshot =
     let empty id =

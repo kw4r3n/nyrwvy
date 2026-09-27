@@ -128,7 +128,7 @@ module PureRunBindingTests =
         PureRunValue.ResultValue(TypeRef.Named fixture.Response.Id, stringType, false, PureRunValue.String text)
 
     let private provider (fixture: Fixture) responses =
-        PureRunValue.FakeCapability(fixture.Provider.Id, [ { OperationId = fixture.Lookup.Id; Responses = responses } ])
+        PureRunValue.FakeCapability(fixture.Provider.Id, [ { OperationId = fixture.Lookup.Id; Cases = None; Responses = responses } ])
 
     [<Fact>]
     let ``fake bindings are checked against capability declarations before building`` () =
@@ -141,9 +141,9 @@ module PureRunBindingTests =
             let query = request fixture "k"
             reject "query" [ query; PureRunValue.String "not a capability" ] "RunArgumentTypeMismatch"
             reject "query" [ query; PureRunValue.FakeCapability(fixture.Log.Id, []) ] "RunArgumentTypeMismatch"
-            let foreign = { OperationId = fixture.Write.Id; Responses = [] }
+            let foreign = { OperationId = fixture.Write.Id; Cases = None; Responses = [] }
             reject "query" [ query; PureRunValue.FakeCapability(fixture.Provider.Id, [ foreign ]) ] "RunBindingShapeMismatch"
-            let twice = { OperationId = fixture.Lookup.Id; Responses = [] }
+            let twice = { OperationId = fixture.Lookup.Id; Cases = None; Responses = [] }
             reject "query" [ query; PureRunValue.FakeCapability(fixture.Provider.Id, [ twice; twice ]) ] "RunBindingShapeMismatch"
             reject "query" [ query; provider fixture [ PureRunFakeResponse.Return(PureRunValue.String "wrong type") ] ] "RunBindingShapeMismatch"
             reject "query" [ query; provider fixture [ PureRunFakeResponse.Return(PureRunValue.FakeCapability(fixture.Log.Id, [])) ] ] "RunBindingPlacement"
@@ -297,3 +297,123 @@ public sealed class Broken : {capability}
             Assert.True(response.RootElement.GetProperty("result").GetProperty("matches").GetBoolean())
             Assert.Equal(1, response.RootElement.GetProperty("result").GetProperty("calls").GetArrayLength())
             Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    let private keyed (fixture: Fixture) cases =
+        PureRunValue.FakeCapability(fixture.Provider.Id, [ { OperationId = fixture.Lookup.Id; Responses = []; Cases = Some cases } ])
+
+    let private lookupCase (fixture: Fixture) key responses: PureRunFakeCase =
+        { Arguments = [ fixture.Lookup.Parameters.Head.Id, request fixture key ]; Responses = responses }
+
+    [<Fact>]
+    let ``keyed fakes reject incomplete mistyped duplicate and mixed scripts without changing state`` () =
+        withFixture (fun fixture ->
+            let before = File.ReadAllText fixture.Path
+            let valid = lookupCase fixture "a" [ PureRunFakeResponse.Return(found fixture "ok") ]
+            let check binding =
+                match PureRun.run fixture.Session (fixture.Function "query").Id [ request fixture "a"; binding ] None with
+                | Error(PureRunError.Unsupported _) -> ()
+                | other -> failwithf "Invalid key was accepted: %A" other
+            for cases in
+                [ [ { valid with Arguments = [] } ]
+                  [ { valid with Arguments = valid.Arguments @ valid.Arguments } ]
+                  [ { valid with Arguments = [ fixture.Write.Parameters.Head.Id, request fixture "a" ] } ]
+                  [ { valid with Arguments = [ fixture.Lookup.Parameters.Head.Id, PureRunValue.String "a" ] } ]
+                  [ valid; valid ]
+                  [ lookupCase fixture (String.replicate 65537 "x") [] ]
+                  [ { valid with Responses = List.replicate 257 (PureRunFakeResponse.Throw "too many") } ] ] do
+                check (keyed fixture cases)
+            check (PureRunValue.FakeCapability(fixture.Provider.Id,
+                [ { OperationId = fixture.Lookup.Id; Responses = valid.Responses; Cases = Some [ valid ] } ]))
+            let capId, opId, functionId = StableId.value fixture.Provider.Id, StableId.value fixture.Lookup.Id, StableId.value (fixture.Function "query").Id
+            for script in [ """"responses":[],"cases":[]"""; """"cases":null"""; """"cases":[{"arguments":[],"responses":[],"extra":true}]""" ] do
+                let line = $"""{{"id":"bad-case","op":"runPure","functionId":"{functionId}","arguments":[{{"kind":"fakeCapability","capabilityId":"{capId}","operations":[{{"operationId":"{opId}",{script}}}]}}]}}"""
+                use reply = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+                Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Equal("ProtocolError", reply.RootElement.GetProperty("error").GetProperty("code").GetString())
+            Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``keyed fake queues are independent and distinguish no match from exhaustion`` () =
+        withFixture (fun fixture ->
+            let query = fixture.Function "query"
+            let a = lookupCase fixture "a" [ PureRunFakeResponse.Return(found fixture "a1"); PureRunFakeResponse.Return(found fixture "a2") ]
+            let b = lookupCase fixture "b" [ PureRunFakeResponse.Return(found fixture "b1") ]
+            let invoke index = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 2, fixture.Lookup.Id,
+                                    [ fixture.Lookup.Parameters.Head.Id, ExpressionRecipe.ParameterSlot index ])
+            createFunction fixture.Session "interleaved"
+                [ "a", TypeRef.Named fixture.Request.Id; "b", TypeRef.Named fixture.Request.Id; "provider", TypeRef.Capability fixture.Provider.Id ]
+                fixture.Lookup.ResultType [ fixture.Lookup.EffectId ]
+                (ExpressionRecipe.Bind(invoke 0, ExpressionRecipe.Bind(invoke 1, invoke 0)))
+            for cases in [ [ a; b ]; [ b; a ] ] do
+                let answer = PureRun.run fixture.Session (fixture.Function "interleaved").Id
+                                [ request fixture "a"; request fixture "b"; keyed fixture cases ] (Some(found fixture "a2")) |> unwrap "independent queues"
+                Assert.Equal(Some true, answer.Matches)
+                Assert.Equal(3, answer.Calls.Length)
+            for cases, exhausted in [ [ b ], false; [], false; [ { a with Responses = [] }; b ], true ] do
+                match PureRun.run fixture.Session query.Id [ request fixture "a"; keyed fixture cases ] None with
+                | Error(PureRunError.RuntimeFailure failure) ->
+                    Assert.Equal(exhausted, failure.BindingExhausted)
+                    Assert.Equal((if exhausted then "FakeResponsesExhaustedException" else "FakeArgumentsUnmatchedException"), failure.ExceptionType)
+                    Assert.Equal<PureRunFrame list>([ PureRunFrame.CapabilityOperation fixture.Lookup.Id; PureRunFrame.Function query.Id ], failure.Frames)
+                    Assert.Equal(1, failure.Calls.Length)
+                | other -> failwithf "Missing response was not reported: %A" other
+            // Zero-argument operations have one possible complete key, not an implicit default.
+            createFunction fixture.Session "fallbackOnly" [ "provider", TypeRef.Capability fixture.Provider.Id ] fixture.Fallback.ResultType [ fixture.Fallback.EffectId ]
+                (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Fallback.Id, []))
+            let fallback = PureRunValue.FakeCapability(fixture.Provider.Id,
+                            [ { OperationId = fixture.Fallback.Id; Responses = []; Cases = Some [ { Arguments = []; Responses = [ PureRunFakeResponse.Return(found fixture "zero") ] } ] } ])
+            let answer = PureRun.run fixture.Session (fixture.Function "fallbackOnly").Id [ fallback ] (Some(found fixture "zero")) |> unwrap "zero arguments"
+            Assert.Equal(Some true, answer.Matches)
+            let capId, opId, parameterId = StableId.value fixture.Log.Id, StableId.value fixture.Write.Id, StableId.value fixture.Write.Parameters.Head.Id
+            let functionId = StableId.value (fixture.Function "logTwice").Id
+            let wire = $"""{{"id":"missing-key","op":"runPure","functionId":"{functionId}","arguments":[{{"kind":"string","value":"x"}},{{"kind":"fakeCapability","capabilityId":"{capId}","operations":[{{"operationId":"{opId}","cases":[{{"arguments":[{{"capabilityParameterId":"{parameterId}","value":{{"kind":"string","value":"x"}}}}],"responses":[{{"kind":"return","value":{{"kind":"unit"}}}}]}}]}}]}}]}}"""
+            use reply = AuthoringProtocol.executeLine fixture.Session wire |> JsonDocument.Parse
+            Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("RunBindingNoMatch", reply.RootElement.GetProperty("error").GetProperty("code").GetString()))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``keyed fakes compare nested values structurally and ignore argument ordering`` () =
+        withFixture (fun fixture ->
+            let s = fixture.Session
+            let intType = TypeRef.Primitive PrimitiveType.Int64
+            let listOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ t ])
+            let optionOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ t ])
+            s.SimulateCreateType
+                { ExpectedBaseSnapshotId = current s; DisplayName = "KeyChoice"
+                  Kind = AgentTypeDeclarationKindIntent.Union
+                    [ { DisplayName = "Numbers"; Fields = [ { DisplayName = "items"; Type = listOf intType } ] }
+                      { DisplayName = "Empty"; Fields = [] } ] }
+            |> unwrap "choice" |> publish s
+            let choice = s.Declarations().Types |> List.find (fun t -> t.DisplayName = "KeyChoice")
+            let variants = match choice.Kind with SemanticTypeKind.Union variants -> variants | _ -> failwith "union"
+            let numbers = variants |> List.find (fun v -> v.DisplayName = "Numbers")
+            let empty = variants |> List.find (fun v -> v.DisplayName = "Empty")
+            let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named choice.Id; stringType ])
+            let nestedType = listOf (optionOf resultType)
+            let parameters = [ "left", nestedType; "right", nestedType; "unit", unitType ]
+            let cap = createCapability s "NestedLookup"
+                        [ { DisplayName = "lookup"; Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
+                            ResultType = stringType; FailureType = None; EffectId = fixture.Lookup.EffectId } ]
+            let op = cap.Operations.Head
+            createFunction s "nestedLookup" (parameters @ [ "provider", TypeRef.Capability cap.Id ]) stringType [ fixture.Lookup.EffectId ]
+                (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 3, op.Id,
+                    op.Parameters |> List.mapi (fun i p -> p.Id, ExpressionRecipe.ParameterSlot i)))
+            let numberValues xs = PureRunValue.Union(choice.Id, numbers.Id, [ numbers.Fields.Head.Id, PureRunValue.Int64List xs ])
+            let nested value = PureRunValue.ListValue(optionOf resultType,
+                                [ PureRunValue.OptionValue(resultType, Some(PureRunValue.ResultValue(TypeRef.Named choice.Id, stringType, true, value)))
+                                  PureRunValue.OptionValue(resultType, None) ])
+            let a, b = nested (numberValues [ Int64.MinValue; 2L ]), nested (numberValues [ Int64.MinValue; 3L ])
+            let noFields = nested (PureRunValue.Union(choice.Id, empty.Id, []))
+            let key left right answer: PureRunFakeCase =
+                { Arguments = [ op.Parameters[2].Id, PureRunValue.Unit; op.Parameters[1].Id, right; op.Parameters[0].Id, left ]
+                  Responses = [ PureRunFakeResponse.Return(PureRunValue.String answer) ] }
+            let cases = [ key a a "aa"; key a b "ab"; key noFields b "empty" ]
+            for left, right, expected in [ a, a, "aa"; a, b, "ab"; noFields, b, "empty" ] do
+                let binding = PureRunValue.FakeCapability(cap.Id, [ { OperationId = op.Id; Responses = []; Cases = Some cases } ])
+                let answer = PureRun.run s (fixture.Function "nestedLookup").Id [ left; right; PureRunValue.Unit; binding ] (Some(PureRunValue.String expected)) |> unwrap "structural key"
+                Assert.Equal(Some true, answer.Matches)
+            let duplicate = [ key a b "one"; { key a b "two" with Arguments = (key a b "two").Arguments |> List.rev } ]
+            match PureRun.run s (fixture.Function "nestedLookup").Id
+                    [ a; b; PureRunValue.Unit; PureRunValue.FakeCapability(cap.Id, [ { OperationId = op.Id; Responses = []; Cases = Some duplicate } ]) ] None with
+            | Error(PureRunError.Unsupported("RunBindingShapeMismatch", _)) -> ()
+            | other -> failwithf "Canonical duplicate keys were accepted: %A" other)

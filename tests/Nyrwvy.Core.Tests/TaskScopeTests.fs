@@ -282,7 +282,7 @@ module TaskScopeTests =
     let private awaitMember index = action awaitId [ awaitIndexId, PureRunValue.Int64 index ]
     let private stopMember index = action stopId [ stopIndexId, PureRunValue.Int64 index ]
     let private fake capabilityId operations =
-        PureRunValue.FakeCapability(capabilityId, operations |> List.map (fun (operationId, responses) -> { OperationId = operationId; Responses = responses }))
+        PureRunValue.FakeCapability(capabilityId, operations |> List.map (fun (operationId, responses) -> { OperationId = operationId; Cases = None; Responses = responses }))
     let private returns values = values |> List.map PureRunFakeResponse.Return
     let private workspaces count =
         fake workspacesId
@@ -339,6 +339,14 @@ module TaskScopeTests =
             Assert.Contains(limits, Option.isSome)
             Assert.Contains("\"limitNodeId\"", File.ReadAllText path)
             Assert.Contains("limitValueId", ExecutionIrCodec.serialize execution)
+            // A limit operand selects newer schemas, so readers that predate limits reject it by version.
+            let stored = File.ReadAllText path
+            Assert.Contains("\"schemaVersion\":12", stored)
+            Assert.True(SnapshotCodec.deserialize (stored.Replace("\"schemaVersion\":12", "\"schemaVersion\":11")) |> Result.isError)
+            Assert.Contains("nayamnyam.snapshot.v8", nyason)
+            Assert.True(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v8", "nayamnyam.snapshot.v7")) |> Result.isError)
+            Assert.Contains("\"schemaVersion\":9", TypedSemanticIrCodec.serialize typed)
+            Assert.Contains("\"schemaVersion\":8", ExecutionIrCodec.serialize execution)
             Assert.Equal("TaskCancelInputTypeMismatch", reject [ "task", stringType ] unitType (ExpressionRecipe.TaskCancel(slot 0)))
             // The body's free parameter must be the scope.
             Assert.Equal("TaskScopeBodyMismatch", reject capabilities outcomeType (ExpressionRecipe.TaskScope(memberWorker.Id, context)))
@@ -473,3 +481,29 @@ module TaskScopeTests =
             with
             | Error(PureRunError.RuntimeFailure failure) -> Assert.Contains("no delay is pending", failure.Message)
             | other -> failwithf "A blocked program did not fail: %A" other)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``argument keyed fakes fail only member b whatever order the members start in`` () =
+        withTeam (fun session _ ->
+            let runTeam = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "runTeam")).Id
+            // One script keyed by member name, so reordering the spawns cannot move b's failure to a.
+            let agent =
+                PureRunValue.FakeCapability(agentId,
+                    [ { OperationId = workId
+                        Responses = []
+                        Cases =
+                          Some
+                              [ { Arguments = [ workNameId, PureRunValue.String "b" ]; Responses = [ delayed 5L (PureRunFakeResponse.Return(errText "b failed")) ] }
+                                { Arguments = [ workNameId, PureRunValue.String "a" ]; Responses = [ delayed 10L (PureRunFakeResponse.Return(okText "a")) ] } ] } ])
+            for first, second, expected in [ "a", "b", [ "|ok:a"; "|err:b failed" ]; "b", "a", [ "|err:b failed"; "|ok:a" ] ] do
+                let result =
+                    PureRun.run session runTeam
+                        [ fake leaderId [ nextId, returns [ spawn first; spawn second; awaitMember 0L; awaitMember 1L; action finishId [] ] ]; agent; workspaces 2 ]
+                        (Some(okText "done"))
+                    |> unwrap "runTeam"
+                Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch)
+                Assert.Equal<string list>(
+                    [ "start"; "spawned"; "spawned" ] @ expected,
+                    result.Calls |> List.filter (fun call -> call.OperationId = nextId) |> List.map argumentText)
+                Assert.Equal<string list>([ first; second ], result.Calls |> List.filter (fun call -> call.OperationId = workId) |> List.map argumentText)
+                Assert.Equal(2, result.Calls |> List.filter (fun call -> call.OperationId = removeId) |> List.length))

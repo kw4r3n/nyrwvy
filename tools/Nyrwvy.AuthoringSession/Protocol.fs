@@ -54,7 +54,11 @@ module AuthoringProtocol =
             | "product" | "union" -> (array "fields" item).Length
             | "result" -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
-            | "fakeCapability" -> array "operations" item |> List.sumBy (fun operation -> (array "responses" operation).Length)
+            | "fakeCapability" ->
+                array "operations" item |> List.sumBy (fun operation ->
+                    match tryProperty "cases" operation with
+                    | Some _ -> array "cases" operation |> List.sumBy (fun item -> 1 + (array "arguments" item).Length + (array "responses" item).Length)
+                    | None -> (array "responses" operation).Length)
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
@@ -83,12 +87,11 @@ module AuthoringProtocol =
             PureRunValue.FakeCapability(
                 id<CapabilityTag> "capabilityId" item,
                 operations |> List.map (fun operation ->
-                    ensureFields "Fake operation" [ "operationId"; "responses" ] [ "operationId"; "responses" ] operation
-                    let responses = array "responses" operation
-                    if responses.Length > 256 then fail "A fake operation may script at most 256 responses."
-                    { OperationId = id<CapabilityOperationTag> "operationId" operation
-                      Responses =
-                        responses |> List.map (fun response ->
+                    ensureFields "Fake operation" [ "operationId"; "responses"; "cases" ] [ "operationId" ] operation
+                    let parseResponses owner =
+                        let values = array "responses" owner
+                        if values.Length > 256 then fail "A fake operation may script at most 256 responses."
+                        values |> List.map (fun response ->
                             match requiredString "kind" response with
                             | "return" ->
                                 ensureFields "Fake return" [ "kind"; "value"; "delayMillis" ] [ "kind"; "value" ] response
@@ -99,7 +102,24 @@ module AuthoringProtocol =
                             | "awaitCancellation" ->
                                 ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
                                 PureRunFakeResponse.AwaitCancellation(pureValueAt remaining (depth + 1) (property "value" response))
-                            | other -> fail $"Unsupported fake response kind '{other}'.") }))
+                            | other -> fail $"Unsupported fake response kind '{other}'.")
+                    let operationId = id<CapabilityOperationTag> "operationId" operation
+                    match tryProperty "responses" operation, tryProperty "cases" operation with
+                    | Some _, None -> { OperationId = operationId; Responses = parseResponses operation; Cases = None }
+                    | None, Some _ ->
+                        let cases = array "cases" operation
+                        if cases.Length > 256 then fail "A fake operation may script at most 256 cases."
+                        let cases = cases |> List.map (fun item ->
+                            ensureFields "Fake case" [ "arguments"; "responses" ] [ "arguments"; "responses" ] item
+                            let arguments = array "arguments" item
+                            if arguments.Length > 256 then fail "A fake case may contain at most 256 arguments."
+                            { Arguments = arguments |> List.map (fun argument ->
+                                ensureFields "Fake case argument" [ "capabilityParameterId"; "value" ] [ "capabilityParameterId"; "value" ] argument
+                                id<CapabilityParameterTag> "capabilityParameterId" argument, pureValueAt remaining (depth + 1) (property "value" argument))
+                              Responses = parseResponses item })
+                        if cases |> List.sumBy (fun item -> item.Responses.Length) > 256 then fail "A fake operation may script at most 256 total responses."
+                        { OperationId = operationId; Responses = []; Cases = Some cases }
+                    | _ -> fail "A fake operation requires exactly one of responses or cases."))
         | "string" | "bool" | "int64" ->
             match pureScalar item with
             | PureRunScalar.String text -> PureRunValue.String text
@@ -225,9 +245,15 @@ module AuthoringProtocol =
                 [ "kind", box "fakeCapability"
                   "capabilityId", box (StableId.value capabilityId)
                   "operations", operations |> List.map (fun operation ->
-                      objectValue
-                          [ "operationId", box (StableId.value operation.OperationId)
-                            "responses", operation.Responses |> List.map (response []) |> arrayValue ]) |> arrayValue ]
+                      let script =
+                          match operation.Cases with
+                          | None -> "responses", operation.Responses |> List.map (response []) |> arrayValue
+                          | Some cases ->
+                              "cases", cases |> List.map (fun item ->
+                                  objectValue
+                                      [ "arguments", item.Arguments |> List.map (fun (id, value) -> objectValue [ "capabilityParameterId", box (StableId.value id); "value", encodePureValue value ]) |> arrayValue
+                                        "responses", item.Responses |> List.map (response []) |> arrayValue ]) |> arrayValue
+                      objectValue [ "operationId", box (StableId.value operation.OperationId); script ]) |> arrayValue ]
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]
@@ -790,7 +816,7 @@ module AuthoringProtocol =
                 | Error(PureRunError.RuntimeFailure runtime) ->
                     failure requestId
                         (objectValue
-                            [ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" else "RunRuntimeFailure")
+                            [ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
                               "message", box runtime.Message
                               "functionId", box (StableId.value runtime.FunctionId)
                               "sourceSnapshotId", box (StableId.value runtime.SnapshotId)

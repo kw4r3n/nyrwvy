@@ -37,6 +37,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 
 - [Program-defined capability implementations](program-capability-implementations-20260926.md)
 - [Typed function abort and cleanup](typed-function-abort-20260926.md)
+- [Argument-keyed fake responses](argument-keyed-fakes-20260927.md)
 
 ## Live agent probes
 
