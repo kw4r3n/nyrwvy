@@ -75,7 +75,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
-        | TypedSemanticNodeKind.TaskWait(tasksNodeId, _) -> [ tasksNodeId ]
+        | TypedSemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _

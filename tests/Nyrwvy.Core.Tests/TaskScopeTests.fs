@@ -7,8 +7,9 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// Task scopes: a leader loop starts members one at a time, waits for any or all of them, stops one,
-/// and every member still running is cancelled and cleaned up when the scope's body returns.
+/// Task scopes: a leader loop starts members one at a time, waits for any or all of them (optionally
+/// within a time limit), stops one, and every member still running is cancelled and cleaned up when
+/// the scope's body returns. runPure runs them on a virtual clock driven only by scripted delays.
 module TaskScopeTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("task-scope-" + name)
     let private stringType = TypeRef.Primitive PrimitiveType.String
@@ -32,6 +33,11 @@ module TaskScopeTests =
     let private stopId = id<VariantTag> "stop"
     let private waitAnyId = id<VariantTag> "wait-any"
     let private finishId = id<VariantTag> "finish"
+    let private awaitWithinId = id<VariantTag> "await-within"
+    let private waitAnyWithinId = id<VariantTag> "wait-any-within"
+    let private awaitWithinIndexId = id<FieldTag> "await-within-index"
+    let private awaitWithinLimitId = id<FieldTag> "await-within-limit"
+    let private waitAnyLimitId = id<FieldTag> "wait-any-limit"
     let private nameFieldId = id<FieldTag> "name"
     let private awaitIndexId = id<FieldTag> "await-index"
     let private stopIndexId = id<FieldTag> "stop-index"
@@ -66,6 +72,10 @@ module TaskScopeTests =
                             variant awaitId "Await" [ { Id = awaitIndexId; DisplayName = "index"; Type = intType } ]
                             variant stopId "Stop" [ { Id = stopIndexId; DisplayName = "index"; Type = intType } ]
                             variant waitAnyId "WaitAny" []
+                            variant awaitWithinId "AwaitWithin"
+                                [ { Id = awaitWithinIndexId; DisplayName = "index"; Type = intType }
+                                  { Id = awaitWithinLimitId; DisplayName = "limit"; Type = intType } ]
+                            variant waitAnyWithinId "WaitAnyWithin" [ { Id = waitAnyLimitId; DisplayName = "limit"; Type = intType } ]
                             variant finishId "Finish" [] ] } ]
             Effects = [ { Id = effectId; DisplayName = "Team" } ]
             Capabilities =
@@ -171,13 +181,27 @@ module TaskScopeTests =
                             (ExpressionRecipe.DirectCall(
                                 describe.Id,
                                 [ parameter "outcomes" describe,
-                                  ExpressionRecipe.TaskWait(ExpressionRecipe.ListConstruct(taskType, [ pattern 0 RecipePatternSlot.Error ]), TaskWaitMode.All) ]))))
+                                  ExpressionRecipe.TaskWait(ExpressionRecipe.ListConstruct(taskType, [ pattern 0 RecipePatternSlot.Error ]), TaskWaitMode.All, None) ]))))
             let onStop =
                 create "onStop" helperParameters outcomeType team
                     (ExpressionRecipe.MatchResult(
                         nth,
                         again (slot 4) (text "missing"),
                         ExpressionRecipe.Bind(ExpressionRecipe.TaskCancel(pattern 0 RecipePatternSlot.Error), again (slot 4) (text "stopped"))))
+            // N4: wait for one member for at most `limit` milliseconds.
+            let onAwaitWithin =
+                create "onAwaitWithin" (helperParameters @ [ "limit", intType ]) outcomeType team
+                    (ExpressionRecipe.MatchResult(
+                        nth,
+                        again (slot 4) (text "missing"),
+                        again (slot 4)
+                            (ExpressionRecipe.DirectCall(
+                                describe.Id,
+                                [ parameter "outcomes" describe,
+                                  ExpressionRecipe.TaskWait(
+                                      ExpressionRecipe.ListConstruct(taskType, [ pattern 0 RecipePatternSlot.Error ]),
+                                      TaskWaitMode.All,
+                                      Some(ExpressionRecipe.OptionSome(slot 6))) ]))))
             let own index = ExpressionRecipe.Parameter placeholder.Parameters[index].Id
             let helper (target: SemanticFunction) indexField =
                 ExpressionRecipe.DirectCall(target.Id, loopArguments own target (own 4) [ parameter "index" target, pattern 0 (RecipePatternSlot.Field indexField) ])
@@ -198,7 +222,22 @@ module TaskScopeTests =
                       awaitId, helper onAwait awaitIndexId
                       stopId, helper onStop stopIndexId
                       waitAnyId,
-                      again (own 4) (ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(own 4, TaskWaitMode.Any) ]))
+                      again (own 4) (ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(own 4, TaskWaitMode.Any, None) ]))
+                      awaitWithinId,
+                      ExpressionRecipe.DirectCall(
+                          onAwaitWithin.Id,
+                          loopArguments own onAwaitWithin (own 4)
+                              [ parameter "index" onAwaitWithin, pattern 0 (RecipePatternSlot.Field awaitWithinIndexId)
+                                parameter "limit" onAwaitWithin, pattern 0 (RecipePatternSlot.Field awaitWithinLimitId) ])
+                      waitAnyWithinId,
+                      again (own 4)
+                          (ExpressionRecipe.DirectCall(
+                              describe.Id,
+                              [ parameter "outcomes" describe,
+                                ExpressionRecipe.TaskWait(
+                                    own 4,
+                                    TaskWaitMode.Any,
+                                    Some(ExpressionRecipe.OptionSome(pattern 0 (RecipePatternSlot.Field waitAnyLimitId)))) ]))
                       finishId, ExpressionRecipe.ResultOk(stringType, text "done") ])
             let replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
                 { TargetFunctionId = placeholder.Id
@@ -227,7 +266,7 @@ module TaskScopeTests =
             create "escape" [ "agent", agent; "workspaces", workspaces ] stringType team
                 (ExpressionRecipe.MatchResult(
                     ExpressionRecipe.TaskScope(escapeBody.Id, [ parameter "agent" escapeBody, slot 0; parameter "workspaces" escapeBody, slot 1 ]),
-                    ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(pattern 0 RecipePatternSlot.Value, TaskWaitMode.Any) ]),
+                    ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(pattern 0 RecipePatternSlot.Value, TaskWaitMode.Any, None) ]),
                     pattern 0 RecipePatternSlot.Error))
             |> ignore
             session.Close()
@@ -287,7 +326,19 @@ module TaskScopeTests =
             Assert.Equal("PureExpressionListCallbackInputTypeMismatch",
                 reject (capabilities @ [ "scope", scopeType ]) taskType (ExpressionRecipe.TaskStart(slot 2, memberWorker.Id, context, ExpressionRecipe.Int64Literal 1L)))
             Assert.Equal("TaskWaitInputTypeMismatch",
-                reject [ "tasks", listOf stringType ] (listOf (optionOf stringType)) (ExpressionRecipe.TaskWait(slot 0, TaskWaitMode.All)))
+                reject [ "tasks", listOf stringType ] (listOf (optionOf stringType)) (ExpressionRecipe.TaskWait(slot 0, TaskWaitMode.All, None)))
+            Assert.Equal("TaskWaitLimitTypeMismatch",
+                reject [ "tasks", listOf taskType; "limit", intType ] (listOf (optionOf outcomeType)) (ExpressionRecipe.TaskWait(slot 0, TaskWaitMode.All, Some(slot 1))))
+            // The limit operand is optional in every encoding, so phase 1 graphs stay readable.
+            let limits =
+                snapshot.Functions |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body) |> List.choose (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.TaskWait(_, _, limit) -> Some limit
+                    | _ -> None)
+            Assert.Contains(None, limits)
+            Assert.Contains(limits, Option.isSome)
+            Assert.Contains("\"limitNodeId\"", File.ReadAllText path)
+            Assert.Contains("limitValueId", ExecutionIrCodec.serialize execution)
             Assert.Equal("TaskCancelInputTypeMismatch", reject [ "task", stringType ] unitType (ExpressionRecipe.TaskCancel(slot 0)))
             // The body's free parameter must be the scope.
             Assert.Equal("TaskScopeBodyMismatch", reject capabilities outcomeType (ExpressionRecipe.TaskScope(memberWorker.Id, context)))
@@ -313,6 +364,10 @@ module TaskScopeTests =
                 """{"id":"w","op":"simulateCreateFunctionByName","displayName":"waitAll","parameters":[{"displayName":"tasks","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"task","arguments":[{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"string"},{"kind":"primitive","primitive":"string"}]}]}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"directCall","function":"describe","arguments":[{"parameter":"outcomes","value":{"kind":"taskWait","tasks":{"kind":"parameter","name":"tasks"},"mode":"all"}}]}}"""
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
+            let limited = line.Replace("\"mode\":\"all\"}", "\"mode\":\"all\",\"limit\":{\"kind\":\"optionNone\",\"itemType\":{\"kind\":\"primitive\",\"primitive\":\"int64\"}}}")
+            Assert.NotEqual<string>(line, limited)
+            use limitedProposal = AuthoringProtocol.executeLine session limited |> JsonDocument.Parse
+            Assert.True(limitedProposal.RootElement.GetProperty("ok").GetBoolean(), limitedProposal.RootElement.ToString())
             Assert.NotNull(describe))
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -362,3 +417,59 @@ module TaskScopeTests =
                 Assert.Equal("crash", failure.Message)
                 Assert.Contains(failure.Calls, fun call -> call.OperationId = removeId)
             | other -> failwithf "The member's host exception did not propagate: %A" other)
+
+    let private delayed millis response = PureRunFakeResponse.Delayed(millis, response)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``time limits run on a virtual clock driven only by scripted delays`` () =
+        withTeam (fun session _ ->
+            let runTeam = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "runTeam")).Id
+            let awaitWithin index limit = action awaitWithinId [ awaitWithinIndexId, PureRunValue.Int64 index; awaitWithinLimitId, PureRunValue.Int64 limit ]
+            let waitAnyWithin limit = action waitAnyWithinId [ waitAnyLimitId, PureRunValue.Int64 limit ]
+            let reports leaderActions agentResponses members =
+                let result =
+                    PureRun.run session runTeam [ fake leaderId [ nextId, returns leaderActions ]; fake agentId [ workId, agentResponses ]; workspaces members ]
+                        (Some(okText "done"))
+                    |> unwrap "runTeam"
+                Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch)
+                Assert.Equal(members, result.Calls |> List.filter (fun call -> call.OperationId = removeId) |> List.length)
+                result.Calls |> List.filter (fun call -> call.OperationId = nextId) |> List.map argumentText
+            // Any-wait: the member with the shortest delay finishes first, whatever the order they started in.
+            let race () =
+                reports
+                    [ spawn "a"; spawn "b"; spawn "c"; spawn "d"; waitAnyWithin 1000L
+                      awaitWithin 3L 50L; awaitWithin 2L 1000L; waitAnyWithin 1000L; action finishId [] ]
+                    [ delayed 300L (PureRunFakeResponse.Return(okText "a"))
+                      delayed 100L (PureRunFakeResponse.Return(okText "b"))
+                      delayed 400L (PureRunFakeResponse.Return(okText "c"))
+                      delayed 400L (PureRunFakeResponse.Return(okText "d")) ]
+                    4
+            let expected =
+                [ "start"; "spawned"; "spawned"; "spawned"; "spawned"
+                  "|running|ok:b|running|running"
+                  // The 50 ms limit from t=100 elapses long before d's 400 ms.
+                  "|running"
+                  // c and d are both due at t=400; everything due has happened before the wait observes it.
+                  "|ok:c"
+                  "|ok:a|ok:b|ok:c|ok:d" ]
+            // The outcome depends only on the delays, not on thread timing: repeated runs agree.
+            for _ in 1..3 do
+                Assert.Equal<string list>(expected, race ())
+            // N4: a member that exceeds its time limit is reported running, stopped, then observed as stopped.
+            Assert.Equal<string list>(
+                [ "start"; "spawned"; "spawned"; "|ok:quick"; "|running"; "stopped"; "|err:stopped" ],
+                reports
+                    [ spawn "quick"; spawn "slow"; awaitWithin 0L 250L; awaitWithin 1L 250L; stopMember 1L; awaitMember 1L; action finishId [] ]
+                    [ delayed 200L (PureRunFakeResponse.Return(okText "quick"))
+                      PureRunFakeResponse.AwaitCancellation(errText "stopped") ]
+                    2)
+            // A program whose tasks all block with no delay pending fails instead of hanging.
+            match
+                PureRun.run session runTeam
+                    [ fake leaderId [ nextId, returns [ spawn "a"; awaitMember 0L ] ]
+                      fake agentId [ workId, [ PureRunFakeResponse.AwaitCancellation(errText "stopped") ] ]
+                      workspaces 1 ]
+                    None
+            with
+            | Error(PureRunError.RuntimeFailure failure) -> Assert.Contains("no delay is pending", failure.Message)
+            | other -> failwithf "A blocked program did not fail: %A" other)

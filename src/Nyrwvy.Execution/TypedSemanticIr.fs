@@ -115,7 +115,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | CancellationRequested
     | TaskScope of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list * itemNodeId: GraphNodeId
-    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode
+    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode * limitNodeId: GraphNodeId option
     | TaskCancel of taskNodeId: GraphNodeId
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -334,7 +334,7 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.TaskScope(bodyFunctionId, projectContext context))
                     | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, projectContext context, itemNodeId))
-                    | SemanticNodeKind.TaskWait(tasksNodeId, mode) -> Ok(TypedSemanticNodeKind.TaskWait(tasksNodeId, mode))
+                    | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) -> Ok(TypedSemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId))
                     | SemanticNodeKind.TaskCancel taskNodeId -> Ok(TypedSemanticNodeKind.TaskCancel taskNodeId)
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))

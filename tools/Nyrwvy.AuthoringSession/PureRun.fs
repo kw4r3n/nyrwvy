@@ -60,6 +60,17 @@ and [<RequireQualifiedAccess>] PureRunFakeResponse =
     /// Blocks like a long-running external process until the calling ParallelAll worker's or
     /// task's cancellation is requested, then returns the value.
     | AwaitCancellation of PureRunValue
+    /// Answers with the inner response after `delayMillis` of virtual time. Delays run on runPure's
+    /// virtual clock and are not interrupted by cancellation.
+    | Delayed of delayMillis: int64 * response: PureRunFakeResponse
+
+[<RequireQualifiedAccess>]
+module PureRunFakeResponse =
+    /// The response without its delays.
+    let rec immediate response =
+        match response with
+        | PureRunFakeResponse.Delayed(_, inner) -> immediate inner
+        | other -> other
 
 /// One call the program made to a fake capability, with its arguments in canonical ID order.
 type PureRunCall =
@@ -249,10 +260,11 @@ module PureRun =
         | PureRunValue.ResultValue(_, _, _, payload) -> [ payload ]
         | PureRunValue.FakeCapability(_, operations) ->
             operations |> List.collect (fun operation ->
-                operation.Responses |> List.choose (function
+                operation.Responses |> List.map PureRunFakeResponse.immediate |> List.choose (function
                     | PureRunFakeResponse.Return value
                     | PureRunFakeResponse.AwaitCancellation value -> Some value
-                    | PureRunFakeResponse.Throw _ -> None))
+                    | PureRunFakeResponse.Throw _
+                    | PureRunFakeResponse.Delayed _ -> None))
         | _ -> []
 
     let rec private strings value =
@@ -264,7 +276,7 @@ module PureRun =
         | PureRunValue.StringOption item -> Option.toList item
         | PureRunValue.FakeCapability(_, operations) ->
             (operations |> List.collect (fun operation ->
-                operation.Responses |> List.choose (function PureRunFakeResponse.Throw message -> Some message | _ -> None)))
+                operation.Responses |> List.choose (PureRunFakeResponse.immediate >> function PureRunFakeResponse.Throw message -> Some message | _ -> None)))
             @ (children value |> List.collect strings)
         | _ -> children value |> List.collect strings
 
@@ -498,7 +510,8 @@ module PureRun =
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
             PureRunValue.ResultValue(okType, errorType, isOk, canonicalValue payload)
         | PureRunValue.FakeCapability(capabilityId, operations) ->
-            let response = function
+            let rec response = function
+                | PureRunFakeResponse.Delayed(delay, inner) -> PureRunFakeResponse.Delayed(delay, response inner)
                 | PureRunFakeResponse.Return value -> PureRunFakeResponse.Return(canonicalValue value)
                 | PureRunFakeResponse.AwaitCancellation value -> PureRunFakeResponse.AwaitCancellation(canonicalValue value)
                 | throw -> throw
@@ -751,10 +764,11 @@ module PureRun =
                 if List.distinct ids <> ids || ids |> List.exists (fun operationId -> not (Map.containsKey operationId declared)) then
                     Some("RunBindingShapeMismatch", "Fake operations must be distinct operations of the faked capability.")
                 elif operations |> List.exists (fun operation ->
-                    operation.Responses |> List.exists (function
+                    operation.Responses |> List.exists (PureRunFakeResponse.immediate >> function
                         | PureRunFakeResponse.Return response
                         | PureRunFakeResponse.AwaitCancellation response -> valueType response <> declared[operation.OperationId].ResultType
-                        | PureRunFakeResponse.Throw _ -> false)) then
+                        | PureRunFakeResponse.Throw _
+                        | PureRunFakeResponse.Delayed _ -> false)) then
                     Some("RunBindingShapeMismatch", "Each fake return value must have the operation's declared result type.")
                 else None
         | _ -> None
@@ -842,9 +856,12 @@ module PureRun =
                 && arguments |> List.exists (function
                     | PureRunValue.FakeCapability(_, operations) ->
                         operations |> List.exists (fun operation ->
-                            operation.Responses |> List.exists (function PureRunFakeResponse.AwaitCancellation _ -> true | _ -> false))
+                            operation.Responses |> List.exists (function
+                                | PureRunFakeResponse.AwaitCancellation _
+                                | PureRunFakeResponse.Delayed _ -> true
+                                | _ -> false))
                     | _ -> false) ->
-                Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
+                Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
             | Ok(program, artifact), Ok status ->
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
@@ -959,12 +976,14 @@ module PureRun =
                                                 scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
                                                 |> Option.map (fun item -> item.Responses) |> Option.defaultValue []
                                             | Choice2Of2 _ -> []
+                                        let rec answer response =
+                                            match response with
+                                            | PureRunFakeResponse.Return value -> $"return {sourceArgument value};"
+                                            | PureRunFakeResponse.Throw message -> $"throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});"
+                                            | PureRunFakeResponse.AwaitCancellation value -> $"NyRuntime.WaitForCancellation(); return {sourceArgument value};"
+                                            | PureRunFakeResponse.Delayed(delay, inner) -> $"NyRuntime.Delay({delay}L); " + answer inner
                                         let cases =
-                                            responses |> List.mapi (fun position response ->
-                                                match response with
-                                                | PureRunFakeResponse.Return value -> $"            case {position}: return {sourceArgument value};\n"
-                                                | PureRunFakeResponse.Throw message -> $"            case {position}: throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});\n"
-                                                | PureRunFakeResponse.AwaitCancellation value -> $"            case {position}: NyRuntime.WaitForCancellation(); return {sourceArgument value};\n")
+                                            responses |> List.mapi (fun position response -> $"            case {position}: {answer response}\n")
                                             |> String.concat ""
                                         let answer =
                                             match binding with
@@ -997,6 +1016,8 @@ module PureRun =
                             + "int remaining = 8192;\n"
                             + (if checksText then "long textRemaining = 65536;\n" else "")
                             + "try\n{\n"
+                            // Concurrent programs run on a virtual clock, so waits and delays are deterministic.
+                            + (if artifact.Source.Contains("public sealed class NyVirtualClock") then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
                             + $"    var result = NyFunctions.{entry}({args});\n"
                             + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
                             + "}\n"

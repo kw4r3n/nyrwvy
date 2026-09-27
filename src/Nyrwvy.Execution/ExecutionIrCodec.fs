@@ -352,10 +352,11 @@ module ExecutionIrCodec =
               property "workerFunctionId" (stableIdValue workerFunctionId)
               property "itemValueId" (executionValueIdValue itemValueId) ]
             @ writeCallbackContext context
-        | ExecutionInstructionKind.TaskWait(tasksValueId, mode) ->
+        | ExecutionInstructionKind.TaskWait(tasksValueId, mode, limitValueId) ->
             [ property "kind" (quote "taskWait")
               property "tasksValueId" (executionValueIdValue tasksValueId)
               property "mode" (quote (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all")) ]
+            @ (limitValueId |> Option.map (fun limit -> property "limitValueId" (executionValueIdValue limit)) |> Option.toList)
         | ExecutionInstructionKind.TaskCancel taskValueId ->
             [ property "kind" (quote "taskCancel")
               property "taskValueId" (executionValueIdValue taskValueId) ]

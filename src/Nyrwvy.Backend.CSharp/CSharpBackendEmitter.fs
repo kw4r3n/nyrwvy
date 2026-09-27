@@ -240,7 +240,7 @@ module CSharpBackend =
           "                catch (Exception error) { return new NyTask<T>(cancellation, System.Threading.Tasks.Task.FromException<T>(error)); }"
           "                finally { NyRuntime.Cancellation.Value = previous; }"
           "            }"
-          "            var running = System.Threading.Tasks.Task.Run(() =>"
+          "            var running = NyRuntime.Run(() =>"
           "            {"
           "                NyRuntime.Cancellation.Value = cancellation.Token;"
           "                return work();"
@@ -261,7 +261,7 @@ module CSharpBackend =
           "            tasks = _tasks.ToArray();"
           "        }"
           "        _cancellation.Cancel();"
-          "        foreach (var task in tasks) { try { task.Running.Wait(); } catch (AggregateException) { } }"
+          "        NyRuntime.WaitAll(Array.ConvertAll(tasks, task => task.Running));"
           "        if (bodyThrew) return;"
           "        var faulted = Array.Find(tasks, task => task.Running.IsFaulted);"
           "        if (faulted != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(faulted.Running.Exception!.InnerException!).Throw();"
@@ -270,16 +270,168 @@ module CSharpBackend =
           ""
           "public static class NyTasks"
           "{"
-          "    public static NyList<NyOption<T>> Wait<T>(NyList<NyTask<T>> tasks, bool any)"
+          "    /// `limit` is in milliseconds; a negative limit counts as 0. Real time uses the monotonic timer"
+          "    /// behind Task.WaitAny/WaitAll; under a virtual clock only scripted delays advance time."
+          "    public static NyList<NyOption<T>> Wait<T>(NyList<NyTask<T>> tasks, bool any, NyOption<long> limit)"
           "    {"
           "        var items = tasks.Fold(new System.Collections.Generic.List<NyTask<T>>(), (acc, task) => { acc.Add(task); return acc; });"
           "        var running = items.ConvertAll(task => (System.Threading.Tasks.Task)task.Running).ToArray();"
+          "        long? millis = limit.HasValue ? Math.Max(0L, limit.Value) : null;"
           "        if (running.Length > 0)"
           "        {"
-          "            if (any) System.Threading.Tasks.Task.WaitAny(running);"
-          "            else { try { System.Threading.Tasks.Task.WaitAll(running); } catch (AggregateException) { } }"
+          "            var clock = NyRuntime.Clock;"
+          "            if (clock != null)"
+          "                clock.Block(any ? () => Array.Exists(running, task => task.IsCompleted) : () => Array.TrueForAll(running, task => task.IsCompleted), millis);"
+          "            else"
+          "            {"
+          "                var timeout = millis is long value ? (int)Math.Min(value, int.MaxValue) : System.Threading.Timeout.Infinite;"
+          "                if (any) System.Threading.Tasks.Task.WaitAny(running, timeout);"
+          "                else { try { System.Threading.Tasks.Task.WaitAll(running, timeout); } catch (AggregateException) { } }"
+          "            }"
           "        }"
           "        return NyList<NyOption<T>>.Create(items.ConvertAll(task => task.Snapshot()).ToArray());"
+          "    }"
+          "}"
+          "" ]
+
+    /// Every blocking point of generated concurrency goes through NyRuntime, so a runner can install a
+    /// virtual clock. Without one (the default) waits use real threads and the monotonic system timer.
+    let private concurrencyRuntime =
+        [ "public static class NyRuntime"
+          "{"
+          "    public static readonly System.Threading.AsyncLocal<System.Threading.CancellationToken> Cancellation = new();"
+          "    /// Set once before the entry call by a deterministic runner; null runs on real time."
+          "    public static NyVirtualClock? Clock;"
+          "    public static bool CancellationRequested => Cancellation.Value.IsCancellationRequested;"
+          "    public static void WaitForCancellation()"
+          "    {"
+          "        var token = Cancellation.Value;"
+          "        if (Clock is { } clock) clock.Block(() => token.IsCancellationRequested, null);"
+          "        else token.WaitHandle.WaitOne();"
+          "    }"
+          "    /// Blocks for a scripted delay; only a runner's fakes use it."
+          "    public static void Delay(long millis)"
+          "    {"
+          "        if (Clock is { } clock) clock.Block(() => false, Math.Max(0L, millis), isDelay: true);"
+          "        else System.Threading.Thread.Sleep(TimeSpan.FromMilliseconds(Math.Max(0L, millis)));"
+          "    }"
+          "    public static System.Threading.Tasks.Task<T> Run<T>(Func<T> work)"
+          "    {"
+          "        if (Clock is not { } clock) return System.Threading.Tasks.Task.Run(work);"
+          "        var start = clock.Enter();"
+          "        // A dedicated thread: every virtual task waits for its turn, which would starve the pool."
+          "        var running = System.Threading.Tasks.Task.Factory.StartNew(() => { clock.Start(start); return work(); },"
+          "            System.Threading.CancellationToken.None, System.Threading.Tasks.TaskCreationOptions.LongRunning, System.Threading.Tasks.TaskScheduler.Default);"
+          "        running.ContinueWith(_ => clock.Exit(), System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously);"
+          "        return running;"
+          "    }"
+          "    public static void WaitAll(System.Threading.Tasks.Task[] tasks)"
+          "    {"
+          "        if (tasks.Length == 0) return;"
+          "        if (Clock is { } clock) clock.Block(() => Array.TrueForAll(tasks, task => task.IsCompleted), null);"
+          "        else foreach (var task in tasks) { try { task.Wait(); } catch (AggregateException) { } }"
+          "    }"
+          "}"
+          ""
+          "/// Deterministic scheduling for runners. One thread runs at a time; a started task waits for its turn."
+          "/// When the running thread blocks or finishes, the next one resumes: first an elapsed delay, by"
+          "/// (deadline, start order), so everything due at a time has happened before a wait observes it; then"
+          "/// a thread that can continue (a new task, a wait whose condition holds or whose limit elapsed),"
+          "/// lowest start order first. Otherwise time jumps to the earliest deadline. A run therefore depends"
+          "/// only on the program and its scripted delays, never on thread timing or real elapsed time."
+          "public sealed class NyVirtualClock"
+          "{"
+          "    public static readonly System.Threading.AsyncLocal<long> Order = new();"
+          "    private sealed class Waiter"
+          "    {"
+          "        public required Func<bool> Ready;"
+          "        public long? Due;"
+          "        public long Order;"
+          "        public bool IsDelay;"
+          "        public bool Released;"
+          "        public Exception? Failure;"
+          "    }"
+          "    private readonly object _gate = new();"
+          "    private readonly System.Collections.Generic.List<Waiter> _waiters = new();"
+          "    private int _running = 1;"
+          "    private long _nextOrder = 1;"
+          "    private long _now;"
+          "    /// Registers a task that has not started; it runs once scheduled. Returns its start ticket."
+          "    public object Enter()"
+          "    {"
+          "        lock (_gate)"
+          "        {"
+          "            var waiter = new Waiter { Ready = () => true, Order = _nextOrder++ };"
+          "            _waiters.Add(waiter);"
+          "            return waiter;"
+          "        }"
+          "    }"
+          "    /// Called first on the task's own thread: waits for its turn and takes on its start order."
+          "    public void Start(object ticket)"
+          "    {"
+          "        var waiter = (Waiter)ticket;"
+          "        Order.Value = waiter.Order;"
+          "        lock (_gate)"
+          "        {"
+          "            while (!waiter.Released) System.Threading.Monitor.Wait(_gate);"
+          "            if (waiter.Failure != null) throw waiter.Failure;"
+          "        }"
+          "    }"
+          "    public void Exit() { lock (_gate) { _running--; Schedule(); } }"
+          "    /// Blocks until `ready` holds or `millis` of virtual time have passed; true when ready."
+          "    public bool Block(Func<bool> ready, long? millis, bool isDelay = false)"
+          "    {"
+          "        lock (_gate)"
+          "        {"
+          "            var waiter = new Waiter { Ready = ready, Due = millis is long value ? _now + value : null, Order = Order.Value, IsDelay = isDelay };"
+          "            _waiters.Add(waiter);"
+          "            _running--;"
+          "            Schedule();"
+          "            while (!waiter.Released) System.Threading.Monitor.Wait(_gate);"
+          "            if (waiter.Failure != null) throw waiter.Failure;"
+          "            return ready();"
+          "        }"
+          "    }"
+          "    private void Schedule()"
+          "    {"
+          "        if (_running > 0 || _waiters.Count == 0) return;"
+          "        var next = Earliest(waiter => waiter.IsDelay && waiter.Due <= _now);"
+          "        if (next == null)"
+          "        {"
+          "            foreach (var waiter in _waiters)"
+          "                if ((waiter.Ready() || waiter.Due <= _now) && (next == null || waiter.Order < next.Order)) next = waiter;"
+          "        }"
+          "        if (next == null)"
+          "        {"
+          "            next = Earliest(waiter => waiter.Due != null);"
+          "            if (next == null)"
+          "            {"
+          "                // Nothing can ever resume: fail every waiter instead of hanging."
+          "                foreach (var waiter in _waiters)"
+          "                {"
+          "                    waiter.Failure = new InvalidOperationException(\"Every task is blocked and no delay is pending, so the program cannot continue.\");"
+          "                    waiter.Released = true;"
+          "                    _running++;"
+          "                }"
+          "                _waiters.Clear();"
+          "                System.Threading.Monitor.PulseAll(_gate);"
+          "                return;"
+          "            }"
+          "            _now = next.Due!.Value;"
+          "        }"
+          "        _waiters.Remove(next);"
+          "        next.Released = true;"
+          "        _running++;"
+          "        System.Threading.Monitor.PulseAll(_gate);"
+          "    }"
+          "    /// The matching waiter with the earliest deadline; delays before waits, then start order."
+          "    private Waiter? Earliest(Func<Waiter, bool> matches)"
+          "    {"
+          "        Waiter? earliest = null;"
+          "        foreach (var waiter in _waiters)"
+          "            if (matches(waiter) && (earliest == null || (waiter.Due, waiter.IsDelay ? 0 : 1, waiter.Order).CompareTo((earliest.Due, earliest.IsDelay ? 0 : 1, earliest.Order)) < 0))"
+          "                earliest = waiter;"
+          "        return earliest;"
           "    }"
           "}"
           "" ]
@@ -318,15 +470,8 @@ module CSharpBackend =
                            | ExecutionInstructionKind.CancellationRequested -> true
                            | _ -> false)))
         if usesConcurrency then
-            writer.Line("public static class NyRuntime")
-            writer.Line("{")
-            writer.Push()
-            writer.Line("public static readonly System.Threading.AsyncLocal<System.Threading.CancellationToken> Cancellation = new();")
-            writer.Line("public static bool CancellationRequested => Cancellation.Value.IsCancellationRequested;")
-            writer.Line("public static void WaitForCancellation() => Cancellation.Value.WaitHandle.WaitOne();")
-            writer.Pop()
-            writer.Line("}")
-            writer.Line("")
+            for line in concurrencyRuntime do
+                writer.Line(line)
         if usesTasks then
             for line in taskRuntime do
                 writer.Line(line)
@@ -718,9 +863,10 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.TaskStart(scopeValueId, workerFunctionId, context, itemValueId) ->
             writer.Line(target + " = " + valueName scopeValueId + ".Start(() => " + renderInvocation parametersOf workerFunctionId context [ valueName itemValueId ] + ");")
-        | ExecutionInstructionKind.TaskWait(tasksValueId, mode) ->
+        | ExecutionInstructionKind.TaskWait(tasksValueId, mode, limitValueId) ->
             let any = match mode with TaskWaitMode.Any -> "true" | TaskWaitMode.All -> "false"
-            writer.Line(target + " = NyTasks.Wait(" + valueName tasksValueId + ", any: " + any + ");")
+            let limit = limitValueId |> Option.map valueName |> Option.defaultValue "NyOption<long>.None()"
+            writer.Line(target + " = NyTasks.Wait(" + valueName tasksValueId + ", any: " + any + ", limit: " + limit + ");")
         | ExecutionInstructionKind.TaskCancel taskValueId ->
             writer.Line(valueName taskValueId + ".Cancel();")
             writer.Line(target + " = NyUnit.Value;")
@@ -739,7 +885,7 @@ module CSharpBackend =
                 | other -> invalidOp $"ParallelAll result must be Result<List<U>, E>, got {other}."
             let resultType = formatType instruction.Result.Type
             let name suffix = target + "_" + suffix
-            let items, cts, tasks, index, item, result, task = name "items", name "cts", name "tasks", name "i", name "item", name "result", name "task"
+            let items, cts, tasks, index, item, result = name "items", name "cts", name "tasks", name "i", name "item", name "result"
             writer.Line("{")
             writer.Push()
             writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
@@ -749,7 +895,7 @@ module CSharpBackend =
             writer.Line("{")
             writer.Push()
             writer.Line("var " + item + " = " + items + "[" + index + "];")
-            writer.Line(tasks + "[" + index + "] = System.Threading.Tasks.Task.Run(() =>")
+            writer.Line(tasks + "[" + index + "] = NyRuntime.Run(() =>")
             writer.Line("{")
             writer.Push()
             writer.Line("NyRuntime.Cancellation.Value = " + cts + ".Token;")
@@ -766,7 +912,7 @@ module CSharpBackend =
             writer.Line("});")
             writer.Pop()
             writer.Line("}")
-            writer.Line("foreach (var " + task + " in " + tasks + ") { try { " + task + ".Wait(); } catch (System.AggregateException) { } }")
+            writer.Line("NyRuntime.WaitAll(" + tasks + ");")
             writer.Line("var " + name "faulted" + " = System.Array.Find(" + tasks + ", " + name "t" + " => " + name "t" + ".IsFaulted);")
             writer.Line("if (" + name "faulted" + " != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + name "faulted" + ".Exception!.InnerException!).Throw();")
             writer.Line("var " + name "failed" + " = System.Array.Find(" + tasks + ", " + name "t" + " => !" + name "t" + ".Result.IsOk);")

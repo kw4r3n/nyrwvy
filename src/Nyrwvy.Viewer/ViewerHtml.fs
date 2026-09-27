@@ -86,6 +86,7 @@ module ViewerHtml =
         | ValueDependencyRole.Substring -> "substring"
         | ValueDependencyRole.SliceStart -> "slice start"
         | ValueDependencyRole.TaskScope -> "task scope"
+        | ValueDependencyRole.Limit -> "limit"
         | ValueDependencyRole.SliceEnd -> "slice end"
         | ValueDependencyRole.LeftOperand -> "left operand"
         | ValueDependencyRole.RightOperand -> "right operand"

@@ -262,9 +262,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Starts the worker with the item as a new task of the scope and returns its `Task<Result<U, E>>`
     /// handle at once. A task's Err does not cancel its siblings.
     | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: ArgumentBinding list * itemNodeId: GraphNodeId
-    /// Waits until the mode is satisfied and returns `Some result` for every finished task and `None`
-    /// for every running one, in input order. Tasks keep running after it returns.
-    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode
+    /// Waits until the mode is satisfied or the optional `Option<Int64>` millisecond limit elapses, and
+    /// returns `Some result` for every finished task and `None` for every running one, in input order.
+    /// Tasks keep running after it returns. An absent limit operand means no limit, as `None` does.
+    | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode * limitNodeId: GraphNodeId option
     /// Requests cooperative cancellation of one task without waiting for it. Idempotent.
     | TaskCancel of taskNodeId: GraphNodeId
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list

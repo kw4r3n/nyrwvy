@@ -567,12 +567,14 @@ module NyasonCodec =
                    "worker", encodeId "function" workerFunctionId
                    "item", encodeId "node" itemNodeId ]
                  @ encodeCallbackContext context)
-        | SemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+        | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
             let modeAtom =
                 match mode with
                 | TaskWaitMode.Any -> "any"
                 | TaskWaitMode.All -> "all"
-            record "task-wait" [ nodeId; "tasks", encodeId "node" tasksNodeId; "mode", atom modeAtom ]
+            record "task-wait"
+                ([ nodeId; "tasks", encodeId "node" tasksNodeId; "mode", atom modeAtom ]
+                 @ (limitNodeId |> Option.map (fun limit -> "limit", encodeId "node" limit) |> Option.toList))
         | SemanticNodeKind.TaskCancel taskNodeId -> record "task-cancel" [ nodeId; "task", encodeId "node" taskNodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
@@ -910,14 +912,14 @@ module NyasonCodec =
                     decodeCallbackContext fields,
                     decodeId<GraphNodeTag> "node" (require "item" fields)) }
         | NyasonValue.Record("task-wait", _) ->
-            let fields = recordFields "task-wait" [ "id"; "tasks"; "mode" ] [] value
+            let fields = recordFields "task-wait" [ "id"; "tasks"; "mode" ] [ "limit" ] value
             let mode =
                 match require "mode" fields with
                 | NyasonValue.Atom "any" -> TaskWaitMode.Any
                 | NyasonValue.Atom "all" -> TaskWaitMode.All
                 | _ -> shape "Expected task wait mode atom 'any' or 'all'."
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
-              Kind = SemanticNodeKind.TaskWait(decodeId<GraphNodeTag> "node" (require "tasks" fields), mode) }
+              Kind = SemanticNodeKind.TaskWait(decodeId<GraphNodeTag> "node" (require "tasks" fields), mode, optional "limit" fields |> Option.map (decodeId<GraphNodeTag> "node")) }
         | NyasonValue.Record("task-cancel", _) ->
             let fields = recordFields "task-cancel" [ "id"; "task" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

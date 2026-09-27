@@ -232,7 +232,7 @@ module ViewerProjection =
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
         | SemanticNodeKind.TaskScope(bodyFunctionId, _) -> ViewerNodeRole.TaskScope, callbackRelation bodyFunctionId
         | SemanticNodeKind.TaskStart(_, workerFunctionId, _, _) -> ViewerNodeRole.TaskStart, callbackRelation workerFunctionId
-        | SemanticNodeKind.TaskWait(_, mode) -> ViewerNodeRole.TaskWait mode, []
+        | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId

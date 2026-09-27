@@ -504,7 +504,7 @@ module SnapshotCodec =
             writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
             writeCallbackContext writer context
-        | SemanticNodeKind.TaskWait(tasksNodeId, mode) ->
+        | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
             writer.WriteString("kind", "taskWait")
             writer.WriteString("tasksNodeId", StableId.value tasksNodeId)
             writer.WriteString(
@@ -513,6 +513,7 @@ module SnapshotCodec =
                 | TaskWaitMode.Any -> "any"
                 | TaskWaitMode.All -> "all"
             )
+            limitNodeId |> Option.iter (fun limit -> writer.WriteString("limitNodeId", StableId.value limit))
         | SemanticNodeKind.TaskCancel taskNodeId ->
             writer.WriteString("kind", "taskCancel")
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
@@ -1127,13 +1128,16 @@ module SnapshotCodec =
                     readCallbackContext element,
                     readId<GraphNodeTag> "itemNodeId" element)
             | "taskWait" ->
-                ensureProperties "TaskWait node" (set [ "id"; "kind"; "tasksNodeId"; "mode" ]) (set [ "id"; "kind"; "tasksNodeId"; "mode" ]) element
+                ensureProperties "TaskWait node" (set [ "id"; "kind"; "tasksNodeId"; "mode" ]) (set [ "id"; "kind"; "tasksNodeId"; "mode"; "limitNodeId" ]) element
                 let mode =
                     match readString "mode" element with
                     | "any" -> TaskWaitMode.Any
                     | "all" -> TaskWaitMode.All
                     | value -> invalidShape $"Unsupported task wait mode '{value}'."
-                SemanticNodeKind.TaskWait(readId<GraphNodeTag> "tasksNodeId" element, mode)
+                SemanticNodeKind.TaskWait(
+                    readId<GraphNodeTag> "tasksNodeId" element,
+                    mode,
+                    tryProperty "limitNodeId" element |> Option.map (fun _ -> readId<GraphNodeTag> "limitNodeId" element))
             | "taskCancel" ->
                 ensureProperties "TaskCancel node" (set [ "id"; "kind"; "taskNodeId" ]) (set [ "id"; "kind"; "taskNodeId" ]) element
                 SemanticNodeKind.TaskCancel(readId<GraphNodeTag> "taskNodeId" element)

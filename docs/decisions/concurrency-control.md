@@ -123,7 +123,7 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 ## Implementation phases
 
 1. **Scope, start, wait (no limit), cancel.** Builtin `Task<T>` and `TaskScope`. `runPure` without a clock. Acceptance: the sketch's loop, with `Wait` limited to `All`/`Any` without a limit, runs through `runPure` with fakes, including stop-one and scope-exit cleanup.
-2. **Time limits.** `TaskWait` `limit`, the virtual clock, and `delayMillis` fakes. Acceptance: the per-member limit (N4) and an Any-wait whose outcome depends only on scripted delays, both stable across repeated runs.
+2. **Time limits (implemented).** `TaskWait` `limit`, the virtual clock, and `delayMillis` fakes. Acceptance: the per-member limit (N4) and an Any-wait whose outcome depends only on scripted delays, both stable across repeated runs.
 3. **Revisit.** Q-010 (declared concurrency safety) and the sequential abort gap, only if a probe shows need.
 
 ### Phase 1 as implemented
@@ -135,6 +135,15 @@ Phase 1 is specified in [expression authoring](../specs/expression-authoring.md)
 - `TaskWait` rethrows a host exception from a task it reports as finished, so an `All` wait cannot hang on a faulted task.
 - `TaskStart` on a scope that has already completed runs the worker at once, already cancelled.
 - A helper function that uses task constructs without declaring an effect is not checked for effect order at its call sites, the same limitation `CancellationRequested` has.
+
+### Phase 2 as implemented
+
+Phase 2 is specified in [expression authoring](../specs/expression-authoring.md) (`TaskWait`) and the [authoring session](../specs/agent-authoring-session.md) (`delayMillis` fakes and the virtual clock), and passes its acceptance test (`TaskScopeTests`): four members with scripted delays give the same Any-wait and limited-wait reports on repeated runs, a member that exceeds a 250 ms limit is reported running, stopped and then observed as stopped, and a run whose tasks all block with nothing due fails instead of hanging. It settles these details:
+
+- The limit is an optional operand of type `Option<Int64>`. An absent operand means `None`, so phase 1 graphs and snapshots stay valid without migration, and a loop can still pass a limit that varies per turn. A negative limit counts as 0.
+- `delayMillis` applies to `return` and `throw` fake responses and is not interrupted by cancellation. A fake that should stop when asked uses `awaitCancellation`.
+- The virtual clock runs one thread at a time, not only in time order. The note's rule ("advance only when every running task is blocked") alone would still let concurrently running tasks consume fake responses in a timing-dependent order, so a scripted delay could reach the wrong member. Running one thread at a time, in start order, makes the whole run deterministic, which also pins down fake order for `ParallelAll` under `runPure`. It does not by itself solve queue item 3: responses are still assigned by call order, not by argument.
+- When a delay and a wait become due at the same time, the delay completes first, so a wait observes everything due at its time.
 
 ## Accepted choices
 
