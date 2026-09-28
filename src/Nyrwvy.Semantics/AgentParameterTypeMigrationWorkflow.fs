@@ -152,6 +152,7 @@ module internal SignatureMigrationCore =
         (prefix: string)
         (ownerParameters: SemanticParameter list)
         (targetMapping: (FunctionId * FunctionId * Map<ParameterId, ParameterId>) option)
+        (selfFunctionId: FunctionId option)
         recipe
         =
         let ownerSlots =
@@ -205,6 +206,21 @@ module internal SignatureMigrationCore =
                                 (Map.tryFind parameterId parameterMap |> Option.defaultValue parameterId), value)
                         ExpressionRecipe.DirectCall(temporaryTargetId, remappedArguments)
                     | _ -> ExpressionRecipe.DirectCall(functionId, mappedArguments))
+            | ExpressionRecipe.SelfCall arguments ->
+                rewritePairs arguments
+                |> Result.map (fun mappedArguments ->
+                    match targetMapping, selfFunctionId with
+                    | Some _, Some callerId
+                        when mappedArguments |> List.forall (fun (slot, _) -> slot >= 0 && slot < List.length ownerParameters) ->
+                        // A caller's temporary copy is discarded after remapping, so its self call
+                        // becomes an ordinary call to the unchanged original caller.
+                        ExpressionRecipe.DirectCall(
+                            callerId,
+                            mappedArguments |> List.map (fun (slot, value) -> (List.item slot ownerParameters).Id, value))
+                    | _ ->
+                        // The migrated target's temporary copy is remapped back to the target, and
+                        // an out-of-range caller slot is left for creation to diagnose.
+                        ExpressionRecipe.SelfCall mappedArguments)
             | ExpressionRecipe.PatternReference _
             | ExpressionRecipe.StringLiteral _
             | ExpressionRecipe.BoolLiteral _
@@ -336,6 +352,7 @@ module internal SignatureMigrationCore =
                 prefix
                 prepared.Target.Parameters
                 None
+                None
                 targetRecipe
         with
         | Error error ->
@@ -411,6 +428,7 @@ module internal SignatureMigrationCore =
                     temporaryTarget.Function.Id,
                     temporaryTarget.OriginalToTemporaryParameters
                 ))
+                (Some caller.Id)
                 replacement
         with
         | Error error ->

@@ -285,6 +285,20 @@ A whole-body change therefore needs only the semantic target name and replacemen
 
 The session resolves the target `FunctionId` and current result node before constructing the ordinary reviewed replacement request.
 
+### Self calls
+
+A `directCall` whose `function` is the display name of the function being created (`simulateCreateFunctionByName`) or replaced (`simulateReplaceBodyByName`) resolves to a [`SelfCall`](expression-authoring.md#selfcall). Its `arguments` name the owner's own parameters, so a recursive function is created in one request:
+
+```json
+{"kind": "directCall", "function": "sumTo", "arguments": [
+  {"parameter": "n", "value": {"kind": "int64WrappingSubtract", "left": {"kind": "parameter", "name": "n"}, "right": {"kind": "int64Literal", "value": 1}}}
+]}
+```
+
+The exact-ID form is `{"kind":"selfCall","arguments":[{"slot":0,"value":<recipe>}]}`, with arguments keyed by zero-based parameter slot, because the new function's IDs are system-assigned. Both persist as an ordinary `DirectCall` to the owner.
+
+Creation by name already rejects a display name held by any existing function, so a self call in a creation body cannot be ambiguous; if one were, it would fail as `Ambiguous function`. During replacement the name resolves through the ordinary function lookup and becomes a self call only when it resolves to the target itself, so duplicate display names stay ambiguous as before. Mutual recursion and a `functionReference` to the function being created are out of scope; they still need the placeholder-then-replace route.
+
 `simulateCreateCapabilityByName` takes the `simulateCreateCapability` shape with name-resolved `TypeRef`s and `"effect": "<effect display name>"` in place of `effectId`. Like function creation, it rejects a display name already held by any local or imported capability. `simulateCreateEffect` already takes no references and has no separate name form.
 
 `runPureByName` takes the `runPure` request with `"function": "<display name>"` in place of `functionId`. Its run values use the same selectors as expression recipes, each resolved within its owner:
