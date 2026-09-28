@@ -130,7 +130,25 @@ module internal SignatureMigrationCore =
         { Workspace: AgentWorkspace
           Function: SemanticFunction
           OriginalToTemporaryParameters: Map<ParameterId, ParameterId>
-          TemporaryToOriginalParameters: Map<ParameterId, ParameterId> }
+          TemporaryToOriginalParameters: Map<ParameterId, ParameterId>
+          /// Creation mints fresh type parameters for the temporary copy; this maps them back to
+          /// the original target's own type parameters.
+          TemporaryToOriginalTypeParameters: Map<TypeParameterId, TypeRef> }
+
+    /// A caller's temporary copy: the created function and its fresh type parameters mapped back.
+    type TemporaryCaller =
+        { Function: SemanticFunction
+          TemporaryToOriginalTypeParameters: Map<TypeParameterId, TypeRef> }
+
+    /// Which function a recipe is rewritten for, deciding how its calls to the target are rewritten.
+    [<RequireQualifiedAccess>]
+    type TemporaryOwner =
+        /// The migrated target: a call to itself by FunctionId becomes a SelfCall, so it is typed
+        /// against the new signature and materializes as a call to the temporary copy.
+        | Target
+        /// A caller: calls to the original target are redirected to the temporary target, and a
+        /// SelfCall becomes an ordinary call to the unchanged original caller.
+        | Caller of callerId: FunctionId * temporaryTargetId: FunctionId * parameterMap: Map<ParameterId, ParameterId>
 
     let reject code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
@@ -151,14 +169,28 @@ module internal SignatureMigrationCore =
     let rewriteForTemporaryFunction
         (prefix: string)
         (ownerParameters: SemanticParameter list)
-        (targetMapping: (FunctionId * FunctionId * Map<ParameterId, ParameterId>) option)
-        (selfFunctionId: FunctionId option)
+        (originalTargetId: FunctionId)
+        (owner: TemporaryOwner)
         recipe
         =
         let ownerSlots =
             ownerParameters
             |> List.mapi (fun index parameter -> parameter.Id, index)
             |> Map.ofList
+
+        let selfCallSlots arguments =
+            let rec loop collected = function
+                | [] -> Ok(List.rev collected)
+                | (parameterId, value) :: rest ->
+                    match Map.tryFind parameterId ownerSlots with
+                    | Some slot -> loop ((slot, value) :: collected) rest
+                    | None ->
+                        Error(
+                            diagnostic
+                                $"{prefix}TargetSelfCallArgumentNotFound"
+                                $"The target's call to itself binds parameter '{StableId.value parameterId}', which the target does not own."
+                        )
+            loop [] arguments
 
         let rec rewrite recipe =
             let rewritePairs values =
@@ -197,20 +229,24 @@ module internal SignatureMigrationCore =
                     rewriteAll arguments |> Result.map (fun values -> ExpressionRecipe.FunctionInvoke(target, values)))
             | ExpressionRecipe.DirectCall(functionId, arguments) ->
                 rewritePairs arguments
-                |> Result.map (fun mappedArguments ->
-                    match targetMapping with
-                    | Some(originalTargetId, temporaryTargetId, parameterMap) when functionId = originalTargetId ->
+                |> Result.bind (fun mappedArguments ->
+                    match owner with
+                    | TemporaryOwner.Caller(_, temporaryTargetId, parameterMap) when functionId = originalTargetId ->
                         let remappedArguments =
                             mappedArguments
                             |> List.map (fun (parameterId, value) ->
                                 (Map.tryFind parameterId parameterMap |> Option.defaultValue parameterId), value)
-                        ExpressionRecipe.DirectCall(temporaryTargetId, remappedArguments)
-                    | _ -> ExpressionRecipe.DirectCall(functionId, mappedArguments))
+                        Ok(ExpressionRecipe.DirectCall(temporaryTargetId, remappedArguments))
+                    | TemporaryOwner.Target when functionId = originalTargetId ->
+                        // The target's call to itself must be typed against the new signature, not
+                        // the original function still in the base snapshot.
+                        selfCallSlots mappedArguments |> Result.map ExpressionRecipe.SelfCall
+                    | _ -> Ok(ExpressionRecipe.DirectCall(functionId, mappedArguments)))
             | ExpressionRecipe.SelfCall arguments ->
                 rewritePairs arguments
                 |> Result.map (fun mappedArguments ->
-                    match targetMapping, selfFunctionId with
-                    | Some _, Some callerId
+                    match owner with
+                    | TemporaryOwner.Caller(callerId, _, _)
                         when mappedArguments |> List.forall (fun (slot, _) -> slot >= 0 && slot < List.length ownerParameters) ->
                         // A caller's temporary copy is discarded after remapping, so its self call
                         // becomes an ordinary call to the unchanged original caller.
@@ -343,6 +379,21 @@ module internal SignatureMigrationCore =
           RequiredEffects = functionEntity.RequiredEffects
           Body = body }
 
+    /// Creation mints fresh type parameters for a temporary copy; matching the created signature
+    /// against the requested one maps every fresh type parameter back to the original owner's.
+    let temporaryTypeParameters
+        (request: AgentExpressionStructuralWorkflow.FunctionCreation.Request)
+        (created: SemanticFunction)
+        : Map<TypeParameterId, TypeRef> =
+        let requested = request.ResultType :: (request.Parameters |> List.map (fun parameter -> parameter.Type))
+        let materialized = created.ResultType :: (created.Parameters |> List.map (fun parameter -> parameter.Type))
+        List.zip materialized requested
+        |> List.fold
+            (fun substitution (fresh, original) ->
+                substitution |> Option.bind (fun current -> TypeParameters.matchType current fresh original))
+            (Some Map.empty)
+        |> Option.defaultValue Map.empty
+
     let materializeTemporaryTarget
         (prefix: string)
         workspace
@@ -355,8 +406,8 @@ module internal SignatureMigrationCore =
             rewriteForTemporaryFunction
                 prefix
                 prepared.Target.Parameters
-                None
-                None
+                prepared.Target.Id
+                TemporaryOwner.Target
                 targetRecipe
         with
         | Error error ->
@@ -414,7 +465,8 @@ module internal SignatureMigrationCore =
                         { Workspace = nextWorkspace
                           Function = created
                           OriginalToTemporaryParameters = originalToTemporary
-                          TemporaryToOriginalParameters = temporaryToOriginal }
+                          TemporaryToOriginalParameters = temporaryToOriginal
+                          TemporaryToOriginalTypeParameters = temporaryTypeParameters creationRequest created }
 
     let materializeTemporaryCaller
         (prefix: string)
@@ -427,12 +479,12 @@ module internal SignatureMigrationCore =
             rewriteForTemporaryFunction
                 prefix
                 caller.Parameters
-                (Some(
-                    targetFunctionId,
+                targetFunctionId
+                (TemporaryOwner.Caller(
+                    caller.Id,
                     temporaryTarget.Function.Id,
                     temporaryTarget.OriginalToTemporaryParameters
                 ))
-                (Some caller.Id)
                 replacement
         with
         | Error error ->
@@ -459,12 +511,19 @@ module internal SignatureMigrationCore =
                     $"Caller '{StableId.value caller.Id}' rewrite is invalid"
                     error
             | Ok proposal ->
-                proposal
-                |> AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review
-                |> fun review -> Ok review.CreatedFunction
+                let created =
+                    proposal
+                    |> AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review
+                    |> fun review -> review.CreatedFunction
+                Ok
+                    { Function = created
+                      TemporaryToOriginalTypeParameters = temporaryTypeParameters creationRequest created }
 
+    /// Maps a temporary copy's body back onto its original owner: parameter identities, the
+    /// owner's type parameters, and calls to the temporary target.
     let rec remapGraph
         (ownerParameterMap: Map<ParameterId, ParameterId>)
+        (ownerTypeParameters: Map<TypeParameterId, TypeRef>)
         (temporaryTarget: TemporaryTarget)
         targetFunctionId
         (graph: ValueGraph)
@@ -479,7 +538,9 @@ module internal SignatureMigrationCore =
                 temporaryTarget.TemporaryToOriginalParameters
             |> Option.defaultValue parameterId
 
-        let remap = remapGraph ownerParameterMap temporaryTarget targetFunctionId
+        let mapType = TypeParameters.substitute ownerTypeParameters
+        let mapBinding (binding: PatternBinding) = { binding with Type = mapType binding.Type }
+        let remap = remapGraph ownerParameterMap ownerTypeParameters temporaryTarget targetFunctionId
 
         let mapNode (node: SemanticNode) =
             let kind =
@@ -499,43 +560,40 @@ module internal SignatureMigrationCore =
                                     mapTargetParameter
                                         argument.TargetParameterId })
                     )
-                | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
-                    SemanticNodeKind.BoolAnd(leftNodeId, remapGraph ownerParameterMap temporaryTarget targetFunctionId right)
-                | SemanticNodeKind.BoolOr(leftNodeId, right) ->
-                    SemanticNodeKind.BoolOr(leftNodeId, remapGraph ownerParameterMap temporaryTarget targetFunctionId right)
+                | SemanticNodeKind.ListEmpty itemType -> SemanticNodeKind.ListEmpty(mapType itemType)
+                | SemanticNodeKind.ListConstruct(itemType, items) -> SemanticNodeKind.ListConstruct(mapType itemType, items)
+                | SemanticNodeKind.OptionNone itemType -> SemanticNodeKind.OptionNone(mapType itemType)
+                | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(mapType errorType, valueNodeId)
+                | SemanticNodeKind.ResultErr(okType, errorNodeId) -> SemanticNodeKind.ResultErr(mapType okType, errorNodeId)
+                | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(leftNodeId, remap right)
+                | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(leftNodeId, remap right)
                 | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
-                    SemanticNodeKind.Conditional(
-                        conditionNodeId,
-                        remapGraph
-                            ownerParameterMap
-                            temporaryTarget
-                            targetFunctionId
-                            whenTrue,
-                        remapGraph
-                            ownerParameterMap
-                            temporaryTarget
-                            targetFunctionId
-                            whenFalse
-                    )
+                    SemanticNodeKind.Conditional(conditionNodeId, remap whenTrue, remap whenFalse)
                 | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
                     SemanticNodeKind.MatchUnion(
                         inputNodeId,
                         arms
                         |> List.map (fun arm ->
                             { arm with
-                                Body =
-                                    remapGraph
-                                        ownerParameterMap
-                                        temporaryTarget
-                                        targetFunctionId
-                                        arm.Body })
+                                FieldBindings =
+                                    arm.FieldBindings
+                                    |> List.map (fun fieldBinding -> { fieldBinding with Binding = mapBinding fieldBinding.Binding })
+                                Body = remap arm.Body })
                     )
                 | SemanticNodeKind.Bind(inputNodeId, body) ->
-                    SemanticNodeKind.Bind(inputNodeId, { body with Body = remap body.Body })
+                    SemanticNodeKind.Bind(inputNodeId, { ValueBinding = mapBinding body.ValueBinding; Body = remap body.Body })
                 | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    SemanticNodeKind.MatchOption(inputNodeId, { someArm with Body = remap someArm.Body }, remap noneBody)
+                    SemanticNodeKind.MatchOption(
+                        inputNodeId,
+                        { ValueBinding = mapBinding someArm.ValueBinding; Body = remap someArm.Body },
+                        remap noneBody
+                    )
                 | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    SemanticNodeKind.MatchResult(inputNodeId, { okArm with Body = remap okArm.Body }, { errArm with Body = remap errArm.Body })
+                    SemanticNodeKind.MatchResult(
+                        inputNodeId,
+                        { ValueBinding = mapBinding okArm.ValueBinding; Body = remap okArm.Body },
+                        { ErrorBinding = mapBinding errArm.ErrorBinding; Body = remap errArm.Body }
+                    )
                 | other -> other
             { node with Kind = kind }
 
@@ -593,7 +651,10 @@ module internal SignatureMigrationCore =
                 | Ok() ->
                     match SemanticQuery.getCallers baseSnapshot target.Id with
                     | Error error -> Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
-                    | Ok callerSites ->
+                    | Ok allCallerSites ->
+                        // The target body is replaced as a whole, so its own uses of itself are
+                        // neither callers to rewrite nor affected call sites.
+                        let callerSites = allCallerSites |> List.filter (fun site -> site.CallerFunctionId <> target.Id)
                         match validateCallSites prefix baseSnapshot callerSites with
                         | Error error -> Error error
                         | Ok() ->
@@ -609,45 +670,40 @@ module internal SignatureMigrationCore =
                             let expectedSet = Set.ofList callerIds
                             let requestedSet = callerRewrites |> List.map (fun rewrite -> rewrite.CallerFunctionId) |> Set.ofList
                             let render values = values |> Set.toList |> List.map StableId.value |> String.concat ", "
-                            if callerIds |> List.contains target.Id then
+                            match duplicate with
+                            | Some(callerId, _) ->
                                 reject
-                                    $"{prefix}RecursiveTargetUnsupported"
-                                    "This bounded migration does not support a target that directly calls itself."
-                            else
-                                match duplicate with
-                                | Some(callerId, _) ->
-                                    reject
-                                        $"{prefix}DuplicateCallerRewrite"
-                                        $"Caller '{StableId.value callerId}' has more than one replacement body."
-                                | None when expectedSet <> requestedSet ->
-                                    reject
-                                        $"{prefix}CallerRewriteMismatch"
-                                        $"Caller rewrites must match the complete affected caller set. Missing: [{render (Set.difference expectedSet requestedSet)}]. Unrelated: [{render (Set.difference requestedSet expectedSet)}]."
+                                    $"{prefix}DuplicateCallerRewrite"
+                                    $"Caller '{StableId.value callerId}' has more than one replacement body."
+                            | None when expectedSet <> requestedSet ->
+                                reject
+                                    $"{prefix}CallerRewriteMismatch"
+                                    $"Caller rewrites must match the complete affected caller set. Missing: [{render (Set.difference expectedSet requestedSet)}]. Unrelated: [{render (Set.difference requestedSet expectedSet)}]."
+                            | None ->
+                                match bodyObligationError target baseSnapshot with
+                                | Some error ->
+                                    reject $"{prefix}TargetBodyReferencedByObligation" $"{error.Code}: {error.Message}"
                                 | None ->
-                                    match bodyObligationError target baseSnapshot with
-                                    | Some error ->
-                                        reject $"{prefix}TargetBodyReferencedByObligation" $"{error.Code}: {error.Message}"
+                                    let callers =
+                                        callerIds |> List.map (fun callerId -> baseSnapshot.Functions |> List.find (fun fn -> fn.Id = callerId))
+                                    match
+                                        callers
+                                        |> List.tryPick (fun caller ->
+                                            bodyObligationError caller baseSnapshot |> Option.map (fun error -> caller, error))
+                                    with
+                                    | Some(caller, error) ->
+                                        reject
+                                            $"{prefix}CallerBodyReferencedByObligation"
+                                            $"Caller '{StableId.value caller.Id}': {error.Code}: {error.Message}"
                                     | None ->
-                                        let callers =
-                                            callerIds |> List.map (fun callerId -> baseSnapshot.Functions |> List.find (fun fn -> fn.Id = callerId))
-                                        match
-                                            callers
-                                            |> List.tryPick (fun caller ->
-                                                bodyObligationError caller baseSnapshot |> Option.map (fun error -> caller, error))
-                                        with
-                                        | Some(caller, error) ->
-                                            reject
-                                                $"{prefix}CallerBodyReferencedByObligation"
-                                                $"Caller '{StableId.value caller.Id}': {error.Code}: {error.Message}"
-                                        | None ->
-                                            Ok
-                                                { Target = target
-                                                  CallerSites = callerSites
-                                                  Callers = callers
-                                                  RewritesByCaller =
-                                                    callerRewrites
-                                                    |> List.map (fun rewrite -> rewrite.CallerFunctionId, rewrite.Replacement)
-                                                    |> Map.ofList }
+                                        Ok
+                                            { Target = target
+                                              CallerSites = callerSites
+                                              Callers = callers
+                                              RewritesByCaller =
+                                                callerRewrites
+                                                |> List.map (fun rewrite -> rewrite.CallerFunctionId, rewrite.Replacement)
+                                                |> Map.ofList }
 
     let bodyDiff
         baseSnapshot
@@ -710,11 +766,25 @@ module internal SignatureMigrationCore =
                                 | Some newType -> { parameter with Type = newType }
                                 | None -> parameter)
                         ResultType = resultType
-                        Body = remapGraph (ownerMap temporaryTarget.Function prepared.Target) temporaryTarget prepared.Target.Id temporaryTarget.Function.Body }
+                        Body =
+                            remapGraph
+                                (ownerMap temporaryTarget.Function prepared.Target)
+                                temporaryTarget.TemporaryToOriginalTypeParameters
+                                temporaryTarget
+                                prepared.Target.Id
+                                temporaryTarget.Function.Body }
                 let migratedCallers =
                     temporaryCallers
-                    |> List.map (fun ((original: SemanticFunction), (temporary: SemanticFunction)) ->
-                        original.Id, { original with Body = remapGraph (ownerMap temporary original) temporaryTarget prepared.Target.Id temporary.Body })
+                    |> List.map (fun ((original: SemanticFunction), (temporary: TemporaryCaller)) ->
+                        original.Id,
+                        { original with
+                            Body =
+                                remapGraph
+                                    (ownerMap temporary.Function original)
+                                    temporary.TemporaryToOriginalTypeParameters
+                                    temporaryTarget
+                                    prepared.Target.Id
+                                    temporary.Function.Body })
                     |> Map.ofList
                 let proposedSnapshot =
                     { baseSnapshot with
