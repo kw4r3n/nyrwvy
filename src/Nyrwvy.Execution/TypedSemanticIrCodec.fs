@@ -342,6 +342,10 @@ module TypedSemanticIrCodec =
             writeBinaryNode writer "int64WrappingSubtract" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64WrappingMultiply" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64FloorDivide" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64FloorModulo" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

@@ -56,6 +56,8 @@ module ValueDependency =
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)

@@ -18,7 +18,7 @@ rrawrletは不足を発見する題材であり、製品固有のLeader、Member
 
 | ID | 到達点 | 現在の対応 | 残る境界 |
 | --- | --- | --- | --- |
-| G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換、code point単位の`StringLength`と範囲を丸める`StringSlice`、`BoolNot`と右辺を必要時のみ評価する`BoolAnd`/`BoolOr`。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Set（[保留の判断](../decisions/bool-operators-and-map.md)）や追加文字列操作は具体的要求に応じて選ぶ。 |
+| G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換、Pythonと同じ床除算・剰余の`Int64FloorDivide`/`Int64FloorModulo`（除数0でも失敗しない）、code point単位の`StringLength`と範囲を丸める`StringSlice`、`BoolNot`と右辺を必要時のみ評価する`BoolAnd`/`BoolOr`。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Set（[保留の判断](../decisions/bool-operators-and-map.md)）や追加文字列操作は具体的要求に応じて選ぶ。 |
 | G2 | 本体を複製しない文脈・型・述語の再利用 | 関数型パラメーター、明示的な文脈引数、[純粋・captureなしの関数値](../specs/pure-function-values.md)。 | 一般closure、型パラメーター付きProduct/Union、制約付き型パラメーター、効果付き関数値。 |
 | G3 | 別モジュールの外部実装と型付き値・失敗の接続 | 明示的なC# `ExternalImplementation`、共通runnerの`hostSources`/`hostCapability`、複合値・`Result`・host例外の診断。[純粋なプログラム内実装](../specs/program-capability-implementations.md)。 | 状態・効果を持つプログラム内Capability実装。`FailureType`はC# backendで明示的に非対応。 |
 | G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)、[task scope](../decisions/concurrency-control.md)内のtask開始・待機（Any/All）・個別キャンセル（第1段階）と、`runPure`の仮想時計による決定的な待機時間制限（第2段階）。 | 宣言された並行安全性（Q-010）は必要が示された場合のみ再検討。独自scheduler、所有権・借用は未導入。 |

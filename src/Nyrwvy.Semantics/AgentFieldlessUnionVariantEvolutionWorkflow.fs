@@ -168,6 +168,16 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     mapNodeId leftNodeId,
                     mapNodeId rightNodeId
                 )
+            | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64FloorDivide(
+                    mapNodeId leftNodeId,
+                    mapNodeId rightNodeId
+                )
+            | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64FloorModulo(
+                    mapNodeId leftNodeId,
+                    mapNodeId rightNodeId
+                )
             | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64Equal(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

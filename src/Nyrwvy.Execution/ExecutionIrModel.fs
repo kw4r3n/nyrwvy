@@ -94,6 +94,8 @@ type ExecutionInstructionKind =
     | Int64WrappingAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64WrappingSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64WrappingMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64FloorDivide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId

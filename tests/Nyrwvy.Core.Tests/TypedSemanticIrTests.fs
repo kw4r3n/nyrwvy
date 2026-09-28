@@ -43,6 +43,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64WrappingAdd _
                 | TypedSemanticNodeKind.Int64WrappingSubtract _
                 | TypedSemanticNodeKind.Int64WrappingMultiply _
+                | TypedSemanticNodeKind.Int64FloorDivide _
+                | TypedSemanticNodeKind.Int64FloorModulo _
                 | TypedSemanticNodeKind.Int64Equal _
                 | TypedSemanticNodeKind.Int64LessThan _
                 | TypedSemanticNodeKind.Int64LessThanOrEqual _

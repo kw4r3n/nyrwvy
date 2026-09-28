@@ -417,6 +417,10 @@ module SnapshotCodec =
             writeBinaryNode writer "int64WrappingSubtract" leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64WrappingMultiply" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64FloorDivide" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64FloorModulo" leftNodeId rightNodeId
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -1045,6 +1049,10 @@ module SnapshotCodec =
                 readBinaryNode "Int64WrappingSubtract node" element (fun left right -> SemanticNodeKind.Int64WrappingSubtract(left, right))
             | "int64WrappingMultiply" ->
                 readBinaryNode "Int64WrappingMultiply node" element (fun left right -> SemanticNodeKind.Int64WrappingMultiply(left, right))
+            | "int64FloorDivide" ->
+                readBinaryNode "Int64FloorDivide node" element (fun left right -> SemanticNodeKind.Int64FloorDivide(left, right))
+            | "int64FloorModulo" ->
+                readBinaryNode "Int64FloorModulo node" element (fun left right -> SemanticNodeKind.Int64FloorModulo(left, right))
             | "int64Equal" ->
                 readBinaryNode "Int64Equal node" element (fun left right -> SemanticNodeKind.Int64Equal(left, right))
             | "int64LessThan" ->

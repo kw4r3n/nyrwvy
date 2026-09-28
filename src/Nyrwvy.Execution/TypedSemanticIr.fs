@@ -91,6 +91,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64FloorDivide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -286,6 +288,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

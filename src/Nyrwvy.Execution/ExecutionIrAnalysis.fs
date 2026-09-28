@@ -41,6 +41,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -133,6 +135,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _
+            | TypedSemanticNodeKind.Int64FloorDivide _
+            | TypedSemanticNodeKind.Int64FloorModulo _
             | TypedSemanticNodeKind.Int64Equal _
             | TypedSemanticNodeKind.Int64LessThan _
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -254,6 +258,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64WrappingAdd _
         | TypedSemanticNodeKind.Int64WrappingSubtract _
         | TypedSemanticNodeKind.Int64WrappingMultiply _
+        | TypedSemanticNodeKind.Int64FloorDivide _
+        | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Equal _
         | TypedSemanticNodeKind.Int64LessThan _
         | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -350,6 +356,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _
+            | TypedSemanticNodeKind.Int64FloorDivide _
+            | TypedSemanticNodeKind.Int64FloorModulo _
             | TypedSemanticNodeKind.Int64Equal _
             | TypedSemanticNodeKind.Int64LessThan _
             | TypedSemanticNodeKind.Int64LessThanOrEqual _

@@ -297,6 +297,10 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingSubtract(left, right))
                         | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64WrappingMultiply(left, right))
+                        | TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64FloorDivide(left, right))
+                        | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64FloorModulo(left, right))
                         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Equal(left, right))
                         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -685,6 +689,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64WrappingAdd _
                         | TypedSemanticNodeKind.Int64WrappingSubtract _
                         | TypedSemanticNodeKind.Int64WrappingMultiply _
+                        | TypedSemanticNodeKind.Int64FloorDivide _
+                        | TypedSemanticNodeKind.Int64FloorModulo _
                         | TypedSemanticNodeKind.Int64Equal _
                         | TypedSemanticNodeKind.Int64LessThan _
                         | TypedSemanticNodeKind.Int64LessThanOrEqual _

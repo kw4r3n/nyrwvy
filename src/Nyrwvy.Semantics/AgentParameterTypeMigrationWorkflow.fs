@@ -229,6 +229,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64WrappingAdd(left, right) -> two ExpressionRecipe.Int64WrappingAdd left right
             | ExpressionRecipe.Int64WrappingSubtract(left, right) -> two ExpressionRecipe.Int64WrappingSubtract left right
             | ExpressionRecipe.Int64WrappingMultiply(left, right) -> two ExpressionRecipe.Int64WrappingMultiply left right
+            | ExpressionRecipe.Int64FloorDivide(left, right) -> two ExpressionRecipe.Int64FloorDivide left right
+            | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
             | ExpressionRecipe.Int64Equal(left, right) -> two ExpressionRecipe.Int64Equal left right
             | ExpressionRecipe.Int64LessThan(left, right) -> two ExpressionRecipe.Int64LessThan left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> two ExpressionRecipe.Int64LessThanOrEqual left right

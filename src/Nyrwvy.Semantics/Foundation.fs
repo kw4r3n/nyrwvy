@@ -222,6 +222,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64FloorDivide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -378,6 +380,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64FloorDivide _
+                | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _
@@ -475,6 +479,8 @@ module ValueGraph =
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64FloorDivide _
+                | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _

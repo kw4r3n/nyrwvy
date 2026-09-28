@@ -50,6 +50,8 @@ ExpressionRecipe =
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
+  | Int64FloorDivide(left, right)
+  | Int64FloorModulo(left, right)
   | Int64Equal(left, right)
   | Int64LessThan(left, right)
   | Int64LessThanOrEqual(left, right)

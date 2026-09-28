@@ -50,6 +50,8 @@ type ViewerNodeRole =
     | Int64WrappingAdd
     | Int64WrappingSubtract
     | Int64WrappingMultiply
+    | Int64FloorDivide
+    | Int64FloorModulo
     | Int64Equal
     | Int64LessThan
     | Int64LessThanOrEqual
@@ -207,6 +209,8 @@ module ViewerProjection =
         | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
         | SemanticNodeKind.Int64WrappingSubtract _ -> ViewerNodeRole.Int64WrappingSubtract, []
         | SemanticNodeKind.Int64WrappingMultiply _ -> ViewerNodeRole.Int64WrappingMultiply, []
+        | SemanticNodeKind.Int64FloorDivide _ -> ViewerNodeRole.Int64FloorDivide, []
+        | SemanticNodeKind.Int64FloorModulo _ -> ViewerNodeRole.Int64FloorModulo, []
         | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []
         | SemanticNodeKind.Int64LessThan _ -> ViewerNodeRole.Int64LessThan, []
         | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
@@ -381,6 +385,8 @@ module ViewerProjection =
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64FloorDivide _
+                | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _

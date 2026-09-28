@@ -782,6 +782,42 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId "-" rightValueId true
         | ExecutionInstructionKind.Int64WrappingMultiply(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "*" rightValueId true
+        | ExecutionInstructionKind.Int64FloorDivide(leftValueId, rightValueId) ->
+            // Floor division that never throws: divisor 0 yields 0 and MinValue / -1 wraps to MinValue.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var dividend = " + valueName leftValueId + ";")
+            writer.Line("var divisor = " + valueName rightValueId + ";")
+            writer.Line("if (divisor == 0L) " + target + " = 0L;")
+            writer.Line("else if (divisor == -1L) " + target + " = unchecked(-dividend);")
+            writer.Line("else")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var quotient = dividend / divisor;")
+            writer.Line("if (dividend % divisor != 0L && (dividend < 0L) != (divisor < 0L)) quotient -= 1L;")
+            writer.Line(target + " = quotient;")
+            writer.Pop()
+            writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.Int64FloorModulo(leftValueId, rightValueId) ->
+            // Floor modulo with the divisor's sign that never throws: divisor 0 yields the dividend and x % -1 is 0.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var dividend = " + valueName leftValueId + ";")
+            writer.Line("var divisor = " + valueName rightValueId + ";")
+            writer.Line("if (divisor == 0L) " + target + " = dividend;")
+            writer.Line("else if (divisor == -1L) " + target + " = 0L;")
+            writer.Line("else")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var remainder = dividend % divisor;")
+            writer.Line("if (remainder != 0L && (remainder < 0L) != (divisor < 0L)) remainder += divisor;")
+            writer.Line(target + " = remainder;")
+            writer.Pop()
+            writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "==" rightValueId false
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
