@@ -527,6 +527,8 @@ module NyasonCodec =
             encodeUnaryNode "float64-is-finite" nodeId valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId ->
             encodeUnaryNode "float64-is-infinite" nodeId valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
+            encodeUnaryNode "int64-to-float64" nodeId valueNodeId
         | SemanticNodeKind.ListEmpty itemType ->
             record "list-empty" [ nodeId; "item-type", encodeTypeRef itemType ]
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
@@ -872,6 +874,8 @@ module NyasonCodec =
             decodeUnaryNode "float64-is-finite" value SemanticNodeKind.Float64IsFinite
         | NyasonValue.Record("float64-is-infinite", _) ->
             decodeUnaryNode "float64-is-infinite" value SemanticNodeKind.Float64IsInfinite
+        | NyasonValue.Record("int64-to-float64", _) ->
+            decodeUnaryNode "int64-to-float64" value SemanticNodeKind.Int64ToFloat64
         | NyasonValue.Record("list-empty", _) ->
             let fields = recordFields "list-empty" [ "id"; "item-type" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

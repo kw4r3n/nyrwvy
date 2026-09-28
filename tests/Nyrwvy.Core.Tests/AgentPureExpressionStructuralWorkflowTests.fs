@@ -543,6 +543,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Float64IsNaN"
               "Float64IsFinite"
               "Float64IsInfinite"
+              "Int64ToFloat64"
               "ListEmpty"
               "ListConstruct"
               "ListLength"

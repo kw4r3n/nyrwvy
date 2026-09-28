@@ -47,8 +47,10 @@ module PureRunTests =
         let ws, plus =
             create ws "plus" intType intType
                 (ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
-        let ws, floatFunction =
-            create ws "float" stringType (TypeRef.Primitive PrimitiveType.Float64) (ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.5))
+        // Nine nested Lists exceed the eight composite layers a run value type may have.
+        let rec nestedLists depth = if depth = 0 then intType else TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ nestedLists (depth - 1) ])
+        let ws, tooDeepFunction =
+            create ws "tooDeep" stringType (nestedLists 9) (ExpressionRecipe.ListEmpty(nestedLists 8))
         let listType item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
         let ws, _ =
             create ws "sumLists" (listType intType) intType
@@ -93,15 +95,15 @@ module PureRunTests =
         let json = AgentWorkspace.serializeCurrentSnapshot ws |> function
             | Ok text -> text
             | Error error -> failwithf "Fixture serialization failed: %A" error
-        json, concat, equal, plus, floatFunction
+        json, concat, equal, plus, tooDeepFunction
 
     let private tempSession () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-run-tests-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore
         let path = Path.Combine(root, "workspace.json")
-        let json, concat, equal, plus, floatFunction = fixture ()
+        let json, concat, equal, plus, tooDeepFunction = fixture ()
         File.WriteAllText(path, json)
-        root, path, concat, equal, plus, floatFunction
+        root, path, concat, equal, plus, tooDeepFunction
 
     [<Fact>]
     let ``runPure rejects malformed Results and mismatched inactive kinds before execution`` () =
@@ -187,7 +189,7 @@ module PureRunTests =
 
     [<Fact>]
     let ``runPure rejects wrong types missing targets and unsupported results without publication`` () =
-        let root, path, concat, _, _, floatFunction = tempSession ()
+        let root, path, concat, _, _, tooDeepFunction = tempSession ()
         try
             use session = AuthoringSession.openExisting path |> function
                 | Ok result -> result
@@ -211,7 +213,7 @@ module PureRunTests =
                 ($"""{{"id":"mismatch","op":"runPure","functionId":"{StableId.value concat}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}],"expected":{{"kind":"bool","value":true}}}}""")
                 "RunExpectedTypeMismatch"
             reject
-                ($"""{{"id":"unsupported","op":"runPure","functionId":"{StableId.value floatFunction}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}]}}""")
+                ($"""{{"id":"unsupported","op":"runPure","functionId":"{StableId.value tooDeepFunction}","arguments":[{{"kind":"string","value":"a"}},{{"kind":"string","value":"b"}}]}}""")
                 "RunResultTypeUnsupported"
             reject
                 ($"""{{"id":"bad-wire","op":"runPure","functionId":"{StableId.value concat}","arguments":[{{"kind":"string","value":"x","extra":0}},{{"kind":"string","value":"y"}}]}}""")

@@ -245,6 +245,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Float64IsNaN of valueNodeId: GraphNodeId
     | Float64IsFinite of valueNodeId: GraphNodeId
     | Float64IsInfinite of valueNodeId: GraphNodeId
+    /// The Float64 nearest to the Int64: exact for |value| <= 2^53, otherwise IEEE 754 round to nearest,
+    /// ties to even (C# `(double)long`, Python `float(int)`). Every Int64 is finite as a Float64. Never fails.
+    | Int64ToFloat64 of valueNodeId: GraphNodeId
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -413,6 +416,7 @@ module ValueGraph =
                 | SemanticNodeKind.Float64IsNaN _
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
+                | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
@@ -516,6 +520,7 @@ module ValueGraph =
                 | SemanticNodeKind.Float64IsNaN _
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
+                | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

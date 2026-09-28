@@ -333,6 +333,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsFinite
                         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsInfinite
+                        | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToFloat64
                         | TypedSemanticNodeKind.ListEmpty ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.ListEmpty)
                         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
@@ -717,6 +719,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64IsNaN _
                         | TypedSemanticNodeKind.Float64IsFinite _
                         | TypedSemanticNodeKind.Float64IsInfinite _
+                        | TypedSemanticNodeKind.Int64ToFloat64 _
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _

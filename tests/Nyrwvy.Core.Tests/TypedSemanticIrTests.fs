@@ -61,6 +61,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Float64IsNaN _
                 | TypedSemanticNodeKind.Float64IsFinite _
                 | TypedSemanticNodeKind.Float64IsInfinite _
+                | TypedSemanticNodeKind.Int64ToFloat64 _
                 | TypedSemanticNodeKind.ListEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _

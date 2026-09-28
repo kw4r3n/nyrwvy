@@ -237,6 +237,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64IsNaN value -> one ExpressionRecipe.Float64IsNaN value
             | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
+            | ExpressionRecipe.Int64ToFloat64 value -> one ExpressionRecipe.Int64ToFloat64 value
             | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right

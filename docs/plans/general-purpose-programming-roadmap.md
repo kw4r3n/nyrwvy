@@ -24,7 +24,7 @@ rrawrletは不足を発見する題材であり、製品固有のLeader、Member
 | G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)、[task scope](../decisions/concurrency-control.md)内のtask開始・待機（Any/All）・個別キャンセル（第1段階）、宣言型のfieldへの`Task<T>`保持（`TaskScope`は不可、Capability境界と`runPure`の値には推移的に不可）と、`runPure`の仮想時計による決定的な待機時間制限（第2段階）。 | 宣言された並行安全性（Q-010）は必要が示された場合のみ再検討。独自scheduler、所有権・借用は未導入。 |
 | T1 | reviewを伴う宣言変更・削除 | Product field追加・削除・型移行、引数/戻り値型移行、field付きvariant追加、不要関数・型・Effect・Capability/Operationの削除。 | Capability signature移行、Union variant field型移行、自動書き換え、汎用migration DSL。 |
 | T2 | 複数・多段依存の再現と明示的更新 | 内容保持sidecar、同一内容の同一IDのみ共有、ダイヤモンド依存、更新previewとreview済みfingerprintに束縛した適用。 | 更新と局所migrationの同時公開、registry、オンライン配布、semantic merge。 |
-| T3 | 共通の実行・テスト・診断経路 | `runPure`による型付き入出力・期待値・fake/host Capability実行、semantic ID付き診断、通常ツール/MCP。 | 新しい意味論に必要な入出力・診断を個別に追加する。完全なdebuggerは前提にしない。 |
+| T3 | 共通の実行・テスト・診断経路 | `runPure`による型付き入出力・期待値・fake/host Capability実行、semantic ID付き診断、通常ツール/MCP。Float64の入出力（最短往復表現のJSON数値と`"NaN"`/`"Infinity"`/`"-Infinity"`/`"-0"`、NaN同士を等しいとするビット単位の一致判定）と`Int64ToFloat64`変換は[probe 3の要求で追加](../decisions/float64-conversion-and-run-values.md)。 | 宣言済み`failureType`を持つoperationは引き続き非対応。Float64からInt64への変換と10進丸めは具体的要求まで保留。新しい意味論に必要な入出力・診断を個別に追加する。完全なdebuggerは前提にしない。 |
 
 G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[本文由来のEffect要求](../specs/body-effect-requirements.md)もinspect/reviewで利用できる。派生情報は宣言を自動変更しない。
 

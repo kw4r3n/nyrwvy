@@ -114,6 +114,7 @@ type ExecutionInstructionKind =
     | Float64IsNaN of valueId: ExecutionValueId
     | Float64IsFinite of valueId: ExecutionValueId
     | Float64IsInfinite of valueId: ExecutionValueId
+    | Int64ToFloat64 of valueId: ExecutionValueId
     | ListEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId

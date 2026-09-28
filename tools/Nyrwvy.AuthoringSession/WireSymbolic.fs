@@ -290,6 +290,7 @@ module internal WireSymbolic =
         | "float64IsNaN" -> unary "float64-is-nan recipe" ExpressionRecipe.Float64IsNaN
         | "float64IsFinite" -> unary "float64-is-finite recipe" ExpressionRecipe.Float64IsFinite
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
+        | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef declarations (property "itemType" element))

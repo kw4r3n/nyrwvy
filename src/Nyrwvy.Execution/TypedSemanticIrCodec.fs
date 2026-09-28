@@ -378,6 +378,8 @@ module TypedSemanticIrCodec =
             writeUnaryNode writer "float64IsFinite" valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId ->
             writeUnaryNode writer "float64IsInfinite" valueNodeId
+        | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
+            writeUnaryNode writer "int64ToFloat64" valueNodeId
         | TypedSemanticNodeKind.ListEmpty ->
             writer.WriteString("kind", "listEmpty")
         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->

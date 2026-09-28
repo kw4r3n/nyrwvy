@@ -33,6 +33,24 @@ module AuthoringProtocol =
         | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
         | _ -> fail "Scalar run values must be string, bool or int64."
 
+    /// Reads a Float64 run value: a finite JSON number, rounded to the nearest binary64 as C# and
+    /// JavaScript read decimal text, or one of the strings "NaN", "Infinity", "-Infinity" and "-0".
+    /// A number beyond the finite range is rejected rather than read as an infinity.
+    let private float64Value (value: JsonElement) =
+        match value.ValueKind with
+        | JsonValueKind.Number ->
+            let number = Double.Parse(value.GetRawText(), Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture)
+            if Double.IsFinite number then Float64Bits.ofFloat number
+            else fail "A Float64 number must be within the finite binary64 range; write \"Infinity\" or \"-Infinity\" as a string."
+        | JsonValueKind.String ->
+            match value.GetString() with
+            | "NaN" -> Float64Bits.ofFloat Double.NaN
+            | "Infinity" -> Float64Bits.ofFloat Double.PositiveInfinity
+            | "-Infinity" -> Float64Bits.ofFloat Double.NegativeInfinity
+            | "-0" -> Float64Bits.ofFloat -0.0
+            | _ -> fail "A Float64 value must be a JSON number or one of \"NaN\", \"Infinity\", \"-Infinity\" and \"-0\"."
+        | _ -> fail "A Float64 value must be a JSON number or one of \"NaN\", \"Infinity\", \"-Infinity\" and \"-0\"."
+
     /// Wraps a fake response in its optional `delayMillis` of virtual time; absent or 0 means none.
     let private delayed (element: JsonElement) (response: PureRunFakeResponse) =
         match tryProperty "delayMillis" element with
@@ -48,7 +66,7 @@ module AuthoringProtocol =
     let rec private pureValueAt (names: AuthoringDeclarations option) (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
-        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "unit" then
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
         let children =
             match kind with
@@ -84,6 +102,9 @@ module AuthoringProtocol =
         | "unit" ->
             ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
             PureRunValue.Unit
+        | "float64" ->
+            ensureFields "Float64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+            PureRunValue.Float64(float64Value (property "value" item))
         | "hostCapability" ->
             let capabilityKey = key "capabilityId" "capability"
             ensureFields "Host capability" [ "kind"; capabilityKey; "implementation"; "supportsConcurrentCalls" ] [ "kind"; capabilityKey; "implementation" ] item
@@ -242,6 +263,18 @@ module AuthoringProtocol =
 
     let private pureValue names item = pureValueAt names (ref 8192) 0 item
 
+    /// Writes a Float64 run value: the shortest round-trip decimal as a JSON number for finite values
+    /// other than -0.0, and the strings "NaN", "Infinity", "-Infinity" and "-0" otherwise.
+    let private encodeFloat64 bits =
+        let number = Float64Bits.toFloat bits
+        let payload =
+            if Double.IsNaN number then box "NaN"
+            elif Double.IsPositiveInfinity number then box "Infinity"
+            elif Double.IsNegativeInfinity number then box "-Infinity"
+            elif number = 0.0 && Double.IsNegative number then box "-0"
+            else box (JsonDocument.Parse(number.ToString("R", Globalization.CultureInfo.InvariantCulture)).RootElement.Clone())
+        objectValue [ "kind", box "float64"; "value", payload ]
+
     let private encodePureScalar value =
         let kind, payload =
             match value with
@@ -387,6 +420,7 @@ module AuthoringProtocol =
         | PureRunValue.String value -> encodePureScalar (PureRunScalar.String value)
         | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
+        | PureRunValue.Float64 bits -> encodeFloat64 bits
 
     let private encodePathStep names step =
         match step with

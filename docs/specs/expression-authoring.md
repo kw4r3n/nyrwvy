@@ -68,6 +68,7 @@ ExpressionRecipe =
   | Float64IsNaN(expr)
   | Float64IsFinite(expr)
   | Float64IsInfinite(expr)
+  | Int64ToFloat64(expr)
   | ListEmpty(itemType)
   | ListConstruct(itemType, items)
   | ListLength(list)
@@ -305,6 +306,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringLessThan
 
 `StringLessThan(left, right)` (wire `stringLessThan`, Nyason `string-less-than`) takes two Strings and produces Bool: whether `left` sorts strictly before `right` in ordinal code-point order, as defined in the [language subset](../reference/language-subset.md). An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. There is no three-way `StringCompare`: sort callbacks and conditions need a Bool, and `StringEqual` plus `StringLessThan` express every other comparison.
+
+## Int64ToFloat64
+
+`Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`. There is no Float64 to Int64 conversion.
 
 ## ValueEqual
 

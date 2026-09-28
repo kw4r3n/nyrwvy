@@ -267,6 +267,7 @@ module Transaction =
                 | SemanticNodeKind.Float64IsNaN _
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
+                | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
@@ -765,6 +766,7 @@ module Transaction =
                         | SemanticNodeKind.Float64IsNaN _
                         | SemanticNodeKind.Float64IsFinite _
                         | SemanticNodeKind.Float64IsInfinite _
+                        | SemanticNodeKind.Int64ToFloat64 _
                         | SemanticNodeKind.ListEmpty _
                         | SemanticNodeKind.ListConstruct _
                         | SemanticNodeKind.ListLength _

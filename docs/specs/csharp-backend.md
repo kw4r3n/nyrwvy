@@ -79,6 +79,8 @@ BitConverter.UInt64BitsToDouble(0x<16 hex digits>UL)
 
 This preserves signed zero and exact binary64 encodings and respects the semantic NaN canonicalization performed upstream.
 
+`Int64ToFloat64` emits `(double)value`. .NET converts `long` to `double` with IEEE 754 round to nearest, ties to even, which is the conversion the language subset defines; the backend must not route it through decimal text.
+
 ## Control flow
 
 The emitter preserves Execution IR behavior rather than reconstructing high-level source structure or relying on C# surface inference.

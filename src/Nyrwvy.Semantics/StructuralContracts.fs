@@ -41,6 +41,7 @@ module ValueDependency =
         match node.Kind with
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
+        | SemanticNodeKind.Int64ToFloat64 sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
         | SemanticNodeKind.StringLength sourceNodeId
         | SemanticNodeKind.BoolNot sourceNodeId ->

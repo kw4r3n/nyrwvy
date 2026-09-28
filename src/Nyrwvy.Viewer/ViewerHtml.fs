@@ -143,6 +143,7 @@ module ViewerHtml =
         | ViewerNodeRole.Float64IsNaN -> "Float64 is NaN"
         | ViewerNodeRole.Float64IsFinite -> "Float64 is finite"
         | ViewerNodeRole.Float64IsInfinite -> "Float64 is infinite"
+        | ViewerNodeRole.Int64ToFloat64 -> "int64 to float64"
         | ViewerNodeRole.ListEmpty -> "List empty"
         | ViewerNodeRole.ListConstruct -> "List construct"
         | ViewerNodeRole.ListLength -> "List length"

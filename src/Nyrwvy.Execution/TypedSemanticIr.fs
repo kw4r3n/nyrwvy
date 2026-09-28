@@ -109,6 +109,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Float64IsNaN of valueNodeId: GraphNodeId
     | Float64IsFinite of valueNodeId: GraphNodeId
     | Float64IsInfinite of valueNodeId: GraphNodeId
+    | Int64ToFloat64 of valueNodeId: GraphNodeId
     | ListEmpty
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -328,6 +329,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64IsFinite valueNodeId)
                     | SemanticNodeKind.Float64IsInfinite valueNodeId ->
                         Ok(TypedSemanticNodeKind.Float64IsInfinite valueNodeId)
+                    | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64ToFloat64 valueNodeId)
                     | SemanticNodeKind.ListEmpty _ ->
                         Ok TypedSemanticNodeKind.ListEmpty
                     | SemanticNodeKind.ListConstruct(_, itemNodeIds) ->
