@@ -120,7 +120,17 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
     const target = resultNode(arm(before.function.body, variantId))
     assert.equal(target.kind.value, false)
     const payload = { op: "simulateReplaceTargetByName", function: "area_requires_extended", targetNodeId: target.id, replacement: bool(true) }
-    const proposal = await request(context, payload)
+    // The default review is compact: impact facts and a function summary, no per-node graph.
+    const compact = await request(context, payload)
+    assert.equal(compact.detail, "compact")
+    assert.equal(compact.review.proposedFocus.function.body.nodes, undefined)
+    assert.equal(compact.review.proposedFocus.function.body.nodeCount, compact.review.baseFocus.function.body.nodeCount)
+    assert.ok(compact.review.proposedFocus.function.body.nodeCount > before.function.body.nodes.length)
+    assert.equal(compact.review.proposedFocus.callers.length, 1)
+    assert.equal(compact.review.diff.targetNodeId, target.id)
+    await request(context, { op: "reject", proposalId: compact.proposalId })
+    const proposal = await request(context, { ...payload, detail: "full" })
+    assert.equal(proposal.detail, "full")
     const stale = await request(context, payload)
     assert.equal(resultNode(arm(proposal.review.baseFocus.function.body, variantId)).kind.value, false)
     assert.equal(resultNode(arm(proposal.review.proposedFocus.function.body, variantId)).kind.value, true)
@@ -139,7 +149,7 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
     assert.deepEqual(afterMatch.arms.filter(a => a.variantId !== variantId), beforeMatch.arms.filter(a => a.variantId !== variantId))
     assert.equal(resultNode(arm(after.function.body, variantId)).kind.value, true)
 
-    const discarded = await request(context, { op: "simulateReplaceBodyByName", function: "area_requires_extended", replacement: bool(false) })
+    const discarded = await request(context, { op: "simulateReplaceBodyByName", function: "area_requires_extended", replacement: bool(false), detail: "full" })
     assert.equal(discarded.review.proposedFunction.body.nodes[0].kind.value, false)
     await request(context, { op: "reject", proposalId: discarded.proposalId })
     assert.equal((await request(context, { op: "status" })).snapshotId, after.snapshotId)
@@ -159,7 +169,7 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
 test("structured reads preserve exact literals and ambiguous names retain exact-ID access", { timeout: 15000 }, async () => {
   await workspace(async context => {
     const payload = { op: "simulateCreateFunctionByName", displayName: "exact", parameters: [], resultType: primitive("int64"),
-      requiredEffects: [], body: { kind: "int64Literal", value: "9223372036854775807" } }
+      requiredEffects: [], body: { kind: "int64Literal", value: "9223372036854775807" }, detail: "full" }
     const first = await publish(context, payload)
     const firstId = first.review.createdFunction.id
     assert.equal(resultNode(first.review.createdFunction.body).kind.value, "9223372036854775807")
@@ -191,7 +201,7 @@ test("structured review and read retain nested branch scopes across reopen", { t
     // the richer read/review envelopes exceed the serializer's default 64 levels.
     for (let depth = 0; depth < 15; depth++) body = conditional(bool(false), bool(true), body)
     const proposal = await publish(context, { op: "simulateCreateFunctionByName", displayName: "nested", parameters: [],
-      resultType: primitive("bool"), requiredEffects: [], body })
+      resultType: primitive("bool"), requiredEffects: [], body, detail: "full" })
     const id = proposal.review.createdFunction.id
     let graph = proposal.review.createdFunction.body
     for (let depth = 0; depth < 15; depth++) {

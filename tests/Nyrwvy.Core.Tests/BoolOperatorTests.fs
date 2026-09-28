@@ -179,7 +179,7 @@ module BoolOperatorTests =
             let named =
                 """{"kind":"boolAnd","left":{"kind":"boolOr","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}},"right":{"kind":"boolNot","value":{"kind":"boolAnd","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}}"""
             use namedProposal =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"xor","parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "bool") (primitive "bool") (primitive "bool") named)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"xor","parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "bool") (primitive "bool") (primitive "bool") named)
             Assert.Contains("\"kind\":\"boolAnd\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use unknownName =

@@ -88,7 +88,7 @@ module Float64ConversionTests =
                 send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"exact",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameterSlot","index":0}}}""" signature)
             publishWire session exact
             use named =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"named",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameter","name":"value"}}}""" signature)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"named",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameter","name":"value"}}}""" signature)
             Assert.Contains("\"kind\":\"int64ToFloat64\"", named.RootElement.GetRawText())
             publishWire session named
             let fn = find session "named"

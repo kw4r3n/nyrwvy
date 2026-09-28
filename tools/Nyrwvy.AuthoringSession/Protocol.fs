@@ -548,8 +548,16 @@ module AuthoringProtocol =
             requestId <- requiredString "id" root
             let operationName = requiredString "op" root
             let encodeProposal =
-                if optionalBool "structuredReview" false root then
-                    WireEncode.proposalWith WireGraph.functionEntity WireGraph.focus
+                let full =
+                    match tryProperty "detail" root with
+                    | None -> false
+                    | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "compact" -> false
+                    | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "full" -> true
+                    | Some _ -> WireInput.fail "detail must be \"compact\" or \"full\"."
+                if not full then
+                    WireEncode.compactProposal
+                elif optionalBool "structuredReview" false root then
+                    WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus
                 else
                     WireEncode.proposal
 
@@ -621,7 +629,7 @@ module AuthoringProtocol =
             | "simulateOperations" ->
                 ensureFields
                     "simulateOperations request"
-                    [ "id"; "op"; "operations"; "structuredReview" ]
+                    [ "id"; "op"; "operations"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "operations" ]
                     root
                 let operations = array "operations" root |> List.map operation
@@ -631,7 +639,7 @@ module AuthoringProtocol =
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -665,7 +673,7 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
@@ -691,7 +699,7 @@ module AuthoringProtocol =
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"
-                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
                     root
                 let request: AgentParameterTypeMigrationRequest =
@@ -707,7 +715,7 @@ module AuthoringProtocol =
             | "simulateResultTypeMigration" ->
                 ensureFields
                     "simulateResultTypeMigration request"
-                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites" ]
                     root
                 let request: AgentResultTypeMigrationRequest =
@@ -722,7 +730,7 @@ module AuthoringProtocol =
             | "simulateProductFieldTypeMigration" ->
                 ensureFields
                     "simulateProductFieldTypeMigration request"
-                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview" ]
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites" ]
                     root
                 let request: AgentProductFieldTypeMigrationRequest =
@@ -741,7 +749,7 @@ module AuthoringProtocol =
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let request: AgentCreateTypeDeclarationRequest =
@@ -754,7 +762,7 @@ module AuthoringProtocol =
             | "simulateCreateTypeByName" ->
                 ensureFields
                     "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
@@ -768,7 +776,7 @@ module AuthoringProtocol =
             | "simulateAddFieldlessUnionVariantLike" ->
                 ensureFields
                     "simulateAddFieldlessUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
                 let request: AgentAddFieldlessUnionVariantLikeRequest =
@@ -782,7 +790,7 @@ module AuthoringProtocol =
             | "simulateAddUnionVariantLike" ->
                 ensureFields
                     "simulateAddUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
                 let request: AgentAddFieldlessUnionVariantLikeRequest =
@@ -800,7 +808,7 @@ module AuthoringProtocol =
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"
-                    [ "id"; "op"; "displayName"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName" ]
                     root
                 let request: AgentCreateEffectDeclarationRequest =
@@ -812,7 +820,7 @@ module AuthoringProtocol =
             | "simulateCreateCapability" ->
                 ensureFields
                     "simulateCreateCapability request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let request: AgentCreateCapabilityDeclarationRequest =
@@ -825,7 +833,7 @@ module AuthoringProtocol =
             | "simulateCreateCapabilityByName" ->
                 ensureFields
                     "simulateCreateCapabilityByName request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview" ]
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let declarations = session.Declarations()
@@ -842,7 +850,7 @@ module AuthoringProtocol =
             | "simulateReplaceBody" ->
                 ensureFields
                     "simulateReplaceBody request"
-                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement"; "structuredReview" ]
+                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
                     root
                 let request: AgentReplaceFunctionBodyWithExpressionRecipe =
@@ -856,7 +864,7 @@ module AuthoringProtocol =
             | "simulateReplaceBodyByName" ->
                 ensureFields
                     "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement"; "structuredReview" ]
+                    [ "id"; "op"; "function"; "replacement"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "function"; "replacement" ]
                     root
                 let declarations = session.Declarations()
@@ -877,7 +885,7 @@ module AuthoringProtocol =
             | "simulateReplaceTarget" ->
                 ensureFields
                     "simulateReplaceTarget request"
-                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement"; "structuredReview" ]
+                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
                     root
                 let request: AgentExpressionStructuralWorkflow.Targeted.Request =
@@ -891,7 +899,7 @@ module AuthoringProtocol =
             | "simulateReplaceTargetByName" ->
                 ensureFields
                     "simulateReplaceTargetByName request"
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview" ]
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview"; "detail" ]
                     [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
                     root
                 let declarations = session.Declarations()

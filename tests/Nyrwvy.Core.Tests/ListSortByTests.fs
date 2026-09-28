@@ -169,12 +169,12 @@ module ListSortByTests =
                 send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"sortExact",%s,"body":{"kind":"listSortBy","source":{"kind":"parameterSlot","index":0},"functionId":"%s"}}""" signature (StableId.value fns.TextLess.Id))
             publishWire session exactProposal
             use namedProposal =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"sortByName",%s,"body":{"kind":"listSortBy","source":{"kind":"parameter","name":"items"},"function":"shorterText"}}""" signature)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"sortByName",%s,"body":{"kind":"listSortBy","source":{"kind":"parameter","name":"items"},"function":"shorterText"}}""" signature)
             Assert.Contains("\"kind\":\"listSortBy\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             let boolSignature = sprintf """"parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[]""" (primitive "string") (primitive "string") (primitive "bool")
             use lessProposal =
-                send session (sprintf """{"id":"less","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"lessByName",%s,"body":{"kind":"stringLessThan","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}""" boolSignature)
+                send session (sprintf """{"id":"less","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"lessByName",%s,"body":{"kind":"stringLessThan","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}""" boolSignature)
             Assert.Contains("\"kind\":\"stringLessThan\"", lessProposal.RootElement.GetRawText())
             publishWire session lessProposal
             use missingFunction =

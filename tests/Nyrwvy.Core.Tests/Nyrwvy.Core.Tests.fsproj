@@ -85,6 +85,7 @@
     <Compile Include="TaskScopeTests.fs" />
     <Compile Include="TaskFieldsAndListItemAtTests.fs" />
     <Compile Include="ValueEqualTests.fs" />
+    <Compile Include="CompactSimulateReplyTests.fs" />
     <Compile Include="ListSortByTests.fs" />
     <Compile Include="Float64ConversionTests.fs" />
     <Compile Include="SelfCallTests.fs" />

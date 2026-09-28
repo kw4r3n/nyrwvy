@@ -77,6 +77,10 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const created = (await call(first, "create_function", { displayName: "value", parameters: [],
       resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
     const functionId = created.review.createdFunction.id
+    // Simulate reviews are compact by default: signature and counts, no per-node graph.
+    assert.equal(created.detail, "compact")
+    assert.equal(created.review.createdFunction.body.nodeCount, 1)
+    assert.equal(created.review.createdFunction.body.nodes, undefined)
     assert.equal((await call(first, "inspect", { view: "declarations" })).result.functions.length, 0)
     await call(first, "commit", { proposalId: created.proposalId })
     const before = (await call(first, "inspect", { view: "function", functionId })).result
@@ -85,7 +89,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const error = await failed(first, "replace", { function: "missing", replacement: bool(false) })
     assert.equal(error.structuredContent.ok, false)
     assert.ok(error.structuredContent.error.code)
-    const replacement = (await call(first, "replace", { function: "value", targetNodeId: target, replacement: bool(false) })).result
+    const replacement = (await call(first, "replace", { function: "value", targetNodeId: target, replacement: bool(false), detail: "full" })).result
     assert.equal(replacement.review.proposedFocus.function.body.nodes[0].kind.value, false)
     assert.equal((await call(first, "inspect", { view: "status" })).result.snapshotId, before.snapshotId)
     await call(first, "commit", { proposalId: replacement.proposalId })

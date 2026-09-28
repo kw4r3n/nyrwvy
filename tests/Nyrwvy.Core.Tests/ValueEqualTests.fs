@@ -193,7 +193,7 @@ module ValueEqualTests =
                 send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"same",%s,"body":{"kind":"valueEqual","left":{"kind":"parameterSlot","index":0},"right":{"kind":"parameterSlot","index":1}}}""" signature)
             publishWire session exactProposal
             use namedProposal =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"sameByName",%s,"body":{"kind":"valueEqual","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}""" signature)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"sameByName",%s,"body":{"kind":"valueEqual","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}""" signature)
             Assert.Contains("\"kind\":\"valueEqual\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use missingRight =

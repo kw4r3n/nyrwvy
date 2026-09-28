@@ -192,7 +192,7 @@ export async function openAuthoring(
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
     return JSON.stringify({ worktree, snapshot: workspace, status,
-      guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
+      guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; reviews are compact by default (signature, node count, impact facts, fingerprints), and detail \"full\" adds the proposed graph. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     try { await client.close() } catch (cleanupError) {
       if (!client.isReaped) throw new AggregateError([error, cleanupError], "Authoring open failed; unreaped child ownership is retained. Close the session before reopening.")

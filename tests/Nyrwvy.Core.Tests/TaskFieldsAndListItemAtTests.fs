@@ -308,7 +308,7 @@ module TaskFieldsAndListItemAtTests =
                 send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"itemAt",%s,"body":{"kind":"listItemAt","list":{"kind":"parameterSlot","index":0},"index":{"kind":"parameterSlot","index":1}}}""" signature)
             publishWire session exactProposal
             use namedProposal =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"itemAtByName",%s,"body":{"kind":"listItemAt","list":{"kind":"parameter","name":"items"},"index":{"kind":"parameter","name":"index"}}}""" signature)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"itemAtByName",%s,"body":{"kind":"listItemAt","list":{"kind":"parameter","name":"items"},"index":{"kind":"parameter","name":"index"}}}""" signature)
             Assert.Contains("\"kind\":\"listItemAt\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use missingIndex =
