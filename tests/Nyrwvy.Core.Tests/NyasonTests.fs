@@ -132,6 +132,63 @@ module NyasonTests =
         Assert.Equal<NyasonValue>(NyasonValue.Text expected, decoded)
         Assert.Equal<NyasonValue>(decoded, NyasonSyntax.render decoded |> NyasonSyntax.parse |> unwrap)
 
+    [<Theory>]
+    [<InlineData("\"\\uD83D\"", 3)>]
+    [<InlineData("\"\\uDE00\"", 3)>]
+    [<InlineData("\"\\uD83Dx\"", 3)>]
+    [<InlineData("\"\\uD83D\\u0041\"", 3)>]
+    [<InlineData("\"\\uDE00\\uD83D\"", 3)>]
+    [<InlineData("\"a\\uD83D\"", 4)>]
+    let ``Nyason rejects unpaired surrogate escapes`` (source: string) (position: int) =
+        match NyasonSyntax.parse source with
+        | Error error ->
+            Assert.Equal(position, error.Position)
+            Assert.Contains("Unpaired surrogate", error.Message)
+        | result -> failwithf "Expected an unpaired surrogate error, got %A" result
+
+    [<Fact>]
+    let ``Nyason rejects raw unpaired surrogates and keeps raw pairs`` () =
+        let high, low = string (char 0xD83D), string (char 0xDE00)
+        let reject (source: string) position =
+            match NyasonSyntax.parse source with
+            | Error error ->
+                Assert.Equal(position, error.Position)
+                Assert.Contains("Unpaired surrogate", error.Message)
+            | result -> failwithf "Expected an unpaired surrogate error for %A, got %A" source result
+        reject ("\"" + high + "\"") 1
+        reject ("\"" + low + "\"") 1
+        reject ("\"a" + high + "b\"") 2
+        // Escaped and raw halves do not pair with each other.
+        reject ("\"\\uD83D" + low + "\"") 3
+        reject ("\"" + high + "\\uDE00\"") 1
+        // Identifiers and atoms carry the same rule.
+        reject ("a" + high + " {}") 1
+        reject ("r { f" + low + " = true }") 5
+        let text = NyasonValue.Text(high + low)
+        Assert.Equal<NyasonValue>(text, NyasonSyntax.parse ("\"" + high + low + "\"") |> unwrap)
+        Assert.Equal<NyasonValue>(text, NyasonSyntax.render text |> NyasonSyntax.parse |> unwrap)
+
+    [<Fact>]
+    let ``Nyason nesting is bounded by the shared codec depth`` () =
+        Assert.Equal(SnapshotCodec.maxJsonDepth, NyasonSyntax.maxDepth)
+        let lists depth = String.replicate depth "[" + String.replicate depth "]"
+        let records depth = String.replicate depth "r { f = " + "true" + String.replicate depth " }"
+        let deepest = NyasonSyntax.parse (lists NyasonSyntax.maxDepth) |> unwrap
+        Assert.Equal<NyasonValue>(deepest, NyasonSyntax.render deepest |> NyasonSyntax.parse |> unwrap)
+        NyasonSyntax.parse (records NyasonSyntax.maxDepth) |> unwrap |> ignore
+        let reject (source: string) =
+            match NyasonSyntax.parse source with
+            | Error error ->
+                Assert.Equal(NyasonSyntax.maxDepth + 1, error.Position)
+                Assert.Contains("maximum depth", error.Message)
+            | result -> failwithf "Expected a depth error, got %A" result
+        reject (lists (NyasonSyntax.maxDepth + 1))
+        // Far deeper input fails the same way rather than exhausting the stack.
+        reject (lists 200_000)
+        match NyasonSyntax.parse (records (NyasonSyntax.maxDepth + 1)) with
+        | Error error -> Assert.Contains("maximum depth", error.Message)
+        | result -> failwithf "Expected a depth error, got %A" result
+
     [<Fact>]
     let ``Nyason percent-escapes opaque stable ID payloads and restores them exactly`` () =
         let snapshotId = StableId.createForTesting<SnapshotTag> "snapshot with / slash and % sign"
