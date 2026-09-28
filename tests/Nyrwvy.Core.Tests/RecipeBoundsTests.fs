@@ -71,9 +71,26 @@ module RecipeBoundsTests =
         simulate snapshot workspace target (listRecipe [ deepFloat 32 ])
         |> assertRejectedCode "StructuralRecipeDepthLimitExceeded"
 
-        match simulate snapshot workspace target (listRecipe (List.init 63 (fun _ -> literal ()))) with
+        match simulate snapshot workspace target (listRecipe (List.init 255 (fun _ -> literal ()))) with
         | Ok _ -> ()
-        | error -> failwithf "Node count 64 should pass: %A" error
+        | error -> failwithf "Node count 256 should pass: %A" error
 
-        simulate snapshot workspace target (listRecipe (List.init 64 (fun _ -> literal ())))
+        simulate snapshot workspace target (listRecipe (List.init 256 (fun _ -> literal ())))
         |> assertRejectedCode "StructuralRecipeNodeLimitExceeded"
+
+    [<Fact>]
+    let ``node-limit diagnostics report the count and the largest extractable subtrees`` () =
+        let snapshot, workspace, target = createFixture ()
+        let literal () = PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
+        let wide count = PureExpressionRecipe.ListConstruct(float64Type, List.init count (fun _ -> literal ()))
+        let small = PureExpressionRecipe.ListConcat(wide 3, wide 2)
+        // 1 + 201 + (1 + 61 + 8) = 272 nodes. Both root children fit within 256; their own children are
+        // nested in an already listed subtree, so they are not repeated.
+        let recipe = PureExpressionRecipe.ListConcat(wide 200, PureExpressionRecipe.ListConcat(wide 60, small))
+        match simulate snapshot workspace target recipe with
+        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("StructuralRecipeNodeLimitExceeded", diagnostic.Code)
+            Assert.Contains("contains 272 nodes, more than 256", diagnostic.Message)
+            Assert.Contains("/0 ListConstruct (201 nodes); /1 ListConcat (70 nodes)", diagnostic.Message)
+            Assert.DoesNotContain("/1/0", diagnostic.Message)
+        | other -> failwithf "Expected a node-limit rejection, got %A" other

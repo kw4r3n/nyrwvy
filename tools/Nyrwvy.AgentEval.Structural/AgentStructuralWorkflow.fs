@@ -115,7 +115,7 @@ module AgentStructuralWorkflow =
             | Some target when target.ResultType <> float64Type ->
                 Error(diagnostic "StructuralTargetResultTypeMismatch" "The target function does not return Float64.")
             | Some target ->
-                match validateRecipeBounds recipeChildren request.Replacement with
+                match validateRecipeBoundsWith boundedFloat64Bounds recipeChildren request.Replacement with
                 | Error error -> Error error
                 | Ok() ->
                     let parametersById = target.Parameters |> List.map (fun p -> p.Id, p) |> Map.ofList
