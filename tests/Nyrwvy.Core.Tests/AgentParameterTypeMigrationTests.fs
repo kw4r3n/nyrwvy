@@ -242,6 +242,43 @@ module AgentParameterTypeMigrationTests =
             Assert.Equal(fixture.Unrelated, unrelated)
 
     [<Fact>]
+    let ``migration rewrites references inside BoolAnd and BoolOr right operands`` () =
+        let fixture = createFixture ()
+        let ws = workspace fixture.Snapshot
+        // The migrated parameter is read only in a BoolAnd right graph, and the caller's call sits in a BoolOr right graph.
+        let migrationRequest =
+            { request
+                fixture
+                [ { CallerFunctionId = fixture.Process.Id
+                    Replacement = ExpressionRecipe.BoolOr(ExpressionRecipe.BoolLiteral false, callerReplacement fixture) } ]
+                with TargetReplacement = ExpressionRecipe.BoolAnd(ExpressionRecipe.BoolLiteral true, targetReplacement fixture) }
+        let proposal = simulate ws migrationRequest
+
+        match AgentParameterTypeMigrationWorkflow.commit ws proposal with
+        | AgentParameterTypeMigrationCommitResult.Rejected diagnostics ->
+            failwithf "Migration commit failed: %A" diagnostics
+        | AgentParameterTypeMigrationCommitResult.Committed(next, _) ->
+            let published = AgentWorkspace.snapshotForStructuralEditing next
+            Assert.Empty(SnapshotValidator.validate published)
+            let rightOf (fn: SemanticFunction) =
+                let result = fn.Body.Nodes |> List.find (fun node -> node.Id = fn.Body.ResultNodeId)
+                match result.Kind with
+                | SemanticNodeKind.BoolAnd(_, right)
+                | SemanticNodeKind.BoolOr(_, right) -> ValueGraph.collectNodes right
+                | other -> failwithf "Expected a Bool operator result, got %A" other
+            let find functionId = published.Functions |> List.find (fun fn -> fn.Id = functionId)
+            Assert.Contains(
+                rightOf (find fixture.Classify.Id),
+                fun node -> node.Kind = SemanticNodeKind.ParameterReference fixture.ClassifyInput.Id)
+            Assert.Contains(
+                rightOf (find fixture.Process.Id),
+                fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.DirectCall(functionId, [ argument ]) ->
+                        functionId = fixture.Classify.Id && argument.TargetParameterId = fixture.ClassifyInput.Id
+                    | _ -> false)
+
+    [<Fact>]
     let ``migration rejects missing and incompatible caller rewrites before proposal acceptance`` () =
         let fixture = createFixture ()
         let ws = workspace fixture.Snapshot

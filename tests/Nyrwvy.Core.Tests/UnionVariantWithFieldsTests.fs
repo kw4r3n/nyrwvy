@@ -20,30 +20,34 @@ module UnionVariantWithFieldsTests =
         | Ok value -> value
         | Error error -> failwithf "%s: %A" label error
 
-    /// `area` squares a Circle's radius and returns 0 for Empty.
-    let private fixture () =
+    let private radius = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Field radiusId }
+
+    let private withFunction displayName parameters resultType body =
         let shape: SemanticType =
             { Id = shapeId; DisplayName = "Shape"
               Kind = SemanticTypeKind.Union
                 [ { Id = circleId; DisplayName = "Circle"; Fields = [ { Id = radiusId; DisplayName = "radius"; Type = intType } ] }
                   { Id = emptyId; DisplayName = "Empty"; Fields = [] } ] }
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = [ shape ] } |> unwrap "workspace"
-        let radius = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Field radiusId }
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
-              DisplayName = "area"
-              Parameters = [ { DisplayName = "shape"; Type = TypeRef.Named shapeId } ]
-              ResultType = intType
+              DisplayName = displayName
+              Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
+              ResultType = resultType
               RequiredEffects = []
-              Body =
-                ExpressionRecipe.MatchUnion(
-                    ExpressionRecipe.ParameterSlot 0,
-                    [ circleId, ExpressionRecipe.Int64WrappingMultiply(radius, radius)
-                      emptyId, ExpressionRecipe.Int64Literal 0L ]) }
+              Body = body }
         let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request |> unwrap "create"
         match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
         | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
         | other -> failwithf "Commit failed: %A" other
+
+    /// `area` squares a Circle's radius and returns 0 for Empty.
+    let private fixture () =
+        withFunction "area" [ "shape", TypeRef.Named shapeId ] intType (
+            ExpressionRecipe.MatchUnion(
+                ExpressionRecipe.ParameterSlot 0,
+                [ circleId, ExpressionRecipe.Int64WrappingMultiply(radius, radius)
+                  emptyId, ExpressionRecipe.Int64Literal 0L ]))
 
     let private like ws name: AgentAddFieldlessUnionVariantLikeRequest =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
@@ -91,6 +95,44 @@ module UnionVariantWithFieldsTests =
                 | _ -> None)
         Assert.NotEmpty(references)
         Assert.All(references, fun bindingId -> Assert.Equal(ringArm.FieldBindings.Head.Binding.Id, bindingId))
+
+    [<Fact>]
+    let ``match arms inside BoolAnd and BoolOr right operands are repaired and cloned`` () =
+        let boolType = TypeRef.Primitive PrimitiveType.Bool
+        // `flag && (match shape with Circle -> false || radius = 0 | Empty -> false)`:
+        // the match sits in a BoolAnd right graph, and the Circle arm reads its binding in a BoolOr right graph.
+        let ws =
+            withFunction "flatCircle" [ "shape", TypeRef.Named shapeId; "flag", boolType ] boolType (
+                ExpressionRecipe.BoolAnd(
+                    ExpressionRecipe.ParameterSlot 1,
+                    ExpressionRecipe.MatchUnion(
+                        ExpressionRecipe.ParameterSlot 0,
+                        [ circleId,
+                          ExpressionRecipe.BoolOr(
+                              ExpressionRecipe.BoolLiteral false,
+                              ExpressionRecipe.Int64Equal(radius, ExpressionRecipe.Int64Literal 0L))
+                          emptyId, ExpressionRecipe.BoolLiteral false ])))
+        let proposal = AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
+        let review = AgentFieldlessUnionVariantEvolutionProposal.review proposal
+        Assert.Equal(1, review.RepairedMatchCount)
+        let next =
+            match AgentFieldlessUnionVariantEvolutionWorkflow.commit ws proposal with
+            | AgentFieldlessUnionVariantEvolutionCommitResult.Committed(next, _) -> next
+            | other -> failwithf "Commit failed: %A" other
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing next
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let ringArm = arms snapshot |> List.find (fun arm -> arm.VariantId = review.AddedVariant.Id)
+        let cloned =
+            ValueGraph.collectNodes ringArm.Body |> List.pick (fun node ->
+                match node.Kind with
+                | SemanticNodeKind.BoolOr(_, right) -> Some right
+                | _ -> None)
+        let references =
+            ValueGraph.collectNodes cloned |> List.choose (fun node ->
+                match node.Kind with
+                | SemanticNodeKind.PatternReference bindingId -> Some bindingId
+                | _ -> None)
+        Assert.Equal<PatternBindingId list>([ ringArm.FieldBindings.Head.Binding.Id ], references)
 
     [<Fact>]
     let ``variant evolution rejects fielded sources through the fieldless entry and invalid names`` () =

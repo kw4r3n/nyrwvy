@@ -1,6 +1,6 @@
 # Concurrency control beyond `ParallelAll`
 
-- **Status:** Accepted; phase 1 implemented (no time limit)
+- **Status:** Accepted; phases 1 and 2 implemented (phase 2 adds time limits)
 - **Date:** 2026-09-25
 - **Queue item:** [post-M2 roadmap, immediate execution queue, item 1](../plans/post-m2-roadmap.md#immediate-execution-queue)
 - **Related gaps:** [Semantic independence](../concepts/semantic-independence.md#current-gaps): "no abort" and "shared capability under `ParallelAll`"; [Q-010](open-questions.md), [Q-012](open-questions.md)
