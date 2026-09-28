@@ -2138,16 +2138,30 @@ module AgentExpressionStructuralWorkflow =
               Frames: PatternBindingFrame list
               Pruning: PruningPlan }
 
-        let private childGraphs (node: SemanticNode) =
-            match node.Kind with
-            | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) -> [ whenTrue; whenFalse ]
-            | SemanticNodeKind.BoolAnd(_, right)
-            | SemanticNodeKind.BoolOr(_, right) -> [ right ]
-            | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun arm -> arm.Body)
-            | SemanticNodeKind.Bind(_, body) -> [ body.Body ]
-            | SemanticNodeKind.MatchOption(_, someArm, noneBody) -> [ someArm.Body; noneBody ]
-            | SemanticNodeKind.MatchResult(_, okArm, errArm) -> [ okArm.Body; errArm.Body ]
-            | _ -> []
+        /// The scope frame a nested graph opens for recipe pattern references, if any: branches and
+        /// Bool operands open none, arms open one frame per binding slot.
+        let private frameOfScope (scope: NestedScope): PatternBindingFrame option =
+            let slots =
+                scope.Bindings
+                |> List.map (fun binding ->
+                    match binding with
+                    | NestedBinding.Field(fieldId, pattern) -> RecipePatternSlot.Field fieldId, pattern
+                    | NestedBinding.Value pattern -> RecipePatternSlot.Value, pattern
+                    | NestedBinding.Error pattern -> RecipePatternSlot.Error, pattern)
+
+            let frame kind: PatternBindingFrame option = Some { Kind = kind; Slots = slots }
+
+            match scope.Role with
+            | NestedGraphRole.WhenTrue
+            | NestedGraphRole.WhenFalse
+            | NestedGraphRole.BoolAndRight
+            | NestedGraphRole.BoolOrRight -> None
+            | NestedGraphRole.UnionArm variantId -> frame (ScopeFrameKind.UnionArm variantId)
+            | NestedGraphRole.BindBody -> frame ScopeFrameKind.BindBody
+            | NestedGraphRole.OptionSome -> frame ScopeFrameKind.OptionSome
+            | NestedGraphRole.OptionNone -> frame ScopeFrameKind.OptionNone
+            | NestedGraphRole.ResultOk -> frame ScopeFrameKind.ResultOk
+            | NestedGraphRole.ResultErr -> frame ScopeFrameKind.ResultErr
 
         let rec private tryFindTarget
             (frames: PatternBindingFrame list)
@@ -2157,55 +2171,21 @@ module AgentExpressionStructuralWorkflow =
             match graph.Nodes |> List.tryFind (fun node -> node.Id = targetNodeId) with
             | Some node -> Some(node, frames)
             | None ->
-                let choose first second =
-                    match first with
-                    | Some _ -> first
-                    | None -> second ()
-
                 graph.Nodes
                 |> List.tryPick (fun node ->
-                    match node.Kind with
-                    | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                        choose
-                            (tryFindTarget frames targetNodeId whenTrue)
-                            (fun () -> tryFindTarget frames targetNodeId whenFalse)
-                    | SemanticNodeKind.BoolAnd(_, right)
-                    | SemanticNodeKind.BoolOr(_, right) -> tryFindTarget frames targetNodeId right
-                    | SemanticNodeKind.MatchUnion(_, arms) ->
-                        arms
-                        |> List.tryPick (fun arm ->
-                            let frame: PatternBindingFrame =
-                                { Kind = ScopeFrameKind.UnionArm arm.VariantId
-                                  Slots =
-                                    arm.FieldBindings
-                                    |> List.map (fun field ->
-                                        RecipePatternSlot.Field field.SourceFieldId, field.Binding) }
-                            tryFindTarget (frame :: frames) targetNodeId arm.Body)
-                    | SemanticNodeKind.Bind(_, body) ->
-                        let frame: PatternBindingFrame =
-                            { Kind = ScopeFrameKind.BindBody; Slots = [ RecipePatternSlot.Value, body.ValueBinding ] }
-                        tryFindTarget (frame :: frames) targetNodeId body.Body
-                    | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                        let someFrame: PatternBindingFrame =
-                            { Kind = ScopeFrameKind.OptionSome; Slots = [ RecipePatternSlot.Value, someArm.ValueBinding ] }
-                        choose
-                            (tryFindTarget (someFrame :: frames) targetNodeId someArm.Body)
-                            (fun () -> tryFindTarget ({ Kind = ScopeFrameKind.OptionNone; Slots = [] } :: frames) targetNodeId noneBody)
-                    | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                        let okFrame: PatternBindingFrame =
-                            { Kind = ScopeFrameKind.ResultOk; Slots = [ RecipePatternSlot.Value, okArm.ValueBinding ] }
-                        let errFrame: PatternBindingFrame =
-                            { Kind = ScopeFrameKind.ResultErr; Slots = [ RecipePatternSlot.Error, errArm.ErrorBinding ] }
-                        choose
-                            (tryFindTarget (okFrame :: frames) targetNodeId okArm.Body)
-                            (fun () -> tryFindTarget (errFrame :: frames) targetNodeId errArm.Body)
-                    | _ -> None)
+                    SemanticNodeShape.nestedScopes node
+                    |> List.tryPick (fun scope ->
+                        let innerFrames =
+                            match frameOfScope scope with
+                            | Some frame -> frame :: frames
+                            | None -> frames
+                        tryFindTarget innerFrames targetNodeId scope.Graph))
 
         let rec private graphResultUses owner (graph: ValueGraph) =
             (graph.ResultNodeId, owner)
             :: (graph.Nodes
                 |> List.collect (fun node ->
-                    childGraphs node
+                    SemanticNodeShape.nestedGraphs node
                     |> List.collect (graphResultUses (Some node.Id))))
 
         let private affectedUses targetNodeId (target: SemanticFunction) =
@@ -2242,9 +2222,9 @@ module AgentExpressionStructuralWorkflow =
                     | Some node ->
                         let visited = Set.add nodeId visited
                         let visited =
-                            SemanticFacts.directValueDependencies node
+                            SemanticNodeShape.directValueReferences node
                             |> List.fold collectNode visited
-                        childGraphs node |> List.fold collectGraph visited
+                        SemanticNodeShape.nestedGraphs node |> List.fold collectGraph visited
 
             and collectGraph visited (graph: ValueGraph) =
                 graph.Nodes
@@ -2252,12 +2232,12 @@ module AgentExpressionStructuralWorkflow =
 
             let candidates =
                 let direct =
-                    SemanticFacts.directValueDependencies targetNode
+                    SemanticNodeShape.directValueReferences targetNode
                     |> List.fold collectNode Set.empty
-                childGraphs targetNode |> List.fold collectGraph direct
+                SemanticNodeShape.nestedGraphs targetNode |> List.fold collectGraph direct
 
             let targetOwned =
-                childGraphs targetNode
+                SemanticNodeShape.nestedGraphs targetNode
                 |> List.collect ValueGraph.collectNodes
                 |> List.map (fun node -> node.Id)
                 |> Set.ofList
@@ -2266,7 +2246,7 @@ module AgentExpressionStructuralWorkflow =
                 allNodes
                 |> List.filter (fun node ->
                     node.Id <> targetNodeId && not (Set.contains node.Id candidates))
-                |> List.collect SemanticFacts.directValueDependencies
+                |> List.collect SemanticNodeShape.directValueReferences
                 |> List.filter (fun nodeId -> Set.contains nodeId candidates)
                 |> Set.ofList
 
@@ -2296,9 +2276,9 @@ module AgentExpressionStructuralWorkflow =
                     | Some node ->
                         let retained = Set.add nodeId retained
                         let retained =
-                            SemanticFacts.directValueDependencies node
+                            SemanticNodeShape.directValueReferences node
                             |> List.fold protect retained
-                        childGraphs node
+                        SemanticNodeShape.nestedGraphs node
                         |> List.collect ValueGraph.collectNodes
                         |> List.map (fun nested -> nested.Id)
                         |> List.fold protect retained
@@ -2385,43 +2365,6 @@ module AgentExpressionStructuralWorkflow =
                                               Frames = frames
                                               Pruning = pruning }
 
-        let private mapNodeGraphs (mapGraph: ValueGraph -> ValueGraph) (node: SemanticNode) =
-            let kind =
-                match node.Kind with
-                | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
-                    SemanticNodeKind.Conditional(
-                        conditionNodeId,
-                        mapGraph whenTrue,
-                        mapGraph whenFalse
-                    )
-                | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(leftNodeId, mapGraph right)
-                | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(leftNodeId, mapGraph right)
-                | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
-                    SemanticNodeKind.MatchUnion(
-                        inputNodeId,
-                        arms
-                        |> List.map (fun arm -> { arm with Body = mapGraph arm.Body })
-                    )
-                | SemanticNodeKind.Bind(inputNodeId, body) ->
-                    SemanticNodeKind.Bind(
-                        inputNodeId,
-                        { body with Body = mapGraph body.Body }
-                    )
-                | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    SemanticNodeKind.MatchOption(
-                        inputNodeId,
-                        { someArm with Body = mapGraph someArm.Body },
-                        mapGraph noneBody
-                    )
-                | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    SemanticNodeKind.MatchResult(
-                        inputNodeId,
-                        { okArm with Body = mapGraph okArm.Body },
-                        { errArm with Body = mapGraph errArm.Body }
-                    )
-                | _ -> node.Kind
-            { node with Kind = kind }
-
         let rec private replaceTarget targetNodeId replacementNodes (graph: ValueGraph) =
             if graph.Nodes |> List.exists (fun node -> node.Id = targetNodeId) then
                 { graph with
@@ -2433,7 +2376,7 @@ module AgentExpressionStructuralWorkflow =
                 { graph with
                     Nodes =
                         graph.Nodes
-                        |> List.map (mapNodeGraphs (replaceTarget targetNodeId replacementNodes)) }
+                        |> List.map (SemanticNodeShape.mapNestedGraphs (replaceTarget targetNodeId replacementNodes)) }
 
         let rec private pruneNodes removedNodeIds (graph: ValueGraph) =
             { graph with
@@ -2443,7 +2386,7 @@ module AgentExpressionStructuralWorkflow =
                         if Set.contains node.Id removedNodeIds then
                             None
                         else
-                            Some(mapNodeGraphs (pruneNodes removedNodeIds) node)) }
+                            Some(SemanticNodeShape.mapNestedGraphs (pruneNodes removedNodeIds) node)) }
 
         let private materializeReplacement
             snapshot
