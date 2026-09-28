@@ -52,6 +52,7 @@ type ExpressionRecipe =
     | Float64IsNaN of ExpressionRecipe
     | Float64IsFinite of ExpressionRecipe
     | Float64IsInfinite of ExpressionRecipe
+    | Int64ToFloat64 of ExpressionRecipe
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * items: ExpressionRecipe list
     | ListLength of ExpressionRecipe
@@ -178,6 +179,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Float64IsNaN value -> ExpressionRecipe.Float64IsNaN(go value)
         | ExpressionRecipe.Float64IsFinite value -> ExpressionRecipe.Float64IsFinite(go value)
         | ExpressionRecipe.Float64IsInfinite value -> ExpressionRecipe.Float64IsInfinite(go value)
+        | ExpressionRecipe.Int64ToFloat64 value -> ExpressionRecipe.Int64ToFloat64(go value)
         | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
         | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
@@ -305,6 +307,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsNaN child
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
+        | ExpressionRecipe.Int64ToFloat64 child
         | ExpressionRecipe.ListLength child
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
@@ -838,6 +841,7 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Float64IsNaN value -> unary "Float64IsNaN" float64Type boolType value
             | ExpressionRecipe.Float64IsFinite value -> unary "Float64IsFinite" float64Type boolType value
             | ExpressionRecipe.Float64IsInfinite value -> unary "Float64IsInfinite" float64Type boolType value
+            | ExpressionRecipe.Int64ToFloat64 value -> unary "Int64ToFloat64" int64Type float64Type value
             | ExpressionRecipe.ListEmpty itemType ->
                 match validateTypeRef snapshot itemType with
                 | Error error -> Error error
@@ -1575,6 +1579,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsNaN value -> unary SemanticNodeKind.Float64IsNaN value
         | ExpressionRecipe.Float64IsFinite value -> unary SemanticNodeKind.Float64IsFinite value
         | ExpressionRecipe.Float64IsInfinite value -> unary SemanticNodeKind.Float64IsInfinite value
+        | ExpressionRecipe.Int64ToFloat64 value -> unary SemanticNodeKind.Int64ToFloat64 value
         | ExpressionRecipe.ListEmpty itemType ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ListEmpty itemType } ], nodeId

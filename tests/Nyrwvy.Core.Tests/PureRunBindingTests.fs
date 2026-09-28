@@ -88,7 +88,9 @@ module PureRunBindingTests =
                     [ operation "lookup" [ "request", TypeRef.Named requestType.Id ] lookupResult
                       operation "fallback" [] lookupResult ]
             let log = createCapability session "Log" [ operation "write" [ "message", stringType ] unitType ]
-            let metric = createCapability session "Metric" [ operation "record" [ "value", TypeRef.Primitive PrimitiveType.Float64 ] unitType ]
+            // Nine nested Lists exceed the eight composite layers a run value type may have.
+            let rec nestedLists depth = if depth = 0 then TypeRef.Primitive PrimitiveType.Int64 else TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ nestedLists (depth - 1) ])
+            let metric = createCapability session "Metric" [ operation "record" [ "value", nestedLists 9 ] unitType ]
             let lookup = provider.Operations |> List.find (fun item -> item.DisplayName = "lookup")
             let fallback = provider.Operations |> List.find (fun item -> item.DisplayName = "fallback")
             let write = List.exactlyOne log.Operations

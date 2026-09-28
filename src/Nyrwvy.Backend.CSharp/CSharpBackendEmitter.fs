@@ -959,6 +959,9 @@ module CSharpBackend =
             writer.Line(target + " = double.IsFinite(" + valueName valueId + ");")
         | ExecutionInstructionKind.Float64IsInfinite valueId ->
             writer.Line(target + " = double.IsInfinity(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Int64ToFloat64 valueId ->
+            // .NET converts long to double with IEEE 754 round to nearest, ties to even.
+            writer.Line(target + " = (double)" + valueName valueId + ";")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.ListConstruct itemValueIds ->

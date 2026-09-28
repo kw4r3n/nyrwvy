@@ -60,6 +60,7 @@ module internal ExecutionIrAnalysis =
             [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Float64IsNaN valueNodeId
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
+        | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -157,6 +158,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsNaN _
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
+            | TypedSemanticNodeKind.Int64ToFloat64 _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
@@ -284,6 +286,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsNaN _
         | TypedSemanticNodeKind.Float64IsFinite _
         | TypedSemanticNodeKind.Float64IsInfinite _
+        | TypedSemanticNodeKind.Int64ToFloat64 _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
@@ -386,6 +389,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsNaN _
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
+            | TypedSemanticNodeKind.Int64ToFloat64 _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _

@@ -68,6 +68,7 @@ type ViewerNodeRole =
     | Float64IsNaN
     | Float64IsFinite
     | Float64IsInfinite
+    | Int64ToFloat64
     | ListEmpty
     | ListConstruct
     | ListLength
@@ -231,6 +232,7 @@ module ViewerProjection =
         | SemanticNodeKind.Float64IsNaN _ -> ViewerNodeRole.Float64IsNaN, []
         | SemanticNodeKind.Float64IsFinite _ -> ViewerNodeRole.Float64IsFinite, []
         | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
+        | SemanticNodeKind.Int64ToFloat64 _ -> ViewerNodeRole.Int64ToFloat64, []
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
@@ -412,6 +414,7 @@ module ViewerProjection =
                 | SemanticNodeKind.Float64IsNaN _
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
+                | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

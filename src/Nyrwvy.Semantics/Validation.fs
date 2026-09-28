@@ -51,6 +51,7 @@ module SnapshotValidator =
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -136,6 +137,7 @@ module SnapshotValidator =
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -921,6 +923,12 @@ module SnapshotValidator =
                     | SemanticNodeKind.Float64IsFinite valueNodeId
                     | SemanticNodeKind.Float64IsInfinite valueNodeId ->
                         requireFloat64Operand node.Id valueNodeId
+                    | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64ToFloat64 node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
                     | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
@@ -1654,6 +1662,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64IsNaN _
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
+                | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

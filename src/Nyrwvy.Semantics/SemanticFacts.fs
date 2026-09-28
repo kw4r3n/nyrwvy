@@ -40,6 +40,7 @@ module SemanticFacts =
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -173,6 +174,7 @@ module SemanticFacts =
             | SemanticNodeKind.Float64IsNaN _
             | SemanticNodeKind.Float64IsFinite _
             | SemanticNodeKind.Float64IsInfinite _
+            | SemanticNodeKind.Int64ToFloat64 _
             | SemanticNodeKind.ListEmpty _
             | SemanticNodeKind.ListConstruct _
             | SemanticNodeKind.ListLength _
@@ -355,7 +357,8 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Add _
                     | SemanticNodeKind.Float64Subtract _
                     | SemanticNodeKind.Float64Multiply _
-                    | SemanticNodeKind.Float64Divide _ ->
+                    | SemanticNodeKind.Float64Divide _
+                    | SemanticNodeKind.Int64ToFloat64 _ ->
                         Some(TypeRef.Primitive PrimitiveType.Float64)
                     | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseInt64 _ ->

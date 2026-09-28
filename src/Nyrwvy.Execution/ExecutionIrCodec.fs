@@ -311,6 +311,8 @@ module ExecutionIrCodec =
             writeUnaryInstruction "float64IsFinite" valueId
         | ExecutionInstructionKind.Float64IsInfinite valueId ->
             writeUnaryInstruction "float64IsInfinite" valueId
+        | ExecutionInstructionKind.Int64ToFloat64 valueId ->
+            writeUnaryInstruction "int64ToFloat64" valueId
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
         | ExecutionInstructionKind.ListConstruct itemValueIds ->

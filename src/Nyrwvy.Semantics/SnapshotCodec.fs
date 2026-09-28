@@ -453,6 +453,8 @@ module SnapshotCodec =
             writeUnaryNode writer "float64IsFinite" valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId ->
             writeUnaryNode writer "float64IsInfinite" valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
+            writeUnaryNode writer "int64ToFloat64" valueNodeId
         | SemanticNodeKind.ListEmpty itemType ->
             writer.WriteString("kind", "listEmpty")
             writer.WritePropertyName("itemType")
@@ -1095,6 +1097,8 @@ module SnapshotCodec =
                 readUnaryNode "Float64IsFinite node" element SemanticNodeKind.Float64IsFinite
             | "float64IsInfinite" ->
                 readUnaryNode "Float64IsInfinite node" element SemanticNodeKind.Float64IsInfinite
+            | "int64ToFloat64" ->
+                readUnaryNode "Int64ToFloat64 node" element SemanticNodeKind.Int64ToFloat64
             | "listEmpty" ->
                 ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))

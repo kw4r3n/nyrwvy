@@ -16,7 +16,7 @@ The current primitive value domains are:
 - `Int64`;
 - `Float64`.
 
-There is no implicit numeric promotion between `Int64` and `Float64`.
+There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; there is no conversion from `Float64` to `Int64`.
 
 ## Structured values and control
 
@@ -142,7 +142,10 @@ Float64LessThan
 Float64IsNaN
 Float64IsFinite
 Float64IsInfinite
+Int64ToFloat64
 ```
+
+`Int64ToFloat64(value)` returns the Float64 nearest to an Int64. Values with `|value| <= 2^53` convert exactly; larger ones round to nearest, ties to even, as C# `(double)long` and Python `float(int)`: `2^53 + 1` gives `2^53`, and `Int64.MaxValue` gives `2^63`. It never fails. There is no Float64 to Int64 conversion and no decimal rounding; see the [decision](../decisions/float64-conversion-and-run-values.md).
 
 Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
 
@@ -180,6 +183,7 @@ Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
 Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
 Float64IsNaN / IsFinite / IsInfinite
+Int64ToFloat64
 ListEmpty
 ListConstruct
 ListLength

@@ -84,6 +84,7 @@ module internal WireGraph =
         | SemanticNodeKind.Float64IsNaN value -> unary "float64IsNaN" value
         | SemanticNodeKind.Float64IsFinite value -> unary "float64IsFinite" value
         | SemanticNodeKind.Float64IsInfinite value -> unary "float64IsInfinite" value
+        | SemanticNodeKind.Int64ToFloat64 value -> unary "int64ToFloat64" value
         | SemanticNodeKind.ListEmpty itemType -> tagged "listEmpty" [ "itemType", typeRef itemType ]
         | SemanticNodeKind.ListConstruct(itemType, items) -> tagged "listConstruct" [ "itemType", typeRef itemType; "itemNodeIds", identities items ]
         | SemanticNodeKind.ListLength value -> unary "listLength" value

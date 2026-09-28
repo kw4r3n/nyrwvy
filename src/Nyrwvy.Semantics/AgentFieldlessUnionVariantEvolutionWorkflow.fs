@@ -234,6 +234,8 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 SemanticNodeKind.Float64IsFinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64IsInfinite valueNodeId ->
                 SemanticNodeKind.Float64IsInfinite(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
+                SemanticNodeKind.Int64ToFloat64(mapNodeId valueNodeId)
             | SemanticNodeKind.ListEmpty itemType ->
                 SemanticNodeKind.ListEmpty itemType
             | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
