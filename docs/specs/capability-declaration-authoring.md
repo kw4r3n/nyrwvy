@@ -34,7 +34,7 @@ AgentCreateCapabilityDeclarationRequest =
 
 The request contains existing published `EffectId` references because operation effects are already semantic facts. It never contains production capability, operation, or parameter identities. The maintained session's `simulateCreateCapabilityByName` convenience resolves effect and type display names to these IDs before building the same request (see [Name-resolved AI authoring](agent-authoring-session.md#name-resolved-ai-authoring)).
 
-Operation and parameter order are carried as ordinary declaration structure. Display names are presentation metadata; this operation does not introduce name-based identity or uniqueness semantics.
+Operation and parameter order are carried as ordinary declaration structure. Display names are presentation metadata and never identity; the capability's own display name must only be unique among capabilities (see Preflight).
 
 ## Preflight
 
@@ -43,7 +43,7 @@ The complete request is validated before any new production declaration identity
 Preflight requires:
 
 - `ExpectedBaseSnapshotId` to equal the current workspace snapshot;
-- a nonblank capability display name;
+- a nonblank capability display name that no existing capability (local or imported) already has (`CapabilityDeclarationDuplicateDisplayName`);
 - every operation display name to be nonblank;
 - every operation parameter display name to be nonblank;
 - every parameter/result/failure `TypeRef` to be valid against the already-published base snapshot;
@@ -52,7 +52,7 @@ Preflight requires:
 
 `TypeRef.Named` may reference only already-published types and `TypeRef.Capability` only already-published capabilities. The capability being created is not visible during preflight, so self-reference and mutually-created declaration references are not part of this slice.
 
-Zero operations and zero-parameter operations remain valid because the current semantic model permits them. No extra structural or name-uniqueness rule is introduced by the authoring API.
+Zero operations and zero-parameter operations remain valid because the current semantic model permits them. No extra structural rule is introduced by the authoring API; operation and parameter names need not be unique, and capability-name uniqueness is enforced at creation, not as a snapshot validation rule.
 
 ## Allocation and materialization
 

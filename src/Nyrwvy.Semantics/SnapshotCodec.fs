@@ -12,6 +12,8 @@ type SnapshotCodecError =
     | InvalidShape of string
     | UnsupportedSchemaVersion of int
     | InvalidSnapshot of ValidationIssue list
+    /// Encoding would nest deeper than the codec's JSON depth allowance (the payload).
+    | MaximumDepthExceeded of int
 
 /// JSON remains a strict reference codec and benchmark baseline.
 /// It is not a decision that JSON is Nyrwvy's long-term canonical encoding;
@@ -745,9 +747,7 @@ module SnapshotCodec =
             writer.WriteString("resolutionValueNodeId", StableId.value resolution.ValueNodeId)
         writer.WriteEndObject()
 
-    let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
-        use stream = new MemoryStream()
-        use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
+    let private writeSnapshotBody (writer: Utf8JsonWriter) (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
         writer.WriteStartObject()
         writer.WriteNumber("schemaVersion", if TaskTimeLimits.isUsed snapshot then timedWaitSchemaVersion elif FunctionAbort.isUsed snapshot then abortSchemaVersion elif CapabilityImplementations.isUsed snapshot then capabilitySchemaVersion else schemaVersion)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
@@ -782,13 +782,23 @@ module SnapshotCodec =
         snapshot.Obligations |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeObligation writer)
         writer.WriteEndArray()
         writer.WriteEndObject()
-        writer.Flush()
-        Encoding.UTF8.GetString(stream.ToArray())
+
+    /// A graph nested beyond `maxJsonDepth` is reported as `MaximumDepthExceeded`, never thrown,
+    /// so that it cannot be saved and then fail to load.
+    let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot): Result<string, SnapshotCodecError> =
+        use stream = new MemoryStream()
+        use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
+        try
+            writeSnapshotBody writer dependencyMarker snapshot
+            writer.Flush()
+            Ok(Encoding.UTF8.GetString(stream.ToArray()))
+        with :? InvalidOperationException when writer.CurrentDepth >= maxJsonDepth ->
+            Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
 
     let private serializeCached: Snapshot -> Result<string, SnapshotCodecError> =
         SnapshotComputationScope.Memoize("serialization", fun snapshot ->
             match SnapshotValidator.validate snapshot with
-            | [] -> Ok(writeSnapshot None snapshot)
+            | [] -> writeSnapshot None snapshot
             | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
@@ -803,19 +813,23 @@ module SnapshotCodec =
             Functions = dependency.Functions @ local.Functions
             Obligations = dependency.Obligations @ local.Obligations }
 
-    let private dependencyDigest (dependency: Snapshot) =
+    let private dependencyDigest (dependency: Snapshot): Result<string, SnapshotCodecError> =
         writeSnapshot None dependency
-        |> Encoding.UTF8.GetBytes
-        |> System.Security.Cryptography.SHA256.HashData
-        |> Convert.ToHexString
-        |> fun value -> value.ToLowerInvariant()
+        |> Result.map (fun encoded ->
+            encoded
+            |> Encoding.UTF8.GetBytes
+            |> System.Security.Cryptography.SHA256.HashData
+            |> Convert.ToHexString
+            |> fun value -> value.ToLowerInvariant())
 
     /// Encode local declarations only after validating their resolved graph with the
     /// selected dependency. The dependency is never written into the local snapshot.
     let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         match SnapshotValidator.validate (resolveDependency dependency local) with
         | issue :: rest -> Error(SnapshotCodecError.InvalidSnapshot(issue :: rest))
-        | [] -> Ok(writeSnapshot (Some(StableId.value dependency.Id, dependencyDigest dependency)) local)
+        | [] ->
+            dependencyDigest dependency
+            |> Result.bind (fun digest -> writeSnapshot (Some(StableId.value dependency.Id, digest)) local)
 
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element
@@ -1375,8 +1389,12 @@ module SnapshotCodec =
                     ensureProperties "Resolved snapshot" (Set.add "dependency" required) (Set.add "dependency" allowed) root
                     let marker = requireProperty "dependency" root
                     ensureProperties "Dependency marker" (set [ "snapshotId"; "digest" ]) (set [ "snapshotId"; "digest" ]) marker
+                    let digest =
+                        match dependencyDigest imported with
+                        | Ok digest -> digest
+                        | Error _ -> invalidShape "The selected dependency exceeds the maximum JSON depth."
                     if readString "snapshotId" marker <> StableId.value imported.Id
-                       || readString "digest" marker <> dependencyDigest imported then
+                       || readString "digest" marker <> digest then
                         invalidShape "Dependency selection does not match the local snapshot."
                 let version = readInt32 "schemaVersion" root
                 if version <> schemaVersion && version <> capabilitySchemaVersion && version <> abortSchemaVersion && version <> timedWaitSchemaVersion then

@@ -2680,7 +2680,7 @@ module AgentExpressionStructuralWorkflow =
             | Rejected of TransactionDiagnostic list
             | Committed of AgentWorkspace * PublishedTransaction
 
-        let private validatePreflight (request: Request) (baseSnapshot: Snapshot) =
+        let private validatePreflight (requireUniqueName: bool) (request: Request) (baseSnapshot: Snapshot) =
             if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
                 Error(
                     diagnostic
@@ -2692,6 +2692,12 @@ module AgentExpressionStructuralWorkflow =
                     diagnostic
                         "FunctionCreationDisplayNameBlank"
                         "Function display name must not be blank."
+                )
+            elif requireUniqueName && baseSnapshot.Functions |> List.exists (fun item -> item.DisplayName = request.DisplayName) then
+                Error(
+                    diagnostic
+                        "FunctionCreationDuplicateDisplayName"
+                        $"A function named '{request.DisplayName}' already exists; function display names must be unique."
                 )
             else
                 match
@@ -2802,7 +2808,8 @@ module AgentExpressionStructuralWorkflow =
                     ResultType = mapType request.ResultType
                     Body = ExpressionRecipeTypes.map mapType request.Body }
 
-        let simulate
+        let private simulateWith
+            (requireUniqueName: bool)
             (workspace: AgentWorkspace)
             (request: Request)
             : Result<Proposal, AgentStructuralWorkflowError> =
@@ -2812,7 +2819,7 @@ module AgentExpressionStructuralWorkflow =
             match SnapshotValidator.validate baseSnapshot with
             | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
             | [] ->
-                match validatePreflight request baseSnapshot with
+                match validatePreflight requireUniqueName request baseSnapshot with
                 | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
                 | Ok preflight ->
                     let functionId = StableIdAllocator.newFunctionId ()
@@ -2887,6 +2894,14 @@ module AgentExpressionStructuralWorkflow =
                                               ProposedSnapshot = proposedSnapshot
                                               Review = review }
                                     )
+
+        /// Creates a new function; its display name must not already name a function,
+        /// since by-name requests resolve exactly one declaration.
+        let simulate workspace request = simulateWith true workspace request
+
+        /// Recreates an existing function's signature under its current name, as signature
+        /// migrations do on a temporary copy; the name is intentionally shared.
+        let internal simulateReplacement workspace request = simulateWith false workspace request
 
         let private publishWithPolicy
             (workspace: AgentWorkspace)

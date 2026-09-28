@@ -166,7 +166,7 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
   })
 })
 
-test("structured reads preserve exact literals and ambiguous names retain exact-ID access", { timeout: 15000 }, async () => {
+test("structured reads preserve exact literals and duplicate display names are refused on every creation route", { timeout: 15000 }, async () => {
   await workspace(async context => {
     const payload = { op: "simulateCreateFunctionByName", displayName: "exact", parameters: [], resultType: primitive("int64"),
       requiredEffects: [], body: { kind: "int64Literal", value: "9223372036854775807" }, detail: "full" }
@@ -179,13 +179,15 @@ test("structured reads preserve exact literals and ambiguous names retain exact-
     assert.match(duplicate.error.message, /already exists/)
     assert.deepEqual(await request(context, { op: "status" }), beforeDuplicate)
     assert.equal((await request(context, { op: "declarations" })).functions.length, 1)
-    // Explicit identity-based creation remains available for intentional duplicate
-    // display names; name-based reads still fail closed on that pre-existing case.
-    await publish(context, { ...payload, op: "simulateCreateFunction" })
+    // Identity-based creation refuses the duplicate too, so a retried create cannot
+    // make the name ambiguous for later by-name requests.
+    const exactDuplicate = JSON.parse(await requestAuthoring({ ...payload, op: "simulateCreateFunction" }, context))
+    assert.equal(exactDuplicate.ok, false)
+    assert.equal(exactDuplicate.error.details.diagnostics[0].code, "FunctionCreationDuplicateDisplayName")
     const before = await request(context, { op: "status" })
-    const ambiguous = JSON.parse(await requestAuthoring({ op: "readFunction", function: "exact" }, context))
-    assert.equal(ambiguous.ok, false)
-    assert.match(ambiguous.error.message, /Ambiguous function/)
+    assert.deepEqual(before, beforeDuplicate)
+    const byName = await request(context, { op: "readFunction", function: "exact" })
+    assert.equal(byName.function.id, firstId)
     const exact = await request(context, { op: "readFunction", functionId: firstId })
     assert.equal(resultNode(exact.function.body).kind.value, "9223372036854775807")
     assert.deepEqual(await request(context, { op: "status" }), before)

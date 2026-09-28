@@ -44,7 +44,7 @@ The complete intent is validated before any production declaration identity is a
 Preflight requires:
 
 - `ExpectedBaseSnapshotId` to equal the current workspace snapshot;
-- a nonblank type display name;
+- a nonblank type display name that no existing type (local or imported) already has (`TypeDeclarationDuplicateDisplayName`);
 - every field display name to be nonblank;
 - every union variant display name to be nonblank;
 - every field `TypeRef` to be valid against the already-published base snapshot;
@@ -54,7 +54,7 @@ Preflight requires:
 
 The new declaration is not visible during preflight. Therefore the first slice cannot express self recursion, mutual recursion, or references to another declaration being created in the same request. No future-ID placeholders or draft-ID lifecycle is introduced.
 
-No additional structural rule is invented when the existing semantic model permits a shape. In particular, display names need not be unique merely because a declaration is being authored through this API.
+No additional structural rule is invented when the existing semantic model permits a shape. The one name rule is uniqueness of the new type's own display name among types: by-name session requests resolve exactly one declaration of a kind, so a duplicate (for example from a retried create) would make that name permanently ambiguous. Field and variant names are unaffected, and uniqueness is not a snapshot validation rule, so an existing snapshot or dependency set that already holds duplicates stays valid.
 
 ## Allocation and materialization
 

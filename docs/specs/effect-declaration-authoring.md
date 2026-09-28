@@ -22,7 +22,7 @@ AgentCreateEffectDeclarationRequest =
 
 The request never contains a production `EffectId`.
 
-Display names are presentation metadata. This operation does not introduce name-based identity or uniqueness semantics.
+Display names are presentation metadata, never identity. The new effect's display name must not already name another effect, so that by-name requests keep resolving exactly one effect; this is checked at creation, not as a snapshot validation rule.
 
 ## Preflight and allocation
 
@@ -31,7 +31,7 @@ The complete intent is validated before production identity allocation.
 Preflight requires:
 
 - `ExpectedBaseSnapshotId` to equal the current workspace snapshot;
-- a nonblank effect display name.
+- a nonblank effect display name that no existing effect (local or imported) already has (`EffectDeclarationDuplicateDisplayName`).
 
 Only after preflight succeeds:
 

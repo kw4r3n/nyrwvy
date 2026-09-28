@@ -1019,11 +1019,24 @@ module Transaction =
                         Id = request.ProposedSnapshotId
                         ParentId = Some baseSnapshot.Id }
 
-                match SnapshotValidator.validate proposed with
-                | issue :: _ -> reject "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                | [] ->
+                let renames = netRenames baseSnapshot proposed
+                // Display names resolve by-name requests, so a rename may not take another
+                // declaration's name. Pre-existing duplicates are left alone.
+                let duplicate =
+                    renames
+                    |> List.tryPick (function
+                        | TypeRenamed(id, _, name) when proposed.Types |> List.exists (fun item -> item.Id <> id && item.DisplayName = name) ->
+                            Some("type", name)
+                        | FunctionRenamed(id, _, name) when proposed.Functions |> List.exists (fun item -> item.Id <> id && item.DisplayName = name) ->
+                            Some("function", name)
+                        | _ -> None)
+
+                match SnapshotValidator.validate proposed, duplicate with
+                | issue :: _, _ -> reject "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
+                | [], Some(kind, name) ->
+                    reject "DuplicateDisplayName" $"Another {kind} is already named '{name}'; {kind} display names must be unique."
+                | [], None ->
                     let changes = sortChanges accumulatedChanges
-                    let renames = netRenames baseSnapshot proposed
                     let diff: SemanticDiff =
                         { Renames = renames
                           ParametersAdded =
