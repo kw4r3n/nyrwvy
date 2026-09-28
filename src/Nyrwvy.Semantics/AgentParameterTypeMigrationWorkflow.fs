@@ -241,6 +241,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
+            | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right
             | ExpressionRecipe.ValueEqual(left, right) -> two ExpressionRecipe.ValueEqual left right
             | ExpressionRecipe.StringConcat(left, right) -> two ExpressionRecipe.StringConcat left right
             | ExpressionRecipe.Int64WrappingAdd(left, right) -> two ExpressionRecipe.Int64WrappingAdd left right
@@ -292,6 +293,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
+            | ExpressionRecipe.ListSortBy(source, functionId, context) -> callback ExpressionRecipe.ListSortBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
             | ExpressionRecipe.ListAll(source, functionId, context) -> callback ExpressionRecipe.ListAll source functionId context
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->

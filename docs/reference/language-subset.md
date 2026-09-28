@@ -70,6 +70,8 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringEqual(left, right)` compares two `String` values exactly by ordinal code-unit equality, without culture or case folding. For non-null strings, testing ordinal `StringContains` in both directions is also equivalent to equality; `StringEqual` expresses that intent directly rather than requiring two containment checks. Both operands must be String; its result is Bool. The C# backend uses `StringComparison.Ordinal`. `StringConcat(left, right)` accepts two Strings and yields their literal left-to-right concatenation, with no separator, normalization, or culture-dependent conversion; empty strings are identities. It does not implicitly format non-string values. `Int64ToString(value)` formats an Int64 as canonical invariant decimal text: ASCII digits, a leading `-` only for negative values, no `+`, grouping or padding (`Int64.MinValue` is `"-9223372036854775808"`). `StringParseInt64(text)` yields `Option<Int64>`: `Some` only when the whole String is an optional `-` followed by one or more ASCII digits and the value fits Int64. Leading zeros and `-0` are accepted; `+`, whitespace, separators, non-ASCII digits, exponents, hex, empty text and overflow yield `None`. Parsing never fails at runtime, so callers branch with `MatchOption`. `StringLength(text)` yields the number of code points as `Int64`: a surrogate pair counts once, and an unpaired surrogate code unit also counts once, so it is not the UTF-16 length. `StringSlice(text, start, end)` yields the code points at positions `[start, end)`. Both bounds are clamped to `[0, StringLength(text)]`, and `end <= start` yields `""`, so slicing never fails at runtime and never splits a surrogate pair. Negative positions are clamped, not counted from the end. Both operations scan the text, so their cost is linear in its length. Together they express bounded display text such as keeping the head and tail of a long String.
 
+`StringLessThan(left, right)` is the String ordering: true when `left` sorts strictly before `right`. It compares Unicode code points lexicographically, as `StringLength` and `StringSlice` count them, and a proper prefix sorts first. A surrogate pair is compared as its scalar value, and an unpaired surrogate code unit as itself. The order is ordinal and case-sensitive (`"B"` before `"a"`), with no culture or normalization, and matches Python's `str` comparison. Characters above U+FFFF therefore sort after every BMP character, including U+E000 to U+FFFF, which UTF-16 code-unit order would put after them. Both operands must be String, the result is Bool, and it never fails. Together with `StringEqual` it gives the other comparisons (`right < left`, `not (right < left)`).
+
 Function type parameters (`TypeRef.TypeParameter`) make a function generic over the types its parameter types mention; see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks) for derivation of type arguments and scope rules. `List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. An authored Product accumulator carrying a runtime key, a found flag, and an `Option<T>` result can implement first-match lookup over `List<TItem>` without introducing an application-specific search node. The folder must preserve the accumulated result after the first match; an absent key or empty source yields `None`. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition does not stop the fold early and can be generalized with function type parameters. `ListItemAt(list, index)` reads one item directly: for `list : List<T>` and `index : Int64` it returns `Some(item)` when `0 <= index < length` and `None` otherwise, never failing; negative indexes do not count from the end, as with `StringSlice` ([decision](../decisions/task-fields-list-indexing-and-map.md)).
 
 The current collection surface includes:
@@ -88,11 +90,14 @@ ParallelAll
 CancellationRequested
 ListMap
 ListFilter
+ListSortBy
 ListAny
 ListAll
 ```
 
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
+
+`ListSortBy(source, lessThan, context)` returns the items of a `List<T>` in sorted order. `lessThan` is a pure callback whose two parameters not bound by the optional context receive two items `(left, right)` and return Bool: true when `left` must come before `right`. The sort is stable: items the callback does not order keep their input order. Descending order swaps the comparison, and a composite key compares the first key and falls through to the next on equality. For example, Python's `rows.sort(key=lambda r: (r.role, -r.count))` is `ListSortBy(rows, rowBefore)` with `rowBefore(a, b) = Conditional(StringEqual(a.role, b.role), Int64GreaterThan(a.count, b.count), StringLessThan(a.role, b.role))`. The result is defined by one algorithm, a top-down merge sort: a list of 0 or 1 items is returned as is; otherwise the first `length / 2` (rounded down) items and the rest are sorted, and then merged by repeatedly taking the head of the right half when `lessThan(rightHead, leftHead)` holds and the head of the left half otherwise. A callback that is a strict weak order yields the stable sorted order. Any other callback still yields a deterministic permutation of the source; for example, one that is always true reverses the list. It calls the callback at most `n log2 n` times and never fails.
 
 ## Program-defined capability values
 
@@ -162,6 +167,7 @@ Float64Literal
 StringIsEmpty
 StringContains
 StringEqual
+StringLessThan
 StringConcat
 ValueEqual
 Int64ToString
@@ -183,6 +189,7 @@ ListConcat
 ListFold
 ListMap
 ListFilter
+ListSortBy
 ListAny
 ListAll
 ProductConstruct
@@ -211,7 +218,7 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` accepts a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 

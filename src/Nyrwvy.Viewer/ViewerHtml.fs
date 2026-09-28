@@ -121,6 +121,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringSlice -> "string slice"
         | ViewerNodeRole.StringContains -> "string contains"
         | ViewerNodeRole.StringEqual -> "string equal"
+        | ViewerNodeRole.StringLessThan -> "string less than"
         | ViewerNodeRole.ValueEqual -> "value equal"
         | ViewerNodeRole.StringConcat -> "string concat"
         | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
@@ -160,6 +161,7 @@ module ViewerHtml =
         | ViewerNodeRole.TaskCancel -> "task cancel"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.ListFilter -> "List filter"
+        | ViewerNodeRole.ListSortBy -> "List sort by"
         | ViewerNodeRole.ListAny -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
         | ViewerNodeRole.CapabilityConstruct(capabilityId, implementations) ->

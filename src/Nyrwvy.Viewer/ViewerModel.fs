@@ -46,6 +46,7 @@ type ViewerNodeRole =
     | StringSlice
     | StringContains
     | StringEqual
+    | StringLessThan
     | ValueEqual
     | StringConcat
     | Int64WrappingAdd
@@ -84,6 +85,7 @@ type ViewerNodeRole =
     | TaskCancel
     | ListMap
     | ListFilter
+    | ListSortBy
     | ListAny
     | ListAll
     | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
@@ -207,6 +209,7 @@ module ViewerProjection =
         | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
+        | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []
         | SemanticNodeKind.ValueEqual _ -> ViewerNodeRole.ValueEqual, []
         | SemanticNodeKind.StringConcat _ -> ViewerNodeRole.StringConcat, []
         | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
@@ -251,6 +254,8 @@ module ViewerProjection =
             ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
         | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListFilter, callbackRelation predicateFunctionId
+        | SemanticNodeKind.ListSortBy(_, lessThanFunctionId, _) ->
+            ViewerNodeRole.ListSortBy, callbackRelation lessThanFunctionId
         | SemanticNodeKind.ListAny(_, predicateFunctionId, _) ->
             ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
         | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
@@ -385,6 +390,7 @@ module ViewerProjection =
                 | SemanticNodeKind.BoolNot _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -423,6 +429,7 @@ module ViewerProjection =
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityConstruct _

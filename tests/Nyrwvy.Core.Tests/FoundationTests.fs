@@ -44,6 +44,7 @@ module FoundationTests =
                 | SemanticNodeKind.BoolOr _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -82,6 +83,7 @@ module FoundationTests =
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _

@@ -151,6 +151,8 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 )
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.StringLessThan(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.ValueEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -280,6 +282,12 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 SemanticNodeKind.ListFilter(
                     mapNodeId sourceListNodeId,
                     predicateFunctionId,
+                    mapContext context
+                )
+            | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+                SemanticNodeKind.ListSortBy(
+                    mapNodeId sourceListNodeId,
+                    lessThanFunctionId,
                     mapContext context
                 )
             | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->

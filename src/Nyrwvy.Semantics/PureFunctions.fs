@@ -35,6 +35,7 @@ module PureFunctions =
                         | SemanticNodeKind.ListEffectFold(_, _, target, _)
                         | SemanticNodeKind.ListMap(_, target, _)
                         | SemanticNodeKind.ListFilter(_, target, _)
+                        | SemanticNodeKind.ListSortBy(_, target, _)
                         | SemanticNodeKind.ListAny(_, target, _)
                         | SemanticNodeKind.ListAll(_, target, _) -> [ target ]
                         | _ -> [])

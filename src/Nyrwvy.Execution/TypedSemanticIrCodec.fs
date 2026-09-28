@@ -334,6 +334,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "stringLessThan" leftNodeId rightNodeId
         | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "valueEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -447,6 +449,8 @@ module TypedSemanticIrCodec =
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->

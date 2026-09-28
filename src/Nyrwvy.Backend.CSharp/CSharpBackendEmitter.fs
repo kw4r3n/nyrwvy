@@ -113,6 +113,47 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("")
+        // StringLessThan orders by Unicode code point, as StringLength and StringSlice count: a
+        // surrogate pair decodes to its scalar value (above every BMP code unit) and an unpaired
+        // surrogate code unit stands for itself. Ordinal UTF-16 comparison would put U+10000 and
+        // above before U+E000..U+FFFF, so string.CompareOrdinal is not used.
+        writer.Line("public static class NyText")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("public static bool LessThan(string left, string right)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("int i = 0, j = 0;")
+        writer.Line("while (i < left.Length && j < right.Length)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var a = CodePointAt(left, ref i);")
+        writer.Line("var b = CodePointAt(right, ref j);")
+        writer.Line("if (a != b) return a < b;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return i >= left.Length && j < right.Length;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("private static int CodePointAt(string text, ref int index)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var unit = text[index];")
+        writer.Line("if (char.IsHighSurrogate(unit) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var scalar = char.ConvertToUtf32(unit, text[index + 1]);")
+        writer.Line("index += 2;")
+        writer.Line("return scalar;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("index++;")
+        writer.Line("return unit;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
         writer.Line("public sealed class NyList<T> : IEquatable<NyList<T>>")
         writer.Line("{")
         writer.Push()
@@ -158,6 +199,32 @@ module CSharpBackend =
         writer.Line("next[i] = mapper(_items[i]);")
         writer.Pop()
         writer.Line("return NyList<U>.FromOwnedArray(next);")
+        writer.Pop()
+        writer.Line("}")
+        // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when
+        // lessThan(right, left) holds. The algorithm fixes the result for any callback, so an
+        // inconsistent callback still yields a deterministic permutation; a strict order is stable.
+        writer.Line("public NyList<T> SortBy(Func<T, T, bool> lessThan)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var items = (T[])_items.Clone();")
+        writer.Line("if (items.Length > 1) SortRange(items, new T[items.Length], 0, items.Length, lessThan);")
+        writer.Line("return new NyList<T>(items);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("private static void SortRange(T[] items, T[] scratch, int start, int end, Func<T, T, bool> lessThan)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var length = end - start;")
+        writer.Line("if (length < 2) return;")
+        writer.Line("var middle = start + length / 2;")
+        writer.Line("SortRange(items, scratch, start, middle, lessThan);")
+        writer.Line("SortRange(items, scratch, middle, end, lessThan);")
+        writer.Line("int left = start, right = middle, next = start;")
+        writer.Line("while (left < middle && right < end) scratch[next++] = lessThan(items[right], items[left]) ? items[right++] : items[left++];")
+        writer.Line("while (left < middle) scratch[next++] = items[left++];")
+        writer.Line("while (right < end) scratch[next++] = items[right++];")
+        writer.Line("Array.Copy(scratch, start, items, start, length);")
         writer.Pop()
         writer.Line("}")
         writer.Line("public NyList<T> Filter(Func<T, bool> predicate)")
@@ -816,6 +883,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = string.Equals(" + valueName leftValueId + ", " + valueName rightValueId + ", StringComparison.Ordinal);")
+        | ExecutionInstructionKind.StringLessThan(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyText.LessThan(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.ValueEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = NyEquality.Equal(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
@@ -1018,6 +1087,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->

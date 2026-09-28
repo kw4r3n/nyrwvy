@@ -267,6 +267,8 @@ module ExecutionIrCodec =
               property "substringId" (executionValueIdValue substringId) ]
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "stringEqual" leftValueId rightValueId
+        | ExecutionInstructionKind.StringLessThan(leftValueId, rightValueId) ->
+            writeBinaryInstruction "stringLessThan" leftValueId rightValueId
         | ExecutionInstructionKind.ValueEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "valueEqual" leftValueId rightValueId
         | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
@@ -377,6 +379,8 @@ module ExecutionIrCodec =
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
+            writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->

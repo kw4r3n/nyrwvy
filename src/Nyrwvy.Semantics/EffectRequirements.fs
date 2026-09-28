@@ -41,6 +41,7 @@ module EffectRequirements =
                 | SemanticNodeKind.TaskStart(_, id, _, _)
                 | SemanticNodeKind.ListMap(_, id, _)
                 | SemanticNodeKind.ListFilter(_, id, _)
+                | SemanticNodeKind.ListSortBy(_, id, _)
                 | SemanticNodeKind.ListAny(_, id, _)
                 | SemanticNodeKind.ListAll(_, id, _) -> [ functionSource id ]
                 | SemanticNodeKind.UseResource(_, _, operationId, bodyId, _) -> [ functionSource bodyId; operationSource operationId ]

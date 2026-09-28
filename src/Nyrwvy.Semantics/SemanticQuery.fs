@@ -76,6 +76,7 @@ module SemanticQuery =
                     | SemanticNodeKind.TaskStart(_, functionId, _, _)
                     | SemanticNodeKind.ListMap(_, functionId, _)
                     | SemanticNodeKind.ListFilter(_, functionId, _)
+                    | SemanticNodeKind.ListSortBy(_, functionId, _)
                     | SemanticNodeKind.ListAny(_, functionId, _)
                     | SemanticNodeKind.ListAll(_, functionId, _) -> [ functionId ]
                     | SemanticNodeKind.FunctionInvoke _
@@ -96,6 +97,7 @@ module SemanticQuery =
                     | SemanticNodeKind.StringSlice _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
+                    | SemanticNodeKind.StringLessThan _
                     | SemanticNodeKind.ValueEqual _
                     | SemanticNodeKind.StringConcat _
                     | SemanticNodeKind.Int64WrappingAdd _

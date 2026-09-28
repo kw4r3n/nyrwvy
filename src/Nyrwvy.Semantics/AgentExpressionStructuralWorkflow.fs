@@ -30,6 +30,7 @@ type ExpressionRecipe =
     | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
+    | StringLessThan of ExpressionRecipe * ExpressionRecipe
     | ValueEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingAdd of ExpressionRecipe * ExpressionRecipe
@@ -71,6 +72,7 @@ type ExpressionRecipe =
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListSortBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ProductConstruct of typeId: TypeId * fields: (FieldId * ExpressionRecipe) list
@@ -154,6 +156,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
+        | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
         | ExpressionRecipe.ValueEqual(left, right) -> ExpressionRecipe.ValueEqual(go left, go right)
         | ExpressionRecipe.StringConcat(left, right) -> ExpressionRecipe.StringConcat(go left, go right)
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> ExpressionRecipe.Int64WrappingAdd(go left, go right)
@@ -193,6 +196,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
+        | ExpressionRecipe.ListSortBy(source, callback, context) -> ExpressionRecipe.ListSortBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
         | ExpressionRecipe.ProductConstruct(typeId, fields) -> ExpressionRecipe.ProductConstruct(typeId, pairs fields)
@@ -311,6 +315,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.ValueEqual(left, right)
+        | ExpressionRecipe.StringLessThan(left, right)
         | ExpressionRecipe.StringConcat(left, right)
         | ExpressionRecipe.Bind(left, right)
         | ExpressionRecipe.BoolAnd(left, right)
@@ -346,6 +351,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.TaskCancel task -> Seq.singleton task
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
+        | ExpressionRecipe.ListSortBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
         | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
@@ -541,6 +547,50 @@ module AgentExpressionStructuralWorkflow =
                             diagnostic
                                 "PureExpressionListCallbackResultTypeMismatch"
                                 $"{role} predicate '{StableId.value callback.Id}' must return Bool."
+                        )
+                    | Some _ when not (List.isEmpty callback.RequiredEffects) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackEffectsNotAllowed"
+                                $"{role} callback function '{StableId.value callback.Id}' must be pure."
+                        )
+                    | Some substitution -> Ok(callback, substitution)
+
+        /// ListSortBy's callback: exactly two parameters not bound by context, both of the item type
+        /// (left, right), returning Bool, with no required effects.
+        let validateLessThanCallback role callbackFunctionId context sourceItemType inferValue =
+            match Map.tryFind callbackFunctionId functionsById with
+            | None ->
+                Error(
+                    diagnostic
+                        "PureExpressionListCallbackNotFound"
+                        $"{role} callback function '{StableId.value callbackFunctionId}' does not exist."
+                )
+            | Some callback ->
+                match validateCallbackContext role callback context inferValue with
+                | Error error -> Error error
+                | Ok(unbound, _) when List.length unbound <> 2 ->
+                    Error(
+                        diagnostic
+                            "PureExpressionListCallbackArityMismatch"
+                            $"{role} callback function '{StableId.value callback.Id}' must have exactly two parameters not bound by context (left, right)."
+                    )
+                | Ok(unbound, substitution) ->
+                    match
+                        TypeParameters.matchType substitution unbound.Head.Type sourceItemType
+                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type sourceItemType)
+                    with
+                    | None ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackInputTypeMismatch"
+                                $"{role} callback function '{StableId.value callback.Id}' input types must both match the source list item type."
+                        )
+                    | Some substitution when TypeParameters.substitute substitution callback.ResultType <> boolType ->
+                        Error(
+                            diagnostic
+                                "PureExpressionListCallbackResultTypeMismatch"
+                                $"{role} less-than callback '{StableId.value callback.Id}' must return Bool."
                         )
                     | Some _ when not (List.isEmpty callback.RequiredEffects) ->
                         Error(
@@ -753,6 +803,7 @@ module AgentExpressionStructuralWorkflow =
                         | Ok _ -> Ok stringType
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
+            | ExpressionRecipe.StringLessThan(left, right) -> binary "StringLessThan" stringType boolType left right
             | ExpressionRecipe.ValueEqual(left, right) ->
                 match infer frames left with
                 | Error error -> Error error
@@ -1046,6 +1097,16 @@ module AgentExpressionStructuralWorkflow =
                     | None -> Error(listMismatch "ListFilter" "source" sourceType)
                     | Some sourceItemType ->
                         match validateListCallback "ListFilter" predicateFunctionId context sourceItemType true (infer frames) with
+                        | Error error -> Error error
+                        | Ok _ -> Ok sourceType
+            | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListSortBy" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateLessThanCallback "ListSortBy" lessThanFunctionId context sourceItemType (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok sourceType
             | ExpressionRecipe.ListAny(source, predicateFunctionId, context) ->
@@ -1492,6 +1553,7 @@ module AgentExpressionStructuralWorkflow =
             nodeId
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
+        | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right
         | ExpressionRecipe.ValueEqual(left, right) -> binary SemanticNodeKind.ValueEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary SemanticNodeKind.Int64WrappingAdd left right
@@ -1569,6 +1631,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
+        | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
         | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context
         | ExpressionRecipe.ProductConstruct(typeId, fields) ->
