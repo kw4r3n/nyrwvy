@@ -22,11 +22,36 @@ exception private NyasonParseException of int * string
 
 [<RequireQualifiedAccess>]
 module NyasonSyntax =
+    /// Nesting allowance shared with the JSON snapshot codec, so a document one codec accepts
+    /// is never too deep for the other, and deeper input is a parse error, not a stack overflow.
+    let maxDepth = SnapshotCodec.maxJsonDepth
+
+    let private unpairedSurrogateOffset (word: string) =
+        let rec scan offset =
+            if offset >= word.Length then None
+            elif Char.IsHighSurrogate word[offset] then
+                if offset + 1 < word.Length && Char.IsLowSurrogate word[offset + 1] then scan (offset + 2) else Some offset
+            elif Char.IsLowSurrogate word[offset] then Some offset
+            else scan (offset + 1)
+        scan 0
+
     type private Parser(text: string) =
         let mutable index = 0
+        let mutable depth = 0
 
         member private _.Fail(message: string) =
             raise (NyasonParseException(index, message))
+
+        member private _.FailAt(position: int, message: string) =
+            raise (NyasonParseException(position, message))
+
+        member private this.Enter() =
+            depth <- depth + 1
+            if depth > maxDepth then
+                this.Fail($"Nyason nesting exceeds the maximum depth of {maxDepth}.")
+
+        member private _.Leave() =
+            depth <- depth - 1
 
         member private _.SkipWhitespace() =
             while index < text.Length && Char.IsWhiteSpace text[index] do
@@ -82,10 +107,36 @@ module NyasonSyntax =
                     | 'n' -> builder.Append('\n') |> ignore
                     | 'r' -> builder.Append('\r') |> ignore
                     | 't' -> builder.Append('\t') |> ignore
-                    | 'u' -> builder.Append(this.ParseUnicodeEscape()) |> ignore
+                    | 'u' ->
+                        // A surrogate is only meaningful as a pair, escaped together: a lone one
+                        // would decode to a string no encoder can write back, so it is a parse error.
+                        let escapeStart = index
+                        let unit = this.ParseUnicodeEscape()
+
+                        if Char.IsHighSurrogate unit then
+                            if index + 1 < text.Length && text[index] = '\\' && text[index + 1] = 'u' then
+                                index <- index + 2
+                                let low = this.ParseUnicodeEscape()
+                                if not (Char.IsLowSurrogate low) then
+                                    this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
+                                builder.Append(unit).Append(low) |> ignore
+                            else
+                                this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
+                        elif Char.IsLowSurrogate unit then
+                            this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
+                        else
+                            builder.Append(unit) |> ignore
                     | _ -> this.Fail($"Unsupported string escape '\\{escaped}'.")
                 | '\r'
                 | '\n' -> this.Fail("String literals cannot contain raw line breaks.")
+                | value when Char.IsHighSurrogate value ->
+                    if index < text.Length && Char.IsLowSurrogate text[index] then
+                        builder.Append(value).Append(text[index]) |> ignore
+                        index <- index + 1
+                    else
+                        this.FailAt(index - 1, "Unpaired surrogate in string literal.")
+                | value when Char.IsLowSurrogate value ->
+                    this.FailAt(index - 1, "Unpaired surrogate in string literal.")
                 | value -> builder.Append(value) |> ignore
 
             if not closed then
@@ -112,10 +163,17 @@ module NyasonSyntax =
             if index = start then
                 this.Fail("Expected identifier or atom.")
 
-            text.Substring(start, index - start)
+            let word = text.Substring(start, index - start)
+
+            match unpairedSurrogateOffset word with
+            | Some offset -> this.FailAt(start + offset, "Unpaired surrogate in identifier or atom.")
+            | None -> ()
+
+            word
 
         member private this.ParseList() =
             this.Expect('[')
+            this.Enter()
             let values = ResizeArray<NyasonValue>()
             let mutable closed = false
 
@@ -129,10 +187,12 @@ module NyasonSyntax =
                 else
                     values.Add(this.ParseValue())
 
+            this.Leave()
             NyasonValue.List(List.ofSeq values)
 
         member private this.ParseRecord(tag: string) =
             this.Expect('{')
+            this.Enter()
             let fields = ResizeArray<string * NyasonValue>()
             let names = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
             let mutable closed = false
@@ -151,6 +211,7 @@ module NyasonSyntax =
                     this.Expect('=')
                     fields.Add(name, this.ParseValue())
 
+            this.Leave()
             NyasonValue.Record(tag, List.ofSeq fields)
 
         member this.ParseValue() =
