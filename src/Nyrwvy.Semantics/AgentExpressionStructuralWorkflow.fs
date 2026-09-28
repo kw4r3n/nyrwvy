@@ -257,7 +257,13 @@ module AgentExpressionStructuralWorkflow =
           SelfParameters =
             target.Parameters
             |> List.map (fun parameter -> { Type = parameter.Type; ParameterId = Some parameter.Id })
-          Description = $"target function '{StableId.value target.Id}'" }
+          Description = $"target function {StableId.describe target.DisplayName target.Id}" }
+
+    /// An effect in a diagnostic: display name and ID when declared, the ID alone otherwise.
+    let private effectLabel (snapshot: Snapshot) effectId =
+        match snapshot.Effects |> List.tryFind (fun effect -> effect.Id = effectId) with
+        | Some effect -> StableId.describe effect.DisplayName effectId
+        | None -> $"'{StableId.value effectId}'"
 
     let private stringType = TypeRef.Primitive PrimitiveType.String
     let private boolType = TypeRef.Primitive PrimitiveType.Bool
@@ -582,7 +588,7 @@ module AgentExpressionStructuralWorkflow =
                                     Error(
                                         diagnostic
                                             "PureExpressionFieldBindingTypeMismatch"
-                                            $"{role} field '{StableId.value field.Id}' requires {field.Type}, but the recipe produces {actual}."
+                                            $"{role} field {StableId.describe field.DisplayName field.Id} requires {field.Type}, but the recipe produces {actual}."
                                     )
                                 | Ok _ -> validateFields rest
                         validateFields expectedFields
@@ -650,7 +656,7 @@ module AgentExpressionStructuralWorkflow =
                         Error(
                             diagnostic
                                 "ExpressionCapabilityArgumentSetMismatch"
-                                $"CapabilityInvoke must bind exactly the parameters declared by operation '{StableId.value operation.Id}'."
+                                $"CapabilityInvoke must bind exactly the parameters declared by operation {StableId.describe operation.DisplayName operation.Id}."
                         )
                     else
                         let rec validateParameters = function
@@ -878,7 +884,7 @@ module AgentExpressionStructuralWorkflow =
                                         Error(
                                             diagnostic
                                                 "ExpressionCallMissingEffectRequirement"
-                                                $"ListEffectFold folder '{StableId.value folder.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                                                $"ListEffectFold folder {StableId.describe folder.DisplayName folder.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
                                         )
                                     | None ->
                                         match TypeParameters.substitute current folder.ResultType with
@@ -912,7 +918,7 @@ module AgentExpressionStructuralWorkflow =
                                 |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
                             match bodyResult, missing with
                             | _, Some effectId ->
-                                fail "ExpressionCallMissingEffectRequirement" $"UseResource requires effect '{StableId.value effectId}' not declared by {owner.Description}."
+                                fail "ExpressionCallMissingEffectRequirement" $"UseResource requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]), None when bodyError <> errorType ->
                                 fail "UseResourceResultMismatch" "UseResource body must return Result<T, E> with the acquisition error type E."
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]), None ->
@@ -936,7 +942,7 @@ module AgentExpressionStructuralWorkflow =
                               body.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
                         | None, _ -> Error(diagnostic "TaskScopeBodyMismatch" "TaskScope body must have exactly one parameter not bound by context, of type TaskScope.")
                         | _, Some effectId ->
-                            Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskScope body '{StableId.value body.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                            Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskScope body {StableId.describe body.DisplayName body.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
                         | Some current, None ->
                             match TypeParameters.substitute current body.ResultType with
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result -> Ok result
@@ -959,7 +965,7 @@ module AgentExpressionStructuralWorkflow =
                             | None, _ ->
                                 Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "TaskStart worker must have exactly one parameter not bound by context, of the item type.")
                             | _, Some effectId ->
-                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskStart worker '{StableId.value worker.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskStart worker {StableId.describe worker.DisplayName worker.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result ->
@@ -999,7 +1005,7 @@ module AgentExpressionStructuralWorkflow =
                             | None, _ ->
                                 Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" "ParallelAll worker must have exactly one parameter not bound by context, of the item type.")
                             | _, Some effectId ->
-                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"ParallelAll worker '{StableId.value worker.Id}' requires effect '{StableId.value effectId}' not declared by {owner.Description}.")
+                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"ParallelAll worker {StableId.describe worker.DisplayName worker.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -1175,13 +1181,13 @@ module AgentExpressionStructuralWorkflow =
                         Error(
                             diagnostic
                                 "ExpressionCapabilityValueTypeMismatch"
-                                $"CapabilityInvoke operation '{StableId.value operationId}' requires {TypeRef.Capability ownerCapabilityId}, but the receiver produces {actual}."
+                                $"CapabilityInvoke operation {StableId.describe operation.DisplayName operationId} requires {TypeRef.Capability ownerCapabilityId}, but the receiver produces {actual}."
                         )
                     | Ok _ when not (List.contains operation.EffectId owner.RequiredEffects) ->
                         Error(
                             diagnostic
                                 "ExpressionCapabilityMissingEffectRequirement"
-                                $"CapabilityInvoke operation '{StableId.value operationId}' requires effect '{StableId.value operation.EffectId}' not declared by {owner.Description}."
+                                $"CapabilityInvoke operation {StableId.describe operation.DisplayName operationId} requires effect {effectLabel snapshot operation.EffectId} not declared by {owner.Description}."
                         )
                     | Ok _ ->
                         validateCapabilityArguments operation arguments |> Result.map (fun () -> operation.ResultType)

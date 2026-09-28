@@ -153,7 +153,10 @@ module AuthoringProtocol =
         | "product" | "union" as kind ->
             let typeKey, variantKey, fieldKey = key "typeId" "type", key "variantId" "variant", key "fieldId" "field"
             let properties = [ "kind"; typeKey; "fields" ] @ (if kind = "union" then [ variantKey ] else [])
-            ensureFields "Named run value" properties properties item
+            // The exact-ID form also accepts the display names that run output reports next to IDs, so an
+            // `actual` value can be passed back as `expected` or a fake response; IDs stay the identity.
+            let echoedNames = if names.IsNone then [ "type" ] @ (if kind = "union" then [ "variant" ] else []) else []
+            ensureFields "Named run value" (properties @ echoedNames) properties item
             let fields = array "fields" item
             if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
             // Name form: fields resolve within the named type (Product) or the named variant (Union).
@@ -171,7 +174,7 @@ module AuthoringProtocol =
                     else
                         owner.Id, None, fun field -> (WireSymbolic.productField owner (requiredString fieldKey field)).Id
             let fields = fields |> List.map (fun field ->
-                ensureFields "Named run field" [ fieldKey; "value" ] [ fieldKey; "value" ] field
+                ensureFields "Named run field" ([ fieldKey; "value" ] @ (if names.IsNone then [ "field" ] else [])) [ fieldKey; "value" ] field
                 fieldId field, pureValueAt names remaining (depth + 1) (property "value" field))
             match variantId with
             | Some variantId -> PureRunValue.Union(typeId, variantId, fields)
@@ -247,7 +250,51 @@ module AuthoringProtocol =
             | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
         objectValue [ "kind", box kind; "value", payload ]
 
-    let rec private encodePureValue value =
+    /// Display names reported next to stable IDs in run output (`runPure` and `runPureByName`), keyed by
+    /// ID value. Each name uses the property key of the name-resolved input form (`type`, `variant`, `field`,
+    /// `function`, `capability`, `operation`, `parameter`); IDs remain the identity.
+    type private RunNames =
+        { Names: Collections.Generic.Dictionary<string, string>
+          OperationCapabilities: Collections.Generic.Dictionary<string, string> }
+
+    let private runNames (declarations: AuthoringDeclarations) =
+        let names = Collections.Generic.Dictionary<string, string>()
+        let operationCapabilities = Collections.Generic.Dictionary<string, string>()
+        let add id displayName = names.TryAdd(StableId.value id, displayName) |> ignore
+        let addFields (fields: SemanticField list) = fields |> List.iter (fun field -> add field.Id field.DisplayName)
+        for typeEntity in declarations.Types do
+            add typeEntity.Id typeEntity.DisplayName
+            match typeEntity.Kind with
+            | SemanticTypeKind.Product fields -> addFields fields
+            | SemanticTypeKind.Union variants ->
+                for variant in variants do
+                    add variant.Id variant.DisplayName
+                    addFields variant.Fields
+        for functionEntity in declarations.Functions do
+            add functionEntity.Id functionEntity.DisplayName
+            functionEntity.Parameters |> List.iter (fun parameter -> add parameter.Id parameter.DisplayName)
+        for capability in declarations.Capabilities do
+            add capability.Id capability.DisplayName
+            for operation in capability.Operations do
+                add operation.Id operation.DisplayName
+                operationCapabilities.TryAdd(StableId.value operation.Id, capability.DisplayName) |> ignore
+                operation.Parameters |> List.iter (fun parameter -> add parameter.Id parameter.DisplayName)
+        { Names = names; OperationCapabilities = operationCapabilities }
+
+    /// The `key: displayName` property for a known ID; empty when the ID is not declared.
+    let private named (names: RunNames) key id =
+        match names.Names.TryGetValue(StableId.value id) with
+        | true, displayName -> [ key, box displayName ]
+        | _ -> []
+
+    let private operationNamed (names: RunNames) (operationId: CapabilityOperationId) =
+        (match names.OperationCapabilities.TryGetValue(StableId.value operationId) with
+         | true, displayName -> [ "capability", box displayName ]
+         | _ -> [])
+        @ named names "operation" operationId
+
+    let rec private encodePureValue (names: RunNames) value =
+        let encodePureValue = encodePureValue names
         let listValue kind items =
             objectValue [ "kind", box "list"; "itemKind", box kind; "items", arrayValue items ]
         let optionValue kind item =
@@ -270,10 +317,18 @@ module AuthoringProtocol =
                   "errorKind", box (if isOk then kind inactiveKind else activeKind)
                   "isOk", box isOk
                   "value", payload ]
+        let encodeFields fields =
+            fields
+            |> List.map (fun (fieldId, value) ->
+                objectValue ([ "fieldId", box (StableId.value fieldId) ] @ named names "field" fieldId @ [ "value", encodePureValue value ]))
+            |> arrayValue
         match value with
         | PureRunValue.Unit -> objectValue [ "kind", box "unit" ]
         | PureRunValue.HostCapability(capabilityId, implementation, concurrent) ->
-            objectValue [ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId); "implementation", box implementation; "supportsConcurrentCalls", box concurrent ]
+            objectValue
+                ([ "kind", box "hostCapability"; "capabilityId", box (StableId.value capabilityId) ]
+                 @ named names "capability" capabilityId
+                 @ [ "implementation", box implementation; "supportsConcurrentCalls", box concurrent ])
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let rec response delay = function
                 | PureRunFakeResponse.Return value -> objectValue ([ "kind", box "return"; "value", encodePureValue value ] @ delay)
@@ -282,18 +337,19 @@ module AuthoringProtocol =
                 | PureRunFakeResponse.Delayed(millis, inner) ->
                     response [ "delayMillis", box (millis.ToString(Globalization.CultureInfo.InvariantCulture)) ] inner
             objectValue
-                [ "kind", box "fakeCapability"
-                  "capabilityId", box (StableId.value capabilityId)
-                  "operations", operations |> List.map (fun operation ->
+                ([ "kind", box "fakeCapability"
+                   "capabilityId", box (StableId.value capabilityId) ]
+                 @ named names "capability" capabilityId
+                 @ [ "operations", operations |> List.map (fun operation ->
                       let script =
                           match operation.Cases with
                           | None -> "responses", operation.Responses |> List.map (response []) |> arrayValue
                           | Some cases ->
                               "cases", cases |> List.map (fun item ->
                                   objectValue
-                                      [ "arguments", item.Arguments |> List.map (fun (id, value) -> objectValue [ "capabilityParameterId", box (StableId.value id); "value", encodePureValue value ]) |> arrayValue
+                                      [ "arguments", item.Arguments |> List.map (fun (id, value) -> objectValue ([ "capabilityParameterId", box (StableId.value id) ] @ named names "parameter" id @ [ "value", encodePureValue value ])) |> arrayValue
                                         "responses", item.Responses |> List.map (response []) |> arrayValue ]) |> arrayValue
-                      objectValue [ "operationId", box (StableId.value operation.OperationId); script ]) |> arrayValue ]
+                      objectValue ([ "operationId", box (StableId.value operation.OperationId) ] @ named names "operation" operation.OperationId @ [ script ])) |> arrayValue ])
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]
@@ -303,17 +359,16 @@ module AuthoringProtocol =
                  @ (item |> Option.map (fun value -> [ "value", encodePureValue value ]) |> Option.defaultValue []))
         | PureRunValue.Union(typeId, variantId, fields) ->
             objectValue
-                [ "kind", box "union"
-                  "typeId", box (StableId.value typeId)
-                  "variantId", box (StableId.value variantId)
-                  "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
+                ([ "kind", box "union"; "typeId", box (StableId.value typeId) ]
+                 @ named names "type" typeId
+                 @ [ "variantId", box (StableId.value variantId) ]
+                 @ named names "variant" variantId
+                 @ [ "fields", encodeFields fields ])
         | PureRunValue.Product(typeId, fields) ->
             objectValue
-                [ "kind", box "product"
-                  "typeId", box (StableId.value typeId)
-                  "fields", fields |> List.map (fun (fieldId, value) ->
-                      objectValue [ "fieldId", box (StableId.value fieldId); "value", encodePureValue value ]) |> arrayValue ]
+                ([ "kind", box "product"; "typeId", box (StableId.value typeId) ]
+                 @ named names "type" typeId
+                 @ [ "fields", encodeFields fields ])
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
             objectValue
                 [ "kind", box "result"
@@ -333,33 +388,43 @@ module AuthoringProtocol =
         | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
 
-    let private encodePathStep step =
+    let private encodePathStep names step =
         match step with
         | PureRunPathStep.Field(typeId, fieldId) ->
-            objectValue [ "kind", box "field"; "typeId", box (StableId.value typeId); "fieldId", box (StableId.value fieldId) ]
+            objectValue
+                ([ "kind", box "field"; "typeId", box (StableId.value typeId) ]
+                 @ named names "type" typeId
+                 @ [ "fieldId", box (StableId.value fieldId) ]
+                 @ named names "field" fieldId)
         | PureRunPathStep.Item index -> objectValue [ "kind", box "item"; "index", box index ]
         | PureRunPathStep.SomeValue -> objectValue [ "kind", box "some" ]
         | PureRunPathStep.OkValue -> objectValue [ "kind", box "ok" ]
         | PureRunPathStep.ErrValue -> objectValue [ "kind", box "err" ]
 
-    let private encodeMismatch (mismatch: PureRunMismatch) =
+    let private encodeMismatch names (mismatch: PureRunMismatch) =
         objectValue
-            [ "path", mismatch.Path |> List.map encodePathStep |> arrayValue
-              "expected", encodePureValue mismatch.Expected
-              "actual", encodePureValue mismatch.Actual ]
+            [ "path", mismatch.Path |> List.map (encodePathStep names) |> arrayValue
+              "expected", encodePureValue names mismatch.Expected
+              "actual", encodePureValue names mismatch.Actual ]
 
-    let private encodeCall (call: PureRunCall) =
+    let private encodeCall names (call: PureRunCall) =
         objectValue
-            [ "parameterId", box (StableId.value call.ParameterId)
-              "operationId", box (StableId.value call.OperationId)
-              "arguments", call.Arguments |> List.map (fun (parameterId, value) ->
-                  objectValue [ "capabilityParameterId", box (StableId.value parameterId); "value", encodePureValue value ]) |> arrayValue ]
+            ([ "parameterId", box (StableId.value call.ParameterId) ]
+             @ named names "parameter" call.ParameterId
+             @ [ "operationId", box (StableId.value call.OperationId) ]
+             @ operationNamed names call.OperationId
+             @ [ "arguments", call.Arguments |> List.map (fun (parameterId, value) ->
+                     objectValue
+                         ([ "capabilityParameterId", box (StableId.value parameterId) ]
+                          @ named names "parameter" parameterId
+                          @ [ "value", encodePureValue names value ])) |> arrayValue ])
 
-    let private encodeFrame frame =
+    let private encodeFrame names frame =
         match frame with
-        | PureRunFrame.Function functionId -> objectValue [ "kind", box "function"; "functionId", box (StableId.value functionId) ]
+        | PureRunFrame.Function functionId ->
+            objectValue ([ "kind", box "function"; "functionId", box (StableId.value functionId) ] @ named names "function" functionId)
         | PureRunFrame.CapabilityOperation operationId ->
-            objectValue [ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ]
+            objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
     let private currentSnapshotId (session: AuthoringSession) =
         match session.Status() with
@@ -864,34 +929,39 @@ module AuthoringProtocol =
                             if path.ValueKind <> JsonValueKind.String then fail "hostSources must contain file paths."
                             path.GetString()))
                     |> Option.defaultValue []
+                // Both run operations report the same output: exact IDs plus display names beside them.
+                let runNames = runNames (names |> Option.defaultWith session.Declarations)
                 match PureRun.runWithHost session functionId arguments expected hostSources with
                 | Ok result ->
                     success requestId
                         (objectValue
-                            [ "sourceSnapshotId", box (StableId.value result.SnapshotId)
-                              "functionId", box (StableId.value result.FunctionId)
-                              "actual", encodePureValue result.Actual
-                              "expected", result.Expected |> Option.map encodePureValue |> Option.defaultValue null
-                              "matches", result.Matches |> Option.map box |> Option.defaultValue null
-                              "mismatch", result.Mismatch |> Option.map encodeMismatch |> Option.defaultValue null
-                              "calls", result.Calls |> List.map encodeCall |> arrayValue ])
+                            ([ "sourceSnapshotId", box (StableId.value result.SnapshotId)
+                               "functionId", box (StableId.value result.FunctionId) ]
+                             @ named runNames "function" result.FunctionId
+                             @ [ "actual", encodePureValue runNames result.Actual
+                                 "expected", result.Expected |> Option.map (encodePureValue runNames) |> Option.defaultValue null
+                                 "matches", result.Matches |> Option.map box |> Option.defaultValue null
+                                 "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
+                                 "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
                 | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
                 | Error(PureRunError.RuntimeFailure runtime) ->
                     failure requestId
                         (objectValue
-                            [ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
-                              "message", box runtime.Message
-                              "functionId", box (StableId.value runtime.FunctionId)
-                              "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
-                              "exceptionType", box runtime.ExceptionType
-                              "frames", runtime.Frames |> List.map encodeFrame |> arrayValue
-                              "calls", runtime.Calls |> List.map encodeCall |> arrayValue ])
+                            ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
+                               "message", box runtime.Message
+                               "functionId", box (StableId.value runtime.FunctionId) ]
+                             @ named runNames "function" runtime.FunctionId
+                             @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                                 "exceptionType", box runtime.ExceptionType
+                                 "frames", runtime.Frames |> List.map (encodeFrame runNames) |> arrayValue
+                                 "calls", runtime.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
                 | Error(PureRunError.Unsupported(code, message)) ->
                     failure requestId
                         (objectValue
-                            [ "code", box code
-                              "message", box message
-                              "functionId", box (StableId.value functionId) ])
+                            ([ "code", box code
+                               "message", box message
+                               "functionId", box (StableId.value functionId) ]
+                             @ named runNames "function" functionId))
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"
