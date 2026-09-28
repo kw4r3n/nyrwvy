@@ -85,33 +85,6 @@ module AgentEffectDeclarationWorkflow =
         { Id = StableIdAllocator.newEffectId ()
           DisplayName = request.DisplayName }
 
-    let private classifyReadiness snapshot =
-        match SnapshotReadiness.evaluate snapshot with
-        | Error issues -> Error(validationDiagnostics issues)
-        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
-        | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
-
-    let private createReceipt transactionId baseSnapshot proposedSnapshot =
-        match SnapshotFingerprint.compute baseSnapshot with
-        | Error error -> Error(AgentEffectDeclarationWorkflowError.FingerprintFailed error)
-        | Ok baseFingerprint ->
-            match SnapshotFingerprint.compute proposedSnapshot with
-            | Error error -> Error(AgentEffectDeclarationWorkflowError.FingerprintFailed error)
-            | Ok proposedFingerprint ->
-                match SemanticFingerprint.compute proposedSnapshot with
-                | Error error -> Error(AgentEffectDeclarationWorkflowError.FingerprintFailed error)
-                | Ok semanticFingerprint ->
-                    Ok(
-                        TransactionPreviewReceipt.create
-                            None
-                            transactionId
-                            baseSnapshot.Id
-                            baseFingerprint
-                            proposedSnapshot.Id
-                            proposedFingerprint
-                            semanticFingerprint
-                    )
-
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentCreateEffectDeclarationRequest)
@@ -146,12 +119,12 @@ module AgentEffectDeclarationWorkflow =
                         )
                     )
                 | [] ->
-                    match classifyReadiness proposedSnapshot with
+                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
                     | Error diagnostics ->
                         Error(AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics)
                     | Ok readiness ->
-                        match createReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error error
+                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
+                        | Error error -> Error(AgentEffectDeclarationWorkflowError.FingerprintFailed error)
                         | Ok receipt ->
                             let review =
                                 { RequestedChange = request
@@ -171,7 +144,6 @@ module AgentEffectDeclarationWorkflow =
         (AgentEffectDeclarationProposal proposal)
         (policy: CommitPolicy)
         : AgentEffectDeclarationCommitResult =
-        let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
         let receipt = proposal.Review.Receipt
 
         if receipt.TransactionId <> proposal.TransactionId
@@ -180,67 +152,27 @@ module AgentEffectDeclarationWorkflow =
                 [ diagnostic
                     "PreviewReceiptRequestMismatch"
                     "The reviewed receipt does not identify this effect-declaration proposal." ]
-        elif currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentEffectDeclarationCommitResult.Rejected
-                [ diagnostic
-                    "StaleBaseSnapshot"
-                    "The workspace advanced beyond the reviewed effect-declaration proposal." ]
         else
-            match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ ->
-                AgentEffectDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "FingerprintFailure"
-                        "The base snapshot fingerprint could not be recomputed." ]
-            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentEffectDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "PreviewReceiptBaseMismatch"
-                        "The current base content differs from the reviewed base." ]
-            | Ok _ ->
-                match
-                    SnapshotFingerprint.compute proposal.ProposedSnapshot,
-                    SemanticFingerprint.compute proposal.ProposedSnapshot
-                with
-                | Ok proposedFingerprint, Ok semanticFingerprint
-                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
-                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
-                    match proposal.Review.Readiness, policy with
-                    | TransactionReadiness.Incomplete obligationIds,
-                      CommitPolicy.RejectBlockingObligations ->
-                        let rendered =
-                            obligationIds
-                            |> List.map StableId.value
-                            |> String.concat ", "
-                        AgentEffectDeclarationCommitResult.Rejected
-                            [ diagnostic
-                                "BlockingObligations"
-                                $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match AgentWorkspace.publishValidatedSnapshot workspace proposal.ProposedSnapshot with
-                        | Error diagnostics ->
-                            AgentEffectDeclarationCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentEffectDeclarationCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = proposal.TransactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
-                                  CreatedEffectId = proposal.Review.CreatedEffect.Id
-                                  Readiness = proposal.Review.Readiness
-                                  Receipt = receipt }
-                            )
-                | Error _, _
-                | _, Error _ ->
-                    AgentEffectDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "FingerprintFailure"
-                            "The proposed snapshot fingerprint could not be recomputed." ]
-                | _ ->
-                    AgentEffectDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "PreviewReceiptResultMismatch"
-                            "The proposed effect declaration differs from the reviewed result." ]
+            match
+                StructuralTransactionInternals.publishCandidateWithMessages
+                    (StructuralTransactionInternals.declarationPublicationMessages "effect")
+                    workspace
+                    proposal.ProposedSnapshot
+                    proposal.Review.Readiness
+                    receipt
+                    policy
+            with
+            | Error diagnostics -> AgentEffectDeclarationCommitResult.Rejected diagnostics
+            | Ok nextWorkspace ->
+                AgentEffectDeclarationCommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      CreatedEffectId = proposal.Review.CreatedEffect.Id
+                      Readiness = proposal.Review.Readiness
+                      Receipt = receipt }
+                )
 
     let commit workspace proposal =
         publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations

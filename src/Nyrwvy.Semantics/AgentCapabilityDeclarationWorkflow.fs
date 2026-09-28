@@ -233,33 +233,6 @@ module AgentCapabilityDeclarationWorkflow =
           DisplayName = request.DisplayName
           Operations = request.Operations |> List.map materializeOperation }
 
-    let private classifyReadiness snapshot =
-        match SnapshotReadiness.evaluate snapshot with
-        | Error issues -> Error(validationDiagnostics issues)
-        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
-        | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
-
-    let private createReceipt transactionId baseSnapshot proposedSnapshot =
-        match SnapshotFingerprint.compute baseSnapshot with
-        | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
-        | Ok baseFingerprint ->
-            match SnapshotFingerprint.compute proposedSnapshot with
-            | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
-            | Ok proposedFingerprint ->
-                match SemanticFingerprint.compute proposedSnapshot with
-                | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
-                | Ok semanticFingerprint ->
-                    Ok(
-                        TransactionPreviewReceipt.create
-                            None
-                            transactionId
-                            baseSnapshot.Id
-                            baseFingerprint
-                            proposedSnapshot.Id
-                            proposedFingerprint
-                            semanticFingerprint
-                    )
-
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentCreateCapabilityDeclarationRequest)
@@ -294,12 +267,12 @@ module AgentCapabilityDeclarationWorkflow =
                         )
                     )
                 | [] ->
-                    match classifyReadiness proposedSnapshot with
+                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
                     | Error diagnostics ->
                         Error(AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics)
                     | Ok readiness ->
-                        match createReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error error
+                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
+                        | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
                         | Ok receipt ->
                             let review =
                                 { RequestedChange = request
@@ -319,7 +292,6 @@ module AgentCapabilityDeclarationWorkflow =
         (AgentCapabilityDeclarationProposal proposal)
         (policy: CommitPolicy)
         : AgentCapabilityDeclarationCommitResult =
-        let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
         let receipt = proposal.Review.Receipt
 
         if receipt.TransactionId <> proposal.TransactionId
@@ -328,67 +300,27 @@ module AgentCapabilityDeclarationWorkflow =
                 [ diagnostic
                     "PreviewReceiptRequestMismatch"
                     "The reviewed receipt does not identify this capability-declaration proposal." ]
-        elif currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentCapabilityDeclarationCommitResult.Rejected
-                [ diagnostic
-                    "StaleBaseSnapshot"
-                    "The workspace advanced beyond the reviewed capability-declaration proposal." ]
         else
-            match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ ->
-                AgentCapabilityDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "FingerprintFailure"
-                        "The base snapshot fingerprint could not be recomputed." ]
-            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentCapabilityDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "PreviewReceiptBaseMismatch"
-                        "The current base content differs from the reviewed base." ]
-            | Ok _ ->
-                match
-                    SnapshotFingerprint.compute proposal.ProposedSnapshot,
-                    SemanticFingerprint.compute proposal.ProposedSnapshot
-                with
-                | Ok proposedFingerprint, Ok semanticFingerprint
-                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
-                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
-                    match proposal.Review.Readiness, policy with
-                    | TransactionReadiness.Incomplete obligationIds,
-                      CommitPolicy.RejectBlockingObligations ->
-                        let rendered =
-                            obligationIds
-                            |> List.map StableId.value
-                            |> String.concat ", "
-                        AgentCapabilityDeclarationCommitResult.Rejected
-                            [ diagnostic
-                                "BlockingObligations"
-                                $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match AgentWorkspace.publishValidatedSnapshot workspace proposal.ProposedSnapshot with
-                        | Error diagnostics ->
-                            AgentCapabilityDeclarationCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentCapabilityDeclarationCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = proposal.TransactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
-                                  CreatedCapabilityId = proposal.Review.CreatedCapability.Id
-                                  Readiness = proposal.Review.Readiness
-                                  Receipt = receipt }
-                            )
-                | Error _, _
-                | _, Error _ ->
-                    AgentCapabilityDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "FingerprintFailure"
-                            "The proposed snapshot fingerprint could not be recomputed." ]
-                | _ ->
-                    AgentCapabilityDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "PreviewReceiptResultMismatch"
-                            "The proposed capability declaration differs from the reviewed result." ]
+            match
+                StructuralTransactionInternals.publishCandidateWithMessages
+                    (StructuralTransactionInternals.declarationPublicationMessages "capability")
+                    workspace
+                    proposal.ProposedSnapshot
+                    proposal.Review.Readiness
+                    receipt
+                    policy
+            with
+            | Error diagnostics -> AgentCapabilityDeclarationCommitResult.Rejected diagnostics
+            | Ok nextWorkspace ->
+                AgentCapabilityDeclarationCommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      CreatedCapabilityId = proposal.Review.CreatedCapability.Id
+                      Readiness = proposal.Review.Readiness
+                      Receipt = receipt }
+                )
 
     let commit workspace proposal =
         publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations

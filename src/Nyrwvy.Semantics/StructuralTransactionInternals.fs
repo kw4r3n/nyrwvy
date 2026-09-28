@@ -175,15 +175,21 @@ module internal StructuralTransactionInternals =
         | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
         | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
 
-    let createReceipt transactionId baseSnapshot proposedSnapshot =
+    /// Fingerprints the base and proposed snapshots into a preview receipt. Workflows with their
+    /// own error union map the fingerprint failure into it.
+    let computeReceipt
+        (transactionId: TransactionId)
+        (baseSnapshot: Snapshot)
+        (proposedSnapshot: Snapshot)
+        : Result<TransactionPreviewReceipt, SnapshotCodecError> =
         match SnapshotFingerprint.compute baseSnapshot with
-        | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+        | Error error -> Error error
         | Ok baseFingerprint ->
             match SnapshotFingerprint.compute proposedSnapshot with
-            | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+            | Error error -> Error error
             | Ok proposedFingerprint ->
                 match SemanticFingerprint.compute proposedSnapshot with
-                | Error error -> Error(AgentStructuralWorkflowError.FingerprintFailed error)
+                | Error error -> Error error
                 | Ok semanticFingerprint ->
                     Ok(
                         TransactionPreviewReceipt.create
@@ -195,6 +201,10 @@ module internal StructuralTransactionInternals =
                             proposedFingerprint
                             semanticFingerprint
                     )
+
+    let createReceipt transactionId baseSnapshot proposedSnapshot =
+        computeReceipt transactionId baseSnapshot proposedSnapshot
+        |> Result.mapError AgentStructuralWorkflowError.FingerprintFailed
 
     let bodyObligationError (target: SemanticFunction) (snapshot: Snapshot) =
         let oldBodyIds =
@@ -209,8 +219,30 @@ module internal StructuralTransactionInternals =
                 "StructuralBodyReferencedByObligation"
                 $"Obligation '{StableId.value obligation.Id}' targets the body being replaced.")
 
+    /// Workflow-specific wording for the publication diagnostics. The codes and the order of the
+    /// checks are shared; only the human-readable subject differs between workflows.
+    type CandidatePublicationMessages =
+        { StaleBase: string
+          BaseFingerprintFailure: string
+          ProposedFingerprintFailure: string
+          ResultMismatch: string }
+
+    let structuralPublicationMessages =
+        { StaleBase = "The workspace advanced beyond the reviewed structural proposal."
+          BaseFingerprintFailure = "The base fingerprint could not be recomputed."
+          ProposedFingerprintFailure = "The proposed fingerprint could not be recomputed."
+          ResultMismatch = "The proposed state differs from the reviewed receipt." }
+
+    /// Messages for the declaration workflows ("type", "effect", "capability").
+    let declarationPublicationMessages (subject: string) =
+        { StaleBase = $"The workspace advanced beyond the reviewed {subject}-declaration proposal."
+          BaseFingerprintFailure = "The base snapshot fingerprint could not be recomputed."
+          ProposedFingerprintFailure = "The proposed snapshot fingerprint could not be recomputed."
+          ResultMismatch = $"The proposed {subject} declaration differs from the reviewed result." }
+
     /// Publishes a reviewed candidate after stale-base, fingerprint and readiness checks.
-    let publishCandidateWithPolicy
+    let publishCandidateWithMessages
+        (messages: CandidatePublicationMessages)
         (workspace: AgentWorkspace)
         (proposedSnapshot: Snapshot)
         (readiness: TransactionReadiness)
@@ -220,17 +252,10 @@ module internal StructuralTransactionInternals =
         let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
 
         if currentSnapshot.Id <> receipt.BaseSnapshotId then
-            Error
-                [ diagnostic
-                      "StaleBaseSnapshot"
-                      "The workspace advanced beyond the reviewed structural proposal." ]
+            Error [ diagnostic "StaleBaseSnapshot" messages.StaleBase ]
         else
             match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ ->
-                Error
-                    [ diagnostic
-                          "FingerprintFailure"
-                          "The base fingerprint could not be recomputed." ]
+            | Error _ -> Error [ diagnostic "FingerprintFailure" messages.BaseFingerprintFailure ]
             | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
                 Error
                     [ diagnostic
@@ -249,17 +274,13 @@ module internal StructuralTransactionInternals =
                                   "BlockingObligations"
                                   $"The proposed snapshot has blocking obligations: {rendered}." ]
                     | _ -> AgentWorkspace.publishValidatedSnapshot workspace proposedSnapshot
-                | Ok _, Ok _ ->
-                    Error
-                        [ diagnostic
-                              "PreviewReceiptResultMismatch"
-                              "The proposed state differs from the reviewed receipt." ]
+                | Ok _, Ok _ -> Error [ diagnostic "PreviewReceiptResultMismatch" messages.ResultMismatch ]
                 | Error _, _
-                | _, Error _ ->
-                    Error
-                        [ diagnostic
-                              "FingerprintFailure"
-                              "The proposed fingerprint could not be recomputed." ]
+                | _, Error _ -> Error [ diagnostic "FingerprintFailure" messages.ProposedFingerprintFailure ]
+
+    /// Publishes a reviewed structural candidate after stale-base, fingerprint and readiness checks.
+    let publishCandidateWithPolicy workspace proposedSnapshot readiness receipt policy =
+        publishCandidateWithMessages structuralPublicationMessages workspace proposedSnapshot readiness receipt policy
 
     let publishReviewedWithPolicy
         (workspace: AgentWorkspace)
