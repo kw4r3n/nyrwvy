@@ -194,7 +194,7 @@ MatchOption
 MatchResult
 ```
 
-Before materialization the workflow checks target/base guards, the established 32-depth / 64-node bounds across all children and nested branches, target-owned parameter scope, lexical pattern-reference scope/slots, scalar/List operand types, explicit `TypeRef` validity, higher-order callback contracts, structured declaration bindings, complete call/invocation contracts, predeclared effect requirements, conditional/match input and branch types, exact union arm coverage, exact replacement-result compatibility, and old-body obligation protection. Recipe nodes receive fresh system-owned `GraphNodeId`s; Bind-body and match-arm slots additionally receive fresh system-owned `PatternBindingId`s.
+Before materialization the workflow checks target/base guards, the 32-depth / 256-node bounds across all children and nested branches, target-owned parameter scope, lexical pattern-reference scope/slots, scalar/List operand types, explicit `TypeRef` validity, higher-order callback contracts, structured declaration bindings, complete call/invocation contracts, predeclared effect requirements, conditional/match input and branch types, exact union arm coverage, exact replacement-result compatibility, and old-body obligation protection. Recipe nodes receive fresh system-owned `GraphNodeId`s; Bind-body and match-arm slots additionally receive fresh system-owned `PatternBindingId`s.
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 

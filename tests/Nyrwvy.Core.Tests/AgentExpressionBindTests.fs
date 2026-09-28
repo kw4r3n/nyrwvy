@@ -291,8 +291,8 @@ module AgentExpressionBindTests =
         publish snapshot (nested 31) |> ignore
         assertRejected "StructuralRecipeDepthLimitExceeded" snapshot (nested 32)
         let wide count = ExpressionRecipe.Bind(ExpressionRecipe.ListConstruct(stringType, List.replicate count (ExpressionRecipe.StringLiteral "item")), ExpressionRecipe.StringLiteral "done")
-        publish snapshot (wide 61) |> ignore
-        assertRejected "StructuralRecipeNodeLimitExceeded" snapshot (wide 62)
+        publish snapshot (wide 253) |> ignore
+        assertRejected "StructuralRecipeNodeLimitExceeded" snapshot (wide 254)
 
     [<Fact>]
     let ``Bind guarded publication rejects stale proposals and reallocates local identities on retry`` () =

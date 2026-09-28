@@ -10,38 +10,71 @@ module internal StructuralTransactionInternals =
     let rejected code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
-    let validateRecipeBounds
+    type RecipeBounds = { MaxDepth: int; MaxNodes: int }
+
+    /// The frozen Milestone 2 bounded Float64 replacement contract.
+    let boundedFloat64Bounds = { MaxDepth = 32; MaxNodes = 64 }
+
+    /// Ordinary expression authoring: function creation, body replacement and targeted replacement.
+    let expressionAuthoringBounds = { MaxDepth = 32; MaxNodes = 256 }
+
+    let private recipeCaseName (recipe: 'Recipe) =
+        if FSharpType.IsUnion(recipe.GetType(), true) then
+            let case, _ = FSharpValue.GetUnionFields(box recipe, recipe.GetType(), true)
+            case.Name
+        else
+            recipe.GetType().Name
+
+    /// Depth is checked before node count so the two diagnostic classes remain
+    /// distinguishable for a recipe that violates both. A node-count failure reports
+    /// the full count and the largest subtrees, which are the candidates to extract.
+    let validateRecipeBoundsWith
+        (bounds: RecipeBounds)
         (children: 'Recipe -> seq<'Recipe>)
         (recipe: 'Recipe)
         : Result<unit, TransactionDiagnostic> =
-        let rec visit depth remaining current =
-            if depth > 32 then
-                Error(
-                    diagnostic
-                        "StructuralRecipeDepthLimitExceeded"
-                        "The structural recipe is deeper than 32 nodes."
-                )
-            elif remaining <= 0 then
+        let rec depthWithin depth current =
+            depth <= bounds.MaxDepth && (children current |> Seq.forall (depthWithin (depth + 1)))
+
+        // (size, path, case name) for every proper subtree, collected in one pass.
+        let rec measure path current (subtrees: ResizeArray<int * string * string>) =
+            let size =
+                children current
+                |> Seq.mapi (fun index child -> measure $"{path}/{index}" child subtrees)
+                |> Seq.sum
+                |> (+) 1
+            if path <> "" then subtrees.Add((size, path, recipeCaseName current))
+            size
+
+        if not (depthWithin 1 recipe) then
+            Error(
+                diagnostic
+                    "StructuralRecipeDepthLimitExceeded"
+                    $"The structural recipe is deeper than {bounds.MaxDepth} nodes."
+            )
+        else
+            let subtrees = ResizeArray()
+            let total = measure "" recipe subtrees
+            if total <= bounds.MaxNodes then
+                Ok()
+            else
+                // Largest subtrees that could become a helper within the limit; nested ones are skipped
+                // when an enclosing subtree is already listed.
+                let listed = ResizeArray<string>()
+                for size, path, name in subtrees |> Seq.filter (fun (size, _, _) -> size <= bounds.MaxNodes) |> Seq.sortByDescending (fun (size, _, _) -> size) do
+                    if listed.Count < 3 && not (listed |> Seq.exists (fun item -> path.StartsWith(item.Split(' ')[0] + "/"))) then
+                        listed.Add $"{path} {name} ({size} nodes)"
+                let largest =
+                    if listed.Count = 0 then ""
+                    else " Largest subtrees within the limit (child-index paths from the root): " + String.concat "; " listed + "."
                 Error(
                     diagnostic
                         "StructuralRecipeNodeLimitExceeded"
-                        "The structural recipe contains more than 64 nodes."
+                        $"The structural recipe contains {total} nodes, more than {bounds.MaxNodes}.{largest}"
                 )
-            else
-                let mutable nextRemaining = remaining - 1
-                let mutable failure: TransactionDiagnostic option = None
-                use enumerator = (children current).GetEnumerator()
 
-                while Option.isNone failure && enumerator.MoveNext() do
-                    match visit (depth + 1) nextRemaining enumerator.Current with
-                    | Ok remainingAfterChild -> nextRemaining <- remainingAfterChild
-                    | Error error -> failure <- Some error
-
-                match failure with
-                | Some error -> Error error
-                | None -> Ok nextRemaining
-
-        visit 1 64 recipe |> Result.map ignore
+    let validateRecipeBounds children recipe =
+        validateRecipeBoundsWith expressionAuthoringBounds children recipe
 
     let private unionCaseName (kind: SemanticNodeKind) =
         let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
