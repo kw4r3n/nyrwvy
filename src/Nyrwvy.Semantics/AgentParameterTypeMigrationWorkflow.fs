@@ -243,6 +243,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64Equal(left, right) -> two ExpressionRecipe.Float64Equal left right
             | ExpressionRecipe.Float64LessThan(left, right) -> two ExpressionRecipe.Float64LessThan left right
             | ExpressionRecipe.ListAppendItem(list, item) -> two ExpressionRecipe.ListAppendItem list item
+            | ExpressionRecipe.ListItemAt(list, index) -> two ExpressionRecipe.ListItemAt list index
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
             | ExpressionRecipe.ListConstruct(itemType, items) ->

@@ -114,6 +114,7 @@ type ExecutionInstructionKind =
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list

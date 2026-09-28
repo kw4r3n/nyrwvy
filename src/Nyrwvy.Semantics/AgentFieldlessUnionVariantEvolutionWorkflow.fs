@@ -244,6 +244,11 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     mapNodeId listNodeId,
                     mapNodeId itemNodeId
                 )
+            | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+                SemanticNodeKind.ListItemAt(
+                    mapNodeId listNodeId,
+                    mapNodeId indexNodeId
+                )
             | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                 SemanticNodeKind.ListConcat(
                     mapNodeId leftListNodeId,

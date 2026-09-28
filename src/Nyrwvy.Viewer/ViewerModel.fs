@@ -70,6 +70,7 @@ type ViewerNodeRole =
     | ListConstruct
     | ListLength
     | ListAppendItem
+    | ListItemAt
     | ListConcat
     | ListFold
     | ListEffectFold
@@ -229,6 +230,7 @@ module ViewerProjection =
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
+        | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold(_, _, folderFunctionId, _) ->
             ViewerNodeRole.ListFold, callbackRelation folderFunctionId
@@ -404,6 +406,7 @@ module ViewerProjection =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _

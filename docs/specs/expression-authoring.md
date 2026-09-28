@@ -69,6 +69,7 @@ ExpressionRecipe =
   | ListEmpty(itemType)
   | ListConstruct(itemType, items)
   | ListLength(list)
+  | ListItemAt(list, index)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
   | ListFold(source, seed, folderFunctionId, context)
@@ -268,7 +269,7 @@ Effectful callbacks remain rejected by these pure traversals, even when the targ
 
 Cancellation flows only from parent to child: a task's token is linked to its scope, and the scope's to the token of whoever evaluates the `TaskScope` node, so a scope inside a `ParallelAll` worker or another task inherits that cancellation. `CancellationRequested` in a scope body reads the body's inherited token. A handle is an ordinary value and may leave its scope; once the scope has completed, the handle is finished, `TaskWait` reports it at once and `TaskCancel` does nothing. `TaskStart` on a completed scope runs the worker at once, already cancelled, so no task outlives its scope. All four constructs are effectful for execution ordering; order them by data dependencies or `Bind`. A helper function that uses them but declares no effect is, like one that reads `CancellationRequested`, treated as pure by the ordering check, so its calls are not checked for order.
 
-`Task<T>` (one type argument) and `TaskScope` (none) are builtin generics, written `{"kind":"builtinGeneric","generic":"task"|"taskScope"}` on the wire. They may appear in function parameter and result types and inside `List`, `Option` and `Result`, but not in declared Product or Union fields (`TaskTypeInDeclaredType`) or capability operations (`TaskTypeAtCapabilityBoundary`). They are not `runPure` values, so an entry function cannot take or return them. Operations of one capability value may be called concurrently by different tasks; within a task, calls follow its program order, and a task's calls happen before any `TaskWait` that reports it finished and before its scope completes.
+`Task<T>` (one type argument) and `TaskScope` (none) are builtin generics, written `{"kind":"builtinGeneric","generic":"task"|"taskScope"}` on the wire. They may appear in function parameter and result types and inside `List`, `Option` and `Result`. A declared Product or Union field may hold `Task<T>`, as in a `Member { name: String, task: Task<Result<String, String>> }` Product, but not `TaskScope`, which is lexical (`TaskTypeInDeclaredType`). A type is task-bearing if it mentions either, or reaches a declared type with a task-bearing field through any nesting, including recursive types. Task-bearing types may not appear in capability operation parameters, results or failure types (`TaskTypeAtCapabilityBoundary`), and they are not `runPure` values, so an entry function cannot take or return one (`RunTaskTypeUnsupported`) ([decision](../decisions/task-fields-list-indexing-and-map.md)). Operations of one capability value may be called concurrently by different tasks; within a task, calls follow its program order, and a task's calls happen before any `TaskWait` that reports it finished and before its scope completes.
 
 **Scoped resources.** `UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)` has these parts:
 - `acquire : Result<R, E>` is an ordinary expression, usually a capability invocation.

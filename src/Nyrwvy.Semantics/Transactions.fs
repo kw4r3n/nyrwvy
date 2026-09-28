@@ -268,6 +268,7 @@ module Transaction =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
@@ -762,6 +763,7 @@ module Transaction =
                         | SemanticNodeKind.ListEmpty _
                         | SemanticNodeKind.ListConstruct _
                         | SemanticNodeKind.ListLength _
+                        | SemanticNodeKind.ListItemAt _
                         | SemanticNodeKind.ListAppendItem _
                         | SemanticNodeKind.ListConcat _
                         | SemanticNodeKind.ListFold _

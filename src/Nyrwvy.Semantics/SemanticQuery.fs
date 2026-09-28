@@ -119,6 +119,7 @@ module SemanticQuery =
                     | SemanticNodeKind.ListEmpty _
                     | SemanticNodeKind.ListConstruct _
                     | SemanticNodeKind.ListLength _
+                    | SemanticNodeKind.ListItemAt _
                     | SemanticNodeKind.ListAppendItem _
                     | SemanticNodeKind.ListConcat _
                     | SemanticNodeKind.CapabilityInvoke _

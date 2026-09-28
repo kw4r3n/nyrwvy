@@ -46,6 +46,7 @@ module SemanticFacts =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
@@ -170,6 +171,7 @@ module SemanticFacts =
             | SemanticNodeKind.ListEmpty _
             | SemanticNodeKind.ListConstruct _
             | SemanticNodeKind.ListLength _
+            | SemanticNodeKind.ListItemAt _
             | SemanticNodeKind.ListAppendItem _
             | SemanticNodeKind.ListConcat _
             | SemanticNodeKind.ListFold _
@@ -371,6 +373,12 @@ module SemanticFacts =
                     | SemanticNodeKind.ListEmpty itemType
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
+                    | SemanticNodeKind.ListItemAt(listNodeId, _) ->
+                        match tryNodeType nextVisiting listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
+                        | Some _
+                        | None -> None
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
                     | SemanticNodeKind.ListFilter(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with

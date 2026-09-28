@@ -111,6 +111,7 @@ module CSharpBackend =
         writer.Line("public static NyList<T> Empty() => new(Array.Empty<T>());")
         writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
         writer.Line("public long Length => _items.LongLength;")
+        writer.Line("public NyOption<T> ItemAt(long index) => index >= 0L && index < _items.LongLength ? NyOption<T>.Some(_items[index]) : NyOption<T>.None();")
         writer.Line("public NyList<T> AppendItem(T item)")
         writer.Line("{")
         writer.Push()
@@ -445,7 +446,15 @@ module CSharpBackend =
           "" ]
 
     let private usesTaskTypes (program: ExecutionProgram) =
-        program.Functions
+        // A declared field may hold a Task handle, so its record needs NyTask even when no function
+        // of the program mentions tasks.
+        program.Types
+        |> List.exists (fun typeEntity ->
+            match typeEntity.Kind with
+            | ExecutionTypeKind.Product fields -> fields |> List.exists (fun field -> TaskTypes.mentions field.Type)
+            | ExecutionTypeKind.Union variants ->
+                variants |> List.exists (fun variant -> variant.Fields |> List.exists (fun field -> TaskTypes.mentions field.Type)))
+        || program.Functions
         |> List.exists (fun functionEntity ->
             TaskTypes.mentions functionEntity.ResultType
             || functionEntity.Parameters |> List.exists (fun parameter -> TaskTypes.mentions parameter.Value.Type)
@@ -852,6 +861,8 @@ module CSharpBackend =
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Create(" + renderListItems itemValueIds + ");")
         | ExecutionInstructionKind.ListLength listValueId ->
             writer.Line(target + " = " + valueName listValueId + ".Length;")
+        | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".ItemAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->

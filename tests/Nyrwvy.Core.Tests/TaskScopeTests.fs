@@ -350,7 +350,7 @@ module TaskScopeTests =
             Assert.Equal("TaskCancelInputTypeMismatch", reject [ "task", stringType ] unitType (ExpressionRecipe.TaskCancel(slot 0)))
             // The body's free parameter must be the scope.
             Assert.Equal("TaskScopeBodyMismatch", reject capabilities outcomeType (ExpressionRecipe.TaskScope(memberWorker.Id, context)))
-            // Task values never cross a capability boundary or live in declared types.
+            // Task values never cross a capability boundary; a declared field may hold a Task but not a TaskScope.
             let withTaskOperation =
                 { snapshot with
                     Capabilities =
@@ -358,14 +358,17 @@ module TaskScopeTests =
                             if capability.Id <> agentId then capability
                             else { capability with Operations = capability.Operations |> List.map (fun operation -> { operation with ResultType = taskType }) }) }
             Assert.Contains(SnapshotValidator.validate withTaskOperation, fun issue -> issue.Code = "TaskTypeAtCapabilityBoundary")
-            let withTaskField =
+            let withField fieldType =
                 { snapshot with
                     Types = snapshot.Types |> List.map (fun typeEntity ->
                         match typeEntity.Kind with
                         | SemanticTypeKind.Union(first :: rest) ->
-                            { typeEntity with Kind = SemanticTypeKind.Union({ first with Fields = [ { Id = nameFieldId; DisplayName = "name"; Type = taskType } ] } :: rest) }
+                            { typeEntity with Kind = SemanticTypeKind.Union({ first with Fields = [ { Id = nameFieldId; DisplayName = "name"; Type = fieldType } ] } :: rest) }
                         | _ -> typeEntity) }
-            Assert.Contains(SnapshotValidator.validate withTaskField, fun issue -> issue.Code = "TaskTypeInDeclaredType")
+            Assert.DoesNotContain(SnapshotValidator.validate (withField taskType), fun issue -> issue.Code = "TaskTypeInDeclaredType")
+            Assert.Contains(SnapshotValidator.validate (withField scopeType), fun issue -> issue.Code = "TaskTypeInDeclaredType")
+            // The Action type now holds a Task, so the leader's `next` operation that returns it is rejected too.
+            Assert.Contains(SnapshotValidator.validate (withField taskType), fun issue -> issue.Code = "TaskTypeAtCapabilityBoundary")
             // JSONL recipes name the wait mode.
             let describe = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "describe")
             let line =

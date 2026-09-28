@@ -465,6 +465,10 @@ module SnapshotCodec =
         | SemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
             writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+            writer.WriteString("kind", "listItemAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             writer.WriteString("kind", "listAppendItem")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1097,6 +1101,16 @@ module SnapshotCodec =
             | "listLength" ->
                 ensureProperties "ListLength node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
                 SemanticNodeKind.ListLength(readId<GraphNodeTag> "listNodeId" element)
+            | "listItemAt" ->
+                ensureProperties
+                    "ListItemAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    element
+                SemanticNodeKind.ListItemAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element
+                )
             | "listAppendItem" ->
                 ensureProperties
                     "ListAppendItem node"

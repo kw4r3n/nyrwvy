@@ -242,6 +242,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
+    | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     /// List callbacks reference an existing pure function. `context` binds some of its parameters,
     /// by identity, to values evaluated once before iteration; the remaining parameters, in
@@ -399,6 +401,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
@@ -498,6 +501,7 @@ module ValueGraph =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
@@ -557,19 +561,57 @@ module Snapshot =
           Functions = []
           Obligations = [] }
 
-/// `Task<T>` and `TaskScope` values exist only inside one run of a function: declared types and
-/// capability operations may not mention them.
+/// `Task<T>` and `TaskScope` values exist only inside one run of a function. A declared field may
+/// hold a `Task<T>` but not a `TaskScope`, which is a lexical construct; a type that holds a task
+/// anywhere, including through declared types, never crosses a capability or runPure boundary.
 [<RequireQualifiedAccess>]
 module TaskTypes =
-    let rec mentions (typeRef: TypeRef) =
+    let rec private occurs (matches: BuiltinGenericType -> bool) (typeRef: TypeRef) =
         match typeRef with
-        | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> true
-        | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentions arguments
-        | TypeRef.Function(parameters, result) -> List.exists mentions parameters || mentions result
+        | TypeRef.BuiltinGeneric(kind, _) when matches kind -> true
+        | TypeRef.BuiltinGeneric(_, arguments) -> List.exists (occurs matches) arguments
+        | TypeRef.Function(parameters, result) -> List.exists (occurs matches) parameters || occurs matches result
         | TypeRef.Primitive _
         | TypeRef.Named _
         | TypeRef.Capability _
         | TypeRef.TypeParameter _ -> false
+
+    /// Whether the type itself mentions `Task` or `TaskScope`, without looking into declared types.
+    let mentions (typeRef: TypeRef) =
+        occurs (function BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
+
+    /// Whether the type itself mentions `TaskScope`, without looking into declared types.
+    let mentionsScope (typeRef: TypeRef) =
+        occurs (function BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
+
+    /// Whether a value of the type can hold a task handle or scope: the type mentions one, or reaches
+    /// a declared Product or Union whose fields do, through any nesting. Recursive and unknown named
+    /// types are handled; each named type is inspected once.
+    let bearing (types: SemanticType list) (typeRef: TypeRef) =
+        let byId = types |> List.map (fun item -> item.Id, item) |> Map.ofList
+        let visited = System.Collections.Generic.HashSet<TypeId>()
+        let rec named (typeRef: TypeRef) =
+            match typeRef with
+            | TypeRef.Named typeId -> [ typeId ]
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.collect named arguments
+            | TypeRef.Function(parameters, result) -> List.collect named (result :: parameters)
+            | TypeRef.Primitive _
+            | TypeRef.Capability _
+            | TypeRef.TypeParameter _ -> []
+        let rec visit (typeRef: TypeRef) =
+            mentions typeRef
+            || named typeRef
+               |> List.exists (fun typeId ->
+                   visited.Add typeId
+                   && (match Map.tryFind typeId byId with
+                       | None -> false
+                       | Some typeEntity ->
+                           let fields =
+                               match typeEntity.Kind with
+                               | SemanticTypeKind.Product fields -> fields
+                               | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
+                           fields |> List.exists (fun field -> visit field.Type)))
+        visit typeRef
 
 /// Function type parameters. A function's type parameters are those occurring in its parameter
 /// types; at a call or callback, type arguments are derived by matching each parameter type

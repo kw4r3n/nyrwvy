@@ -534,6 +534,12 @@ module NyasonCodec =
                   "items", itemNodeIds |> List.map (encodeId "node") |> list ]
         | SemanticNodeKind.ListLength listNodeId ->
             record "list-length" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+            record
+                "list-item-at"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "index", encodeId "node" indexNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             record
                 "list-append-item"
@@ -872,6 +878,14 @@ module NyasonCodec =
             let fields = recordFields "list-length" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListLength(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("list-item-at", _) ->
+            let fields = recordFields "list-item-at" [ "id"; "list"; "index" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListItemAt(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "index" fields)
+                ) }
         | NyasonValue.Record("list-append-item", _) ->
             let fields = recordFields "list-append-item" [ "id"; "list"; "item" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

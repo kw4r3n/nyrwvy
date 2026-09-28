@@ -339,6 +339,9 @@ module ExecutionIr =
                             requireNodeValue environment listNodeId
                             |> Result.map (fun listValueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.ListLength listValueId))
+                        | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+                            lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
+                                ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))
                         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                             lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId))
@@ -708,6 +711,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _
+                        | TypedSemanticNodeKind.ListItemAt _
                         | TypedSemanticNodeKind.ListAppendItem _
                         | TypedSemanticNodeKind.ListConcat _
                         | TypedSemanticNodeKind.ListFold _

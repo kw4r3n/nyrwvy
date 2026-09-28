@@ -80,6 +80,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
         | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
         | TypedSemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
@@ -154,6 +155,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _
@@ -277,6 +279,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
+        | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
@@ -375,6 +378,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
             | TypedSemanticNodeKind.ListFold _

@@ -57,6 +57,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
@@ -138,6 +139,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
@@ -460,15 +462,17 @@ module SnapshotValidator =
             for field in fields do
                 if mentionsTypeParameter field.Type then
                     add "TypeParameterOutsideFunction" $"Field '{StableId.value field.Id}' uses a function type parameter; declared types are monomorphic."
-                if TaskTypes.mentions field.Type then
-                    add "TaskTypeInDeclaredType" $"Field '{StableId.value field.Id}' uses Task or TaskScope; task values cannot be stored in declared types."
+                // A field may hold a Task handle; a scope is lexical and stays out of declared types.
+                if TaskTypes.mentionsScope field.Type then
+                    add "TaskTypeInDeclaredType" $"Field '{StableId.value field.Id}' uses TaskScope; a task scope cannot be stored in a declared type."
         for _, operation in capabilityOperationEntries do
             let types = operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)) @ Option.toList operation.FailureType
             if types |> List.exists mentionsTypeParameter then
                 add "TypeParameterOutsideFunction" $"Capability operation '{StableId.value operation.Id}' uses a function type parameter."
-            // Task handles and scopes live inside one run; they never cross the host boundary.
-            if types |> List.exists TaskTypes.mentions then
-                add "TaskTypeAtCapabilityBoundary" $"Capability operation '{StableId.value operation.Id}' uses Task or TaskScope, which cannot cross a capability boundary."
+            // Task handles and scopes live inside one run; they never cross the host boundary, also
+            // not inside a declared type that holds a task.
+            if types |> List.exists (TaskTypes.bearing snapshot.Types) then
+                add "TaskTypeAtCapabilityBoundary" $"Capability operation '{StableId.value operation.Id}' uses Task or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
         // Each type parameter belongs to one function, keeps one display name, and is introduced by
         // that function's parameter types before its result or body can use it.
         let typeParameterOwners =
@@ -854,6 +858,21 @@ module SnapshotValidator =
                                 "ListLengthInputTypeMismatch"
                                 $"ListLength node '{StableId.value node.Id}' requires List<T> input."
                         | None -> ()
+                    | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
+                        | None -> ()
+                        | Some _ ->
+                            add
+                                "ListItemAtListTypeMismatch"
+                                $"ListItemAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        match nodeType indexNodeId with
+                        | Some(TypeRef.Primitive PrimitiveType.Int64)
+                        | None -> ()
+                        | Some _ ->
+                            add
+                                "ListItemAtIndexTypeMismatch"
+                                $"ListItemAt node '{StableId.value node.Id}' requires an Int64 index."
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         match nodeType listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
@@ -1553,6 +1572,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
