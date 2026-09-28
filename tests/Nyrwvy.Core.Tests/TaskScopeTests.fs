@@ -489,6 +489,25 @@ module TaskScopeTests =
             | other -> failwithf "A blocked program did not fail: %A" other)
 
     [<Fact; Trait("Suite", "Extended")>]
+    let ``a time limit near Int64.MaxValue saturates virtual time instead of wrapping`` () =
+        withTeam (fun session _ ->
+            let runTeam = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "runTeam")).Id
+            let awaitWithin index limit = action awaitWithinId [ awaitWithinIndexId, PureRunValue.Int64 index; awaitWithinLimitId, PureRunValue.Int64 limit ]
+            // Once virtual time has advanced to t=100, a limit of Int64.MaxValue must still be a
+            // deadline in the future: a wrapped deadline would report b running at once.
+            let result =
+                PureRun.run session runTeam
+                    [ fake leaderId [ nextId, returns [ spawn "a"; spawn "b"; awaitWithin 0L 250L; awaitWithin 1L Int64.MaxValue; action finishId [] ] ]
+                      fake agentId [ workId, [ delayed 100L (PureRunFakeResponse.Return(okText "a")); delayed 200L (PureRunFakeResponse.Return(okText "b")) ] ]
+                      workspaces 2 ]
+                    (Some(okText "done"))
+                |> unwrap "runTeam"
+            Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch)
+            Assert.Equal<string list>(
+                [ "start"; "spawned"; "spawned"; "|ok:a"; "|ok:b" ],
+                result.Calls |> List.filter (fun call -> call.OperationId = nextId) |> List.map argumentText))
+
+    [<Fact; Trait("Suite", "Extended")>]
     let ``argument keyed fakes fail only member b whatever order the members start in`` () =
         withTeam (fun session _ ->
             let runTeam = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "runTeam")).Id
