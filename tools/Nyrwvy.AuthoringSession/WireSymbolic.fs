@@ -476,10 +476,9 @@ module internal WireSymbolic =
                         fail $"Ambiguous function '{calleeName}'."
                     Some(ownerName, parameters |> List.map (fun parameter -> parameter.DisplayName))
                 | ParameterContext.ExistingFunction owner when owner.DisplayName = calleeName ->
-                    let callee = resolveFunction declarations calleeName
-                    if callee.Id = owner.Id then
-                        Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
-                    else None
+                    // The owner's ID is known: its own name is a self call even if another
+                    // function shares that name.
+                    Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
                 | _ -> None
             match selfParameters with
             | Some(ownerName, parameterNames) ->

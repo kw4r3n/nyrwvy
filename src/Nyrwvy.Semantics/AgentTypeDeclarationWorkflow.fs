@@ -150,6 +150,12 @@ module AgentTypeDeclarationWorkflow =
                     "TypeDeclarationDisplayNameBlank"
                     "Type display name must not be blank."
             )
+        elif snapshot.Types |> List.exists (fun item -> item.DisplayName = request.DisplayName) then
+            Error(
+                diagnostic
+                    "TypeDeclarationDuplicateDisplayName"
+                    $"A type named '{request.DisplayName}' already exists; type display names must be unique."
+            )
         else
             match request.Kind with
             | AgentTypeDeclarationKindIntent.Product fields ->

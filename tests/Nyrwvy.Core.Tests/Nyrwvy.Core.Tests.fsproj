@@ -19,6 +19,7 @@
     <Compile Include="WorkspaceTests.fs" />
     <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="AgentWorkflowTests.fs" />
+    <Compile Include="DisplayNameUniquenessTests.fs" />
     <Compile Include="AgentRequiredEffectsTests.fs" />
     <Compile Include="AgentTypeDeclarationTests.fs" />
     <Compile Include="AgentEffectDeclarationTests.fs" />

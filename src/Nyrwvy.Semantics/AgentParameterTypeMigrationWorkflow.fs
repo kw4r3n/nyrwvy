@@ -373,7 +373,7 @@ module internal SignatureMigrationCore =
                     temporaryRecipe
 
             match
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate
+                AgentExpressionStructuralWorkflow.FunctionCreation.simulateReplacement
                     workspace
                     creationRequest
             with
@@ -449,7 +449,7 @@ module internal SignatureMigrationCore =
                     temporaryRecipe
 
             match
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulate
+                AgentExpressionStructuralWorkflow.FunctionCreation.simulateReplacement
                     temporaryTarget.Workspace
                     creationRequest
             with

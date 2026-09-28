@@ -140,8 +140,12 @@ module PureRunByNameTests =
             protocolError (run (String.Join(",", [ request "a"; """{"kind":"hostCapability","capability":"Absent","implementation":"Host"}""" ])) (found "A")) "Unknown capability 'Absent'"
             // The exact-ID operation keeps its stable-ID vocabulary.
             protocolError """{"id":"x","op":"runPure","function":"query","arguments":[]}""" "function"
-            // A duplicate capability name is refused by the convenience operation but can still exist via exact IDs.
+            // A duplicate capability name is refused by the convenience operation and by exact-ID creation.
             protocolError $"""{{"id":"c2","op":"simulateCreateCapabilityByName","displayName":"Provider","operations":[]}}""" "Capability display name 'Provider' already exists"
             protocolError $"""{{"id":"c3","op":"simulateCreateCapabilityByName","displayName":"Other","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effect":"absent"}}]}}""" "Unknown effect 'absent'"
-            publish session $"""{{"id":"c4","op":"simulateCreateCapability","displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effectId":"{effectId}"}}]}}""" |> ignore
-            protocolError (run (String.Join(",", [ request "a"; fake ])) (found "A")) "Ambiguous capability 'Provider'")
+            do
+                use reply = execute session $"""{{"id":"c4","op":"simulateCreateCapability","displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effectId":"{effectId}"}}]}}"""
+                Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Contains("CapabilityDeclarationDuplicateDisplayName", reply.RootElement.GetRawText())
+            // Name resolution therefore stays unambiguous.
+            Assert.True((result session (run (String.Join(",", [ request "a"; fake ])) (found "A"))).GetProperty("matches").GetBoolean()))

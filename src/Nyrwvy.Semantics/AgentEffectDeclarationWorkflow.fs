@@ -72,6 +72,12 @@ module AgentEffectDeclarationWorkflow =
                     "EffectDeclarationDisplayNameBlank"
                     "Effect display name must not be blank."
             )
+        elif snapshot.Effects |> List.exists (fun item -> item.DisplayName = request.DisplayName) then
+            Error(
+                diagnostic
+                    "EffectDeclarationDuplicateDisplayName"
+                    $"An effect named '{request.DisplayName}' already exists; effect display names must be unique."
+            )
         else
             Ok()
 

@@ -162,6 +162,12 @@ module AgentCapabilityDeclarationWorkflow =
                     "CapabilityDeclarationDisplayNameBlank"
                     "Capability display name must not be blank."
             )
+        elif snapshot.Capabilities |> List.exists (fun item -> item.DisplayName = request.DisplayName) then
+            Error(
+                diagnostic
+                    "CapabilityDeclarationDuplicateDisplayName"
+                    $"A capability named '{request.DisplayName}' already exists; capability display names must be unique."
+            )
         else
             let rec loop index (remaining: AgentCapabilityOperationIntent list) =
                 match remaining with
