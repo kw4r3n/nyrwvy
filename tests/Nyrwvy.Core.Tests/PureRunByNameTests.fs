@@ -77,6 +77,51 @@ module PureRunByNameTests =
                 Assert.Equal(idOf "types" "Answer", answer.GetProperty("actual").GetProperty("typeId").GetString()))
 
     [<Fact>]
+    let ``run output reports display names next to exact IDs`` () =
+        withSession (fun session _ ->
+            let name (element: JsonElement) key = element.GetProperty(key: string).GetString()
+            let fake = provider (case "a" (found "A"))
+            for op in [ "runPureByName"; "runPure" ] do
+                let line =
+                    if op = "runPureByName" then run (String.Join(",", [ request "a"; fake ])) (found "B")
+                    else
+                        // The exact-ID form gets the same names; its request is built from the by-name reply.
+                        let byName = result session (run (String.Join(",", [ request "a"; fake ])) (found "A"))
+                        let actual = byName.GetProperty("actual")
+                        let call = byName.GetProperty("calls").[0]
+                        let requestType = (result session """{"id":"d","op":"declarations"}""").GetProperty("types").EnumerateArray() |> Seq.find (fun item -> name item "displayName" = "Request")
+                        let keyField = requestType.GetProperty("typeKind").GetProperty("fields").[0].GetProperty("id").GetString()
+                        let value = $"""{{"kind":"string","value":"a"}}"""
+                        let requestValue = $"""{{"kind":"product","typeId":"{name requestType "id"}","fields":[{{"fieldId":"{keyField}","value":{value}}}]}}"""
+                        let capabilityId = (result session """{"id":"d","op":"declarations"}""").GetProperty("capabilities").[0].GetProperty("id").GetString()
+                        let fakeValue = $"""{{"kind":"fakeCapability","capabilityId":"{capabilityId}","operations":[{{"operationId":"{name call "operationId"}","responses":[{{"kind":"return","value":{actual.GetRawText()}}}]}}]}}"""
+                        $"""{{"id":"run","op":"runPure","functionId":"{name byName "functionId"}","arguments":[{requestValue},{fakeValue}]}}"""
+                let answer = result session line
+                Assert.Equal("query", name answer "function")
+                let actual = answer.GetProperty("actual")
+                Assert.Equal("Answer", name actual "type")
+                Assert.Equal("Found", name actual "variant")
+                let field = actual.GetProperty("fields").[0]
+                Assert.Equal("text", name field "field")
+                Assert.False(String.IsNullOrEmpty(name field "fieldId"))
+                let call = answer.GetProperty("calls").[0]
+                Assert.Equal("provider", name call "parameter")
+                Assert.Equal("Provider", name call "capability")
+                Assert.Equal("lookup", name call "operation")
+                Assert.Equal("key", name (call.GetProperty("arguments").[0]) "parameter")
+                if op = "runPureByName" then
+                    let mismatch = answer.GetProperty("mismatch")
+                    let step = mismatch.GetProperty("path").[0]
+                    Assert.Equal("Answer", name step "type")
+                    Assert.Equal("text", name step "field")
+                    Assert.Equal("B", name (mismatch.GetProperty("expected")) "value")
+            // Runtime failures name the function and the calls made before the failure.
+            use reply = execute session (run (String.Join(",", [ request "z"; fake ])) (found "A"))
+            let error = reply.RootElement.GetProperty("error")
+            Assert.Equal("RunBindingNoMatch", name error "code")
+            Assert.Equal("query", name error "function"))
+
+    [<Fact>]
     let ``name-resolved run values reject unknown mismatched and mixed selectors before running`` () =
         withSession (fun session effectId ->
             let fake = provider (case "a" (found "A"))

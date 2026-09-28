@@ -125,6 +125,9 @@ module PureRunRecursiveTests =
             Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
             let result = response.RootElement.GetProperty("result")
             Assert.True(result.GetProperty("matches").GetBoolean())
-            use expected = JsonDocument.Parse(chainWire 16, JsonDocumentOptions(MaxDepth = 256))
-            Assert.True(JsonElement.DeepEquals(expected.RootElement, result.GetProperty("actual")), result.ToString())
+            // The reported value adds display names next to the IDs and is accepted back as an exact-ID value.
+            Assert.Equal("Node", result.GetProperty("actual").GetProperty("type").GetString())
+            let echo = $"""{{"id":"echo","op":"runPure","functionId":"{StableId.value (functionId "node")}","arguments":[{chainWire 16}],"expected":{result.GetProperty("actual").GetRawText()}}}"""
+            use echoed = JsonDocument.Parse(AuthoringProtocol.executeLine session echo, JsonDocumentOptions(MaxDepth = 256))
+            Assert.True(echoed.RootElement.GetProperty("result").GetProperty("matches").GetBoolean(), echoed.RootElement.ToString())
             Assert.Equal(before, File.ReadAllText path))

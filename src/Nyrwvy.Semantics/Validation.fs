@@ -357,6 +357,11 @@ module SnapshotValidator =
 
         let typeIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList
         let effectIds = snapshot.Effects |> List.map (fun item -> item.Id) |> Set.ofList
+        let effectNames = snapshot.Effects |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
+        let effectLabel effectId =
+            match Map.tryFind effectId effectNames with
+            | Some displayName -> StableId.describe displayName effectId
+            | None -> $"'{StableId.value effectId}'"
         let capabilityIds = snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
         let typesById = snapshot.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let functionsById = snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList
@@ -431,27 +436,27 @@ module SnapshotValidator =
             | SemanticTypeKind.Product fields ->
                 fields
                 |> List.iter (fun field ->
-                    validateTypeRef $"Field '{StableId.value field.Id}'" field.Type)
+                    validateTypeRef $"Field {StableId.describe field.DisplayName field.Id}" field.Type)
             | SemanticTypeKind.Union variants ->
                 variants
                 |> List.iter (fun variant ->
                     variant.Fields
                     |> List.iter (fun field ->
-                        validateTypeRef $"Field '{StableId.value field.Id}'" field.Type))
+                        validateTypeRef $"Field {StableId.describe field.DisplayName field.Id}" field.Type))
 
         for _, operation in capabilityOperationEntries do
             if not (Set.contains operation.EffectId effectIds) then
                 add
                     "UnknownCapabilityEffect"
-                    $"Capability operation '{StableId.value operation.Id}' references unknown effect '{StableId.value operation.EffectId}'."
+                    $"Capability operation {StableId.describe operation.DisplayName operation.Id} references unknown effect {effectLabel operation.EffectId}."
 
             operation.Parameters
             |> List.iter (fun parameter ->
-                validateTypeRef $"Capability parameter '{StableId.value parameter.Id}'" parameter.Type)
+                validateTypeRef $"Capability parameter {StableId.describe parameter.DisplayName parameter.Id}" parameter.Type)
 
-            validateTypeRef $"Capability operation '{StableId.value operation.Id}' result" operation.ResultType
+            validateTypeRef $"Capability operation {StableId.describe operation.DisplayName operation.Id} result" operation.ResultType
             operation.FailureType
-            |> Option.iter (validateTypeRef $"Capability operation '{StableId.value operation.Id}' failure")
+            |> Option.iter (validateTypeRef $"Capability operation {StableId.describe operation.DisplayName operation.Id} failure")
 
         let rec mentionsTypeParameter typeRef = not (List.isEmpty (TypeParameters.occurring typeRef))
         for typeEntity in snapshot.Types do
@@ -461,18 +466,18 @@ module SnapshotValidator =
                 | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
             for field in fields do
                 if mentionsTypeParameter field.Type then
-                    add "TypeParameterOutsideFunction" $"Field '{StableId.value field.Id}' uses a function type parameter; declared types are monomorphic."
+                    add "TypeParameterOutsideFunction" $"Field {StableId.describe field.DisplayName field.Id} uses a function type parameter; declared types are monomorphic."
                 // A field may hold a Task handle; a scope is lexical and stays out of declared types.
                 if TaskTypes.mentionsScope field.Type then
-                    add "TaskTypeInDeclaredType" $"Field '{StableId.value field.Id}' uses TaskScope; a task scope cannot be stored in a declared type."
+                    add "TaskTypeInDeclaredType" $"Field {StableId.describe field.DisplayName field.Id} uses TaskScope; a task scope cannot be stored in a declared type."
         for _, operation in capabilityOperationEntries do
             let types = operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)) @ Option.toList operation.FailureType
             if types |> List.exists mentionsTypeParameter then
-                add "TypeParameterOutsideFunction" $"Capability operation '{StableId.value operation.Id}' uses a function type parameter."
+                add "TypeParameterOutsideFunction" $"Capability operation {StableId.describe operation.DisplayName operation.Id} uses a function type parameter."
             // Task handles and scopes live inside one run; they never cross the host boundary, also
             // not inside a declared type that holds a task.
             if types |> List.exists (TaskTypes.bearing snapshot.Types) then
-                add "TaskTypeAtCapabilityBoundary" $"Capability operation '{StableId.value operation.Id}' uses Task or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
+                add "TaskTypeAtCapabilityBoundary" $"Capability operation {StableId.describe operation.DisplayName operation.Id} uses Task or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
         // Each type parameter belongs to one function, keeps one display name, and is introduced by
         // that function's parameter types before its result or body can use it.
         let typeParameterOwners =
@@ -503,7 +508,7 @@ module SnapshotValidator =
                     if not (Set.contains id declared) then
                         add
                             "TypeParameterNotDeclared"
-                            $"Function '{StableId.value functionEntity.Id}' uses type parameter '{name}' that none of its parameter types introduces."
+                            $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} uses type parameter '{name}' that none of its parameter types introduces."
 
         for functionEntity in snapshot.Functions do
             functionEntity.RequiredEffects
@@ -512,18 +517,18 @@ module SnapshotValidator =
             |> List.iter (fun (effectId, _) ->
                 add
                     "DuplicateFunctionEffectRequirement"
-                    $"Function '{StableId.value functionEntity.Id}' lists effect '{StableId.value effectId}' more than once.")
+                    $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} lists effect {effectLabel effectId} more than once.")
 
             for effectId in functionEntity.RequiredEffects do
                 if not (Set.contains effectId effectIds) then
                     add
                         "UnknownFunctionEffectRequirement"
-                        $"Function '{StableId.value functionEntity.Id}' requires unknown effect '{StableId.value effectId}'."
+                        $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} requires unknown effect {effectLabel effectId}."
 
-            validateTypeRef $"Function '{StableId.value functionEntity.Id}' result" functionEntity.ResultType
+            validateTypeRef $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} result" functionEntity.ResultType
             functionEntity.Parameters
             |> List.iter (fun parameter ->
-                validateTypeRef $"Parameter '{StableId.value parameter.Id}'" parameter.Type)
+                validateTypeRef $"Parameter {StableId.describe parameter.DisplayName parameter.Id}" parameter.Type)
             SemanticFacts.collectPatternBindings functionEntity.Body
             |> List.iter (fun binding ->
                 validateTypeRef $"Pattern binding '{StableId.value binding.Id}'" binding.Type)
@@ -553,7 +558,7 @@ module SnapshotValidator =
             for node in allNodes do
                 for dependency in SemanticFacts.directValueDependencies node do
                     if completion dependency = Some GraphCompletion.Aborts then
-                        add "AbortValueUse" $"Node '{StableId.value node.Id}' uses abrupt node '{StableId.value dependency}' as a value in function '{StableId.value functionEntity.Id}'."
+                        add "AbortValueUse" $"Node '{StableId.value node.Id}' uses abrupt node '{StableId.value dependency}' as a value in function {StableId.describe functionEntity.DisplayName functionEntity.Id}."
 
             let requireNodeType code message expectedType nodeId =
                 match nodeType nodeId with
@@ -713,7 +718,7 @@ module SnapshotValidator =
                     | Some field, Some valueType when field.Type <> valueType ->
                         add
                             "FieldValueTypeMismatch"
-                            $"{context} binds a value with the wrong type to field '{StableId.value field.Id}'."
+                            $"{context} binds a value with the wrong type to field {StableId.describe field.DisplayName field.Id}."
                     | Some _, Some _
                     | Some _, None
                     | None, _ -> ()
@@ -962,7 +967,7 @@ module SnapshotValidator =
                                     if not (Set.contains effectId requiredEffects) then
                                         add
                                             "MissingEffectRequirement"
-                                            $"Function '{StableId.value functionEntity.Id}' folds with '{StableId.value folder.Id}' but does not declare required effect '{StableId.value effectId}'."
+                                            $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} folds with {StableId.describe folder.DisplayName folder.Id} but does not declare required effect {effectLabel effectId}."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListEffectFold requires List<T> input."
                         | _ -> ()
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
@@ -988,7 +993,7 @@ module SnapshotValidator =
                                 if not (Set.contains effectId requiredEffects) then
                                     add
                                         "MissingEffectRequirement"
-                                        $"Function '{StableId.value functionEntity.Id}' uses a resource requiring effect '{StableId.value effectId}' that it does not declare."
+                                        $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} uses a resource requiring effect {effectLabel effectId} that it does not declare."
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])), None, _ ->
                             add "UnknownCallTarget" $"UseResource node '{StableId.value node.Id}' references an unknown body function."
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])), _, None ->
@@ -1012,7 +1017,7 @@ module SnapshotValidator =
                             | _ -> add "TaskScopeResultMismatch" $"TaskScope node '{StableId.value node.Id}' body must return Result<T, E>."
                             for effectId in body.RequiredEffects do
                                 if not (Set.contains effectId requiredEffects) then
-                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' runs task scope body '{StableId.value body.Id}' but does not declare required effect '{StableId.value effectId}'."
+                                    add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} runs task scope body {StableId.describe body.DisplayName body.Id} but does not declare required effect {effectLabel effectId}."
                     | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
                         match nodeType scopeNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])) | None -> ()
@@ -1032,7 +1037,7 @@ module SnapshotValidator =
                                 | _ -> add "ListCallbackResultTypeMismatch" $"TaskStart node '{StableId.value node.Id}' worker must return Result<U, E>."
                             for effectId in worker.RequiredEffects do
                                 if not (Set.contains effectId requiredEffects) then
-                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' starts '{StableId.value worker.Id}' as a task but does not declare required effect '{StableId.value effectId}'."
+                                    add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} starts {StableId.describe worker.DisplayName worker.Id} as a task but does not declare required effect {effectLabel effectId}."
                         | _, None -> add "UnknownListCallbackFunction" $"TaskStart node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
                     | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) ->
@@ -1065,7 +1070,7 @@ module SnapshotValidator =
                                 | _ -> add "ListCallbackResultTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' worker must return Result<U, E>."
                             for effectId in worker.RequiredEffects do
                                 if not (Set.contains effectId requiredEffects) then
-                                    add "MissingEffectRequirement" $"Function '{StableId.value functionEntity.Id}' runs '{StableId.value worker.Id}' in parallel but does not declare required effect '{StableId.value effectId}'."
+                                    add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} runs {StableId.describe worker.DisplayName worker.Id} in parallel but does not declare required effect {effectLabel effectId}."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ParallelAll requires List<T> input."
                         | _, None -> add "UnknownListCallbackFunction" $"ParallelAll node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
@@ -1144,13 +1149,13 @@ module SnapshotValidator =
                                 if not hasBinding && not hasOpenObligation then
                                     add
                                         "MissingArgument"
-                                        $"Call node '{StableId.value node.Id}' has no binding or open obligation for parameter '{StableId.value parameter.Id}'."
+                                        $"Call node '{StableId.value node.Id}' has no binding or open obligation for parameter {StableId.describe parameter.DisplayName parameter.Id}."
 
                             for effectId in targetFunction.RequiredEffects do
                                 if not (Set.contains effectId requiredEffects) then
                                     add
                                         "MissingEffectRequirement"
-                                        $"Function '{StableId.value functionEntity.Id}' calls '{StableId.value targetFunction.Id}' but does not declare required effect '{StableId.value effectId}'."
+                                        $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} calls {StableId.describe targetFunction.DisplayName targetFunction.Id} but does not declare required effect {effectLabel effectId}."
                     | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, operationId, arguments) ->
                         match Map.tryFind operationId capabilityOperationsById with
                         | None ->
@@ -1195,7 +1200,7 @@ module SnapshotValidator =
                                 | Some parameter, Some valueType when parameter.Type <> valueType ->
                                     add
                                         "CapabilityArgumentTypeMismatch"
-                                        $"Capability-invoke node '{StableId.value node.Id}' binds a value with the wrong type to capability parameter '{StableId.value parameter.Id}'."
+                                        $"Capability-invoke node '{StableId.value node.Id}' binds a value with the wrong type to capability parameter {StableId.describe parameter.DisplayName parameter.Id}."
                                 | Some _, Some _
                                 | Some _, None
                                 | None, _ -> ()
@@ -1203,7 +1208,7 @@ module SnapshotValidator =
                             if not (Set.contains operation.EffectId requiredEffects) then
                                 add
                                     "MissingEffectRequirement"
-                                    $"Function '{StableId.value functionEntity.Id}' invokes capability operation '{StableId.value operation.Id}' but does not declare required effect '{StableId.value operation.EffectId}'."
+                                    $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} invokes capability operation {StableId.describe operation.DisplayName operation.Id} but does not declare required effect {effectLabel operation.EffectId}."
                     | SemanticNodeKind.ProductConstruct(typeId, fields) ->
                         match Map.tryFind typeId typesById with
                         | Some { Kind = SemanticTypeKind.Product expectedFields } ->
@@ -1242,13 +1247,13 @@ module SnapshotValidator =
                         validateTypeRef $"Option.None node '{StableId.value node.Id}'" itemType
                     | SemanticNodeKind.Abort errorNodeId ->
                         if node.Id <> graph.ResultNodeId then
-                            add "AbortNotGraphResult" $"Abort node '{StableId.value node.Id}' in function '{StableId.value functionEntity.Id}' must be its graph result."
+                            add "AbortNotGraphResult" $"Abort node '{StableId.value node.Id}' in function {StableId.describe functionEntity.DisplayName functionEntity.Id} must be its graph result."
                         match functionEntity.ResultType with
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) ->
                             requireNodeType "AbortPayloadTypeMismatch"
-                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {errorType} of function '{StableId.value functionEntity.Id}'."
+                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {errorType} of function {StableId.describe functionEntity.DisplayName functionEntity.Id}."
                                 errorType errorNodeId
-                        | _ -> add "AbortOwnerResultTypeMismatch" $"Abort node '{StableId.value node.Id}' requires function '{StableId.value functionEntity.Id}' to return Result<T, E>."
+                        | _ -> add "AbortOwnerResultTypeMismatch" $"Abort node '{StableId.value node.Id}' requires function {StableId.describe functionEntity.DisplayName functionEntity.Id} to return Result<T, E>."
                     | SemanticNodeKind.OptionSome _ -> ()
                     | SemanticNodeKind.ResultOk(errorType, _) ->
                         validateTypeRef $"Result.Ok node '{StableId.value node.Id}' error type" errorType
@@ -1464,26 +1469,26 @@ module SnapshotValidator =
             validateGraph
                 Set.empty
                 Set.empty
-                $"Function '{StableId.value functionEntity.Id}' body"
+                $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} body"
                 functionEntity.Body
 
             match nodeType functionEntity.Body.ResultNodeId with
             | Some resultType when resultType <> functionEntity.ResultType ->
                 add
                     "FunctionResultTypeMismatch"
-                    $"Function '{StableId.value functionEntity.Id}' result node type does not match its declared result type."
+                    $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} result node type does not match its declared result type."
             | Some _
             | None -> ()
 
             match GraphOrder.tryAbortOrderConflict functionsById functionEntity with
             | Some(first, second) ->
-                add "AmbiguousEffectOrder" $"Function '{StableId.value functionEntity.Id}' has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow."
+                add "AmbiguousEffectOrder" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow."
             | None -> ()
 
             if hasDependencyCycle nodesById then
                 add
                     "GraphNodeDependencyCycle"
-                    $"Function '{StableId.value functionEntity.Id}' contains a cycle between value-producing graph nodes."
+                    $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} contains a cycle between value-producing graph nodes."
 
         for obligation in snapshot.Obligations do
             match Map.tryFind obligation.CallNodeId nodeOwners with

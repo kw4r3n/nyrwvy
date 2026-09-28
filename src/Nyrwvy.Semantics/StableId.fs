@@ -58,3 +58,7 @@ module StableId =
         | Error error -> invalidArg (nameof value) $"Invalid fixture stable ID: {error}."
 
     let value (StableId value) = value
+
+    /// Diagnostic wording for a declaration: its display name, then its stable ID, e.g. `'task' (01a0e628-…)`,
+    /// so name-resolved (`…ByName`) clients can read a message without an ID→name map.
+    let describe (displayName: string) (StableId value) = $"'{displayName}' ({value})"

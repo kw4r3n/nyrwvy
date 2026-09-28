@@ -367,6 +367,9 @@ module TaskScopeTests =
                         | _ -> typeEntity) }
             Assert.DoesNotContain(SnapshotValidator.validate (withField taskType), fun issue -> issue.Code = "TaskTypeInDeclaredType")
             Assert.Contains(SnapshotValidator.validate (withField scopeType), fun issue -> issue.Code = "TaskTypeInDeclaredType")
+            // The message names the field by display name and ID, for name-resolved clients.
+            let scopeIssue = SnapshotValidator.validate (withField scopeType) |> List.find (fun issue -> issue.Code = "TaskTypeInDeclaredType")
+            Assert.Contains($"Field 'name' ({StableId.value nameFieldId}) uses TaskScope", scopeIssue.Message)
             // The Action type now holds a Task, so the leader's `next` operation that returns it is rejected too.
             Assert.Contains(SnapshotValidator.validate (withField taskType), fun issue -> issue.Code = "TaskTypeAtCapabilityBoundary")
             // JSONL recipes name the wait mode.

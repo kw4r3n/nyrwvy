@@ -223,6 +223,11 @@ module AgentExpressionCapabilityTests =
         let onlyIo = createSnapshot [ ioEffectId ]
         let invocation = invoke receiver arguments
         assertRejected noEffects "ExpressionCapabilityMissingEffectRequirement" invocation
+        // The diagnostic names the operation and effect by display name next to their IDs.
+        match AgentExpressionStructuralWorkflow.simulate (workspace noEffects) (request noEffects invocation) with
+        | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Contains($"operation 'format' ({StableId.value operationId}) requires effect 'IO' ({StableId.value ioEffectId})", diagnostic.Message)
+        | other -> failwithf "Expected a rejection, got %A" other
         assertRejected noEffects "ExpressionCapabilityMissingEffectRequirement"
             (ExpressionRecipe.Conditional(ExpressionRecipe.BoolLiteral false, invocation, ExpressionRecipe.StringLiteral "none"))
         assertRejected onlyIo "ExpressionCallMissingEffectRequirement" (invoke suppliedReceiver arguments)
