@@ -316,6 +316,10 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.ListLength listValueId ->
             [ property "kind" (quote "listLength")
               property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
+            [ property "kind" (quote "listItemAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId) ]
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             [ property "kind" (quote "listAppendItem")
               property "listValueId" (executionValueIdValue listValueId)

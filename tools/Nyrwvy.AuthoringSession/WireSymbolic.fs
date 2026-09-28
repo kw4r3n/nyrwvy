@@ -298,6 +298,12 @@ module internal WireSymbolic =
                 array "items" element |> List.map (recipe declarations parameterContext)
             )
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
+        | "listItemAt" ->
+            ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListItemAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element)
+            )
         | "listAppendItem" ->
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
             ExpressionRecipe.ListAppendItem(

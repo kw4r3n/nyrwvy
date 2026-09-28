@@ -111,6 +111,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -328,6 +329,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListLength listNodeId)
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
+                    | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->

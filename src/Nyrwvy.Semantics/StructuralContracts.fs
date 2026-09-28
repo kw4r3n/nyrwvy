@@ -13,6 +13,7 @@ type ValueDependencyRole =
     | Item
     | TaskScope
     | Limit
+    | Index
     | ListItem of int
     | FunctionValue
     | FunctionArgument of int
@@ -116,6 +117,9 @@ module ValueDependency =
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.ListItemAt(sourceNodeId, indexNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index indexNodeId ]
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->

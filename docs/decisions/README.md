@@ -16,6 +16,7 @@ This area records durable rationale for Nyrwvy's current direction. Decision rec
 - [Staged declaration authoring](declaration-authoring.md) — accepted roadmap beginning with atomic function creation and explicit existing-effect requirement edits before type/effect/capability declaration stages.
 - [Concurrency control beyond `ParallelAll`](concurrency-control.md) — accepted direction for a structured task scope with individually started, waited and cancelled tasks, a `TaskWait` time limit with a virtual clock in `runPure`, and the shared-capability guarantee; phases 1 (scope, start, wait, cancel) and 2 (time limits with a virtual clock) implemented.
 - [Bool operators, and deferring Map](bool-operators-and-map.md) — accepted dedicated short-circuit `BoolAnd`/`BoolOr` and `BoolNot` with checkable conditional expansions; Map, Set and Bool equality deferred with revisit conditions.
+- [Task fields, list indexing, and Map revisited](task-fields-list-indexing-and-map.md) — accepted `Task<T>` fields in declared types (not `TaskScope`) with a transitive capability and `runPure` boundary rule, and `ListItemAt(list, index): Option<T>`; Map revisited and still deferred with a new revisit condition.
 - [Expression recipe bounds](expression-recipe-bounds.md) — accepted 256-node limit for ordinary expression authoring (the M2 bounded Float64 workflow keeps 64) and node-limit diagnostics that report the count and the largest extractable subtrees.
 - [Open questions](open-questions.md) — bounded uncertainties that remain open, partial, or intentionally deferred.
 

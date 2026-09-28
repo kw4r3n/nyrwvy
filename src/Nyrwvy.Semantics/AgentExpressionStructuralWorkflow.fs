@@ -54,6 +54,7 @@ type ExpressionRecipe =
     | ListConstruct of itemType: TypeRef * items: ExpressionRecipe list
     | ListLength of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
+    | ListItemAt of list: ExpressionRecipe * index: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -172,6 +173,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
         | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
+        | ExpressionRecipe.ListItemAt(list, index) -> ExpressionRecipe.ListItemAt(go list, go index)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -308,6 +310,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64Equal(left, right)
         | ExpressionRecipe.Float64LessThan(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
+        | ExpressionRecipe.ListItemAt(left, right)
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
@@ -770,6 +773,17 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType actual with
                     | Some _ -> Ok int64Type
                     | None -> Error(listMismatch "ListLength" "value" actual)
+            | ExpressionRecipe.ListItemAt(list, index) ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok listResultType ->
+                    match listItemType listResultType with
+                    | None -> Error(listMismatch "ListItemAt" "list" listResultType)
+                    | Some itemType ->
+                        match infer frames index with
+                        | Error error -> Error error
+                        | Ok actual when actual <> int64Type -> Error(typeMismatch "ListItemAt" "index" int64Type actual)
+                        | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
             | ExpressionRecipe.ListAppendItem(list, item) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1432,6 +1446,7 @@ module AgentExpressionStructuralWorkflow =
             itemNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListConstruct(itemType, itemResults) } ], nodeId
         | ExpressionRecipe.ListLength list -> unary SemanticNodeKind.ListLength list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
+        | ExpressionRecipe.ListItemAt(list, index) -> binary SemanticNodeKind.ListItemAt list index
         | ExpressionRecipe.ListConcat(left, right) -> binary SemanticNodeKind.ListConcat left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source

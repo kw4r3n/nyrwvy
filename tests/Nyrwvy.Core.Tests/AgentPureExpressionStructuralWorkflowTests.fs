@@ -545,6 +545,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListConstruct"
               "ListLength"
               "ListAppendItem"
+              "ListItemAt"
               "ListConcat"
               "ListFold"
               "ParallelAll"

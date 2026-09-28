@@ -386,6 +386,10 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
             writer.WriteString("listNodeId", StableId.value listNodeId)
+        | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+            writer.WriteString("kind", "listItemAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             writer.WriteString("kind", "listAppendItem")
             writer.WriteString("listNodeId", StableId.value listNodeId)

@@ -871,6 +871,8 @@ module PureRun =
         | None -> Error(diagnostic "RunFunctionNotFound" "The entry function does not exist.")
         | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
             Error(diagnostic "RunGenericEntryUnsupported" "A generic function cannot be an entry point; run a concrete function that calls it.")
+        | Some fn when fn.ResultType :: (fn.Parameters |> List.map (fun parameter -> parameter.Type)) |> List.exists (TaskTypes.bearing declarations.Types) ->
+            Error(diagnostic "RunTaskTypeUnsupported" "Task and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.")
         | Some fn when fn.Parameters.Length <> arguments.Length ->
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->

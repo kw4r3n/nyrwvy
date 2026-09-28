@@ -114,6 +114,9 @@ module internal WireRecipe =
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
             ExpressionRecipe.ListAppendItem(recipe (property "list" element), recipe (property "item" element))
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
+        | "listItemAt" ->
+            ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())

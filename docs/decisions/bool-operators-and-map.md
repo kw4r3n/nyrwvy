@@ -40,5 +40,5 @@ Evidence for the cost is small but consistent: the verification planner's `requi
 
 ## Revisit conditions
 
-- **Map:** a second consumer needs keyed lookup or replace-or-append, or measured fold cost matters. The smallest candidate is a Map with String or Int64 keys, which needs no new equality contract.
+- **Map:** a second consumer needs keyed lookup or replace-or-append, or measured fold cost matters. The smallest candidate is a Map with String or Int64 keys, which needs no new equality contract. This condition was met on 2026-09-28; the revisit, which keeps Map deferred with a new condition, is recorded in [task fields, list indexing, and Map revisited](task-fields-list-indexing-and-map.md).
 - **Bool equality:** a real program needs it beyond what `BoolNot` and a conditional express readably.
