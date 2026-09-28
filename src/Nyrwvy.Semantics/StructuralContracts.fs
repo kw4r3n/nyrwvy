@@ -53,6 +53,7 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
@@ -86,6 +87,7 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
             create ValueDependencyRole.Source sourceNodeId

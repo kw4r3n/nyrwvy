@@ -218,6 +218,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Ordinal String ordering: true when the left String sorts strictly before the right one,
+    /// comparing Unicode code points lexicographically (a proper prefix sorts first). Scalar values
+    /// above U+FFFF sort after every BMP code point, unlike UTF-16 code-unit order. Never fails.
+    | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// Structural equality of two values of one equatable type (see `EquatableTypes`): the same
     /// variant with pairwise equal fields, lists by length and item by item in order. Never fails.
     | ValueEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -278,6 +282,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    /// The source items in a stable order under a pure `(T, T) -> Bool` "less than" callback whose
+    /// two unbound parameters receive (left, right). The result is fixed by a top-down merge sort:
+    /// split at length / 2, sort both halves, and merge taking the right head only when
+    /// lessThan(rightHead, leftHead) holds. A consistent strict order gives the stable sort; any
+    /// other callback still yields a deterministic permutation of the source. Never fails.
+    | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: ArgumentBinding list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
@@ -368,6 +378,7 @@ module ValueGraph =
                     collectNodes okArm.Body @ collectNodes errArm.Body
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
@@ -419,6 +430,7 @@ module ValueGraph =
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityConstruct _
@@ -469,6 +481,7 @@ module ValueGraph =
                     SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
@@ -520,6 +533,7 @@ module ValueGraph =
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityConstruct _

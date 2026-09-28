@@ -42,6 +42,7 @@ ExpressionRecipe =
   | StringIsEmpty(expr)
   | StringContains(value, substring)
   | StringEqual(left, right)
+  | StringLessThan(left, right)
   | ValueEqual(left, right)
   | StringConcat(left, right)
   | Int64ToString(expr)
@@ -76,6 +77,7 @@ ExpressionRecipe =
   | ListFold(source, seed, folderFunctionId, context)
   | ListMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId)
+  | ListSortBy(source, lessThanFunctionId)
   | ListAny(source, predicateFunctionId)
   | ListAll(source, predicateFunctionId)
   | ProductConstruct(typeId, fieldBindings)
@@ -244,13 +246,14 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListFilter`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
 - `ListFold(source, seed, f)` requires a pure binary `f : (S, T) -> S` where `seed : S`; it returns `S`, traverses left to right, and returns the seed for an empty source;
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
+- `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionListCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionListCallbackInputTypeMismatch`, a non-Bool result `PureExpressionListCallbackResultTypeMismatch`, and required effects `PureExpressionListCallbackEffectsNotAllowed`; persisted graphs report `ListCallbackArityMismatch`, `ListCallbackParameterTypeMismatch`, `ListPredicateResultTypeMismatch` and `ListCallbackEffectsNotAllowed`;
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
@@ -298,6 +301,10 @@ Preflight requires no duplicate fields, the exact declaration field set, and exa
 `ResultOk(E, value)` derives the success type from `value` and produces `Result<T,E>`. `ResultErr(T, error)` derives the error type from `error` and produces `Result<T,E>`.
 
 These cases add no implicit conversion and no special failure semantics; they materialize the existing semantic constructors.
+
+## StringLessThan
+
+`StringLessThan(left, right)` (wire `stringLessThan`, Nyason `string-less-than`) takes two Strings and produces Bool: whether `left` sorts strictly before `right` in ordinal code-point order, as defined in the [language subset](../reference/language-subset.md). An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. There is no three-way `StringCompare`: sort callbacks and conditions need a Bool, and `StringEqual` plus `StringLessThan` express every other comparison.
 
 ## ValueEqual
 

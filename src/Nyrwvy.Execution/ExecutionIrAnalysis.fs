@@ -37,6 +37,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
@@ -64,6 +65,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListSortBy(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
@@ -120,6 +122,7 @@ module internal ExecutionIrAnalysis =
                 graphFreeReferences okArm.Body @ graphFreeReferences errArm.Body
             | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
+            | TypedSemanticNodeKind.StringLessThan _
             | TypedSemanticNodeKind.ValueEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _
@@ -171,6 +174,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
+            | TypedSemanticNodeKind.ListSortBy _
             | TypedSemanticNodeKind.ListAny _
             | TypedSemanticNodeKind.ListAll _
             | TypedSemanticNodeKind.CapabilityConstruct _
@@ -258,6 +262,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolNot _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
+        | TypedSemanticNodeKind.StringLessThan _
         | TypedSemanticNodeKind.ValueEqual _
         | TypedSemanticNodeKind.StringConcat _
         | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -288,6 +293,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.ListFilter _
+        | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.ListAny _
         | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.ProductConstruct _
@@ -345,6 +351,7 @@ module internal ExecutionIrAnalysis =
                 | _, Error error -> Error error
             | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
+            | TypedSemanticNodeKind.StringLessThan _
             | TypedSemanticNodeKind.ValueEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _
@@ -396,6 +403,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.TaskCancel _
             | TypedSemanticNodeKind.ListMap _
             | TypedSemanticNodeKind.ListFilter _
+            | TypedSemanticNodeKind.ListSortBy _
             | TypedSemanticNodeKind.ListAny _
             | TypedSemanticNodeKind.ListAll _
             | TypedSemanticNodeKind.CapabilityConstruct _

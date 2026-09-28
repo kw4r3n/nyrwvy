@@ -409,6 +409,8 @@ module SnapshotCodec =
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "stringLessThan" leftNodeId rightNodeId
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "valueEqual" leftNodeId rightNodeId
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -532,6 +534,8 @@ module SnapshotCodec =
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
@@ -1047,6 +1051,8 @@ module SnapshotCodec =
                 SemanticNodeKind.StringContains(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "substringNodeId" element)
             | "stringEqual" ->
                 readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
+            | "stringLessThan" ->
+                readBinaryNode "StringLessThan node" element (fun left right -> SemanticNodeKind.StringLessThan(left, right))
             | "valueEqual" ->
                 readBinaryNode "ValueEqual node" element (fun left right -> SemanticNodeKind.ValueEqual(left, right))
             | "stringConcat" ->
@@ -1187,6 +1193,9 @@ module SnapshotCodec =
             | "listFilter" ->
                 readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListFilter(source, callback, context))
+            | "listSortBy" ->
+                readListCallbackNode "ListSortBy node" "lessThanFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListSortBy(source, callback, context))
             | "listAny" ->
                 readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAny(source, callback, context))

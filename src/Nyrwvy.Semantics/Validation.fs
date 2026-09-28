@@ -12,6 +12,7 @@ module SnapshotValidator =
     let private nodeDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ParameterReference _
@@ -55,6 +56,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
@@ -104,6 +106,7 @@ module SnapshotValidator =
     let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
@@ -138,6 +141,7 @@ module SnapshotValidator =
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
@@ -690,6 +694,60 @@ module SnapshotValidator =
                             "ListPredicateResultTypeMismatch"
                             $"Higher-order List node '{StableId.value nodeId}' predicate callback must return Bool."
 
+            /// ListSortBy's callback: exactly two parameters not bound by context, both receiving
+            /// source items (left, right), returning Bool, with no required effects.
+            let validateLessThanCallback
+                (nodeId: GraphNodeId)
+                (sourceListNodeId: GraphNodeId)
+                (callbackFunctionId: FunctionId)
+                (context: ArgumentBinding list)
+                =
+                let sourceItemType =
+                    match nodeType sourceListNodeId with
+                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) -> Some itemType
+                    | Some _ ->
+                        add
+                            "ListHigherOrderSourceTypeMismatch"
+                            $"ListSortBy node '{StableId.value nodeId}' requires List<T> input."
+                        None
+                    | None -> None
+
+                match Map.tryFind callbackFunctionId functionsById with
+                | None ->
+                    add
+                        "UnknownListCallbackFunction"
+                        $"ListSortBy node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
+                | Some callback ->
+                    let unbound, contextSubstitution = validateCallbackContext nodeId callback context
+                    let mutable substitution = contextSubstitution
+                    if unbound.Length <> 2 then
+                        add
+                            "ListCallbackArityMismatch"
+                            $"ListSortBy node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly two parameters not bound by context (left, right)."
+                    else
+                        match sourceItemType with
+                        | Some itemType ->
+                            match
+                                TypeParameters.matchType substitution unbound.Head.Type itemType
+                                |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                            with
+                            | Some extended -> substitution <- extended
+                            | None ->
+                                add
+                                    "ListCallbackParameterTypeMismatch"
+                                    $"ListSortBy node '{StableId.value nodeId}' callback parameter types must both match the source list item type."
+                        | None -> ()
+
+                    if not (List.isEmpty callback.RequiredEffects) then
+                        add
+                            "ListCallbackEffectsNotAllowed"
+                            $"ListSortBy node '{StableId.value nodeId}' requires a pure callback with no required effects."
+
+                    if TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
+                        add
+                            "ListPredicateResultTypeMismatch"
+                            $"ListSortBy node '{StableId.value nodeId}' less-than callback must return Bool."
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -820,6 +878,10 @@ module SnapshotValidator =
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
+                            node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+                        requireBinaryOperands
+                            "StringIntrinsicTypeMismatch" "StringLessThan" (TypeRef.Primitive PrimitiveType.String)
                             node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
                         match nodeType leftNodeId, nodeType rightNodeId with
@@ -1090,6 +1152,8 @@ module SnapshotValidator =
                         | None, _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
+                    | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+                        validateLessThanCallback node.Id sourceListNodeId lessThanFunctionId context
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
@@ -1568,6 +1632,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
@@ -1606,6 +1671,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _

@@ -83,6 +83,7 @@ module internal WireRecipe =
             ensureFields "string-contains recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringContains(recipe (property "value" element), recipe (property "substring" element))
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
+        | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
         | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual
         | "stringConcat" -> binary "string-concat recipe" ExpressionRecipe.StringConcat
         | "int64WrappingAdd" -> binary "int64-wrapping-add recipe" ExpressionRecipe.Int64WrappingAdd
@@ -151,6 +152,7 @@ module internal WireRecipe =
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe (property "task" element))
         | "listMap"
+        | "listSortBy"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
@@ -161,6 +163,7 @@ module internal WireRecipe =
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, functionId, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
+            | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)
         | "productConstruct" ->

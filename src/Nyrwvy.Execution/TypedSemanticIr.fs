@@ -87,6 +87,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | ValueEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -125,6 +126,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     /// Construct a stateless capability using named pure functions, one per operation.
@@ -282,6 +284,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId))
                     | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId))
                     | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -355,6 +359,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, projectContext context))
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->

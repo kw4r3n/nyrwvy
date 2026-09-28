@@ -289,6 +289,8 @@ module ExecutionIr =
                             | _, Error error -> Error error
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringEqual(left, right))
+                        | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringLessThan(left, right))
                         | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.ValueEqual(left, right))
                         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -402,6 +404,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListFilter(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListSortBy(source, callback, lowered))
                         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAny(source, callback, lowered))
@@ -690,6 +695,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.BoolNot _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
+                        | TypedSemanticNodeKind.StringLessThan _
                         | TypedSemanticNodeKind.ValueEqual _
                         | TypedSemanticNodeKind.StringConcat _
                         | TypedSemanticNodeKind.Int64WrappingAdd _
@@ -728,6 +734,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.TaskCancel _
                         | TypedSemanticNodeKind.ListMap _
                         | TypedSemanticNodeKind.ListFilter _
+                        | TypedSemanticNodeKind.ListSortBy _
                         | TypedSemanticNodeKind.ListAny _
                         | TypedSemanticNodeKind.ListAll _
                         | TypedSemanticNodeKind.CapabilityConstruct _

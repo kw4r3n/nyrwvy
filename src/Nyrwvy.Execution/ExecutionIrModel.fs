@@ -90,6 +90,8 @@ type ExecutionInstructionKind =
     | StringSlice of valueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
+    /// Ordinal code-point ordering of two Strings: left sorts strictly before right.
+    | StringLessThan of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Structural equality of two values of one equatable type.
     | ValueEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     | StringConcat of leftId: ExecutionValueId * rightId: ExecutionValueId
@@ -130,6 +132,8 @@ type ExecutionInstructionKind =
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    /// Stable top-down merge sort under a pure less-than callback (see SemanticNodeKind.ListSortBy).
+    | ListSortBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Construct a stateless capability using named pure functions, one per operation.

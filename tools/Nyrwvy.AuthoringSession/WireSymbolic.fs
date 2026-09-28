@@ -268,6 +268,7 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "substring" element)
             )
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
+        | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
         | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual
         | "stringConcat" -> binary "string-concat recipe" ExpressionRecipe.StringConcat
         | "int64WrappingAdd" -> binary "int64-wrapping-add recipe" ExpressionRecipe.Int64WrappingAdd
@@ -374,6 +375,7 @@ module internal WireSymbolic =
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
         | "listMap"
+        | "listSortBy"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
@@ -384,6 +386,7 @@ module internal WireSymbolic =
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
+            | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->

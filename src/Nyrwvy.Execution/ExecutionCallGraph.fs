@@ -18,6 +18,7 @@ module ExecutionCallGraph =
         | ExecutionInstructionKind.TaskStart(_, functionId, _, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
+        | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
         | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ functionId ]
         | _ -> []

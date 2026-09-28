@@ -483,6 +483,8 @@ module NyasonCodec =
                   "substring", encodeId "node" substringNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             encodeBinaryNode "string-equal" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "string-less-than" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
             encodeBinaryNode "value-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
@@ -593,6 +595,8 @@ module NyasonCodec =
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
+            encodeListCallbackNode "list-sort-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
@@ -824,6 +828,8 @@ module NyasonCodec =
                 ) }
         | NyasonValue.Record("string-equal", _) ->
             decodeBinaryNode "string-equal" value (fun left right -> SemanticNodeKind.StringEqual(left, right))
+        | NyasonValue.Record("string-less-than", _) ->
+            decodeBinaryNode "string-less-than" value (fun left right -> SemanticNodeKind.StringLessThan(left, right))
         | NyasonValue.Record("value-equal", _) ->
             decodeBinaryNode "value-equal" value (fun left right -> SemanticNodeKind.ValueEqual(left, right))
         | NyasonValue.Record("string-concat", _) ->
@@ -961,6 +967,8 @@ module NyasonCodec =
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->
             decodeListCallbackNode "list-filter" value (fun source callback context -> SemanticNodeKind.ListFilter(source, callback, context))
+        | NyasonValue.Record("list-sort-by", _) ->
+            decodeListCallbackNode "list-sort-by" value (fun source callback context -> SemanticNodeKind.ListSortBy(source, callback, context))
         | NyasonValue.Record("list-any", _) ->
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-all", _) ->

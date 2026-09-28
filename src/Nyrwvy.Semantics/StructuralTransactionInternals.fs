@@ -94,6 +94,7 @@ module internal StructuralTransactionInternals =
         | SemanticNodeKind.TaskStart(_, functionId, _, _)
         | SemanticNodeKind.ListMap(_, functionId, _)
         | SemanticNodeKind.ListFilter(_, functionId, _)
+        | SemanticNodeKind.ListSortBy(_, functionId, _)
         | SemanticNodeKind.ListAny(_, functionId, _)
         | SemanticNodeKind.ListAll(_, functionId, _) -> None, Some functionId, None
         | _ -> None, None, None

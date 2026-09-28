@@ -10,6 +10,7 @@ module SemanticFacts =
     let directValueDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
@@ -44,6 +45,7 @@ module SemanticFacts =
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
@@ -149,6 +151,7 @@ module SemanticFacts =
             | SemanticNodeKind.BoolNot _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
+            | SemanticNodeKind.StringLessThan _
             | SemanticNodeKind.ValueEqual _
             | SemanticNodeKind.StringConcat _
             | SemanticNodeKind.Int64WrappingAdd _
@@ -187,6 +190,7 @@ module SemanticFacts =
             | SemanticNodeKind.TaskCancel _
             | SemanticNodeKind.ListMap _
             | SemanticNodeKind.ListFilter _
+            | SemanticNodeKind.ListSortBy _
             | SemanticNodeKind.ListAny _
             | SemanticNodeKind.ListAll _
             | SemanticNodeKind.CapabilityConstruct _
@@ -359,6 +363,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
+                    | SemanticNodeKind.StringLessThan _
                     | SemanticNodeKind.ValueEqual _
                     | SemanticNodeKind.Int64Equal _
                     | SemanticNodeKind.Int64LessThan _
@@ -383,7 +388,8 @@ module SemanticFacts =
                         | Some _
                         | None -> None
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
-                    | SemanticNodeKind.ListFilter(listNodeId, _, _) ->
+                    | SemanticNodeKind.ListFilter(listNodeId, _, _)
+                    | SemanticNodeKind.ListSortBy(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
