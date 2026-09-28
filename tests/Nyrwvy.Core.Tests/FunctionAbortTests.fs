@@ -191,6 +191,53 @@ module FunctionAbortTests =
             Assert.Equal(okText "continued", ordinary.Actual)
             Assert.Single ordinary.Calls |> ignore)
 
+    [<Fact>]
+    let ``a resource is acquired in the graph that releases it and by that node alone`` () =
+        withSession (fun session path ->
+            let effect, cap, op = io session
+            let capType = TypeRef.Capability cap.Id
+            let body = create session "body" [ "handle", textType ] (result textType) [] (ok (slot 0))
+            let scoped =
+                create session "scoped" [ "io", capType ] (result textType) [ effect.Id ]
+                    (ExpressionRecipe.UseResource(invoke (op "open") (slot 0) (str "resource"), slot 0, (op "release").Id, body.Id, []))
+            // Authoring places a branch's acquisition in that branch, so a scoped resource inside
+            // control flow already satisfies the rule.
+            create session "branched" [ "io", capType; "flag", boolType ] (result textType) [ effect.Id ]
+                (ExpressionRecipe.Conditional(slot 1,
+                    ExpressionRecipe.UseResource(invoke (op "open") (slot 0) (str "resource"), slot 0, (op "release").Id, body.Id, []),
+                    ExpressionRecipe.ResultErr(textType, str "skipped"))) |> ignore
+            let graph = snapshot path
+            Assert.Empty(SnapshotValidator.validate graph)
+            let codes fn = SnapshotValidator.validate { graph with Functions = [ body; fn ] } |> List.map (fun issue -> issue.Code)
+            let useNode = scoped.Body.Nodes |> List.find (fun node -> match node.Kind with SemanticNodeKind.UseResource _ -> true | _ -> false)
+            let acquireId = match useNode.Kind with SemanticNodeKind.UseResource(acquireId, _, _, _, _) -> acquireId | _ -> failwith "unreachable"
+            let acquire = scoped.Body.Nodes |> List.find (fun node -> node.Id = acquireId)
+            let rest = scoped.Body.Nodes |> List.filter (fun node -> node.Id <> acquireId && node.Id <> useNode.Id)
+            let withNodes nodes = { scoped with Body = { scoped.Body with Nodes = nodes } }
+            // One acquisition handed to two scopes would be released twice.
+            let twice = { useNode with Id = StableId.createForTesting<GraphNodeTag> "use-resource-twice" }
+            Assert.Equal<string list>([ "UseResourceAcquireShared"; "UseResourceAcquireShared" ], codes (withNodes (scoped.Body.Nodes @ [ twice ])))
+            // Any other consumer breaks the guarantee, in the same graph or in a branch.
+            let peek: SemanticNode = { Id = StableId.createForTesting<GraphNodeTag> "use-resource-peek"; Kind = SemanticNodeKind.ValueEqual(acquireId, acquireId) }
+            Assert.Equal<string list>([ "UseResourceAcquireShared" ], codes (withNodes (scoped.Body.Nodes @ [ peek ])))
+            let conditionId = StableId.createForTesting<GraphNodeTag> "use-resource-condition"
+            let branchId = StableId.createForTesting<GraphNodeTag> "use-resource-branch"
+            let errBranch suffix extra: ValueGraph =
+                let payloadId = StableId.createForTesting<GraphNodeTag> ("use-resource-payload-" + suffix)
+                let errId = StableId.createForTesting<GraphNodeTag> ("use-resource-err-" + suffix)
+                { Nodes = extra @ [ { Id = payloadId; Kind = SemanticNodeKind.StringLiteral "skipped" }; { Id = errId; Kind = SemanticNodeKind.ResultErr(textType, payloadId) } ]
+                  ResultNodeId = errId }
+            let branched outer (whenTrue: ValueGraph) =
+                { scoped with
+                    Body =
+                        { Nodes = outer @ [ { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral false }; { Id = branchId; Kind = SemanticNodeKind.Conditional(conditionId, whenTrue, errBranch "false" []) } ]
+                          ResultNodeId = branchId } }
+            Assert.Equal<string list>([ "UseResourceAcquireShared" ], codes (branched (rest @ [ acquire; useNode ]) (errBranch "peek" [ peek ])))
+            // An acquisition outside the branch that releases it happens even when the branch is not taken.
+            Assert.Equal<string list>([ "UseResourceAcquireOutOfGraph" ], codes (branched (rest @ [ acquire ]) { Nodes = [ useNode ]; ResultNodeId = useNode.Id }))
+            // Acquired inside the branch, it is released whenever it is acquired.
+            Assert.Equal<string list>([], codes (branched rest { Nodes = [ acquire; useNode ]; ResultNodeId = useNode.Id })))
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``abort releases acquired resources exactly once with typed and host failure precedence`` () =
         withSession (fun session _ ->

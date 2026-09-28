@@ -964,6 +964,21 @@ module SnapshotValidator =
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListEffectFold requires List<T> input."
                         | _ -> ()
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
+                        // Release is guaranteed only for a resource this node alone acquires: the
+                        // acquisition must be evaluated exactly when this node is, in the same graph,
+                        // and handed to no other node, so it is released once and never left behind
+                        // by an untaken branch. With effect ordering, any observable node ordered
+                        // between the acquisition and this node would have to consume it.
+                        if Map.containsKey acquireNodeId nodesById then
+                            if not (Set.contains acquireNodeId localNodeIds) then
+                                add
+                                    "UseResourceAcquireOutOfGraph"
+                                    $"UseResource node '{StableId.value node.Id}' acquires resource node '{StableId.value acquireNodeId}' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it."
+                            for other in allNodes do
+                                if other.Id <> node.Id && SemanticFacts.directValueDependencies other |> List.contains acquireNodeId then
+                                    add
+                                        "UseResourceAcquireShared"
+                                        $"UseResource node '{StableId.value node.Id}' must be the only consumer of resource node '{StableId.value acquireNodeId}', which node '{StableId.value other.Id}' also uses."
                         match nodeType acquireNodeId, Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])), Some body, Some(ownerCapabilityId, operation) ->
                             let unbound, contextSubstitution = validateCallbackContext node.Id body context
