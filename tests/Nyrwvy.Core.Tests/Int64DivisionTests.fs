@@ -88,7 +88,7 @@ module Int64DivisionTests =
             let named =
                 """{"kind":"int64FloorModulo","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}"""
             use namedProposal =
-                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"remainder","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" parameters int64 named)
+                send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"remainder","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" parameters int64 named)
             Assert.Contains("\"kind\":\"int64FloorModulo\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             let quotient = find session "quotient"

@@ -171,7 +171,7 @@ module CapabilityImplementationTests =
             let bindings = capability.Operations |> List.map (fun op ->
                 let target = find session (if op.DisplayName = "read" then "twenty" else "join")
                 $"""{{"operationId":"{StableId.value op.Id}","functionId":"{StableId.value target.Id}"}}""") |> String.concat ","
-            use replacement = send session ($"""{{"id":"edit","op":"simulateReplaceTarget","structuredReview":true,"functionId":"{StableId.value functionId}","targetNodeId":"{StableId.value nodeId}","replacement":{{"kind":"capabilityConstruct","capabilityId":"{StableId.value capability.Id}","implementations":[{bindings}]}}}}""")
+            use replacement = send session ($"""{{"id":"edit","op":"simulateReplaceTarget","structuredReview":true,"detail":"full","functionId":"{StableId.value functionId}","targetNodeId":"{StableId.value nodeId}","replacement":{{"kind":"capabilityConstruct","capabilityId":"{StableId.value capability.Id}","implementations":[{bindings}]}}}}""")
             Assert.Contains("implementations", replacement.RootElement.GetRawText())
             publish session replacement
             Assert.Equal(functionId, (find session "low").Id)

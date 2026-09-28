@@ -215,19 +215,22 @@ Successful responses include `calls`, in recorded invocation order (not worker c
 
 `proposalId` is the proposal transaction ID rendered as a stable-ID string. It is only a handle inside the live process and is not resumable across restart.
 
+### Simulate review detail
+
+Every `simulate*` request accepts optional `"detail": "compact" | "full"`; anything else is a `ProtocolError` before simulation. The default is `compact`. The reply is `{ "proposalId", "detail", "review" }`, and the two levels differ only in how a function body is rendered inside the review; the proposal, its validation and what `commit` publishes are identical, so a compact proposal commits exactly like a full one ([decision](../decisions/compact-simulate-replies.md)).
+
+- **compact** renders every function in the review (`createdFunction`, `proposedFunction`, the `function` of `baseFocus`/`proposedFocus`/`functionFocus` entries) as its identity, display name, parameters (IDs, display names, types), result type and `requiredEffects`, with `body: { "resultNodeId", "nodeCount" }` in place of the node list, and omits the per-node `nodeTypes` of a focus. Everything else is kept: the receipt (transaction, base and proposed snapshot IDs and fingerprints), readiness with blocking obligation IDs, the diff (added/removed node IDs or summaries, affected uses, call sites and body rewrites), `bodyEffectRequirements` with evidence, `aborts`, and a focus's `callers`, `callees` and `openObligations`. Type, effect and capability reviews contain no bodies and are the same at both levels.
+- **full** adds the per-node graph and `nodeTypes`. Nodes are rendered as before: `kind` as a debug string, or with `structuredReview: true` as the structured scoped graph of `readFunction`. `structuredReview` alone does not select `full`.
+
+After commit, `readFunction`/`focusFunction` return the published graph. `nodeCount` counts every node of the body, including those in nested branch, arm and Bind regions.
+
 ### Create-function review projection
 
-The Core function-creation proposal retains its full review model. The maintained JSON-lines projection is deliberately compact: a successful `simulateCreateFunction` review returns the proposal receipt/readiness and the complete proposed `createdFunction` (identity, signature, effects, and body). It does not repeat the same function body again through `materializedBody` or `proposedFocus`.
-
-This keeps nested ordinary authoring within practical tool-response bounds without changing semantic validation, proposal identity, or commit authority. After publication, `focusFunction` remains the detailed impact/query surface.
+The Core function-creation proposal retains its full review model. The JSON-lines review of `simulateCreateFunction` returns the receipt/readiness, `createdFunction`, `bodyEffectRequirements` and `aborts`. It does not repeat the body through `materializedBody` or `proposedFocus`; at `detail: "full"`, `createdFunction` carries the complete body.
 
 ### Replace-body review projection
 
-The Core whole-body replacement proposal retains its full review model. The maintained JSON-lines projection is deliberately compact because `simulateReplaceBody` already requires `expectedCurrentResultNodeId`, which callers obtain from the current function focus.
-
-A successful replacement review returns the proposal receipt/readiness, a compact structural diff (owner function, old/new result node IDs, and added/removed node IDs), and the complete `proposedFunction`. It does not repeat complete `baseFocus` and `proposedFocus` projections.
-
-This preserves exact pre-commit review of the proposed semantic function while avoiding duplicate nested bodies. `ReplaceTarget` keeps its existing review projection until a concrete workload demonstrates similar pressure.
+`simulateReplaceBody` already requires `expectedCurrentResultNodeId`, which callers obtain from the current function focus. Its review returns the receipt/readiness, a compact structural diff (owner function, old/new result node IDs, and added/removed node IDs), `proposedFunction`, `bodyEffectRequirements` and `aborts`, without complete `baseFocus` and `proposedFocus` projections. `ReplaceTarget` reviews keep both focuses (compact by default) and the targeted diff with node summaries.
 
 ### Stable IDs and type references
 

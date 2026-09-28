@@ -73,6 +73,20 @@ module internal WireEncodeCommon =
                     [ "nodes", arrayValue nodes
                       "resultNodeId", box (StableId.value value.Body.ResultNodeId) ] ]
 
+    /// Compact review form of a function: the full signature with display names and the
+    /// body's result node and node count, without the per-node graph.
+    let functionSummary (value: SemanticFunction) =
+        objectValue
+            [ "id", box (StableId.value value.Id)
+              "displayName", box value.DisplayName
+              "parameters", value.Parameters |> List.map parameter |> arrayValue
+              "resultType", typeRef value.ResultType
+              "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue
+              "body",
+                objectValue
+                    [ "resultNodeId", box (StableId.value value.Body.ResultNodeId)
+                      "nodeCount", box (ValueGraph.collectNodes value.Body |> List.length) ] ]
+
     let private field (value: SemanticField) =
         objectValue
             [ "id", box (StableId.value value.Id)
@@ -198,22 +212,22 @@ module internal WireEncodeCommon =
                   "enclosingControlNodeIds", item.EnclosingControlNodeIds |> List.map (StableId.value >> box) |> arrayValue
                   "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
 
-    let focusWith encodeFunction (value: FunctionFocusView) =
-        objectValue
-            [ "snapshotId", box (StableId.value value.SnapshotId)
-              "function", encodeFunction value.Function
-              "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
-              "aborts", aborts value.Aborts
-              "nodeTypes",
-                value.NodeTypes
-                |> List.map (fun item ->
-                    objectValue
-                        [ "nodeId", box (StableId.value item.NodeId)
-                          "type", optional item.Type typeRef ])
-                |> arrayValue
-              "callers", value.Callers |> List.map callSite |> arrayValue
-              "callees", value.Callees |> List.map callSite |> arrayValue
-              "openObligations",
+    let private focusFields encodeFunction includeNodeTypes (value: FunctionFocusView) =
+        [ yield "snapshotId", box (StableId.value value.SnapshotId)
+          yield "function", encodeFunction value.Function
+          yield "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
+          yield "aborts", aborts value.Aborts
+          if includeNodeTypes then
+              yield "nodeTypes",
+                    value.NodeTypes
+                    |> List.map (fun item ->
+                        objectValue
+                            [ "nodeId", box (StableId.value item.NodeId)
+                              "type", optional item.Type typeRef ])
+                    |> arrayValue
+          yield "callers", value.Callers |> List.map callSite |> arrayValue
+          yield "callees", value.Callees |> List.map callSite |> arrayValue
+          yield "openObligations",
                 value.OpenObligations
                 |> List.map (fun item ->
                     objectValue
@@ -221,5 +235,13 @@ module internal WireEncodeCommon =
                           "callNodeId", box (StableId.value item.CallNodeId)
                           "parameterId", box (StableId.value item.ParameterId) ])
                 |> arrayValue ]
+
+    let focusWith encodeFunction (value: FunctionFocusView) =
+        objectValue (focusFields encodeFunction true value)
+
+    /// Compact review focus: every impact fact (effects, aborts, callers, callees, open
+    /// obligations) with the function summarized; per-node graph and node types are omitted.
+    let compactFocus (value: FunctionFocusView) =
+        objectValue (focusFields functionSummary false value)
 
     let focus value = focusWith functionEntity value

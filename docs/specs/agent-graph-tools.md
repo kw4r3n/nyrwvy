@@ -51,7 +51,7 @@ For example, a function proposal takes these arguments directly:
 
 To create against a pinned source, use `nyrwvy_open` with `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}`. The source must be complete and standalone; its exact content is retained in a sidecar, so later source changes do not change or invalidate the pin. Imported declarations can be inspected/referenced but not edited. Reopen with only `mode: "open"` and the local path; clone/move both the local graph and its sidecar together. For an old source-only selection, use `mode: "pin"` and optionally `dependency` pointing to an exact original copy. Pin only migrates/repairs storage, never upgrades the selected version. A dependency argument on ordinary open is rejected. See the [session contract](agent-authoring-session.md#pinned-snapshot-dependency-one-level).
 
-After reviewing the returned `createdFunction` and receipt, pass its exact `proposalId` to `nyrwvy_commit`. No declaration IDs are supplied for this creation. Existing IDs remain visible in the result and can be used through `nyrwvy_request` when exact identity matters.
+After reviewing the returned `createdFunction` summary (IDs, display names, signature, `nodeCount`) and receipt, pass its exact `proposalId` to `nyrwvy_commit`; pass `detail: "full"` to review the proposed body graph itself. No declaration IDs are supplied for this creation. Existing IDs remain visible in the result and can be used through `nyrwvy_request` when exact identity matters.
 
 ## Transport lifetime
 
@@ -90,7 +90,7 @@ This is a read projection, not a new accepted snapshot encoding or a raw graph-e
 }
 ```
 
-All simulation operations accept optional `structuredReview: true`. This selects the same structured function/focus projection inside the existing review; receipts, diffs, proposal handles, validation and commit semantics are unchanged. The default remains the existing wire format. Ordinary tools request structured review automatically. Targeted review includes both base and proposed focus so the agent can inspect actual old/new literal values and their branch context before publication.
+All simulation operations accept optional `structuredReview: true` and `detail`. Reviews are compact by default: each function is summarized by its signature, `resultNodeId` and `nodeCount`, while receipts and fingerprints, readiness, diffs, effect evidence, aborts, callers, callees and open obligations stay in the reply. `detail: "full"` adds the per-node graph (and a focus's `nodeTypes`), and `structuredReview` selects the structured function/focus projection for it; proposal handles, validation and commit semantics are the same at both levels ([session contract](agent-authoring-session.md#simulate-review-detail)). Ordinary tools request structured review automatically, and `nyrwvy_create_function` and `nyrwvy_replace` take an optional `detail` argument. Targeted review includes both base and proposed focus and the targeted diff; request `detail: "full"` to read the actual old/new literal values and their branch context before publication.
 
 Inspect and review distinguish declared `requiredEffects` from derived
 `bodyEffectRequirements`, with effect, node, and referenced declaration IDs as

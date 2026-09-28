@@ -230,7 +230,7 @@ module internal WireEncode =
                   "declaredEffectIds", item.DeclaredEffectIds |> List.map (StableId.value >> box) |> arrayValue
                   "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.Body ]) |> arrayValue
 
-    let proposalWith functionEntity focus (value: AuthoringProposal) =
+    let proposalWith (detail: string) functionEntity focus (value: AuthoringProposal) =
         let review =
             match value.Review with
             | AuthoringProposalReview.Operations item ->
@@ -322,9 +322,12 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdCapability", capabilityEntity item.CreatedCapability ]
-        objectValue [ "proposalId", box value.ProposalId; "review", review ]
+        objectValue [ "proposalId", box value.ProposalId; "detail", box detail; "review", review ]
 
-    let proposal value = proposalWith WireEncodeCommon.functionEntity WireEncodeCommon.focus value
+    let proposal value = proposalWith "full" WireEncodeCommon.functionEntity WireEncodeCommon.focus value
+
+    /// Default simulate reply: the same review with function bodies reduced to a summary.
+    let compactProposal value = proposalWith "compact" WireEncodeCommon.functionSummary WireEncodeCommon.compactFocus value
 
     let private csharpSymbol id name =
         objectValue [ "id", box id; "name", box name ]
