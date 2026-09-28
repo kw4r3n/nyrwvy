@@ -24,7 +24,8 @@ module SnapshotCodec =
     let private timedWaitSchemaVersion = 12
     // Retain the writer's existing depth allowance and apply it to reads too:
     // nested graph envelopes must not make a successfully saved snapshot unreadable.
-    let private maxJsonDepth = 1000
+    /// Public so that session responses can size their own allowance from it.
+    let maxJsonDepth = 1000
 
     let private invalidShape message = raise (InvalidDataException message)
 

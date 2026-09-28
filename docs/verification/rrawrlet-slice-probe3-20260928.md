@@ -59,3 +59,16 @@ Not queued, unchanged: a member's host exception failing the whole run (by desig
 - **Data:** `UsageEntry` with `sameKey`/`bumpEntry`/`addUsageEntry`/`addAttemptUsage` (Map); `isMember` (callback).
 - **Leader:** `MemberSpec` (TaskStart takes one item); `isNamed` and `collectStep` (lookup by name through a fold); `describe`/`outcomeText` (report-text folders); `integrateOne`; two `TaskWait` nodes; one impossible None arm.
 - **`usage_stats`:** 10 Map/equality functions, 7 sort functions and 3 folders (above); 4 types that stand in for dicts (`ExtraItem`, `StatusCount`, `ExtraCount`, `Group`); doubled medians and Int64 milliseconds; two impossible None arms in `median2`.
+
+## Follow-up (orders 11-16)
+
+The [probe-3 queue](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3) was implemented on the same day and rerun against the same authoring scripts.
+
+| Order | Change | Measured effect |
+| --- | --- | --- |
+| 11 | `ValueEqual` over equatable types | `usage_stats` core 24 → 23 functions, 324 → 270 nodes; 7/7 against Python. `optStrEq` is gone and `sameGroup` fell from 47 to 5 nodes. |
+| 12 | `ListSortBy` and code-point `StringLessThan` | 23 → 18 functions, 270 → 219 nodes; now 8/8, including a new case with a role outside the old rank table. |
+| 13 | `Int64ToFloat64` and Float64 run values | Real Float64 medians compared directly, no doubling. 18 → 20 functions and 219 → 258 nodes, because the exact Int64-sum `medianTokens` and a Float64 `medianSeconds` replace `median2`; `round(…, 1)` is still done by the harness. |
+| 14 | Compact simulate replies by default | Simulate reply bytes: data 168 → 14 KB, leader 473 → 31 KB (`teamLoop` 364 → 4.5 KB), usage 166 → 38 KB. Results unchanged. |
+| 15 | Scope-depth diagnostics name slots and frames | Friction 5's request now reads "Pattern-reference slot field 'member' (…) of variant 'Stop' of 'Action' does not exist in scope depth 0. The slot is found at depth 1. Visible frames, innermost first: depth 0 = None arm of MatchOption (no bindings); depth 1 = arm 'Stop' of MatchUnion on 'Action' (binds 'member')." Codes are unchanged. |
+| 16 | Request JSON depth derived from the node limit (835) | Friction 7's 140-deep `int64WrappingAdd` chain now gets `StructuralRecipeDepthLimitExceeded` "The structural recipe is deeper than 32 nodes (it is 141 nodes deep)." instead of `ProtocolError` "Invalid JSON" (`limit_probe16.py`, against `bin14` and `bin16`). The recipe depth bound of 32, not the node limit, is what rejects such a chain. |

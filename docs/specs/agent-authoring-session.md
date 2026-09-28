@@ -146,6 +146,8 @@ or:
 
 Unknown properties that would change request meaning are rejected rather than ignored. Duplicate property names in request objects, including nested recipes and declarations, are rejected as `ProtocolError` rather than resolved by first- or last-value precedence.
 
+A request line may nest up to **835** JSON levels. The bound is derived from the recipe node limit ([decision](../decisions/expression-recipe-bounds.md#consequences)): 3 envelope levels above a recipe root (`functionRewrites[i].replacement` is the deepest), 3 levels per recipe node (the node object, a child list such as `arguments` or `arms`, and the entry holding the child) for all 256 nodes the limit allows, and 64 levels at the leaf for an explicit TypeRef. Any recipe within the node limit therefore parses and is judged by the recipe bounds, so a recipe deeper than 32 nodes gets `StructuralRecipeDepthLimitExceeded` (which states its actual depth) rather than a JSON error. Only a line nested deeper than 835 levels is a `ProtocolError` (`Invalid JSON: The maximum configured depth of 835 has been exceeded…`). Responses are encoded with a 2000-level allowance, twice the snapshot codec's 1000, so any graph the session can persist can also be read back (a nested scope costs a response at most 4/3 of its snapshot levels). Responses for deep graphs can nest well beyond 64 JSON levels; clients should parse without a small depth limit (Node's `JSON.parse` has none).
+
 ### Operations
 
 The maintained operation set is:
