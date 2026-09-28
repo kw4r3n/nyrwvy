@@ -34,6 +34,8 @@ type ExpressionRecipe =
     | Int64WrappingAdd of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingSubtract of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingMultiply of ExpressionRecipe * ExpressionRecipe
+    | Int64FloorDivide of ExpressionRecipe * ExpressionRecipe
+    | Int64FloorModulo of ExpressionRecipe * ExpressionRecipe
     | Int64Equal of ExpressionRecipe * ExpressionRecipe
     | Int64LessThan of ExpressionRecipe * ExpressionRecipe
     | Int64LessThanOrEqual of ExpressionRecipe * ExpressionRecipe
@@ -150,6 +152,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> ExpressionRecipe.Int64WrappingAdd(go left, go right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right) -> ExpressionRecipe.Int64WrappingSubtract(go left, go right)
         | ExpressionRecipe.Int64WrappingMultiply(left, right) -> ExpressionRecipe.Int64WrappingMultiply(go left, go right)
+        | ExpressionRecipe.Int64FloorDivide(left, right) -> ExpressionRecipe.Int64FloorDivide(go left, go right)
+        | ExpressionRecipe.Int64FloorModulo(left, right) -> ExpressionRecipe.Int64FloorModulo(go left, go right)
         | ExpressionRecipe.Int64Equal(left, right) -> ExpressionRecipe.Int64Equal(go left, go right)
         | ExpressionRecipe.Int64LessThan(left, right) -> ExpressionRecipe.Int64LessThan(go left, go right)
         | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> ExpressionRecipe.Int64LessThanOrEqual(go left, go right)
@@ -290,6 +294,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64WrappingAdd(left, right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right)
         | ExpressionRecipe.Int64WrappingMultiply(left, right)
+        | ExpressionRecipe.Int64FloorDivide(left, right)
+        | ExpressionRecipe.Int64FloorModulo(left, right)
         | ExpressionRecipe.Int64Equal(left, right)
         | ExpressionRecipe.Int64LessThan(left, right)
         | ExpressionRecipe.Int64LessThanOrEqual(left, right)
@@ -725,6 +731,8 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary "Int64WrappingAdd" int64Type int64Type left right
             | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary "Int64WrappingSubtract" int64Type int64Type left right
             | ExpressionRecipe.Int64WrappingMultiply(left, right) -> binary "Int64WrappingMultiply" int64Type int64Type left right
+            | ExpressionRecipe.Int64FloorDivide(left, right) -> binary "Int64FloorDivide" int64Type int64Type left right
+            | ExpressionRecipe.Int64FloorModulo(left, right) -> binary "Int64FloorModulo" int64Type int64Type left right
             | ExpressionRecipe.Int64Equal(left, right) -> binary "Int64Equal" int64Type boolType left right
             | ExpressionRecipe.Int64LessThan(left, right) -> binary "Int64LessThan" int64Type boolType left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary "Int64LessThanOrEqual" int64Type boolType left right
@@ -1399,6 +1407,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary SemanticNodeKind.Int64WrappingAdd left right
         | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary SemanticNodeKind.Int64WrappingSubtract left right
         | ExpressionRecipe.Int64WrappingMultiply(left, right) -> binary SemanticNodeKind.Int64WrappingMultiply left right
+        | ExpressionRecipe.Int64FloorDivide(left, right) -> binary SemanticNodeKind.Int64FloorDivide left right
+        | ExpressionRecipe.Int64FloorModulo(left, right) -> binary SemanticNodeKind.Int64FloorModulo left right
         | ExpressionRecipe.Int64Equal(left, right) -> binary SemanticNodeKind.Int64Equal left right
         | ExpressionRecipe.Int64LessThan(left, right) -> binary SemanticNodeKind.Int64LessThan left right
         | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary SemanticNodeKind.Int64LessThanOrEqual left right

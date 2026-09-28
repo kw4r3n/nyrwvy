@@ -124,6 +124,8 @@ module ViewerHtml =
         | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
         | ViewerNodeRole.Int64WrappingSubtract -> "Int64 wrapping subtract"
         | ViewerNodeRole.Int64WrappingMultiply -> "Int64 wrapping multiply"
+        | ViewerNodeRole.Int64FloorDivide -> "Int64 floor divide"
+        | ViewerNodeRole.Int64FloorModulo -> "Int64 floor modulo"
         | ViewerNodeRole.Int64Equal -> "Int64 equal"
         | ViewerNodeRole.Int64LessThan -> "Int64 less than"
         | ViewerNodeRole.Int64LessThanOrEqual -> "Int64 less than or equal"

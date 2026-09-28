@@ -14,7 +14,7 @@ const categories = {
   scalar: [
     "boolNot", "boolAnd", "boolOr",
     "stringIsEmpty", "stringContains", "stringEqual", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice",
-    "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply",
+    "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
     "float64IsNaN", "float64IsFinite", "float64IsInfinite",
@@ -74,6 +74,8 @@ const references = {
   int64WrappingAdd: binary("int64WrappingAdd"),
   int64WrappingSubtract: binary("int64WrappingSubtract"),
   int64WrappingMultiply: binary("int64WrappingMultiply"),
+  int64FloorDivide: { ...binary("int64FloorDivide"), notes: "Int64 floor(left / right), rounding toward negative infinity. Divisor 0 gives 0; MinValue / -1 wraps to MinValue. Never fails." },
+  int64FloorModulo: { ...binary("int64FloorModulo"), notes: "Int64 left - right * floor(left / right); nonzero results take the divisor's sign. Divisor 0 gives left; MinValue % -1 is 0. Never fails." },
   int64Equal: binary("int64Equal"),
   int64LessThan: binary("int64LessThan"),
   int64LessThanOrEqual: binary("int64LessThanOrEqual"),

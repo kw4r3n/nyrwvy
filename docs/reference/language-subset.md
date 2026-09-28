@@ -49,6 +49,8 @@ Implemented operations include:
 Int64WrappingAdd
 Int64WrappingSubtract
 Int64WrappingMultiply
+Int64FloorDivide
+Int64FloorModulo
 Int64Equal
 Int64LessThan
 Int64LessThanOrEqual
@@ -56,7 +58,11 @@ Int64GreaterThan
 Int64GreaterThanOrEqual
 ```
 
-Wrapping arithmetic uses two's-complement modulo-`2^64` behavior. Checked arithmetic, implicit conversion, and a broader numeric tower are not part of this contract.
+Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
+
+`Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like every runtime operation of this subset (compare `StringSlice` clamping), they never fail: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
+
+Checked arithmetic, implicit conversion, and a broader numeric tower are not part of this contract.
 
 ## Immutable ordered `List<T>`
 
@@ -159,6 +165,7 @@ StringParseInt64
 StringLength
 StringSlice
 Int64WrappingAdd / Subtract / Multiply
+Int64FloorDivide / FloorModulo
 Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
 Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan

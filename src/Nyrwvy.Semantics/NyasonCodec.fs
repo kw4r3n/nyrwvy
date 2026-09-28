@@ -491,6 +491,10 @@ module NyasonCodec =
             encodeBinaryNode "int64-wrapping-subtract" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-wrapping-multiply" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-floor-divide" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-floor-modulo" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -820,6 +824,10 @@ module NyasonCodec =
             decodeBinaryNode "int64-wrapping-subtract" value (fun left right -> SemanticNodeKind.Int64WrappingSubtract(left, right))
         | NyasonValue.Record("int64-wrapping-multiply", _) ->
             decodeBinaryNode "int64-wrapping-multiply" value (fun left right -> SemanticNodeKind.Int64WrappingMultiply(left, right))
+        | NyasonValue.Record("int64-floor-divide", _) ->
+            decodeBinaryNode "int64-floor-divide" value (fun left right -> SemanticNodeKind.Int64FloorDivide(left, right))
+        | NyasonValue.Record("int64-floor-modulo", _) ->
+            decodeBinaryNode "int64-floor-modulo" value (fun left right -> SemanticNodeKind.Int64FloorModulo(left, right))
         | NyasonValue.Record("int64-equal", _) ->
             decodeBinaryNode "int64-equal" value (fun left right -> SemanticNodeKind.Int64Equal(left, right))
         | NyasonValue.Record("int64-less-than", _) ->

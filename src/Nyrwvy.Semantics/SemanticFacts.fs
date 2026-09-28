@@ -21,6 +21,8 @@ module SemanticFacts =
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -149,6 +151,8 @@ module SemanticFacts =
             | SemanticNodeKind.Int64WrappingAdd _
             | SemanticNodeKind.Int64WrappingSubtract _
             | SemanticNodeKind.Int64WrappingMultiply _
+            | SemanticNodeKind.Int64FloorDivide _
+            | SemanticNodeKind.Int64FloorModulo _
             | SemanticNodeKind.Int64Equal _
             | SemanticNodeKind.Int64LessThan _
             | SemanticNodeKind.Int64LessThanOrEqual _
@@ -334,6 +338,8 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64WrappingAdd _
                     | SemanticNodeKind.Int64WrappingSubtract _
                     | SemanticNodeKind.Int64WrappingMultiply _
+                    | SemanticNodeKind.Int64FloorDivide _
+                    | SemanticNodeKind.Int64FloorModulo _
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)

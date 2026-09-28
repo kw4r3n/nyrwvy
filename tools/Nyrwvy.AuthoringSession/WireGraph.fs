@@ -66,6 +66,8 @@ module internal WireGraph =
         | SemanticNodeKind.Int64WrappingAdd(left, right) -> binary "int64WrappingAdd" left right
         | SemanticNodeKind.Int64WrappingSubtract(left, right) -> binary "int64WrappingSubtract" left right
         | SemanticNodeKind.Int64WrappingMultiply(left, right) -> binary "int64WrappingMultiply" left right
+        | SemanticNodeKind.Int64FloorDivide(left, right) -> binary "int64FloorDivide" left right
+        | SemanticNodeKind.Int64FloorModulo(left, right) -> binary "int64FloorModulo" left right
         | SemanticNodeKind.Int64Equal(left, right) -> binary "int64Equal" left right
         | SemanticNodeKind.Int64LessThan(left, right) -> binary "int64LessThan" left right
         | SemanticNodeKind.Int64LessThanOrEqual(left, right) -> binary "int64LessThanOrEqual" left right

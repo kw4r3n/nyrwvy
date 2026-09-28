@@ -275,6 +275,10 @@ module ExecutionIrCodec =
             writeBinaryInstruction "int64WrappingSubtract" leftValueId rightValueId
         | ExecutionInstructionKind.Int64WrappingMultiply(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64WrappingMultiply" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64FloorDivide(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64FloorDivide" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64FloorModulo(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64FloorModulo" leftValueId rightValueId
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Equal" leftValueId rightValueId
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->

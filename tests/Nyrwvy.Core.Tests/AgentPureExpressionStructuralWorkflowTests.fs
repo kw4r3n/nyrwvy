@@ -525,6 +525,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Int64WrappingAdd"
               "Int64WrappingSubtract"
               "Int64WrappingMultiply"
+              "Int64FloorDivide"
+              "Int64FloorModulo"
               "Int64Equal"
               "Int64LessThan"
               "Int64LessThanOrEqual"

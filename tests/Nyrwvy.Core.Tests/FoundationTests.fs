@@ -48,6 +48,8 @@ module FoundationTests =
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _
                 | SemanticNodeKind.Int64WrappingMultiply _
+                | SemanticNodeKind.Int64FloorDivide _
+                | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _
