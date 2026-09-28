@@ -521,6 +521,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringSlice"
               "StringContains"
               "StringEqual"
+              "ValueEqual"
               "StringConcat"
               "Int64WrappingAdd"
               "Int64WrappingSubtract"

@@ -42,6 +42,7 @@ ExpressionRecipe =
   | StringIsEmpty(expr)
   | StringContains(value, substring)
   | StringEqual(left, right)
+  | ValueEqual(left, right)
   | StringConcat(left, right)
   | Int64ToString(expr)
   | StringParseInt64(expr)
@@ -297,6 +298,10 @@ Preflight requires no duplicate fields, the exact declaration field set, and exa
 `ResultOk(E, value)` derives the success type from `value` and produces `Result<T,E>`. `ResultErr(T, error)` derives the error type from `error` and produces `Result<T,E>`.
 
 These cases add no implicit conversion and no special failure semantics; they materialize the existing semantic constructors.
+
+## ValueEqual
+
+`ValueEqual(left, right)` (wire `valueEqual`, Nyason `value-equal`) produces Bool. Preflight infers both operands; a right operand whose type differs from the left one reports `PureExpressionOperandTypeMismatch`, as for other operands, and a shared type that is not equatable reports `ValueEqualTypeNotEquatable` with the path to the first offending part by display names. Equatable types and the comparison are defined in the [language subset](../reference/language-subset.md). Persisted graphs report `ValueEqualOperandTypeMismatch` and `ValueEqualTypeNotEquatable`. A generic function cannot compare values of its type parameters, because nothing constrains their type arguments to be equatable; it takes an equality callback instead.
 
 ## Complete DirectCall
 

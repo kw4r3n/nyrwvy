@@ -90,6 +90,8 @@ type ExecutionInstructionKind =
     | StringSlice of valueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
+    /// Structural equality of two values of one equatable type.
+    | ValueEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     | StringConcat of leftId: ExecutionValueId * rightId: ExecutionValueId
     | Int64WrappingAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64WrappingSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId

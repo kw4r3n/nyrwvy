@@ -102,7 +102,18 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("")
-        writer.Line("public sealed class NyList<T>")
+        // ValueEqual is structural through every emitted value type: records and record structs
+        // compare their fields with EqualityComparer<T>.Default (and records their runtime type,
+        // i.e. the union variant), and NyList compares length and items in order. String uses
+        // ordinal equality. Validation keeps Float64, delegates and tasks out of ValueEqual.
+        writer.Line("public static class NyEquality")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("public static bool Equal<T>(T left, T right) => System.Collections.Generic.EqualityComparer<T>.Default.Equals(left, right);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
+        writer.Line("public sealed class NyList<T> : IEquatable<NyList<T>>")
         writer.Line("{")
         writer.Push()
         writer.Line("private readonly T[] _items;")
@@ -184,6 +195,28 @@ module CSharpBackend =
         writer.Line("if (!predicate(_items[i])) return false;")
         writer.Pop()
         writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public bool Equals(NyList<T>? other)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (other is null || other._items.Length != _items.Length) return false;")
+        writer.Line("var comparer = System.Collections.Generic.EqualityComparer<T>.Default;")
+        writer.Line("for (var i = 0; i < _items.Length; i++)")
+        writer.Push()
+        writer.Line("if (!comparer.Equals(_items[i], other._items[i])) return false;")
+        writer.Pop()
+        writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public override bool Equals(object? obj) => obj is NyList<T> other && Equals(other);")
+        writer.Line("public override int GetHashCode()")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var hash = new HashCode();")
+        writer.Line("hash.Add(_items.Length);")
+        writer.Line("for (var i = 0; i < _items.Length; i++) hash.Add(_items[i]);")
+        writer.Line("return hash.ToHashCode();")
         writer.Pop()
         writer.Line("}")
         writer.Pop()
@@ -783,6 +816,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = string.Equals(" + valueName leftValueId + ", " + valueName rightValueId + ", StringComparison.Ordinal);")
+        | ExecutionInstructionKind.ValueEqual(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyEquality.Equal(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
             writer.Line(target + " = string.Concat(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->

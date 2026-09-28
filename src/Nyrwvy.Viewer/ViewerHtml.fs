@@ -121,6 +121,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringSlice -> "string slice"
         | ViewerNodeRole.StringContains -> "string contains"
         | ViewerNodeRole.StringEqual -> "string equal"
+        | ViewerNodeRole.ValueEqual -> "value equal"
         | ViewerNodeRole.StringConcat -> "string concat"
         | ViewerNodeRole.Int64WrappingAdd -> "Int64 wrapping add"
         | ViewerNodeRole.Int64WrappingSubtract -> "Int64 wrapping subtract"

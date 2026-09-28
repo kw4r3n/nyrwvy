@@ -10,6 +10,7 @@ module SemanticFacts =
     let directValueDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
@@ -148,6 +149,7 @@ module SemanticFacts =
             | SemanticNodeKind.BoolNot _
             | SemanticNodeKind.StringContains _
             | SemanticNodeKind.StringEqual _
+            | SemanticNodeKind.ValueEqual _
             | SemanticNodeKind.StringConcat _
             | SemanticNodeKind.Int64WrappingAdd _
             | SemanticNodeKind.Int64WrappingSubtract _
@@ -357,6 +359,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
                     | SemanticNodeKind.StringEqual _
+                    | SemanticNodeKind.ValueEqual _
                     | SemanticNodeKind.Int64Equal _
                     | SemanticNodeKind.Int64LessThan _
                     | SemanticNodeKind.Int64LessThanOrEqual _

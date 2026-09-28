@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-09-25
+- **Updated:** 2026-09-28
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -138,7 +138,7 @@ The real-host MCP probe is complete. The [general-purpose programming roadmap](g
 
 The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
-**The order is provisional.** String operations, task scopes with time limits and a virtual clock, argument-keyed fake responses, name-resolved capability declaration and run-value input, and dedicated Bool operators are implemented, so every item of this queue is settled. The [2026-09-28 re-probe](#queue-from-the-2026-09-28-re-probe) queue is done too, and the next items come from [probe 3](#queue-from-the-2026-09-28-probe-3); Map and Bool equality stay deferred with the revisit conditions in their [decision](../decisions/bool-operators-and-map.md). Revise the order with the reason recorded when a choice is made or new evidence appears.
+**The order is provisional.** String operations, task scopes with time limits and a virtual clock, argument-keyed fake responses, name-resolved capability declaration and run-value input, and dedicated Bool operators are implemented, so every item of this queue is settled. The [2026-09-28 re-probe](#queue-from-the-2026-09-28-re-probe) queue is done too, and the next items come from [probe 3](#queue-from-the-2026-09-28-probe-3); Bool equality is settled by `ValueEqual`, and Map stays deferred with the revisit conditions in its [latest decision](../decisions/value-equality-and-map.md). Revise the order with the reason recorded when a choice is made or new evidence appears.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
@@ -168,7 +168,7 @@ Not queued: a member's host exception failing the whole run (by design; capabili
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
-| 11 | Map-like upsert and key comparison (Map revisit condition met again) | In `usage_stats`, 10 functions and 147 of 324 nodes replace-or-append into statuses, extras and groups and compare a 6-field `Option<String>` key; the data part still carries `UsageEntry` and 4 functions. | Decide between value equality for function- and task-free types (removes 4 functions, 75 nodes) and a String/Int64-keyed Map; record the decision. |
+| 11 | **Done: structural value equality** (was: Map-like upsert and key comparison (Map revisit condition met again)) | In `usage_stats`, 10 functions and 147 of 324 nodes replace-or-append into statuses, extras and groups and compare a 6-field `Option<String>` key; the data part still carries `UsageEntry` and 4 functions. | Decide between value equality for function- and task-free types (removes 4 functions, 75 nodes) and a String/Int64-keyed Map; record the decision. Implemented: `ValueEqual(left, right): Bool` over equatable types (no Float64, functions, tasks, capabilities or type parameters, transitively), structural through the C# backend; Map stays deferred. The rewritten core reran 7/7 against Python with 23 functions and 270 nodes (was 24 and 324): `optStrEq` is gone and `sameGroup` fell from 47 to 5 nodes, while the generic upsert keeps its equality callbacks; [decision](../decisions/value-equality-and-map.md). |
 | 12 | No sort and no String ordering | 7 functions and 72 nodes for `rows.sort(key=(role, -count))` and the median sort; a fixed role-rank table would sort an unknown role differently from Python. | Ordinal String comparison and a stable `ListSortBy` with a pure key or comparator. |
 | 13 | Float64 unusable end to end (T3 consumer) | No Int64↔Float64 conversion and no Float64 run values; medians were reported doubled as Int64. The `RunResultTypeUnsupported` message omits Float64 while calling results "scalars". | `Int64ToFloat64` and Float64 run values, with a message that names Float64; rounding later. |
 | 14 | Simulate replies echo the whole graph | ~1.7 KB per node: a 16 KB `teamLoop` request gets a 352 KB reply; 841 KB of replies against 76 KB of requests in total. | A compact reply by default (node count, created IDs, fingerprint), with the graph on request. |

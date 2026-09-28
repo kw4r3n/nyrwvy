@@ -37,6 +37,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
@@ -119,6 +120,7 @@ module internal ExecutionIrAnalysis =
                 graphFreeReferences okArm.Body @ graphFreeReferences errArm.Body
             | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
+            | TypedSemanticNodeKind.ValueEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _
             | TypedSemanticNodeKind.StringLiteral _
@@ -256,6 +258,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolNot _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringEqual _
+        | TypedSemanticNodeKind.ValueEqual _
         | TypedSemanticNodeKind.StringConcat _
         | TypedSemanticNodeKind.Int64WrappingAdd _
         | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -342,6 +345,7 @@ module internal ExecutionIrAnalysis =
                 | _, Error error -> Error error
             | TypedSemanticNodeKind.StringConcat _
             | TypedSemanticNodeKind.StringEqual _
+            | TypedSemanticNodeKind.ValueEqual _
             | TypedSemanticNodeKind.ParameterReference _
             | TypedSemanticNodeKind.PatternReference _
             | TypedSemanticNodeKind.StringLiteral _

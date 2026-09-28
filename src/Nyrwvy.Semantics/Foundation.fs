@@ -218,6 +218,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Structural equality of two values of one equatable type (see `EquatableTypes`): the same
+    /// variant with pairwise equal fields, lists by length and item by item in order. Never fails.
+    | ValueEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64WrappingSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -365,6 +368,7 @@ module ValueGraph =
                     collectNodes okArm.Body @ collectNodes errArm.Body
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -465,6 +469,7 @@ module ValueGraph =
                     SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.ParameterReference _
                 | SemanticNodeKind.PatternReference _
                 | SemanticNodeKind.StringLiteral _
@@ -612,6 +617,95 @@ module TaskTypes =
                                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
                            fields |> List.exists (fun field -> visit field.Type)))
         visit typeRef
+
+/// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, `List`,
+/// `Option` and `Result` of equatable types, and declared Products and Unions whose fields are all
+/// equatable, through any nesting and including recursive types. Float64 (NaN; use Float64Equal),
+/// function types, Task, TaskScope, capabilities, type parameters and anything reaching them are
+/// not equatable.
+[<RequireQualifiedAccess>]
+module EquatableTypes =
+    /// Presentation text of a type using display names; unknown named types show their StableId.
+    let rec describe (types: SemanticType list) (typeRef: TypeRef) =
+        let go = describe types
+        match typeRef with
+        | TypeRef.Primitive primitive -> string primitive
+        | TypeRef.Named typeId ->
+            types
+            |> List.tryFind (fun item -> item.Id = typeId)
+            |> Option.map (fun item -> item.DisplayName)
+            |> Option.defaultValue (StableId.value typeId)
+        | TypeRef.Capability capabilityId -> $"capability '{StableId.value capabilityId}'"
+        | TypeRef.Function(parameters, result) ->
+            "(" + (parameters |> List.map go |> String.concat ", ") + ") -> " + go result
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, _) -> "TaskScope"
+        | TypeRef.BuiltinGeneric(kind, arguments) -> $"{kind}<" + (arguments |> List.map go |> String.concat ", ") + ">"
+        | TypeRef.TypeParameter(_, displayName) -> displayName
+
+    /// The first part that makes the type not equatable, as a path of display-name steps from the
+    /// type to that part (empty when the type itself is the part) and the offending type; `None`
+    /// when the type is equatable. A declared type under inspection counts as equatable where it
+    /// recurs, so recursive types are equatable exactly when their fields are; unknown named types
+    /// are left to the declaration checks.
+    let firstNotEquatable (types: SemanticType list) (typeRef: TypeRef) : (string list * TypeRef) option =
+        let byId = types |> List.map (fun item -> item.Id, item) |> Map.ofList
+        let visited = System.Collections.Generic.HashSet<TypeId>()
+        let rec visit (path: string list) (typeRef: TypeRef) =
+            match typeRef with
+            | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit) -> None
+            | TypeRef.Primitive PrimitiveType.Float64
+            | TypeRef.Function _
+            | TypeRef.Capability _
+            | TypeRef.TypeParameter _
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> Some(List.rev path, typeRef)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
+                arguments |> List.tryPick (visit ("List item" :: path))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
+                arguments |> List.tryPick (visit ("Option value" :: path))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
+                arguments
+                |> List.mapi (fun index argument -> (if index = 0 then "Result ok" else "Result err"), argument)
+                |> List.tryPick (fun (step, argument) -> visit (step :: path) argument)
+            | TypeRef.Named typeId ->
+                if not (visited.Add typeId) then
+                    None
+                else
+                    match Map.tryFind typeId byId with
+                    | None -> None
+                    | Some typeEntity ->
+                        match typeEntity.Kind with
+                        | SemanticTypeKind.Product fields ->
+                            fields
+                            |> List.tryPick (fun field -> visit ($"{typeEntity.DisplayName}.{field.DisplayName}" :: path) field.Type)
+                        | SemanticTypeKind.Union variants ->
+                            variants
+                            |> List.tryPick (fun variant ->
+                                variant.Fields
+                                |> List.tryPick (fun field ->
+                                    visit ($"{typeEntity.DisplayName}.{variant.DisplayName}.{field.DisplayName}" :: path) field.Type))
+        visit [] typeRef
+
+    let isEquatable (types: SemanticType list) (typeRef: TypeRef) =
+        (firstNotEquatable types typeRef).IsNone
+
+    /// Diagnostic text: why the type is not equatable, naming the path to the offending part.
+    let explain (types: SemanticType list) (typeRef: TypeRef) =
+        match firstNotEquatable types typeRef with
+        | None -> $"{describe types typeRef} is equatable."
+        | Some(path, offending) ->
+            let reason =
+                match offending with
+                | TypeRef.Primitive PrimitiveType.Float64 -> "Float64 is not equatable because of NaN; compare with Float64Equal"
+                | TypeRef.Function _ -> "function values are not equatable"
+                | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "task handles and scopes are not equatable"
+                | TypeRef.Capability _ -> "capability values are not equatable"
+                | TypeRef.TypeParameter _ -> "a type parameter is not known to be equatable"
+                | _ -> "it is not equatable"
+            let location =
+                match path with
+                | [] -> ""
+                | steps -> " at " + String.concat " -> " steps
+            $"{describe types typeRef} is not equatable: {describe types offending}{location}; {reason}."
 
 /// Function type parameters. A function's type parameters are those occurring in its parameter
 /// types; at a call or callback, type arguments are derived by matching each parameter type
