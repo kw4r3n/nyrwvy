@@ -107,6 +107,37 @@ module BoolOperatorTests =
             for index in [ 0; 1 ] do
                 Assert.Contains(SnapshotValidator.validate (breakParameter index), fun issue -> issue.Code = "BoolOperandTypeMismatch"))
 
+    [<Theory>]
+    [<InlineData("shared", "")>]
+    [<InlineData("escape", "ValueNodeOutOfScope")>]
+    [<InlineData("cycle", "GraphNodeDependencyCycle")>]
+    let ``right operand graphs keep lexical scope and cycle diagnostics`` referenceKind expectedCode =
+        let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-bool-scope-" + name)
+        let leftId, andId, innerId, notId = nodeId "left", nodeId "and", nodeId "inner", nodeId "not"
+        // The right graph may read the parent's nodes; the parent may not read a node inside the right graph.
+        let dependencyId, negatedId =
+            match referenceKind with
+            | "shared" -> leftId, andId
+            | "escape" -> leftId, innerId
+            | "cycle" -> andId, andId
+            | other -> failwithf "Unknown fixture case: %s" other
+        let right: ValueGraph =
+            { Nodes = [ { Id = innerId; Kind = SemanticNodeKind.BoolNot dependencyId } ]; ResultNodeId = innerId }
+        let body: ValueGraph =
+            { Nodes =
+                [ { Id = leftId; Kind = SemanticNodeKind.BoolLiteral true }
+                  { Id = andId; Kind = SemanticNodeKind.BoolAnd(leftId, right) }
+                  { Id = notId; Kind = SemanticNodeKind.BoolNot negatedId } ]
+              ResultNodeId = notId }
+        let fn: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-bool-scope"
+              DisplayName = "scope"; Parameters = []; ResultType = boolType; RequiredEffects = []; Body = body }
+        let issues =
+            SnapshotValidator.validate
+                { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-bool-scope") with Functions = [ fn ] }
+        let expectedCodes = if expectedCode = "" then [] else [ expectedCode ]
+        Assert.Equal<string list>(expectedCodes, issues |> List.map (fun issue -> issue.Code))
+
     [<Fact>]
     let ``effect checks cover the right operand without hoisting it`` () =
         withSession (fun session path ->
