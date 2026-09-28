@@ -20,19 +20,25 @@ module internal GraphOrder =
                 | None -> pairs rest
         observable |> List.sortBy StableId.value |> pairs
 
+    /// A node depends on its direct value references and on every node its nested graphs
+    /// reference from outside themselves, the same edges IR lowering orders by. A nested
+    /// graph's local nodes are not dependencies of the enclosing node.
+    let rec dependencies (node: SemanticNode): GraphNodeId list =
+        SemanticFacts.directValueDependencies node
+        @ (SemanticFacts.nestedGraphs node |> List.collect freeReferences)
+        |> List.distinct
+
+    /// The nodes a graph references that it does not own, through any nesting depth.
+    and freeReferences (graph: ValueGraph): GraphNodeId list =
+        let localIds = graph.Nodes |> List.map (fun node -> node.Id) |> Set.ofList
+        graph.Nodes |> List.collect dependencies |> List.filter (fun id -> not (Set.contains id localIds))
+
     /// Legacy effect-only graphs retain their existing lowering-time readiness check.
     /// A new local exit must also pass ordering before it can be published or reopened.
     let tryAbortOrderConflict (functions: Map<FunctionId, SemanticFunction>) (fn: SemanticFunction) =
         let all = ValueGraph.collectNodes fn.Body
         if not (all |> List.exists (fun node -> match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false)) then None
         else
-            let rec dependencies node =
-                SemanticFacts.directValueDependencies node
-                @ (SemanticFacts.nestedGraphs node |> List.collect freeReferences)
-                |> List.distinct
-            and freeReferences graph =
-                let localIds = graph.Nodes |> List.map (fun node -> node.Id) |> Set.ofList
-                graph.Nodes |> List.collect dependencies |> List.filter (fun id -> not (Set.contains id localIds))
             let functionHasEffects id = Map.tryFind id functions |> Option.exists (fun target -> not (List.isEmpty target.RequiredEffects))
             let rec observable node =
                 match node.Kind with

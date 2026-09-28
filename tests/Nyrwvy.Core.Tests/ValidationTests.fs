@@ -167,6 +167,57 @@ module ValidationTests =
 
         Assert.Equal<string list>(expectedCodes, issues |> List.map (fun issue -> issue.Code))
 
+    [<Theory>]
+    [<InlineData("conditional")>]
+    [<InlineData("bool-and")>]
+    [<InlineData("bind")>]
+    let ``a branch node referencing its enclosing control node is a cycle even off the branch result`` (kind: string) =
+        // The enclosing node is visible inside its own branches, so a branch node may name it
+        // without leaving lexical scope. Lowering treats every free reference of a branch as a
+        // dependency of the enclosing node, so this must be a cycle here, not a late lowering error.
+        let sharedId = StableId.createForTesting<GraphNodeTag> "node-self-shared"
+        let conditionId = StableId.createForTesting<GraphNodeTag> "node-self-condition"
+        let enclosingId = StableId.createForTesting<GraphNodeTag> "node-self-enclosing"
+        let deadId = StableId.createForTesting<GraphNodeTag> "node-self-dead"
+        let resultId = StableId.createForTesting<GraphNodeTag> "node-self-result"
+        let falseId = StableId.createForTesting<GraphNodeTag> "node-self-false"
+        let bindingId = StableId.createForTesting<PatternBindingTag> "binding-self"
+        let branch: ValueGraph =
+            { Nodes =
+                [ { Id = deadId; Kind = SemanticNodeKind.Int64WrappingAdd(enclosingId, sharedId) }
+                  { Id = resultId; Kind = SemanticNodeKind.Int64Literal 2L } ]
+              ResultNodeId = resultId }
+        let boolBranch: ValueGraph =
+            { Nodes =
+                [ { Id = deadId; Kind = SemanticNodeKind.BoolNot enclosingId }
+                  { Id = resultId; Kind = SemanticNodeKind.BoolLiteral true } ]
+              ResultNodeId = resultId }
+        let whenFalse: ValueGraph =
+            { Nodes = [ { Id = falseId; Kind = SemanticNodeKind.Int64WrappingAdd(sharedId, sharedId) } ]
+              ResultNodeId = falseId }
+        let enclosingKind, resultType =
+            match kind with
+            | "conditional" -> SemanticNodeKind.Conditional(conditionId, branch, whenFalse), TypeRef.Primitive PrimitiveType.Int64
+            | "bool-and" -> SemanticNodeKind.BoolAnd(conditionId, boolBranch), TypeRef.Primitive PrimitiveType.Bool
+            | "bind" ->
+                SemanticNodeKind.Bind(
+                    sharedId,
+                    { ValueBinding = { Id = bindingId; DisplayName = Some "value"; Type = TypeRef.Primitive PrimitiveType.Int64 }
+                      Body = branch }),
+                TypeRef.Primitive PrimitiveType.Int64
+            | other -> failwithf "Unknown fixture case: %s" other
+        let graph: ValueGraph =
+            { Nodes =
+                [ { Id = sharedId; Kind = SemanticNodeKind.Int64Literal 1L }
+                  { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral false }
+                  { Id = enclosingId; Kind = enclosingKind } ]
+              ResultNodeId = enclosingId }
+        let snapshot = dependencySnapshot graph
+        let snapshot =
+            { snapshot with Functions = snapshot.Functions |> List.map (fun fn -> { fn with ResultType = resultType }) }
+
+        Assert.Equal<string list>([ "GraphNodeDependencyCycle" ], SnapshotValidator.validate snapshot |> List.map (fun issue -> issue.Code))
+
     [<Fact>]
     let ``value dependency cycles are rejected`` () =
         let fixture = TestGraph.create ()

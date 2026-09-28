@@ -201,7 +201,7 @@ The workflow never adds or removes target effects automatically. A function may 
 
 ## Execution readiness and effect order
 
-`TransactionReadiness.SemanticallyReady` is not a guarantee of execution readiness. The existing execution layer determines order from graph dependencies, not the physical order of `ValueGraph.Nodes`, caller binding-list order, or fresh node IDs.
+`TransactionReadiness.SemanticallyReady` is not a guarantee of execution readiness. The existing execution layer determines order from graph dependencies, not the physical order of `ValueGraph.Nodes`, caller binding-list order, or fresh node IDs. A control node (`Conditional`, `BoolAnd`/`BoolOr`, `Bind`, the matches) depends on every node its branch graphs reference from outside themselves, not only on their result nodes. Validation follows the same edges: a branch node that names its own enclosing control node, even off the branch result, is `GraphNodeDependencyCycle` at publication rather than an unresolved dependency at lowering.
 
 The deterministic materialization order above therefore does not sequence independent effects. `ExecutionIr.lower` retains its existing `AmbiguousEffectOrder` rejection when two effectful nodes in one graph are not ordered by a dependency path. Authoring and semantic publication may succeed while that later execution-readiness check rejects the result.
 
