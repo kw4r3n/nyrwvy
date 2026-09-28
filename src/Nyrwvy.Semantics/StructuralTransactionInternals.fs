@@ -2,6 +2,13 @@ namespace Nyrwvy.Core
 
 open Microsoft.FSharp.Reflection
 
+/// Recipe bounds for ordinary expression authoring. Public so that wire readers can derive their
+/// JSON depth allowance from them instead of repeating the numbers.
+[<RequireQualifiedAccess>]
+module ExpressionRecipeBounds =
+    let maxDepth = 32
+    let maxNodes = 256
+
 module internal StructuralTransactionInternals =
     let diagnostic code message: TransactionDiagnostic =
         { Code = code
@@ -16,7 +23,7 @@ module internal StructuralTransactionInternals =
     let boundedFloat64Bounds = { MaxDepth = 32; MaxNodes = 64 }
 
     /// Ordinary expression authoring: function creation, body replacement and targeted replacement.
-    let expressionAuthoringBounds = { MaxDepth = 32; MaxNodes = 256 }
+    let expressionAuthoringBounds = { MaxDepth = ExpressionRecipeBounds.maxDepth; MaxNodes = ExpressionRecipeBounds.maxNodes }
 
     let private recipeCaseName (recipe: 'Recipe) =
         if FSharpType.IsUnion(recipe.GetType(), true) then
@@ -36,6 +43,9 @@ module internal StructuralTransactionInternals =
         let rec depthWithin depth current =
             depth <= bounds.MaxDepth && (children current |> Seq.forall (depthWithin (depth + 1)))
 
+        let rec depthOf current =
+            1 + (children current |> Seq.fold (fun deepest child -> max deepest (depthOf child)) 0)
+
         // (size, path, case name) for every proper subtree, collected in one pass.
         let rec measure path current (subtrees: ResizeArray<int * string * string>) =
             let size =
@@ -50,7 +60,7 @@ module internal StructuralTransactionInternals =
             Error(
                 diagnostic
                     "StructuralRecipeDepthLimitExceeded"
-                    $"The structural recipe is deeper than {bounds.MaxDepth} nodes."
+                    $"The structural recipe is deeper than {bounds.MaxDepth} nodes (it is {depthOf recipe} nodes deep)."
             )
         else
             let subtrees = ResizeArray()

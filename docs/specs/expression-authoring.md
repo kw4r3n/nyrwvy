@@ -127,7 +127,7 @@ The complete construction tree has these bounds ([decision](../decisions/express
 - receivers, arguments, condition/input expressions, and every nested branch or Bind body count toward the same bounds;
 - every recipe occurrence materializes one semantic node;
 - repeated equal subexpressions remain distinct occurrences;
-- depth is checked before node count. A `StructuralRecipeNodeLimitExceeded` message states the full node count and up to three of the largest subtrees within the limit, by child-index path from the root and recipe kind, as candidates to extract.
+- depth is checked before node count. A `StructuralRecipeDepthLimitExceeded` message states the recipe's actual depth. A `StructuralRecipeNodeLimitExceeded` message states the full node count and up to three of the largest subtrees within the limit, by child-index path from the root and recipe kind, as candidates to extract.
 
 Unary operands materialize before their parent. Binary operands materialize left then right, followed by the parent. `ListConstruct` materializes its item recipes in list order and then the construction node. Higher-order List recipes materialize the source expression first (and for `ListFold`, the seed second) and then the traversal node referencing the existing callback `FunctionId`.
 

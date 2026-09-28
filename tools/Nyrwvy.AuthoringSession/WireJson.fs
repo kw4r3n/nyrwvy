@@ -13,7 +13,11 @@ module internal WireJson =
 
     let arrayValue (items: obj list): obj = items |> List.toArray |> box
 
-    // Structured node/arm envelopes add JSON levels to already validated scopes.
-    // This is a response-encoding allowance, not a change to Core recipe bounds.
-    let private responseOptions = JsonSerializerOptions(MaxDepth = 256)
+    /// A response must be able to render any graph the snapshot codec can persist. Per nested
+    /// scope a response uses at most 4/3 of the snapshot's JSON levels (Conditional: 4 against 3;
+    /// Bind: 5 against 4; MatchUnion: 6 against 5), plus a small envelope, so twice the snapshot
+    /// codec's depth covers it with margin. This is a response-encoding allowance, not a change
+    /// to Core recipe bounds.
+    let responseMaxJsonDepth = 2 * Nyrwvy.Core.SnapshotCodec.maxJsonDepth
+    let private responseOptions = JsonSerializerOptions(MaxDepth = responseMaxJsonDepth)
     let serialize (value: obj): string = JsonSerializer.Serialize(value, responseOptions)

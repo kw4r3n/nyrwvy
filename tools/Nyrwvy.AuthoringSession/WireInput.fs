@@ -9,9 +9,26 @@ module internal WireInput =
 
     let fail message = raise (ProtocolInputException message)
 
+    /// JSON levels one recipe node can add on the wire: its own object, a child list (`arguments`,
+    /// `arms`, `fields`, `context`) and the list entry holding the child recipe, as in
+    /// `{"kind":"selfCall","arguments":[{"slot":0,"value":{…}}]}`.
+    let recipeJsonLevelsPerNode = 3
+
+    /// Levels above a recipe root in the deepest request envelope, `functionRewrites[i].replacement`.
+    let requestEnvelopeJsonLevels = 3
+
+    /// Room at the deepest leaf for an explicit TypeRef (two levels per nested generic).
+    /// runPure values (32 composite layers, three levels each) also fit within the bound.
+    let leafJsonMargin = 64
+
+    /// A recipe within the node limit can nest as deep as its node count, so every such recipe
+    /// parses and is then rejected, if at all, by the recipe bounds with their own diagnostics,
+    /// not as invalid JSON: 3 + 3 * 256 + 64 = 835.
+    let requestMaxJsonDepth =
+        requestEnvelopeJsonLevels + recipeJsonLevelsPerNode * ExpressionRecipeBounds.maxNodes + leafJsonMargin
+
     let parseDocument (line: string): JsonDocument =
-        // runPure values of recursive types may nest 32 composite layers, three JSON levels each.
-        try JsonDocument.Parse(line, JsonDocumentOptions(MaxDepth = 128))
+        try JsonDocument.Parse(line, JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
         with :? JsonException as error -> fail $"Invalid JSON: {error.Message}"
 
     let private propertyNames (element: JsonElement): Set<string> =
