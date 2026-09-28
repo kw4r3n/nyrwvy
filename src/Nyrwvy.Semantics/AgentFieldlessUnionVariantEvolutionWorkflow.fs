@@ -151,6 +151,8 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 )
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.ValueEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->

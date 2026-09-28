@@ -267,6 +267,8 @@ module ExecutionIrCodec =
               property "substringId" (executionValueIdValue substringId) ]
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "stringEqual" leftValueId rightValueId
+        | ExecutionInstructionKind.ValueEqual(leftValueId, rightValueId) ->
+            writeBinaryInstruction "valueEqual" leftValueId rightValueId
         | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
             writeBinaryInstruction "stringConcat" leftValueId rightValueId
         | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->

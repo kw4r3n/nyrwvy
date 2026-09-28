@@ -35,5 +35,5 @@ This decision settles order 8 of the post-M2 queue: how a leader selects a membe
 
 ## Revisit conditions
 
-- **Map:** measured fold cost matters for real sizes, or a consumer needs replace-or-append in more than one place where the fold helpers dominate its size. The smallest candidate is still a Map with String or Int64 keys.
+- **Map:** measured fold cost matters for real sizes, or a consumer needs replace-or-append in more than one place where the fold helpers dominate its size. The smallest candidate is still a Map with String or Int64 keys. This condition was met on 2026-09-28 by probe 3; the revisit, which adds `ValueEqual` and keeps Map deferred with a new condition, is recorded in [value equality, and Map revisited again](value-equality-and-map.md).
 - **TaskScope in declared types:** a probe needs to pass a scope together with other values in one Product.

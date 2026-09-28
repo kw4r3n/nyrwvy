@@ -334,6 +334,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "valueEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringConcat" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->

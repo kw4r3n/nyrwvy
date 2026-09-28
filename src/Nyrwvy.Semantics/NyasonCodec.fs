@@ -483,6 +483,8 @@ module NyasonCodec =
                   "substring", encodeId "node" substringNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             encodeBinaryNode "string-equal" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "value-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
             encodeBinaryNode "string-concat" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
@@ -822,6 +824,8 @@ module NyasonCodec =
                 ) }
         | NyasonValue.Record("string-equal", _) ->
             decodeBinaryNode "string-equal" value (fun left right -> SemanticNodeKind.StringEqual(left, right))
+        | NyasonValue.Record("value-equal", _) ->
+            decodeBinaryNode "value-equal" value (fun left right -> SemanticNodeKind.ValueEqual(left, right))
         | NyasonValue.Record("string-concat", _) ->
             decodeBinaryNode "string-concat" value (fun left right -> SemanticNodeKind.StringConcat(left, right))
         | NyasonValue.Record("int64-wrapping-add", _) ->

@@ -12,6 +12,7 @@ module SnapshotValidator =
     let private nodeDependencies (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
@@ -103,6 +104,7 @@ module SnapshotValidator =
     let private directValueReferences (node: SemanticNode): GraphNodeId list =
         match node.Kind with
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
@@ -819,6 +821,18 @@ module SnapshotValidator =
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
                             node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+                        match nodeType leftNodeId, nodeType rightNodeId with
+                        | Some leftType, Some rightType when leftType <> rightType ->
+                            add
+                                "ValueEqualOperandTypeMismatch"
+                                $"ValueEqual node '{StableId.value node.Id}' requires operands of one type, but its left operand is {EquatableTypes.describe snapshot.Types leftType} and its right operand is {EquatableTypes.describe snapshot.Types rightType}."
+                        | Some operandType, _
+                        | None, Some operandType when not (EquatableTypes.isEquatable snapshot.Types operandType) ->
+                            add
+                                "ValueEqualTypeNotEquatable"
+                                $"ValueEqual node '{StableId.value node.Id}' compares values of a type that is not equatable: {EquatableTypes.explain snapshot.Types operandType}"
+                        | _ -> ()
                     | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringConcat" (TypeRef.Primitive PrimitiveType.String)
@@ -1554,6 +1568,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringEqual _
+                | SemanticNodeKind.ValueEqual _
                 | SemanticNodeKind.StringConcat _
                 | SemanticNodeKind.Int64WrappingAdd _
                 | SemanticNodeKind.Int64WrappingSubtract _

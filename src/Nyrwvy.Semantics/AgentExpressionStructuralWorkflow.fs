@@ -30,6 +30,7 @@ type ExpressionRecipe =
     | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
+    | ValueEqual of ExpressionRecipe * ExpressionRecipe
     | StringConcat of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingAdd of ExpressionRecipe * ExpressionRecipe
     | Int64WrappingSubtract of ExpressionRecipe * ExpressionRecipe
@@ -153,6 +154,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
+        | ExpressionRecipe.ValueEqual(left, right) -> ExpressionRecipe.ValueEqual(go left, go right)
         | ExpressionRecipe.StringConcat(left, right) -> ExpressionRecipe.StringConcat(go left, go right)
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> ExpressionRecipe.Int64WrappingAdd(go left, go right)
         | ExpressionRecipe.Int64WrappingSubtract(left, right) -> ExpressionRecipe.Int64WrappingSubtract(go left, go right)
@@ -308,6 +310,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringEqual(left, right)
+        | ExpressionRecipe.ValueEqual(left, right)
         | ExpressionRecipe.StringConcat(left, right)
         | ExpressionRecipe.Bind(left, right)
         | ExpressionRecipe.BoolAnd(left, right)
@@ -750,6 +753,20 @@ module AgentExpressionStructuralWorkflow =
                         | Ok _ -> Ok stringType
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
+            | ExpressionRecipe.ValueEqual(left, right) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match infer frames right with
+                    | Error error -> Error error
+                    | Ok rightType when rightType <> leftType -> Error(typeMismatch "ValueEqual" "right" leftType rightType)
+                    | Ok _ when not (EquatableTypes.isEquatable snapshot.Types leftType) ->
+                        Error(
+                            diagnostic
+                                "ValueEqualTypeNotEquatable"
+                                $"ValueEqual compares values of a type that is not equatable: {EquatableTypes.explain snapshot.Types leftType}"
+                        )
+                    | Ok _ -> Ok boolType
             | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
             | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary "Int64WrappingAdd" int64Type int64Type left right
             | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary "Int64WrappingSubtract" int64Type int64Type left right
@@ -1475,6 +1492,7 @@ module AgentExpressionStructuralWorkflow =
             nodeId
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
+        | ExpressionRecipe.ValueEqual(left, right) -> binary SemanticNodeKind.ValueEqual left right
         | ExpressionRecipe.StringConcat(left, right) -> binary SemanticNodeKind.StringConcat left right
         | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary SemanticNodeKind.Int64WrappingAdd left right
         | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary SemanticNodeKind.Int64WrappingSubtract left right

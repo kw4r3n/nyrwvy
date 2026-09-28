@@ -289,6 +289,8 @@ module ExecutionIr =
                             | _, Error error -> Error error
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringEqual(left, right))
+                        | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.ValueEqual(left, right))
                         | TypedSemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringConcat(left, right))
                         | TypedSemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
@@ -688,6 +690,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.BoolNot _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringEqual _
+                        | TypedSemanticNodeKind.ValueEqual _
                         | TypedSemanticNodeKind.StringConcat _
                         | TypedSemanticNodeKind.Int64WrappingAdd _
                         | TypedSemanticNodeKind.Int64WrappingSubtract _
