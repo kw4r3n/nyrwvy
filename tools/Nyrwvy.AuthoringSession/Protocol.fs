@@ -583,6 +583,7 @@ module AuthoringProtocol =
                       Body =
                         WireSymbolic.recipeForNewFunction
                             declarations
+                            displayName
                             parameters
                             (property "body" root) }
                 match session.SimulateCreateFunction request with

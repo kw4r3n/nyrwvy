@@ -148,12 +148,12 @@ module internal WireSymbolic =
 
     [<RequireQualifiedAccess>]
     type private ParameterContext =
-        | NewFunction of AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list
+        | NewFunction of displayName: string * AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list
         | ExistingFunction of SemanticFunction
 
     let private parameterRecipe context displayName =
         match context with
-        | ParameterContext.NewFunction parameters ->
+        | ParameterContext.NewFunction(_, parameters) ->
             let index, _ =
                 parameters
                 |> List.indexed
@@ -461,19 +461,49 @@ module internal WireSymbolic =
                 [ "kind"; "function"; "arguments" ]
                 [ "kind"; "function"; "arguments" ]
                 element
-            let callee = resolveFunction declarations (requiredString "function" element)
-            let arguments =
-                array "arguments" element
-                |> List.map (fun item ->
-                    ensureFields "call argument" [ "parameter"; "value" ] [ "parameter"; "value" ] item
-                    let parameter =
-                        exactOne
-                            $"parameter on {callee.DisplayName}"
-                            (requiredString "parameter" item)
-                            callee.Parameters
-                            (fun value -> value.DisplayName)
-                    parameter.Id, recipe declarations parameterContext (property "value" item))
-            ExpressionRecipe.DirectCall(callee.Id, arguments)
+            let calleeName = requiredString "function" element
+            // A call naming the function being created or replaced resolves to SelfCall,
+            // with arguments keyed by the owner's parameter slots.
+            let selfParameters =
+                match parameterContext with
+                | ParameterContext.NewFunction(ownerName, parameters) when ownerName = calleeName ->
+                    if declarations.Functions |> List.exists (fun item -> item.DisplayName = calleeName) then
+                        fail $"Ambiguous function '{calleeName}'."
+                    Some(ownerName, parameters |> List.map (fun parameter -> parameter.DisplayName))
+                | ParameterContext.ExistingFunction owner when owner.DisplayName = calleeName ->
+                    let callee = resolveFunction declarations calleeName
+                    if callee.Id = owner.Id then
+                        Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
+                    else None
+                | _ -> None
+            match selfParameters with
+            | Some(ownerName, parameterNames) ->
+                let arguments =
+                    array "arguments" element
+                    |> List.map (fun item ->
+                        ensureFields "call argument" [ "parameter"; "value" ] [ "parameter"; "value" ] item
+                        let slot, _ =
+                            exactOne
+                                $"parameter on {ownerName}"
+                                (requiredString "parameter" item)
+                                (List.indexed parameterNames)
+                                snd
+                        slot, recipe declarations parameterContext (property "value" item))
+                ExpressionRecipe.SelfCall arguments
+            | None ->
+                let callee = resolveFunction declarations calleeName
+                let arguments =
+                    array "arguments" element
+                    |> List.map (fun item ->
+                        ensureFields "call argument" [ "parameter"; "value" ] [ "parameter"; "value" ] item
+                        let parameter =
+                            exactOne
+                                $"parameter on {callee.DisplayName}"
+                                (requiredString "parameter" item)
+                                callee.Parameters
+                                (fun value -> value.DisplayName)
+                        parameter.Id, recipe declarations parameterContext (property "value" item))
+                ExpressionRecipe.DirectCall(callee.Id, arguments)
         | "capabilityInvoke" ->
             ensureFields
                 "capability-invoke recipe"
@@ -550,8 +580,8 @@ module internal WireSymbolic =
             )
         | value -> fail $"Unsupported symbolic expression recipe kind '{value}'."
 
-    let recipeForNewFunction declarations parameters element =
-        recipe declarations (ParameterContext.NewFunction parameters) element
+    let recipeForNewFunction declarations displayName parameters element =
+        recipe declarations (ParameterContext.NewFunction(displayName, parameters)) element
 
     let recipeForExistingFunction declarations functionEntity element =
         recipe declarations (ParameterContext.ExistingFunction functionEntity) element

@@ -199,6 +199,14 @@ module internal WireRecipe =
         | "directCall" ->
             ensureFields "direct-call recipe" [ "kind"; "functionId"; "arguments" ] [ "kind"; "functionId"; "arguments" ] element
             ExpressionRecipe.DirectCall(id<FunctionTag> "functionId" element, callArguments "arguments")
+        | "selfCall" ->
+            ensureFields "self-call recipe" [ "kind"; "arguments" ] [ "kind"; "arguments" ] element
+            let arguments =
+                array "arguments" element
+                |> List.map (fun item ->
+                    ensureFields "self-call argument" [ "slot"; "value" ] [ "slot"; "value" ] item
+                    requiredInt "slot" item, recipe (property "value" item))
+            ExpressionRecipe.SelfCall arguments
         | "capabilityInvoke" ->
             ensureFields "capability-invoke recipe" [ "kind"; "capabilityValue"; "operationId"; "arguments" ] [ "kind"; "capabilityValue"; "operationId"; "arguments" ] element
             ExpressionRecipe.CapabilityInvoke(recipe (property "capabilityValue" element), id<CapabilityOperationTag> "operationId" element, capabilityArguments "arguments")

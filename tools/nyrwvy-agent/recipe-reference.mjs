@@ -135,7 +135,7 @@ const references = {
   },
   directCall: {
     shape: { kind: "directCall", function: "<function display name>", arguments: [{ parameter: "<callee parameter display name>", value: recipe }] },
-    notes: "arguments must cover the callee parameters exactly; argument order is not semantic.",
+    notes: "arguments must cover the callee parameters exactly; argument order is not semantic. Naming the function being created or replaced makes a self call (recursion): arguments then use the owner's parameter names, cover each exactly once with its declared type, and the result has the owner's result type. Mutual recursion still needs an existing placeholder callee.",
   },
   capabilityConstruct: {
     shape: { kind: "capabilityConstruct", capability: "<capability display name>", implementations: [{ operation: "<operation display name>", function: "<monomorphic pure function display name>" }] },

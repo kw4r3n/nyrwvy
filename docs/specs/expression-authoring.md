@@ -88,6 +88,7 @@ ExpressionRecipe =
   | FunctionReference(FunctionId)
   | FunctionInvoke(functionValue, arguments)
   | DirectCall(targetFunctionId, argumentBindings)
+  | SelfCall(slotBindings)
   | CapabilityInvoke(capabilityValue, operationId, argumentBindings)
   | Bind(value, body)
   | BoolNot(expr)
@@ -158,7 +159,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 14. `OptionNone`, `ResultOk`, and `ResultErr` explicit type arguments are valid;
 15. `DirectCall` names an existing function whose required effects are all already declared by the target function;
 16. every `DirectCall` callee parameter is bound exactly once by its stable `ParameterId`, with no unknown or omitted parameter;
-17. every `DirectCall` argument recipe exactly matches the declared callee parameter type;
+17. every `DirectCall` argument recipe exactly matches the declared callee parameter type, and every `SelfCall` binds each owner parameter slot exactly once with the owner's exact parameter type;
 18. `CapabilityInvoke` names an existing operation and its receiver produces that operation's exact owning capability type;
 19. every capability-operation parameter is bound exactly once by its stable `CapabilityParameterId`, with no unknown or omitted parameter and with exact child types;
 20. the target function already declares the capability operation's effect;
@@ -312,6 +313,19 @@ The maintained construction surface accepts complete calls:
 Caller argument-list order is ignored after validation. Materialization follows callee parameter declaration order and creates the `DirectCall` node last.
 
 This surface does **not** create missing-argument obligations. Incomplete calls remain outside this boundary.
+
+## SelfCall
+
+`SelfCall(arguments)` is a complete direct call to the function that owns the recipe. Arguments are `(slot, ExpressionRecipe)` pairs keyed by the owner's zero-based parameter slot, because a function being created has no `FunctionId` or `ParameterId`s yet: both are system-assigned. This lets a recursive function be created in one request instead of creating a placeholder body and replacing it.
+
+- It is valid in function creation, where the owner is the function being created, and in complete-body and targeted replacement, where the owner is the target function.
+- Every owner parameter slot must be bound exactly once. Out-of-range, duplicate, and omitted slots are rejected with the `DirectCall` codes `PureExpressionCallArgumentTargetNotFound`, `PureExpressionDuplicateCallArgument`, and `PureExpressionCallArgumentMissing`.
+- Each argument type must equal the owner's parameter type at that slot (`PureExpressionCallArgumentTypeMismatch`). A generic owner calls itself at its own type parameters; there is no polymorphic recursion.
+- The result type is the owner's declared result type. A self call needs the owner's own `RequiredEffects`, which the owner already declares, so it adds no effect check.
+
+`SelfCall` adds no semantic node kind. It materializes to an ordinary `DirectCall(ownerFunctionId, bindings)`: creation allocates the new `FunctionId` and `ParameterId`s before materializing the body. Bindings follow the owner's parameter order, so persistence, typed IR, execution IR, and the backend are unchanged. Parameter-type migration accepts `SelfCall` in the target replacement, which stays a call to the migrated target, and in a caller replacement, which becomes a call to that unchanged caller.
+
+Out of scope: a `FunctionReference` to the function being created, for higher-order use, and mutual recursion. Both still need an existing function, so the placeholder-then-replace route remains for them.
 
 ## Complete CapabilityInvoke
 

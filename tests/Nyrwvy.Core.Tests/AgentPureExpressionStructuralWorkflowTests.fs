@@ -572,6 +572,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "FunctionReference"
               "FunctionInvoke"
               "DirectCall"
+              "SelfCall"
               "CapabilityInvoke"
               "BoolNot"
               "BoolAnd"

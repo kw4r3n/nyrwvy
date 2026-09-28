@@ -85,6 +85,10 @@ type ExpressionRecipe =
     | FunctionReference of FunctionId
     | FunctionInvoke of functionValue: ExpressionRecipe * arguments: ExpressionRecipe list
     | DirectCall of targetFunctionId: FunctionId * arguments: (ParameterId * ExpressionRecipe) list
+    /// A direct call to the owning function, with arguments keyed by zero-based parameter slot.
+    /// It materializes to an ordinary DirectCall once the owner's identities are known, so a
+    /// recursive function can be created in one request.
+    | SelfCall of arguments: (int * ExpressionRecipe) list
     | CapabilityInvoke of capabilityValue: ExpressionRecipe * operationId: CapabilityOperationId * arguments: (CapabilityParameterId * ExpressionRecipe) list
     | BoolNot of ExpressionRecipe
     /// The right operand becomes a nested value graph evaluated only when left is true.
@@ -201,6 +205,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.FunctionReference _ -> recipe
         | ExpressionRecipe.FunctionInvoke(value, arguments) -> ExpressionRecipe.FunctionInvoke(go value, List.map go arguments)
         | ExpressionRecipe.DirectCall(functionId, arguments) -> ExpressionRecipe.DirectCall(functionId, pairs arguments)
+        | ExpressionRecipe.SelfCall arguments -> ExpressionRecipe.SelfCall(pairs arguments)
         | ExpressionRecipe.CapabilityInvoke(capability, operation, arguments) ->
             ExpressionRecipe.CapabilityInvoke(go capability, operation, arguments |> List.map (fun (id, value) -> id, go value))
         | ExpressionRecipe.BoolNot operand -> ExpressionRecipe.BoolNot(go operand)
@@ -234,6 +239,10 @@ module AgentExpressionStructuralWorkflow =
           ParameterSlots: ParameterSlotContext list option
           RequiredEffects: EffectId list
           ResultType: TypeRef
+          /// The owner's own identity; None only while a new function is preflighted.
+          SelfFunctionId: FunctionId option
+          /// The owner's parameters in declaration order, addressed by SelfCall slots.
+          SelfParameters: ParameterSlotContext list
           Description: string }
 
     let private ownerForExistingFunction (target: SemanticFunction) =
@@ -244,6 +253,10 @@ module AgentExpressionStructuralWorkflow =
           ParameterSlots = None
           RequiredEffects = target.RequiredEffects
           ResultType = target.ResultType
+          SelfFunctionId = Some target.Id
+          SelfParameters =
+            target.Parameters
+            |> List.map (fun parameter -> { Type = parameter.Type; ParameterId = Some parameter.Id })
           Description = $"target function '{StableId.value target.Id}'" }
 
     let private stringType = TypeRef.Primitive PrimitiveType.String
@@ -333,6 +346,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.FunctionReference _ -> Seq.empty
         | ExpressionRecipe.FunctionInvoke(value, arguments) -> seq { yield value; yield! arguments }
         | ExpressionRecipe.DirectCall(_, arguments) -> arguments |> Seq.map snd
+        | ExpressionRecipe.SelfCall arguments -> arguments |> Seq.map snd
         | ExpressionRecipe.CapabilityInvoke(capabilityValue, _, arguments) ->
             seq {
                 yield capabilityValue
@@ -1108,6 +1122,44 @@ module AgentExpressionStructuralWorkflow =
                         )
                     | None ->
                         validateCallArguments callee arguments |> Result.map (fun substitution -> TypeParameters.substitute substitution callee.ResultType)
+            | ExpressionRecipe.SelfCall arguments ->
+                // The owner's RequiredEffects trivially cover its own, so only the arguments are checked.
+                let slotCount = List.length owner.SelfParameters
+                match arguments |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
+                | Some(slot, _) ->
+                    Error(diagnostic "PureExpressionDuplicateCallArgument" $"SelfCall binds parameter slot {slot} more than once.")
+                | None ->
+                    match arguments |> List.tryFind (fun (slot, _) -> slot < 0 || slot >= slotCount) with
+                    | Some(slot, _) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallArgumentTargetNotFound"
+                                $"SelfCall targets parameter slot {slot}, but {owner.Description} has {slotCount} parameter(s)."
+                        )
+                    | None ->
+                        let bound = arguments |> List.map fst |> Set.ofList
+                        match List.init slotCount id |> List.tryFind (fun slot -> not (Set.contains slot bound)) with
+                        | Some slot ->
+                            Error(
+                                diagnostic
+                                    "PureExpressionCallArgumentMissing"
+                                    $"SelfCall is missing required parameter slot {slot} of {owner.Description}."
+                            )
+                        | None ->
+                            let rec validateSlots = function
+                                | [] -> Ok owner.ResultType
+                                | (slot, (parameter: ParameterSlotContext)) :: rest ->
+                                    let _, value = arguments |> List.find (fun (candidate, _) -> candidate = slot)
+                                    match infer frames value with
+                                    | Error error -> Error error
+                                    | Ok actual when actual <> parameter.Type ->
+                                        Error(
+                                            diagnostic
+                                                "PureExpressionCallArgumentTypeMismatch"
+                                                $"SelfCall parameter slot {slot} requires {parameter.Type}, but the recipe produces {actual}."
+                                        )
+                                    | Ok _ -> validateSlots rest
+                            validateSlots (List.indexed owner.SelfParameters)
             | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
                 match Map.tryFind operationId capabilityOperationsById with
                 | None ->
@@ -1540,6 +1592,27 @@ module AgentExpressionStructuralWorkflow =
             let argumentNodes, argumentBindings = materializeCallArguments callee arguments
             let nodeId = StableIdAllocator.newGraphNodeId ()
             argumentNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.DirectCall(targetFunctionId, argumentBindings) } ], nodeId
+        | ExpressionRecipe.SelfCall arguments ->
+            let ownerFunctionId =
+                match owner.SelfFunctionId with
+                | Some functionId -> functionId
+                | None -> failwith "SelfCall passed preflight without a materialized owner function ID."
+            let rec loop slot = function
+                | [] -> [], []
+                | (parameter: ParameterSlotContext) :: rest ->
+                    let parameterId =
+                        match parameter.ParameterId with
+                        | Some parameterId -> parameterId
+                        | None -> failwith "SelfCall passed preflight without a materialized parameter ID."
+                    let _, value = arguments |> List.find (fun (candidate, _) -> candidate = slot)
+                    let valueNodes, valueResult = materializeRecipe value
+                    let restNodes, restBindings = loop (slot + 1) rest
+                    valueNodes @ restNodes,
+                    { TargetParameterId = parameterId
+                      ValueNodeId = valueResult } :: restBindings
+            let argumentNodes, argumentBindings = loop 0 owner.SelfParameters
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            argumentNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.DirectCall(ownerFunctionId, argumentBindings) } ], nodeId
         | ExpressionRecipe.CapabilityInvoke(capabilityValue, operationId, arguments) ->
             let capabilityNodes, capabilityResult = materializeRecipe capabilityValue
             let operation =
@@ -2458,17 +2531,18 @@ module AgentExpressionStructuralWorkflow =
                                 let canonicalEffects =
                                     request.RequiredEffects
                                     |> List.sortBy StableId.value
+                                let slots =
+                                    request.Parameters
+                                    |> List.map (fun parameter ->
+                                        { Type = parameter.Type
+                                          ParameterId = None })
                                 let owner =
                                     { ParametersById = Map.empty
-                                      ParameterSlots =
-                                        Some(
-                                            request.Parameters
-                                            |> List.map (fun parameter ->
-                                                { Type = parameter.Type
-                                                  ParameterId = None })
-                                        )
+                                      ParameterSlots = Some slots
                                       RequiredEffects = canonicalEffects
                                       ResultType = request.ResultType
+                                      SelfFunctionId = None
+                                      SelfParameters = slots
                                       Description = "the function being created" }
 
                                 match validateRecipeBounds recipeChildren request.Body with
@@ -2525,17 +2599,18 @@ module AgentExpressionStructuralWorkflow =
                             { Id = StableIdAllocator.newParameterId ()
                               DisplayName = parameter.DisplayName
                               Type = parameter.Type })
+                    let slots =
+                        List.map2
+                            (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
+                                { Type = intent.Type
+                                  ParameterId = Some parameter.Id })
+                            parameters
+                            request.Parameters
                     let materializationOwner =
                         { preflight.Owner with
-                            ParameterSlots =
-                                Some(
-                                    List.map2
-                                        (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
-                                            { Type = intent.Type
-                                              ParameterId = Some parameter.Id })
-                                        parameters
-                                        request.Parameters
-                                ) }
+                            ParameterSlots = Some slots
+                            SelfFunctionId = Some functionId
+                            SelfParameters = slots }
                     let bodyNodes, bodyResultId =
                         materializeWithContext
                             baseSnapshot

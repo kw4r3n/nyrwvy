@@ -193,6 +193,7 @@ CapabilityConstruct
 FunctionReference
 FunctionInvoke
 DirectCall
+SelfCall
 CapabilityInvoke
 Bind
 BoolNot
@@ -214,6 +215,8 @@ Product and union construction bind declaration fields by stable `FieldId`. Pref
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
 
 `DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. Every callee required effect must already be declared by the target, and every callee parameter must be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `ArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
+
+`SelfCall` calls the owning function (the function being created, or the replacement target), with arguments keyed by zero-based parameter slot; it materializes to an ordinary `DirectCall` to the owner, so a recursive function is created in one request. See [expression authoring](../specs/expression-authoring.md#selfcall).
 
 `CapabilityInvoke` takes an ordinary receiver recipe, an existing `CapabilityOperationId`, and `(CapabilityParameterId, ExpressionRecipe)` bindings. The receiver must produce the operation's exact owning capability type; bindings must exactly cover the operation parameters with no duplicates and exact value types. The operation's effect must already be declared by the target. Materialization creates receiver nodes first, argument nodes in operation declaration order, and the invocation last. Its result type is the existing operation's `ResultType`; failure metadata is not reinterpreted.
 
