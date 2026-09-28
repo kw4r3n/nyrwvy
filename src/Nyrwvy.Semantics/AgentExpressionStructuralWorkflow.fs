@@ -235,12 +235,27 @@ module ExpressionRecipeTypes =
 module AgentExpressionStructuralWorkflow =
     open StructuralTransactionInternals
 
-    type private PatternTypeFrame = (RecipePatternSlot * TypeRef) list
-    type private PatternBindingFrame = (RecipePatternSlot * PatternBinding) list
+    /// What opened a lexical frame; used only to describe visible frames in scope diagnostics.
+    [<RequireQualifiedAccess>]
+    type private ScopeFrameKind =
+        | UnionArm of VariantId
+        | BindBody
+        | OptionSome
+        | OptionNone
+        | ResultOk
+        | ResultErr
+
+    type private ScopeFrame<'Binding> =
+        { Kind: ScopeFrameKind
+          Slots: (RecipePatternSlot * 'Binding) list }
+
+    type private PatternTypeFrame = ScopeFrame<TypeRef>
+    type private PatternBindingFrame = ScopeFrame<PatternBinding>
 
     type private ParameterSlotContext =
         { Type: TypeRef
-          ParameterId: ParameterId option }
+          ParameterId: ParameterId option
+          DisplayName: string }
 
     type private ExpressionOwnerContext =
         { ParametersById: Map<ParameterId, SemanticParameter>
@@ -264,8 +279,25 @@ module AgentExpressionStructuralWorkflow =
           SelfFunctionId = Some target.Id
           SelfParameters =
             target.Parameters
-            |> List.map (fun parameter -> { Type = parameter.Type; ParameterId = Some parameter.Id })
+            |> List.map (fun parameter ->
+                { Type = parameter.Type
+                  ParameterId = Some parameter.Id
+                  DisplayName = parameter.DisplayName })
           Description = $"target function {StableId.describe target.DisplayName target.Id}" }
+
+    /// The owner's parameters in a diagnostic, by slot, display name and (when allocated) ID.
+    let private describeOwnerParameters (owner: ExpressionOwnerContext) =
+        match owner.SelfParameters with
+        | [] -> $"{owner.Description} has no parameters."
+        | parameters ->
+            let entries =
+                parameters
+                |> List.mapi (fun slot parameter ->
+                    match parameter.ParameterId with
+                    | Some parameterId -> $"{slot} = {StableId.describe parameter.DisplayName parameterId}"
+                    | None -> $"{slot} = '{parameter.DisplayName}'")
+                |> String.concat ", "
+            $"Parameters of {owner.Description}: {entries}."
 
     /// An effect in a diagnostic: display name and ID when declared, the ID alone otherwise.
     let private effectLabel (snapshot: Snapshot) effectId =
@@ -421,12 +453,98 @@ module AgentExpressionStructuralWorkflow =
 
         validate typeRef
 
-    let private resolvePatternType (frames: PatternTypeFrame list) (reference: RecipePatternReference) =
+    /// A pattern slot in a diagnostic: a field by display name and ID with its owning variant/type
+    /// (the ID alone when no declaration has it), or `Value`/`Error`.
+    let private describePatternSlot (snapshot: Snapshot) slot =
+        match slot with
+        | RecipePatternSlot.Value -> "Value"
+        | RecipePatternSlot.Error -> "Error"
+        | RecipePatternSlot.Field fieldId ->
+            snapshot.Types
+            |> List.tryPick (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields ->
+                    fields
+                    |> List.tryFind (fun field -> field.Id = fieldId)
+                    |> Option.map (fun field ->
+                        $"field {StableId.describe field.DisplayName fieldId} of product '{typeEntity.DisplayName}'")
+                | SemanticTypeKind.Union variants ->
+                    variants
+                    |> List.tryPick (fun variant ->
+                        variant.Fields
+                        |> List.tryFind (fun field -> field.Id = fieldId)
+                        |> Option.map (fun field ->
+                            $"field {StableId.describe field.DisplayName fieldId} of variant '{variant.DisplayName}' of '{typeEntity.DisplayName}'")))
+            |> Option.defaultValue $"field '{StableId.value fieldId}' (not a declared field)"
+
+    let private shortSlotName (snapshot: Snapshot) slot =
+        match slot with
+        | RecipePatternSlot.Value -> "Value"
+        | RecipePatternSlot.Error -> "Error"
+        | RecipePatternSlot.Field fieldId ->
+            snapshot.Types
+            |> List.tryPick (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields -> fields |> List.tryFind (fun field -> field.Id = fieldId)
+                | SemanticTypeKind.Union variants -> variants |> List.tryPick (fun variant -> variant.Fields |> List.tryFind (fun field -> field.Id = fieldId)))
+            |> Option.map (fun field -> $"'{field.DisplayName}'")
+            |> Option.defaultValue $"'{StableId.value fieldId}'"
+
+    /// One visible frame in a diagnostic, e.g. `arm 'Stop' of MatchUnion on 'Action' (binds 'member')`.
+    let private describeScopeFrame (snapshot: Snapshot) (frame: ScopeFrame<'Binding>) =
+        let opener =
+            match frame.Kind with
+            | ScopeFrameKind.UnionArm variantId ->
+                snapshot.Types
+                |> List.tryPick (fun typeEntity ->
+                    match typeEntity.Kind with
+                    | SemanticTypeKind.Union variants ->
+                        variants
+                        |> List.tryFind (fun variant -> variant.Id = variantId)
+                        |> Option.map (fun variant -> $"arm '{variant.DisplayName}' of MatchUnion on '{typeEntity.DisplayName}'")
+                    | SemanticTypeKind.Product _ -> None)
+                |> Option.defaultValue $"arm '{StableId.value variantId}' of MatchUnion"
+            | ScopeFrameKind.BindBody -> "Bind body"
+            | ScopeFrameKind.OptionSome -> "Some arm of MatchOption"
+            | ScopeFrameKind.OptionNone -> "None arm of MatchOption"
+            | ScopeFrameKind.ResultOk -> "Ok arm of MatchResult"
+            | ScopeFrameKind.ResultErr -> "Err arm of MatchResult"
+        let bindings =
+            match frame.Slots with
+            | [] -> "no bindings"
+            | slots -> "binds " + (slots |> List.map (fst >> shortSlotName snapshot) |> String.concat ", ")
+        $"{opener} ({bindings})"
+
+    /// The frames visible at a pattern reference, innermost first, and the depths where the slot is bound.
+    let private describeVisibleFrames (snapshot: Snapshot) (frames: ScopeFrame<'Binding> list) slot =
+        let listing =
+            match frames with
+            | [] -> "No frames are visible here; only a Bind body or a match arm opens one."
+            | _ ->
+                let entries =
+                    frames
+                    |> List.mapi (fun depth frame -> $"depth {depth} = {describeScopeFrame snapshot frame}")
+                    |> String.concat "; "
+                $"Visible frames, innermost first: {entries}."
+        let foundAt =
+            frames
+            |> List.indexed
+            |> List.choose (fun (depth, frame) ->
+                if frame.Slots |> List.exists (fun (candidate, _) -> candidate = slot) then Some depth else None)
+        match foundAt with
+        | [] -> listing
+        | [ depth ] -> $"The slot is found at depth {depth}. {listing}"
+        | depths ->
+            let text = depths |> List.map string |> String.concat ", "
+            $"The slot is found at depths {text} (the innermost is usually meant). {listing}"
+
+    let private resolvePatternType (snapshot: Snapshot) (frames: PatternTypeFrame list) (reference: RecipePatternReference) =
+        let slotText () = describePatternSlot snapshot reference.Slot
         if reference.ScopeDepth < 0 then
             Error(
                 diagnostic
                     "PureExpressionPatternScopeDepthInvalid"
-                    "Pattern-reference scope depth must be non-negative."
+                    $"Pattern-reference scope depth must be non-negative (slot {slotText ()}). {describeVisibleFrames snapshot frames reference.Slot}"
             )
         else
             match List.tryItem reference.ScopeDepth frames with
@@ -434,16 +552,16 @@ module AgentExpressionStructuralWorkflow =
                 Error(
                     diagnostic
                         "PureExpressionPatternScopeNotFound"
-                        $"Pattern-reference scope depth {reference.ScopeDepth} is not visible here."
+                        $"Pattern-reference scope depth {reference.ScopeDepth} for slot {slotText ()} is not visible here. {describeVisibleFrames snapshot frames reference.Slot}"
                 )
             | Some frame ->
-                match frame |> List.tryFind (fun (slot, _) -> slot = reference.Slot) with
+                match frame.Slots |> List.tryFind (fun (slot, _) -> slot = reference.Slot) with
                 | Some(_, typeRef) -> Ok typeRef
                 | None ->
                     Error(
                         diagnostic
                             "PureExpressionPatternSlotNotFound"
-                            $"Pattern-reference slot {reference.Slot} does not exist in scope depth {reference.ScopeDepth}."
+                            $"Pattern-reference slot {slotText ()} does not exist in scope depth {reference.ScopeDepth}. {describeVisibleFrames snapshot frames reference.Slot}"
                     )
 
     let private inferTypeWithContext
@@ -735,10 +853,18 @@ module AgentExpressionStructuralWorkflow =
                 match Map.tryFind parameterId owner.ParametersById with
                 | Some parameter -> Ok parameter.Type
                 | None ->
+                    let foreign =
+                        snapshot.Functions
+                        |> List.tryPick (fun functionEntity ->
+                            functionEntity.Parameters
+                            |> List.tryFind (fun parameter -> parameter.Id = parameterId)
+                            |> Option.map (fun parameter ->
+                                $"Parameter {StableId.describe parameter.DisplayName parameterId} of function {StableId.describe functionEntity.DisplayName functionEntity.Id}"))
+                        |> Option.defaultValue $"Parameter '{StableId.value parameterId}'"
                     Error(
                         diagnostic
                             "PureExpressionParameterOutOfScope"
-                            $"Parameter '{StableId.value parameterId}' is not owned by {owner.Description}."
+                            $"{foreign} is not owned by {owner.Description}. {describeOwnerParameters owner}"
                     )
             | ExpressionRecipe.ParameterSlot index ->
                 match owner.ParameterSlots with
@@ -752,7 +878,7 @@ module AgentExpressionStructuralWorkflow =
                     Error(
                         diagnostic
                             "PureExpressionParameterSlotOutOfRange"
-                            $"Parameter slot {index} is outside the requested parameter list."
+                            $"Parameter slot {index} is outside the requested parameter list. {describeOwnerParameters owner}"
                     )
                 | Some slots ->
                     match List.tryItem index slots with
@@ -761,9 +887,9 @@ module AgentExpressionStructuralWorkflow =
                         Error(
                             diagnostic
                                 "PureExpressionParameterSlotOutOfRange"
-                                $"Parameter slot {index} is outside the requested parameter list."
+                                $"Parameter slot {index} is outside the requested parameter list. {describeOwnerParameters owner}"
                         )
-            | ExpressionRecipe.PatternReference reference -> resolvePatternType frames reference
+            | ExpressionRecipe.PatternReference reference -> resolvePatternType snapshot frames reference
             | ExpressionRecipe.StringLiteral value when isNull value ->
                 Error(diagnostic "PureExpressionNullStringLiteral" "StringLiteral requires a non-null value.")
             | ExpressionRecipe.StringLiteral _ -> Ok stringType
@@ -1222,7 +1348,7 @@ module AgentExpressionStructuralWorkflow =
                         Error(
                             diagnostic
                                 "PureExpressionCallArgumentTargetNotFound"
-                                $"SelfCall targets parameter slot {slot}, but {owner.Description} has {slotCount} parameter(s)."
+                                $"SelfCall targets parameter slot {slot}, but {owner.Description} has {slotCount} parameter(s). {describeOwnerParameters owner}"
                         )
                     | None ->
                         let bound = arguments |> List.map fst |> Set.ofList
@@ -1231,7 +1357,7 @@ module AgentExpressionStructuralWorkflow =
                             Error(
                                 diagnostic
                                     "PureExpressionCallArgumentMissing"
-                                    $"SelfCall is missing required parameter slot {slot} of {owner.Description}."
+                                    $"SelfCall is missing required parameter slot {slot} ('{owner.SelfParameters[slot].DisplayName}') of {owner.Description}."
                             )
                         | None ->
                             let rec validateSlots = function
@@ -1331,7 +1457,8 @@ module AgentExpressionStructuralWorkflow =
                                     | (variant: SemanticVariant) :: rest ->
                                         let _, body = arms |> List.find (fun (variantId, _) -> variantId = variant.Id)
                                         let frame: PatternTypeFrame =
-                                            variant.Fields |> List.map (fun field -> RecipePatternSlot.Field field.Id, field.Type)
+                                            { Kind = ScopeFrameKind.UnionArm variant.Id
+                                              Slots = variant.Fields |> List.map (fun field -> RecipePatternSlot.Field field.Id, field.Type) }
                                         match inferCompletion (frame :: frames) body with
                                         | Error error -> Error error
                                         | Ok actual ->
@@ -1346,16 +1473,16 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Bind(input, body) ->
                 match infer frames input with
                 | Error error -> Error error
-                | Ok inputType -> inferCompletion ([ RecipePatternSlot.Value, inputType ] :: frames) body
+                | Ok inputType -> inferCompletion ({ Kind = ScopeFrameKind.BindBody; Slots = [ RecipePatternSlot.Value, inputType ] } :: frames) body
             | ExpressionRecipe.MatchOption(input, someBody, noneBody) ->
                 match infer frames input with
                 | Error error -> Error error
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
-                    let someFrame: PatternTypeFrame = [ RecipePatternSlot.Value, itemType ]
+                    let someFrame: PatternTypeFrame = { Kind = ScopeFrameKind.OptionSome; Slots = [ RecipePatternSlot.Value, itemType ] }
                     match inferCompletion (someFrame :: frames) someBody with
                     | Error error -> Error error
                     | Ok someType ->
-                        match inferCompletion ([] :: frames) noneBody with
+                        match inferCompletion ({ Kind = ScopeFrameKind.OptionNone; Slots = [] } :: frames) noneBody with
                         | Error error -> Error error
                         | Ok noneType -> merge "MatchOption" someType noneType
                 | Ok _ -> Error(diagnostic "PureExpressionMatchInputTypeMismatch" "MatchOption input must produce Option<T>.")
@@ -1363,8 +1490,8 @@ module AgentExpressionStructuralWorkflow =
                 match infer frames input with
                 | Error error -> Error error
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
-                    let okFrame: PatternTypeFrame = [ RecipePatternSlot.Value, okType ]
-                    let errFrame: PatternTypeFrame = [ RecipePatternSlot.Error, errorType ]
+                    let okFrame: PatternTypeFrame = { Kind = ScopeFrameKind.ResultOk; Slots = [ RecipePatternSlot.Value, okType ] }
+                    let errFrame: PatternTypeFrame = { Kind = ScopeFrameKind.ResultErr; Slots = [ RecipePatternSlot.Error, errorType ] }
                     match inferCompletion (okFrame :: frames) okBody with
                     | Error error -> Error error
                     | Ok okResultType ->
@@ -1411,12 +1538,12 @@ module AgentExpressionStructuralWorkflow =
                         | None -> Ok target
 
     let private bindingTypeFrames (frames: PatternBindingFrame list): PatternTypeFrame list =
-        frames |> List.map (List.map (fun (slot, binding) -> slot, binding.Type))
+        frames |> List.map (fun frame -> { Kind = frame.Kind; Slots = frame.Slots |> List.map (fun (slot, binding) -> slot, binding.Type) })
 
     let private resolvePatternBinding (frames: PatternBindingFrame list) (reference: RecipePatternReference) =
         match List.tryItem reference.ScopeDepth frames with
         | Some frame ->
-            match frame |> List.tryFind (fun (slot, _) -> slot = reference.Slot) with
+            match frame.Slots |> List.tryFind (fun (slot, _) -> slot = reference.Slot) with
             | Some(_, binding) -> binding
             | None -> failwith "Pattern recipe passed preflight with an unavailable slot."
         | None -> failwith "Pattern recipe passed preflight with an unavailable scope."
@@ -1757,7 +1884,8 @@ module AgentExpressionStructuralWorkflow =
                             (RecipePatternSlot.Field field.Id, binding))
                     variant,
                     (preparedFields |> List.map fst),
-                    (preparedFields |> List.map snd))
+                    { Kind = ScopeFrameKind.UnionArm variant.Id
+                      Slots = preparedFields |> List.map snd })
 
             let materializedArms: UnionMatchArm list =
                 preparedArms
@@ -1777,7 +1905,7 @@ module AgentExpressionStructuralWorkflow =
                   Type = inferHere input }
             let boundBody: ValueMatchArm =
                 { ValueBinding = binding
-                  Body = materializeGraph ([ RecipePatternSlot.Value, binding ] :: frames) body }
+                  Body = materializeGraph ({ Kind = ScopeFrameKind.BindBody; Slots = [ RecipePatternSlot.Value, binding ] } :: frames) body }
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.Bind(inputResult, boundBody) } ], nodeId
         | ExpressionRecipe.MatchOption(input, someBody, noneBody) ->
@@ -1792,8 +1920,8 @@ module AgentExpressionStructuralWorkflow =
                   Type = itemType }
             let someArm: ValueMatchArm =
                 { ValueBinding = someBinding
-                  Body = materializeGraph ([ RecipePatternSlot.Value, someBinding ] :: frames) someBody }
-            let noneGraph = materializeGraph ([] :: frames) noneBody
+                  Body = materializeGraph ({ Kind = ScopeFrameKind.OptionSome; Slots = [ RecipePatternSlot.Value, someBinding ] } :: frames) someBody }
+            let noneGraph = materializeGraph ({ Kind = ScopeFrameKind.OptionNone; Slots = [] } :: frames) noneBody
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchOption(inputResult, someArm, noneGraph) } ], nodeId
         | ExpressionRecipe.MatchResult(input, okBody, errBody) ->
@@ -1812,10 +1940,10 @@ module AgentExpressionStructuralWorkflow =
                   Type = errorType }
             let okArm: ValueMatchArm =
                 { ValueBinding = okBinding
-                  Body = materializeGraph ([ RecipePatternSlot.Value, okBinding ] :: frames) okBody }
+                  Body = materializeGraph ({ Kind = ScopeFrameKind.ResultOk; Slots = [ RecipePatternSlot.Value, okBinding ] } :: frames) okBody }
             let errArm: ErrorMatchArm =
                 { ErrorBinding = errBinding
-                  Body = materializeGraph ([ RecipePatternSlot.Error, errBinding ] :: frames) errBody }
+                  Body = materializeGraph ({ Kind = ScopeFrameKind.ResultErr; Slots = [ RecipePatternSlot.Error, errBinding ] } :: frames) errBody }
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchResult(inputResult, okArm, errArm) } ], nodeId
 
@@ -2044,25 +2172,27 @@ module AgentExpressionStructuralWorkflow =
                         arms
                         |> List.tryPick (fun arm ->
                             let frame: PatternBindingFrame =
-                                arm.FieldBindings
-                                |> List.map (fun field ->
-                                    RecipePatternSlot.Field field.SourceFieldId, field.Binding)
+                                { Kind = ScopeFrameKind.UnionArm arm.VariantId
+                                  Slots =
+                                    arm.FieldBindings
+                                    |> List.map (fun field ->
+                                        RecipePatternSlot.Field field.SourceFieldId, field.Binding) }
                             tryFindTarget (frame :: frames) targetNodeId arm.Body)
                     | SemanticNodeKind.Bind(_, body) ->
                         let frame: PatternBindingFrame =
-                            [ RecipePatternSlot.Value, body.ValueBinding ]
+                            { Kind = ScopeFrameKind.BindBody; Slots = [ RecipePatternSlot.Value, body.ValueBinding ] }
                         tryFindTarget (frame :: frames) targetNodeId body.Body
                     | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
                         let someFrame: PatternBindingFrame =
-                            [ RecipePatternSlot.Value, someArm.ValueBinding ]
+                            { Kind = ScopeFrameKind.OptionSome; Slots = [ RecipePatternSlot.Value, someArm.ValueBinding ] }
                         choose
                             (tryFindTarget (someFrame :: frames) targetNodeId someArm.Body)
-                            (fun () -> tryFindTarget ([] :: frames) targetNodeId noneBody)
+                            (fun () -> tryFindTarget ({ Kind = ScopeFrameKind.OptionNone; Slots = [] } :: frames) targetNodeId noneBody)
                     | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
                         let okFrame: PatternBindingFrame =
-                            [ RecipePatternSlot.Value, okArm.ValueBinding ]
+                            { Kind = ScopeFrameKind.ResultOk; Slots = [ RecipePatternSlot.Value, okArm.ValueBinding ] }
                         let errFrame: PatternBindingFrame =
-                            [ RecipePatternSlot.Error, errArm.ErrorBinding ]
+                            { Kind = ScopeFrameKind.ResultErr; Slots = [ RecipePatternSlot.Error, errArm.ErrorBinding ] }
                         choose
                             (tryFindTarget (okFrame :: frames) targetNodeId okArm.Body)
                             (fun () -> tryFindTarget (errFrame :: frames) targetNodeId errArm.Body)
@@ -2627,7 +2757,8 @@ module AgentExpressionStructuralWorkflow =
                                     request.Parameters
                                     |> List.map (fun parameter ->
                                         { Type = parameter.Type
-                                          ParameterId = None })
+                                          ParameterId = None
+                                          DisplayName = parameter.DisplayName })
                                 let owner =
                                     { ParametersById = Map.empty
                                       ParameterSlots = Some slots
@@ -2695,7 +2826,8 @@ module AgentExpressionStructuralWorkflow =
                         List.map2
                             (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
                                 { Type = intent.Type
-                                  ParameterId = Some parameter.Id })
+                                  ParameterId = Some parameter.Id
+                                  DisplayName = intent.DisplayName })
                             parameters
                             request.Parameters
                     let materializationOwner =
