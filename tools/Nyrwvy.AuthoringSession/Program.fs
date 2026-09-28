@@ -11,15 +11,17 @@ type private StartupMode =
     | Upgrade of source: string * replaces: string option * expectedFingerprint: string
 
 module private CommandLine =
-    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>]"
+    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default."
 
     let rec private dependencies collected = function
         | [] -> Ok(List.rev collected)
         | "--dependency" :: path :: rest -> dependencies (path :: collected) rest
         | _ -> Error usage
 
+    let hostSourcesFlag = "--allow-host-sources"
+
     let parse (arguments: string list): Result<StartupMode * string * string list, string> =
-        match arguments with
+        match arguments |> List.filter ((<>) hostSourcesFlag) with
         | [ "open"; "--snapshot"; path ] -> Ok(StartupMode.Open, path, [])
         | "create" :: "--snapshot" :: path :: rest -> dependencies [] rest |> Result.map (fun paths -> StartupMode.Create, path, paths)
         | [ "pin"; "--snapshot"; path ] -> Ok(StartupMode.Pin, path, [])
@@ -49,6 +51,7 @@ let main argv =
             2
         | Ok session ->
             use session = session
+            session.HostSourcesAllowed <- Array.contains CommandLine.hostSourcesFlag argv
             let mutable running = true
             while running do
                 match Console.In.ReadLine() with

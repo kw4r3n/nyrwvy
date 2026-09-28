@@ -14,11 +14,11 @@ const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
 const names = ["open", "inspect", "recipe_reference", "create_type", "create_function", "replace", "commit", "reject", "request", "close"]
 
-async function connect(cwd, workspace, options) {
+async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : [])], cwd, stderr: "pipe" }))
+      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : []), ...extraArgs], cwd, stderr: "pipe" }))
     return client
   } catch (error) { await client.close().catch(() => undefined); throw error }
 }
@@ -70,6 +70,8 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     await failed(second, "inspect", { view: "status" })
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
     assert.equal(opened.snapshot, join(workspace, "workspace.json"))
+    // Host C# sources are server configuration, off by default, and never enabled per request.
+    assert.equal(opened.hostSourcesAllowed, false)
     await failed(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
 
     const type = await call(first, "create_type", { displayName: "Request", typeKind: { kind: "product", fields: [{ displayName: "enabled", type: { kind: "primitive", primitive: "bool" } }] } })
@@ -97,6 +99,8 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     await call(first, "reject", { proposalId: discard.proposalId })
     const pending = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     assert.equal((await call(first, "request", { op: "executionReadiness", arguments: {} })).result.kind, "ready")
+    const disabled = await failed(first, "request", { op: "runPure", arguments: { functionId, arguments: [], hostSources: ["Host.cs"] } })
+    assert.equal(disabled.structuredContent.error.code, "RunHostSourcesDisabled")
     await failed(first, "request", { op: "status", arguments: { id: "not-tool-owned" } })
     await failed(first, "request", { op: "status", arguments: { op: "declarations" } })
 
@@ -407,4 +411,24 @@ test("MCP shutdown bounds abnormal authoring children end to end", { timeout: 30
       assert.equal(results[2].result.isError, true)
     }
   })))
+})
+
+test("MCP --allow-host-sources starts the session with host sources enabled", { timeout: 30000 }, async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "nyrwvy-mcp-host-"))
+  let client
+  try {
+    client = await connect(workspace, undefined, undefined, ["--allow-host-sources"])
+    const opened = await call(client, "open", { mode: "create", snapshot: "workspace.json" })
+    assert.equal(opened.hostSourcesAllowed, true)
+    const created = (await call(client, "create_function", { displayName: "value", parameters: [],
+      resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
+    await call(client, "commit", { proposalId: created.proposalId })
+    // Past the gate, request validation applies: sources without a hostCapability binding are invalid.
+    const invalid = await failed(client, "request", { op: "runPure",
+      arguments: { functionId: created.review.createdFunction.id, arguments: [], hostSources: ["Host.cs"] } })
+    assert.equal(invalid.structuredContent.error.code, "RunHostSourceInvalid")
+  } finally {
+    await client?.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
 })

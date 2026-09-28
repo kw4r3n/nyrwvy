@@ -251,8 +251,31 @@ public sealed class Broken : {capability}
 """
 
     [<Fact>]
+    let ``host sources are disabled unless the session opted in and nothing is read or built`` () =
+        withFixture (fun fixture ->
+            let before = File.ReadAllText fixture.Path
+            let query = (fixture.Function "query").Id
+            Assert.False(fixture.Session.HostSourcesAllowed)
+            let host = PureRunValue.HostCapability(fixture.Provider.Id, "Example.Hosts.Directory", false)
+            let reject arguments sources =
+                match PureRun.runWithHost fixture.Session query arguments None sources with
+                | Error(PureRunError.Unsupported(actual, _)) -> Assert.Equal("RunHostSourcesDisabled", actual)
+                | other -> failwithf "Host source accepted without opt-in: %A" other
+            // Missing files prove the gate rejects before any source is read.
+            reject [ request fixture "k"; host ] [ "Missing.cs" ]
+            reject [ request fixture "k"; host ] []
+            reject [ request fixture "k"; provider fixture [] ] [ "Missing.cs" ]
+            let line =
+                $"""{{"id":"host","op":"runPure","functionId":"{StableId.value query}","hostSources":["Missing.cs"],"arguments":[{{"kind":"product","typeId":"{StableId.value fixture.Request.Id}","fields":[{{"fieldId":"{StableId.value fixture.Key.Id}","value":{{"kind":"string","value":"k"}}}}]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Provider.Id}","implementation":"Example.Hosts.Directory"}}]}}"""
+            use response = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+            Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("RunHostSourcesDisabled", response.RootElement.GetProperty("error").GetProperty("code").GetString())
+            Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    [<Fact>]
     let ``host bindings require explicit readable sources and a plain type name before building`` () =
         withFixture (fun fixture ->
+            fixture.Session.HostSourcesAllowed <- true
             let before = File.ReadAllText fixture.Path
             let query = (fixture.Function "query").Id
             let host name = PureRunValue.HostCapability(fixture.Provider.Id, name, false)
@@ -273,6 +296,7 @@ public sealed class Broken : {capability}
     [<Fact; Trait("Suite", "Extended")>]
     let ``runPure runs an explicitly registered host implementation and records its calls`` () =
         withFixture (fun fixture ->
+            fixture.Session.HostSourcesAllowed <- true
             let before = File.ReadAllText fixture.Path
             let query = fixture.Function "query"
             File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Hosts.cs"), hostSource fixture)

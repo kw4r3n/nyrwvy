@@ -176,6 +176,20 @@ module AuthoringTypeSessionTests =
                 let repairedFunctionIds = review.GetProperty("repairedFunctionIds")
                 Assert.Equal(1, repairedFunctionIds.GetArrayLength())
                 Assert.Equal<string>(functionId, repairedFunctionIds[0].GetString())
+                Assert.False(review.TryGetProperty("rewrittenFunctions") |> fst)
+                // A full review adds the repaired function's proposed body.
+                use full =
+                    AuthoringProtocol.executeLine
+                        session
+                        (sprintf
+                            """{"id":"evolve-full","op":"simulateAddFieldlessUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut","detail":"full"}"""
+                            typeId
+                            failedVariantId)
+                    |> requireOk
+                let rewritten = full.RootElement.GetProperty("result").GetProperty("review").GetProperty("rewrittenFunctions")
+                Assert.Equal(1, rewritten.GetArrayLength())
+                Assert.Equal<string>(functionId, rewritten[0].GetProperty("id").GetString())
+                Assert.True(rewritten[0].GetProperty("body").GetProperty("nodes").GetArrayLength() > 0)
                 result.GetProperty("proposalId").GetString(),
                 review.GetProperty("addedVariantId").GetString()
 

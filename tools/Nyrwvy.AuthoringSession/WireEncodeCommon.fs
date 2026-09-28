@@ -1,6 +1,7 @@
 namespace Nyrwvy.Tools.AuthoringSession
 
 open Nyrwvy.Core
+open System
 
 module internal WireEncodeCommon =
     open WireJson
@@ -167,6 +168,20 @@ module internal WireEncodeCommon =
               "proposedSnapshotFingerprint", box (SnapshotFingerprint.value value.ProposedSnapshotFingerprint)
               "proposedSemanticFingerprint", box (SemanticFingerprint.value value.ProposedSemanticFingerprint) ]
 
+    /// String literals longer than this many UTF-16 code units are shown as a prefix in node
+    /// summaries, with `truncated` and the full `length`.
+    let private summaryStringLimit = 256
+
+    let private nodeLiteral = function
+        | StructuralNodeLiteral.Bool value -> objectValue [ "kind", box "bool"; "value", box value ]
+        | StructuralNodeLiteral.Int64 value -> objectValue [ "kind", box "int64"; "value", box (value.ToString(Globalization.CultureInfo.InvariantCulture)) ]
+        | StructuralNodeLiteral.String value when value.Length <= summaryStringLimit ->
+            objectValue [ "kind", box "string"; "value", box value ]
+        | StructuralNodeLiteral.String value ->
+            // Never split a surrogate pair at the cut.
+            let cut = if Char.IsHighSurrogate value[summaryStringLimit - 1] then summaryStringLimit - 1 else summaryStringLimit
+            objectValue [ "kind", box "string"; "value", box (value.Substring(0, cut)); "truncated", box true; "length", box value.Length ]
+
     let nodeSummary (value: StructuralNodeSummary) =
         objectValue
             [ "nodeId", box (StableId.value value.NodeId)
@@ -182,7 +197,9 @@ module internal WireEncodeCommon =
                 |> arrayValue
               "parameterId", optional value.ParameterId (StableId.value >> box)
               "functionId", optional value.FunctionId (StableId.value >> box)
-              "float64Bits", optional value.Float64BitsHex box ]
+              "float64Bits", optional value.Float64BitsHex box
+              "literal", optional value.Literal nodeLiteral
+              "referenceDisplayName", optional value.ReferenceDisplayName box ]
 
     let private callSite (value: QueryCallSite) =
         objectValue

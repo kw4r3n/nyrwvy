@@ -57,7 +57,10 @@ type AuthoringProposalReview =
 
 type AuthoringProposal =
     { ProposalId: string
-      Review: AuthoringProposalReview }
+      Review: AuthoringProposalReview
+      /// Proposed bodies of the functions a migration or union-variant evolution rewrites, in
+      /// review order; empty for other reviews. Rendered only by a full review.
+      RewrittenFunctions: SemanticFunction list }
 
 type AuthoringCommitReceipt =
     { TransactionId: TransactionId
@@ -448,7 +451,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         dependency |> Option.map (fun snapshot -> snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
         |> Option.defaultValue Set.empty
 
-    let register transactionId pending review =
+    let registerWith (proposedFunctions: SemanticFunction list) transactionId pending review =
         // Check resulting changes too: signature/variant edits can rewrite other
         // callers or match owners, not just the intent's primary target.
         let functions, types =
@@ -488,7 +491,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         else
             let proposalId = StableId.value transactionId
             proposals.Add(proposalId, (transactionId, pending))
-            Ok { ProposalId = proposalId; Review = review }
+            let rewritten =
+                functions |> List.distinct |> List.choose (fun id -> proposedFunctions |> List.tryFind (fun item -> item.Id = id))
+            Ok { ProposalId = proposalId; Review = review; RewrittenFunctions = rewritten }
+
+    let register transactionId pending review = registerWith [] transactionId pending review
 
     let dependencyStillPinned () =
         match selection with
@@ -552,6 +559,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             Ok { TransactionId = transactionId; PublishedSnapshotId = publishedSnapshotId; Readiness = readiness }
 
     member _.Path = path
+    /// Whether `runPure`/`runPureByName` may compile and run host C# sources (`hostSources` and
+    /// `hostCapability` bindings). Off by default; the session process enables it only for the
+    /// `--allow-host-sources` startup flag, never per request, because host code runs with the
+    /// user's permissions.
+    member val HostSourcesAllowed = false with get, set
     member _.DependencySelection = selection |> Option.map PinnedDependency.describe
 
     /// Reviews replacing a pinned dependency with a new version without changing anything.
@@ -641,7 +653,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match AgentParameterTypeMigrationWorkflow.simulate workspace request with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
-                register (AgentParameterTypeMigrationProposal.transactionId proposal) (PendingProposal.ParameterTypeMigration proposal) (AuthoringProposalReview.ParameterTypeMigration(AgentParameterTypeMigrationProposal.review proposal))
+                registerWith (AgentParameterTypeMigrationProposal.proposedFunctions proposal) (AgentParameterTypeMigrationProposal.transactionId proposal) (PendingProposal.ParameterTypeMigration proposal) (AuthoringProposalReview.ParameterTypeMigration(AgentParameterTypeMigrationProposal.review proposal))
 
     member _.SimulateResultTypeMigration(request: AgentResultTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
@@ -651,7 +663,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match AgentResultTypeMigrationWorkflow.simulate workspace request with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
-                register (AgentResultTypeMigrationProposal.transactionId proposal) (PendingProposal.ResultTypeMigration proposal) (AuthoringProposalReview.ResultTypeMigration(AgentResultTypeMigrationProposal.review proposal))
+                registerWith (AgentResultTypeMigrationProposal.proposedFunctions proposal) (AgentResultTypeMigrationProposal.transactionId proposal) (PendingProposal.ResultTypeMigration proposal) (AuthoringProposalReview.ResultTypeMigration(AgentResultTypeMigrationProposal.review proposal))
 
     member _.SimulateProductFieldTypeMigration(request: AgentProductFieldTypeMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
@@ -661,7 +673,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match AgentProductFieldTypeMigrationWorkflow.simulate workspace request with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
-                register (AgentProductFieldTypeMigrationProposal.transactionId proposal) (PendingProposal.ProductFieldTypeMigration proposal) (AuthoringProposalReview.ProductFieldTypeMigration(AgentProductFieldTypeMigrationProposal.review proposal))
+                registerWith (AgentProductFieldTypeMigrationProposal.proposedFunctions proposal) (AgentProductFieldTypeMigrationProposal.transactionId proposal) (PendingProposal.ProductFieldTypeMigration proposal) (AuthoringProposalReview.ProductFieldTypeMigration(AgentProductFieldTypeMigrationProposal.review proposal))
 
     member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
@@ -681,7 +693,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match AgentFieldlessUnionVariantEvolutionWorkflow.simulate workspace request with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
-                register
+                registerWith
+                    (AgentFieldlessUnionVariantEvolutionProposal.proposedFunctions proposal)
                     (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
                     (PendingProposal.FieldlessUnionVariantEvolution proposal)
                     (AuthoringProposalReview.FieldlessUnionVariantEvolution(
@@ -696,7 +709,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields workspace request additionalFields with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
-                register
+                registerWith
+                    (AgentFieldlessUnionVariantEvolutionProposal.proposedFunctions proposal)
                     (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
                     (PendingProposal.FieldlessUnionVariantEvolution proposal)
                     (AuthoringProposalReview.FieldlessUnionVariantEvolution(

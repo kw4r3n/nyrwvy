@@ -161,6 +161,23 @@ module ResultTypeMigrationTests =
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let result = proposed.RootElement.GetProperty("result")
             Assert.Equal("resultTypeMigration", result.GetProperty("review").GetProperty("kind").GetString())
+            // Compact rewrites carry node summaries with literal values but no rewritten bodies.
+            Assert.False(result.GetProperty("review").TryGetProperty("rewrittenFunctions") |> fst)
+            let literals =
+                result.GetProperty("review").GetProperty("diff").GetProperty("bodyRewrites").EnumerateArray()
+                |> Seq.collect (fun rewrite -> rewrite.GetProperty("addedNodes").EnumerateArray())
+                |> Seq.choose (fun node ->
+                    match node.GetProperty("literal") with
+                    | literal when literal.ValueKind = JsonValueKind.Object -> Some(literal.GetProperty("value").GetString())
+                    | _ -> None)
+                |> Set.ofSeq
+            Assert.Equal<Set<string>>(set [ "known"; "value"; "value: "; "missing" ], literals)
+            // Full adds each rewritten function's proposed body, in review order.
+            use full = AuthoringProtocol.executeLine session (line.Substring(0, line.Length - 1) + ""","detail":"full"}""") |> JsonDocument.Parse
+            Assert.True(full.RootElement.GetProperty("ok").GetBoolean(), full.RootElement.ToString())
+            let rewritten = full.RootElement.GetProperty("result").GetProperty("review").GetProperty("rewrittenFunctions")
+            Assert.Equal<string list>([ "lookup"; "describe" ], rewritten.EnumerateArray() |> Seq.map (fun fn -> fn.GetProperty("displayName").GetString()) |> Seq.toList)
+            Assert.True(rewritten.[0].GetProperty("body").GetProperty("nodes").GetArrayLength() > 1)
             let proposalId = result.GetProperty("proposalId").GetString()
             use committed = AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId) |> JsonDocument.Parse
             Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())

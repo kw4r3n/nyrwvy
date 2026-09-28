@@ -52,6 +52,8 @@ module AgentProductFieldTypeMigrationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// Functions of the proposed snapshot, for rendering rewritten bodies in a full review.
+    let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 
 [<RequireQualifiedAccess>]
 type AgentProductFieldTypeMigrationCommitResult =

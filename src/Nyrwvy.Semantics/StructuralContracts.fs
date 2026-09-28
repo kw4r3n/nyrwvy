@@ -175,6 +175,14 @@ module ValueDependency =
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
+/// Literal payload of a summarized node, so reviews can tell sibling literals apart.
+/// Float64 literals keep their exact bits in `StructuralNodeSummary.Float64BitsHex`.
+[<RequireQualifiedAccess>]
+type StructuralNodeLiteral =
+    | Bool of bool
+    | Int64 of int64
+    | String of string
+
 type StructuralNodeSummary =
     { NodeId: GraphNodeId
       Role: string
@@ -183,7 +191,12 @@ type StructuralNodeSummary =
       ValueDependencies: ValueDependency list
       ParameterId: ParameterId option
       FunctionId: FunctionId option
-      Float64BitsHex: string option }
+      Float64BitsHex: string option
+      Literal: StructuralNodeLiteral option
+      /// Display name of the declaration the node names directly: the referenced parameter or
+      /// function, the accessed field, the constructed variant or Product type, the invoked
+      /// capability operation, or the constructed capability.
+      ReferenceDisplayName: string option }
 
 type FunctionBodyReplacementDiff =
     { OwnerFunctionId: FunctionId

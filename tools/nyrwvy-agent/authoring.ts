@@ -3,7 +3,16 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
 import { resolve } from "node:path"
 
-export type AuthoringContext = { sessionID: string; worktree: string; repositoryRoot?: string; abort?: AbortSignal }
+/**
+ * allowHostSources is operator configuration, never a per-request argument: when true, the session
+ * starts with --allow-host-sources and runPure hostSources compile and run arbitrary C# with the
+ * user's permissions. NYRWVY_ALLOW_HOST_SOURCES=1 in the adapter's environment enables it too.
+ */
+export type AuthoringContext = { sessionID: string; worktree: string; repositoryRoot?: string; abort?: AbortSignal; allowHostSources?: boolean }
+
+export function hostSourcesAllowed(context: AuthoringContext): boolean {
+  return context.allowHostSources === true || process.env.NYRWVY_ALLOW_HOST_SOURCES === "1"
+}
 export type Request = { op: string; [key: string]: unknown }
 type Reply = { id: string; ok: boolean; result?: unknown; error?: unknown }
 type Pending = { id: string; resolve: (line: string) => void; reject: (error: Error) => void }
@@ -184,6 +193,8 @@ export async function openAuthoring(
     args.push("--expect", upgrade.expectedFingerprint)
     if (upgrade.replaces !== undefined) args.push("--replaces", upgrade.replaces)
   }
+  const allowHostSources = hostSourcesAllowed(context)
+  if (allowHostSources) args.push("--allow-host-sources")
   const client = new AuthoringClient(spawn("dotnet", args, {
     cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
   }))
@@ -191,7 +202,7 @@ export async function openAuthoring(
   try {
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
-    return JSON.stringify({ worktree, snapshot: workspace, status,
+    return JSON.stringify({ worktree, snapshot: workspace, status, hostSourcesAllowed: allowHostSources,
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; reviews are compact by default (signature, node count, impact facts, fingerprints), and detail \"full\" adds the proposed graph. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     try { await client.close() } catch (cleanupError) {
