@@ -3,6 +3,9 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Nyrwvy.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="Session.fs" />
     <Compile Include="PureRun.fs" />
     <Compile Include="WireJson.fs" />

@@ -82,6 +82,11 @@ type private PendingProposal =
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
 
+/// Test seam for storage failures that cannot be produced reliably through the file system.
+module internal SessionStorageFaults =
+    /// When it returns true for a full path, the next replacement of that path fails.
+    let mutable failReplacement: string -> bool = fun _ -> false
+
 module private SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
     let lockPath (path: string): string = path + ".lock"
@@ -146,6 +151,7 @@ module private SessionStorage =
                 Error(AuthoringSessionError.IoFailure error.Message)
 
     let private replaceAtomicallyCore (path: string) (content: string): Result<unit, AuthoringSessionError> =
+        if SessionStorageFaults.failReplacement path then Error(AuthoringSessionError.IoFailure $"Injected replacement failure for '{path}'.") else
         match writeTemporary path content with
         | Error error -> Error error
         | Ok tempPath ->
@@ -868,7 +874,8 @@ module AuthoringSession =
     /// Explicitly replaces one pinned dependency with the reviewed version `expectedFingerprint`,
     /// only when the local graph is valid against it, then opens the upgraded workspace.
     /// The sidecar and the local snapshot's dependency binding are rewritten; local declarations
-    /// and identities are unchanged. Like creation, the two files are replaced separately.
+    /// and identities are unchanged. The sidecar is replaced first; if the snapshot replacement then
+    /// fails, the previous sidecar content is restored so the unchanged workspace still opens.
     let upgradeDependency (path: string) (sourcePath: string) (replaces: string option) (expectedFingerprint: string): Result<AuthoringSession, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
@@ -893,10 +900,25 @@ module AuthoringSession =
                                 SnapshotCodec.serializeResolved plan.Selection.Imported plan.Local
                                 |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                                 |> Result.bind (fun upgradedSource ->
-                                    SessionStorage.replaceAtomically (path + ".dependency.json") plan.Selection.Manifest
-                                    |> Result.bind (fun () -> SessionStorage.replaceAtomically path upgradedSource)
-                                    |> Result.bind (fun () -> workspaceFromSource (Some plan.Selection.Imported) upgradedSource)
-                                    |> Result.map (fun workspace -> upgradedSource, workspace, plan.Selection))))
+                                    // Validate the upgraded graph before touching storage.
+                                    workspaceFromSource (Some plan.Selection.Imported) upgradedSource
+                                    |> Result.bind (fun workspace ->
+                                        let sidecar = path + ".dependency.json"
+                                        SessionStorage.readText sidecar
+                                        |> Result.bind (fun previousManifest ->
+                                            SessionStorage.replaceAtomically sidecar plan.Selection.Manifest
+                                            |> Result.bind (fun () ->
+                                                match SessionStorage.replaceAtomically path upgradedSource with
+                                                | Ok() -> Ok()
+                                                | Error error ->
+                                                    // Restore the previous selection so the unchanged graph still opens.
+                                                    match SessionStorage.replaceAtomically sidecar previousManifest with
+                                                    | Ok() -> Error error
+                                                    | Error rollback ->
+                                                        let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
+                                                        Error(AuthoringSessionError.IoFailure
+                                                            $"{text error} Restoring the previous dependency selection also failed: {text rollback}")))
+                                        |> Result.map (fun () -> upgradedSource, workspace, plan.Selection)))))
                 match result with
                 | Error error ->
                     lockHandle.Dispose()

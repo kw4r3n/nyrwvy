@@ -224,6 +224,31 @@ module AuthoringDependencySetTests =
             ignore b)
 
     [<Fact>]
+    let ``a failed graph write during an upgrade restores the previous dependency selection`` () =
+        withLibraries (fun root a _ _ ->
+            let path, wrap = localOnA root a
+            let compatible = Path.Combine(root, "a-v2.json")
+            File.WriteAllText(compatible, SnapshotCodec.serialize (library "a-v2" [ money "Money" ] [ identity "keep"; identity "extra" ]) |> unwrap "a-v2")
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                session.PreviewDependencyUpgrade(compatible, None) |> unwrap "preview"
+            let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            let target = Path.GetFullPath path
+            SessionStorageFaults.failReplacement <- fun candidate -> candidate = target
+            try
+                match AuthoringSession.upgradeDependency path compatible None preview.NewFingerprint with
+                | Error(AuthoringSessionError.IoFailure _) -> ()
+                | other -> failwithf "Upgrade did not report the failed graph write: %A" other
+            finally SessionStorageFaults.failReplacement <- fun _ -> false
+            Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json")))
+            do
+                use reopened = AuthoringSession.openExisting path |> unwrap "reopen after failed upgrade"
+                Assert.Contains(wrap, reopened.Declarations().Functions |> List.map (fun fn -> fn.Id))
+                Assert.DoesNotContain("extra", reopened.Declarations().Functions |> List.map (fun fn -> fn.DisplayName))
+            use upgraded = AuthoringSession.upgradeDependency path compatible None preview.NewFingerprint |> unwrap "retry upgrade"
+            Assert.Contains("extra", upgraded.Declarations().Functions |> List.map (fun fn -> fn.DisplayName)))
+
+    [<Fact>]
     let ``upgrading one member of a dependency set requires naming it`` () =
         withLibraries (fun root a b _ ->
             let path = Path.Combine(root, "set.json")
