@@ -5,6 +5,9 @@ open System.Collections.Generic
 open System.Text.Json
 open Nyrwvy.Core
 
+/// Frozen evaluation protocol `m2-listmap-structural-v1` (freeze tag `eval/m2-listmap-condition-v1-20260831`, docs/operations/evaluation-freeze-tags.md).
+/// Its review encoding intentionally duplicates the maintained wire encoders to preserve historical
+/// replay; only extend it for exhaustiveness over new semantic cases, never refactor it onto shared code.
 [<RequireQualifiedAccess>]
 module ListMapStructuralProtocol =
     let version = "m2-listmap-structural-v1"
