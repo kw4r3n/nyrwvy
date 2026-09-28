@@ -39,10 +39,8 @@ module SnapshotCodecTests =
         Assert.Equal(fixture.RunCallNodeId, restoredRun.Body.ResultNodeId)
         Assert.Equal(3, restoredRun.Body.Nodes.Length)
 
-    [<Theory>]
-    [<InlineData(20)>]
-    [<InlineData(331)>]
-    let ``deep conditional snapshots roundtrip standalone and dependency resolved codecs`` depth =
+    /// One function whose body nests `depth` conditionals (about three JSON levels each).
+    let private deepSnapshot depth =
         let nodeId suffix = StableId.createForTesting<GraphNodeTag> suffix
         let literal suffix value: ValueGraph =
             let id = nodeId suffix
@@ -63,15 +61,20 @@ module SnapshotCodecTests =
                                 literal (sprintf "node-deep-false-%03d" level) false
                             ) } ]
                   ResultNodeId = resultId }
-        let snapshot =
-            { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-deep") with
-                Functions =
-                    [ { Id = StableId.createForTesting<FunctionTag> "function-deep"
-                        DisplayName = "deep"
-                        Parameters = []
-                        ResultType = TypeRef.Primitive PrimitiveType.Bool
-                        RequiredEffects = []
-                        Body = body depth } ] }
+        { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-deep") with
+            Functions =
+                [ { Id = StableId.createForTesting<FunctionTag> "function-deep"
+                    DisplayName = "deep"
+                    Parameters = []
+                    ResultType = TypeRef.Primitive PrimitiveType.Bool
+                    RequiredEffects = []
+                    Body = body depth } ] }
+
+    [<Theory>]
+    [<InlineData(20)>]
+    [<InlineData(331)>]
+    let ``deep conditional snapshots roundtrip standalone and dependency resolved codecs`` depth =
+        let snapshot = deepSnapshot depth
         let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
         let encoded = SnapshotCodec.serialize snapshot |> unwrap
         let restored = SnapshotCodec.deserialize encoded |> unwrap
@@ -79,6 +82,19 @@ module SnapshotCodecTests =
         let resolved = SnapshotCodec.serializeResolved dependency snapshot |> unwrap
         let restoredResolved = SnapshotCodec.deserializeResolved dependency resolved |> unwrap
         Assert.Equal(resolved, SnapshotCodec.serializeResolved dependency restoredResolved |> unwrap)
+
+    [<Fact>]
+    let ``a graph nested beyond the JSON depth limit is a codec error, not an exception`` () =
+        let snapshot = deepSnapshot 400
+        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
+        let expected: Result<string, SnapshotCodecError> = Error(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth)
+        Assert.Equal(expected, SnapshotCodec.serialize snapshot)
+        Assert.Equal(expected, SnapshotCodec.serializeResolved dependency snapshot)
+        Assert.Equal(Error(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth), SnapshotFingerprint.compute snapshot |> Result.map SnapshotFingerprint.value)
+        Assert.Equal(Error(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth), SemanticFingerprint.compute snapshot |> Result.map ignore)
+        match SnapshotCodec.serializeResolved snapshot (Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-local")) with
+        | Error(SnapshotCodecError.MaximumDepthExceeded _) -> ()
+        | result -> failwithf "Expected an over-deep dependency digest to be a codec error, got %A" result
 
     [<Fact>]
     let ``snapshot codec retains a finite JSON depth limit`` () =

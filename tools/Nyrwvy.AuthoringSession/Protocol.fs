@@ -1069,3 +1069,11 @@ module AuthoringProtocol =
                 (objectValue
                     [ "code", box "SessionError"
                       "message", box error.Message ])
+        // Last resort: an unexpected failure answers this request only. Session state is
+        // mutated solely after a successful write, so the session remains usable.
+        | error ->
+            failure
+                requestId
+                (objectValue
+                    [ "code", box "InternalError"
+                      "message", box $"{error.GetType().Name}: {error.Message}" ])

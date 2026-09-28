@@ -21,6 +21,45 @@ module AuthoringTypeSessionTests =
         document
 
     [<Fact>]
+    let ``an unexpected failure replies InternalError and leaves the session unchanged`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session =
+                match AuthoringSession.createNew path with
+                | Ok value -> value
+                | Error error -> failwithf "Session creation failed: %A" error
+            let proposalId =
+                use document =
+                    AuthoringProtocol.executeLine
+                        session
+                        """{"id":"type","op":"simulateCreateType","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
+                    |> requireOk
+                document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            let persisted = File.ReadAllText path
+            let target = Path.GetFullPath path
+            let commit = sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId
+            SessionStorageFaults.failReplacement <- fun candidate ->
+                if candidate = target then raise (NotSupportedException "simulated fault") else false
+            let response =
+                try AuthoringProtocol.executeLine session commit
+                finally SessionStorageFaults.failReplacement <- fun _ -> false
+            use failed = JsonDocument.Parse response
+            Assert.Equal("commit", failed.RootElement.GetProperty("id").GetString())
+            Assert.False(failed.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("InternalError", failed.RootElement.GetProperty("error").GetProperty("code").GetString())
+            Assert.Contains("simulated fault", failed.RootElement.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal(persisted, File.ReadAllText path)
+            use declarations = AuthoringProtocol.executeLine session """{"id":"decls","op":"declarations"}""" |> requireOk
+            Assert.Equal(0, declarations.RootElement.GetProperty("result").GetProperty("types").GetArrayLength())
+            // The pending proposal survived and still commits.
+            use committed = AuthoringProtocol.executeLine session commit |> requireOk
+            use after = AuthoringProtocol.executeLine session """{"id":"decls","op":"declarations"}""" |> requireOk
+            Assert.Equal(1, after.RootElement.GetProperty("result").GetProperty("types").GetArrayLength())
+        finally
+            Directory.Delete(root, true)
+
+    [<Fact>]
     let ``ordinary authoring session creates persists and rediscovers a product declaration`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")
