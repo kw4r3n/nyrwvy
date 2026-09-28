@@ -46,6 +46,7 @@ Diagnostics of a rejected simulation are unchanged; they were never part of the 
 - `WireEncodeCommon.functionSummary` and `compactFocus` render the compact forms, and `WireEncode.compactProposal` is the default simulate encoder; `proposalWith` takes the `detail` label.
 - `nyrwvy_create_function` and `nyrwvy_replace` take an optional `detail` argument, and the tool descriptions, the open guide and the M4 evaluation bridge prompt describe the compact default.
 - `nodeCount` counts every node of the body, including nested regions, so it can be checked against the recipe the caller sent.
+- Amended after review: compact diff node summaries carry `literal` values and `referenceDisplayName`, a targeted diff adds `proposedTarget`, and `detail: "full"` adds `rewrittenFunctions` to migration and union-variant evolution reviews, which have no function focus to expand ([session contract](../specs/agent-authoring-session.md#simulate-review-detail)). Without them, retargeting the wrong one of two sibling `false` literals looked identical in a compact review, and `full` added nothing for those review kinds.
 - The debug-string `kind` of the full default projection still repeats nested regions. It is only returned on request now; `structuredReview` is the compact way to read a full graph.
 
 ## Revisit conditions

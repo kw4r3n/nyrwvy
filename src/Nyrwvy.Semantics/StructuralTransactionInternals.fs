@@ -115,6 +115,41 @@ module internal StructuralTransactionInternals =
         (nodes: SemanticNode list)
         : StructuralNodeSummary list =
         let nodeTypes = SemanticFacts.nodeTypes snapshot functionEntity
+        let functionName id =
+            if id = functionEntity.Id then Some functionEntity.DisplayName
+            else snapshot.Functions |> List.tryFind (fun item -> item.Id = id) |> Option.map (fun item -> item.DisplayName)
+        let fields () =
+            snapshot.Types |> List.collect (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Product fields -> fields
+                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
+        let variants () =
+            snapshot.Types |> List.collect (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Union variants -> variants
+                | SemanticTypeKind.Product _ -> [])
+        let referenceName (node: SemanticNode) functionId =
+            match node.Kind with
+            | SemanticNodeKind.ParameterReference parameterId ->
+                functionEntity.Parameters |> List.tryFind (fun item -> item.Id = parameterId) |> Option.map (fun item -> item.DisplayName)
+            | SemanticNodeKind.FieldAccess(_, fieldId) ->
+                fields () |> List.tryFind (fun item -> item.Id = fieldId) |> Option.map (fun item -> item.DisplayName)
+            | SemanticNodeKind.UnionConstruct(variantId, _) ->
+                variants () |> List.tryFind (fun item -> item.Id = variantId) |> Option.map (fun item -> item.DisplayName)
+            | SemanticNodeKind.ProductConstruct(typeId, _) ->
+                snapshot.Types |> List.tryFind (fun item -> item.Id = typeId) |> Option.map (fun item -> item.DisplayName)
+            | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
+                snapshot.Capabilities |> List.collect (fun item -> item.Operations)
+                |> List.tryFind (fun item -> item.Id = operationId) |> Option.map (fun item -> item.DisplayName)
+            | SemanticNodeKind.CapabilityConstruct(capabilityId, _) ->
+                snapshot.Capabilities |> List.tryFind (fun item -> item.Id = capabilityId) |> Option.map (fun item -> item.DisplayName)
+            | _ -> functionId |> Option.bind functionName
+        let literal (node: SemanticNode) =
+            match node.Kind with
+            | SemanticNodeKind.BoolLiteral value -> Some(StructuralNodeLiteral.Bool value)
+            | SemanticNodeKind.Int64Literal value -> Some(StructuralNodeLiteral.Int64 value)
+            | SemanticNodeKind.StringLiteral value -> Some(StructuralNodeLiteral.String value)
+            | _ -> None
         nodes
         |> List.map (fun node ->
             let parameterId, functionId, bitsHex = summaryExtra node
@@ -126,7 +161,9 @@ module internal StructuralTransactionInternals =
               ValueDependencies = valueDependencies
               ParameterId = parameterId
               FunctionId = functionId
-              Float64BitsHex = bitsHex })
+              Float64BitsHex = bitsHex
+              Literal = literal node
+              ReferenceDisplayName = referenceName node functionId })
 
     let classifyReadiness snapshot =
         match SnapshotReadiness.evaluate snapshot with

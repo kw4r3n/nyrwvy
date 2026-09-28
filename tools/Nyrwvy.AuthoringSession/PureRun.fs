@@ -1221,8 +1221,9 @@ module PureRun =
                         | :? IOException
                         | :? UnauthorizedAccessException -> ()
 
-    /// Reads explicitly registered host C# sources. Relative paths resolve against the workspace
-    /// directory; at most 16 existing `.cs` files of at most 1 MiB each are accepted.
+    /// Reads explicitly registered host C# sources. Relative paths resolve against the directory
+    /// containing the session's snapshot file; at most 16 existing `.cs` files of at most 1 MiB
+    /// each are accepted.
     let private readHostSources (session: AuthoringSession) (paths: string list) =
         let baseDirectory = Path.GetDirectoryName(Path.GetFullPath session.Path)
         if paths.Length > 16 then Error(diagnostic "RunHostSourceInvalid" "At most 16 host source files are accepted.") else
@@ -1255,6 +1256,10 @@ module PureRun =
         | Error error -> Error(PureRunError.SessionFailure error)
         | Ok() when arguments @ Option.toList expected |> List.exists (boundedValue >> not) ->
             Error(diagnostic "RunArgumentTooLarge" $"Values are limited to {maxValueLayers} nested composite layers and 8192 total value nodes.")
+        | Ok() when not session.HostSourcesAllowed
+                   && (not (List.isEmpty hostSources)
+                       || arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) ->
+            Error(diagnostic "RunHostSourcesDisabled" "Host sources and hostCapability bindings compile and run arbitrary C# with the user's permissions, so they are disabled unless the session was started with --allow-host-sources. Use fakeCapability bindings, or ask the operator to enable host sources.")
         | Ok() -> readHostSources session hostSources |> Result.bind (runVerified session functionId arguments expected)
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []

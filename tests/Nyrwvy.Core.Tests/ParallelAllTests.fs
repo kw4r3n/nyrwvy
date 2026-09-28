@@ -177,6 +177,7 @@ module ParallelAllTests =
     [<Fact>]
     let ``runner rejects an unasserted host before compiling and cannot launder it through a safe fake`` () =
         withFixture (fun fixture ->
+            fixture.Session.HostSourcesAllowed <- true
             // Intentionally invalid host source proves admission rejects before compilation.
             File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Host.cs"), "not C sharp")
             let request support =
@@ -223,6 +224,7 @@ module ParallelAllTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``concurrent stateful host runs through JSON and sequential host needs no assertion`` () =
         withFixture (fun fixture ->
+            fixture.Session.HostSourcesAllowed <- true
             let operation = List.exactlyOne fixture.Jobs.Operations
             let source = String.concat "\n"
                             [ "using Nyrwvy.Generated;"

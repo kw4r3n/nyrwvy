@@ -113,6 +113,39 @@ module CompactSimulateReplyTests =
             session.Commit((result compact).GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore)
 
     [<Fact>]
+    let ``compact targeted review shows literal values and referenced names of the replaced nodes`` () =
+        withSession (fun session ->
+            let int64Literal (value: string) = $"""{{"kind":"int64Literal","value":"{value}"}}"""
+            let body =
+                conditional """{"kind":"parameter","name":"flag"}""" (int64Literal "7") (int64Literal "-42")
+            use created =
+                send session ($"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"pick","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "int64"},"requiredEffects":[],"body":{body}}}""")
+            session.Commit((result created).GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let pick = session.Declarations().Functions |> List.exactlyOne
+            let nodeWhere predicate = ValueGraph.collectNodes pick.Body |> List.find (fun node -> predicate node.Kind)
+            let replace (node: SemanticNode) replacement =
+                send session $"""{{"id":"edit","op":"simulateReplaceTargetByName","function":"pick","targetNodeId":"{StableId.value node.Id}","replacement":{replacement}}}"""
+            // Two sibling Int64 literals: the compact review names which one is replaced.
+            let negative = nodeWhere (function SemanticNodeKind.Int64Literal -42L -> true | _ -> false)
+            use edit = replace negative (int64Literal "0")
+            let diff = (result edit).GetProperty("review").GetProperty("diff")
+            let previous = diff.GetProperty("previousTarget")
+            Assert.Equal("int64", previous.GetProperty("literal").GetProperty("kind").GetString())
+            Assert.Equal("-42", previous.GetProperty("literal").GetProperty("value").GetString())
+            let proposed = diff.GetProperty("proposedTarget")
+            Assert.Equal(previous.GetProperty("nodeId").GetString(), proposed.GetProperty("nodeId").GetString())
+            Assert.Equal("0", proposed.GetProperty("literal").GetProperty("value").GetString())
+            Assert.Equal(JsonValueKind.Null, previous.GetProperty("referenceDisplayName").ValueKind)
+            let flag = nodeWhere (function SemanticNodeKind.ParameterReference _ -> true | _ -> false)
+            use condition = replace flag (boolLiteral "true")
+            let previous = (result condition).GetProperty("review").GetProperty("diff").GetProperty("previousTarget")
+            Assert.Equal("flag", previous.GetProperty("referenceDisplayName").GetString())
+            Assert.Equal(JsonValueKind.Null, previous.GetProperty("literal").ValueKind)
+            let added = (result condition).GetProperty("review").GetProperty("diff").GetProperty("proposedTarget").GetProperty("literal")
+            Assert.Equal("bool", added.GetProperty("kind").GetString())
+            Assert.True(added.GetProperty("value").GetBoolean()))
+
+    [<Fact>]
     let ``every simulate kind accepts detail and an unknown detail is rejected before simulation`` () =
         withSession (fun session ->
             use effect = send session """{"id":"effect","op":"simulateCreateEffect","displayName":"Io","detail":"full"}"""

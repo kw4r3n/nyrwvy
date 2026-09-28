@@ -8,13 +8,13 @@ import { parseArgs } from "node:util"
 import { createGraphTools } from "../nyrwvy-agent/graph-tools.mjs"
 import { closeAuthoring } from "../nyrwvy-agent/authoring.ts"
 
-const { values } = parseArgs({ options: { workspace: { type: "string" }, help: { type: "boolean" } } })
+const { values } = parseArgs({ options: { workspace: { type: "string" }, "allow-host-sources": { type: "boolean" }, help: { type: "boolean" } } })
 
 if (values.help) {
-  console.error("Usage: node --experimental-strip-types tools/nyrwvy-mcp/server.mjs [--workspace /path/to/project]\nRelative snapshots default to the MCP process current directory, which ordinary CLI clients normally launch in the active project. --workspace is an optional server-level override. nyrwvy_open also accepts a per-open workspace override for hosts that do not expose the project as cwd. The toolchain is located relative to this server.")
+  console.error("Usage: node --experimental-strip-types tools/nyrwvy-mcp/server.mjs [--workspace /path/to/project] [--allow-host-sources]\nRelative snapshots default to the MCP process current directory, which ordinary CLI clients normally launch in the active project. --workspace is an optional server-level override. nyrwvy_open also accepts a per-open workspace override for hosts that do not expose the project as cwd. The toolchain is located relative to this server.\n--allow-host-sources (or NYRWVY_ALLOW_HOST_SOURCES=1) lets runPure hostSources compile and run arbitrary C# with your permissions through nyrwvy_request; it is off by default. Do not combine it with auto-approving nyrwvy_request.")
 } else {
   const context = { sessionID: randomUUID(), worktree: resolve(values.workspace ?? process.cwd()),
-    repositoryRoot: fileURLToPath(new URL("../../", import.meta.url)) }
+    repositoryRoot: fileURLToPath(new URL("../../", import.meta.url)), allowHostSources: values["allow-host-sources"] === true }
   const lifetime = new AbortController()
   /** @type {ReturnType<typeof serveStdio> | undefined} */
   let handle

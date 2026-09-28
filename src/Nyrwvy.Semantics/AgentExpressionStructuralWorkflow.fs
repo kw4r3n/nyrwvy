@@ -2081,6 +2081,9 @@ module AgentExpressionStructuralWorkflow =
             { OwnerFunctionId: FunctionId
               TargetNodeId: GraphNodeId
               PreviousTarget: StructuralNodeSummary
+              /// The node now at the target position (the replacement's root keeps the target
+              /// node ID), so a compact review shows both the old and the new value.
+              ProposedTarget: StructuralNodeSummary option
               RemovedNodes: StructuralNodeSummary list
               AddedNodes: StructuralNodeSummary list
               AddedPatternBindings: PatternBinding list
@@ -2526,6 +2529,11 @@ module AgentExpressionStructuralWorkflow =
                                     let previousTarget =
                                         summarizeNodes baseSnapshot preflight.Target [ preflight.TargetNode ]
                                         |> List.exactlyOne
+                                    let proposedTargetSummary =
+                                        proposedNodes
+                                        |> List.filter (fun node -> node.Id = request.TargetNodeId)
+                                        |> summarizeNodes proposedSnapshot proposedTarget
+                                        |> List.tryHead
                                     let removedNodes =
                                         baseNodes
                                         |> List.filter (fun node ->
@@ -2558,6 +2566,7 @@ module AgentExpressionStructuralWorkflow =
                                         { OwnerFunctionId = preflight.Target.Id
                                           TargetNodeId = request.TargetNodeId
                                           PreviousTarget = previousTarget
+                                          ProposedTarget = proposedTargetSummary
                                           RemovedNodes = removedNodes
                                           AddedNodes = addedNodes
                                           AddedPatternBindings = addedBindings

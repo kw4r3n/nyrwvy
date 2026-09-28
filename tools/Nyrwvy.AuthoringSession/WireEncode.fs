@@ -142,6 +142,7 @@ module internal WireEncode =
             [ "ownerFunctionId", box (StableId.value value.OwnerFunctionId)
               "targetNodeId", box (StableId.value value.TargetNodeId)
               "previousTarget", nodeSummary value.PreviousTarget
+              "proposedTarget", value.ProposedTarget |> Option.map nodeSummary |> Option.defaultValue null
               "removedNodes", value.RemovedNodes |> List.map nodeSummary |> arrayValue
               "addedNodes", value.AddedNodes |> List.map nodeSummary |> arrayValue
               "addedPatternBindingIds",
@@ -231,6 +232,12 @@ module internal WireEncode =
                   "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.Body ]) |> arrayValue
 
     let proposalWith (detail: string) functionEntity focus (value: AuthoringProposal) =
+        // A full review of a migration or union-variant evolution adds each rewritten function's
+        // proposed body; the compact review keeps only the diff's node summaries.
+        let withRewritten fields =
+            if detail = "full" then
+                objectValue (fields @ [ "rewrittenFunctions", value.RewrittenFunctions |> List.map functionEntity |> arrayValue ])
+            else objectValue fields
         let review =
             match value.Review with
             | AuthoringProposalReview.Operations item ->
@@ -268,21 +275,21 @@ module internal WireEncode =
                       "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
                       "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
             | AuthoringProposalReview.ParameterTypeMigration item ->
-                objectValue
+                withRewritten
                     [ "kind", box "parameterTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", parameterTypeMigrationDiff item.ResultingChange
                       "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.ResultTypeMigration item ->
-                objectValue
+                withRewritten
                     [ "kind", box "resultTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", resultTypeMigrationDiff item.ResultingChange
                       "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.ProductFieldTypeMigration item ->
-                objectValue
+                withRewritten
                     [ "kind", box "productFieldTypeMigration"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
@@ -295,7 +302,7 @@ module internal WireEncode =
                       "readiness", readiness item.Readiness
                       "createdType", semanticType item.CreatedType ]
             | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
-                objectValue
+                withRewritten
                     [ "kind", box "fieldlessUnionVariantEvolution"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
