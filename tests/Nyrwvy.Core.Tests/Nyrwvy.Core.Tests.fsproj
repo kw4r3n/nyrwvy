@@ -51,6 +51,7 @@
     <Compile Include="AuthoringTypeSessionTests.fs" />
     <Compile Include="AuthoringEffectSessionTests.fs" />
     <Compile Include="AuthoringCapabilitySessionTests.fs" />
+    <Compile Include="RecipeKindConsistencyTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
@@ -58,6 +59,7 @@
     <Compile Include="TypedSemanticIrCodecTests.fs" />
     <Compile Include="ExecutionIrTests.fs" />
     <Compile Include="ExecutionIrCodecTests.fs" />
+    <Compile Include="EffectClassificationConsistencyTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />
     <Compile Include="EffectRequirementsTests.fs" />

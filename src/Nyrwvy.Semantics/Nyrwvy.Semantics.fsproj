@@ -28,11 +28,11 @@
     <Compile Include="Workspace.fs" />
     <Compile Include="ChangeReviewQuery.fs" />
     <Compile Include="AgentWorkflow.fs" />
+    <Compile Include="StructuralContracts.fs" />
+    <Compile Include="StructuralTransactionInternals.fs" />
     <Compile Include="AgentTypeDeclarationWorkflow.fs" />
     <Compile Include="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
-    <Compile Include="StructuralContracts.fs" />
-    <Compile Include="StructuralTransactionInternals.fs" />
     <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />

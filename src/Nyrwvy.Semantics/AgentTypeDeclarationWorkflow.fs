@@ -199,33 +199,6 @@ module AgentTypeDeclarationWorkflow =
           DisplayName = request.DisplayName
           Kind = kind }
 
-    let private classifyReadiness snapshot =
-        match SnapshotReadiness.evaluate snapshot with
-        | Error issues -> Error(validationDiagnostics issues)
-        | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
-        | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
-
-    let private createReceipt transactionId baseSnapshot proposedSnapshot =
-        match SnapshotFingerprint.compute baseSnapshot with
-        | Error error -> Error(AgentTypeDeclarationWorkflowError.FingerprintFailed error)
-        | Ok baseFingerprint ->
-            match SnapshotFingerprint.compute proposedSnapshot with
-            | Error error -> Error(AgentTypeDeclarationWorkflowError.FingerprintFailed error)
-            | Ok proposedFingerprint ->
-                match SemanticFingerprint.compute proposedSnapshot with
-                | Error error -> Error(AgentTypeDeclarationWorkflowError.FingerprintFailed error)
-                | Ok semanticFingerprint ->
-                    Ok(
-                        TransactionPreviewReceipt.create
-                            None
-                            transactionId
-                            baseSnapshot.Id
-                            baseFingerprint
-                            proposedSnapshot.Id
-                            proposedFingerprint
-                            semanticFingerprint
-                    )
-
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentCreateTypeDeclarationRequest)
@@ -260,12 +233,12 @@ module AgentTypeDeclarationWorkflow =
                         )
                     )
                 | [] ->
-                    match classifyReadiness proposedSnapshot with
+                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
                     | Error diagnostics ->
                         Error(AgentTypeDeclarationWorkflowError.SimulationRejected diagnostics)
                     | Ok readiness ->
-                        match createReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error error
+                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
+                        | Error error -> Error(AgentTypeDeclarationWorkflowError.FingerprintFailed error)
                         | Ok receipt ->
                             let review =
                                 { RequestedChange = request
@@ -285,7 +258,6 @@ module AgentTypeDeclarationWorkflow =
         (AgentTypeDeclarationProposal proposal)
         (policy: CommitPolicy)
         : AgentTypeDeclarationCommitResult =
-        let currentSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
         let receipt = proposal.Review.Receipt
 
         if receipt.TransactionId <> proposal.TransactionId
@@ -294,67 +266,27 @@ module AgentTypeDeclarationWorkflow =
                 [ diagnostic
                     "PreviewReceiptRequestMismatch"
                     "The reviewed receipt does not identify this type-declaration proposal." ]
-        elif currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentTypeDeclarationCommitResult.Rejected
-                [ diagnostic
-                    "StaleBaseSnapshot"
-                    "The workspace advanced beyond the reviewed type-declaration proposal." ]
         else
-            match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ ->
-                AgentTypeDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "FingerprintFailure"
-                        "The base snapshot fingerprint could not be recomputed." ]
-            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentTypeDeclarationCommitResult.Rejected
-                    [ diagnostic
-                        "PreviewReceiptBaseMismatch"
-                        "The current base content differs from the reviewed base." ]
-            | Ok _ ->
-                match
-                    SnapshotFingerprint.compute proposal.ProposedSnapshot,
-                    SemanticFingerprint.compute proposal.ProposedSnapshot
-                with
-                | Ok proposedFingerprint, Ok semanticFingerprint
-                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
-                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
-                    match proposal.Review.Readiness, policy with
-                    | TransactionReadiness.Incomplete obligationIds,
-                      CommitPolicy.RejectBlockingObligations ->
-                        let rendered =
-                            obligationIds
-                            |> List.map StableId.value
-                            |> String.concat ", "
-                        AgentTypeDeclarationCommitResult.Rejected
-                            [ diagnostic
-                                "BlockingObligations"
-                                $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match AgentWorkspace.publishValidatedSnapshot workspace proposal.ProposedSnapshot with
-                        | Error diagnostics ->
-                            AgentTypeDeclarationCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentTypeDeclarationCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = proposal.TransactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
-                                  CreatedTypeId = proposal.Review.CreatedType.Id
-                                  Readiness = proposal.Review.Readiness
-                                  Receipt = receipt }
-                            )
-                | Error _, _
-                | _, Error _ ->
-                    AgentTypeDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "FingerprintFailure"
-                            "The proposed snapshot fingerprint could not be recomputed." ]
-                | _ ->
-                    AgentTypeDeclarationCommitResult.Rejected
-                        [ diagnostic
-                            "PreviewReceiptResultMismatch"
-                            "The proposed type declaration differs from the reviewed result." ]
+            match
+                StructuralTransactionInternals.publishCandidateWithMessages
+                    (StructuralTransactionInternals.declarationPublicationMessages "type")
+                    workspace
+                    proposal.ProposedSnapshot
+                    proposal.Review.Readiness
+                    receipt
+                    policy
+            with
+            | Error diagnostics -> AgentTypeDeclarationCommitResult.Rejected diagnostics
+            | Ok nextWorkspace ->
+                AgentTypeDeclarationCommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      CreatedTypeId = proposal.Review.CreatedType.Id
+                      Readiness = proposal.Review.Readiness
+                      Receipt = receipt }
+                )
 
     let commit workspace proposal =
         publishWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations
