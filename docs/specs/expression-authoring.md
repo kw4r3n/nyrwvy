@@ -389,7 +389,7 @@ This surface does **not** create missing-argument obligations. Incomplete calls 
 
 Out of scope: a `FunctionReference` to the function being created, for higher-order use, and mutual recursion. Both still need an existing function, so the placeholder-then-replace route remains for them.
 
-A self call is a real call at run time, so recursion depth is limited by the runtime stack: several thousand nested calls for a small function, fewer for one with many parameters or locals, after which `runPure` reports `RunRuntimeFailure` `System.StackOverflowException` with a "recursion was too deep" message. Author per-item iteration, including per-character text scans, as `ListFold` over a list (`StringCodePoints(text)` for text) instead of a self call per item.
+A self call is a real call at run time, so recursion depth is limited by the runtime stack: several thousand nested calls for a small function, fewer for one with many parameters or locals, after which `runPure` reports `RunRuntimeFailure` `System.StackOverflowException` with a "recursion was too deep" message. Author per-item iteration, including per-character text scans, as `ListFold` over a list (`StringCodePoints(text)` for text) instead of a self call per item. Positional String operations are linear in the position, so a loop that steps a position and slices or searches again is also O(n²); see the [language subset](../reference/language-subset.md).
 
 ## Complete CapabilityInvoke
 
