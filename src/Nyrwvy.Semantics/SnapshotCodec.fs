@@ -413,6 +413,27 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+            writer.WriteString("kind", "stringIndexOf")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
+            writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
+            writer.WriteString("kind", "stringLastIndexOf")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | SemanticNodeKind.StringStartsWith(valueNodeId, prefixNodeId) ->
+            writer.WriteString("kind", "stringStartsWith")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("prefixNodeId", StableId.value prefixNodeId)
+        | SemanticNodeKind.StringEndsWith(valueNodeId, suffixNodeId) ->
+            writer.WriteString("kind", "stringEndsWith")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("suffixNodeId", StableId.value suffixNodeId)
+        | SemanticNodeKind.StringSplit(valueNodeId, separatorNodeId) ->
+            writer.WriteString("kind", "stringSplit")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("separatorNodeId", StableId.value separatorNodeId)
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -1072,6 +1093,29 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "valueNodeId"; "substringNodeId" ])
                     element
                 SemanticNodeKind.StringContains(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "substringNodeId" element)
+            | "stringIndexOf" ->
+                ensureProperties
+                    "StringIndexOf node"
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId"; "fromNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId"; "fromNodeId" ])
+                    element
+                SemanticNodeKind.StringIndexOf(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "substringNodeId" element,
+                    readId<GraphNodeTag> "fromNodeId" element
+                )
+            | "stringLastIndexOf"
+            | "stringStartsWith"
+            | "stringEndsWith"
+            | "stringSplit" as kindName ->
+                let label, other, build =
+                    match kindName with
+                    | "stringLastIndexOf" -> "StringLastIndexOf node", "substringNodeId", (fun v o -> SemanticNodeKind.StringLastIndexOf(v, o))
+                    | "stringStartsWith" -> "StringStartsWith node", "prefixNodeId", (fun v o -> SemanticNodeKind.StringStartsWith(v, o))
+                    | "stringEndsWith" -> "StringEndsWith node", "suffixNodeId", (fun v o -> SemanticNodeKind.StringEndsWith(v, o))
+                    | _ -> "StringSplit node", "separatorNodeId", (fun v o -> SemanticNodeKind.StringSplit(v, o))
+                ensureProperties label (set [ "id"; "kind"; "valueNodeId"; other ]) (set [ "id"; "kind"; "valueNodeId"; other ]) element
+                build (readId<GraphNodeTag> "valueNodeId" element) (readId<GraphNodeTag> other element)
             | "stringEqual" ->
                 readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
             | "stringLessThan" ->

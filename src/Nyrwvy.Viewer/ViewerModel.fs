@@ -46,6 +46,11 @@ type ViewerNodeRole =
     | StringLength
     | StringSlice
     | StringContains
+    | StringIndexOf
+    | StringLastIndexOf
+    | StringStartsWith
+    | StringEndsWith
+    | StringSplit
     | StringEqual
     | StringLessThan
     | ValueEqual
@@ -211,6 +216,11 @@ module ViewerProjection =
         | SemanticNodeKind.StringLength _ -> ViewerNodeRole.StringLength, []
         | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
+        | SemanticNodeKind.StringIndexOf _ -> ViewerNodeRole.StringIndexOf, []
+        | SemanticNodeKind.StringLastIndexOf _ -> ViewerNodeRole.StringLastIndexOf, []
+        | SemanticNodeKind.StringStartsWith _ -> ViewerNodeRole.StringStartsWith, []
+        | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []
+        | SemanticNodeKind.StringSplit _ -> ViewerNodeRole.StringSplit, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []
         | SemanticNodeKind.ValueEqual _ -> ViewerNodeRole.ValueEqual, []

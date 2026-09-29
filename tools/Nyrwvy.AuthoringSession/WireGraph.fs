@@ -62,6 +62,12 @@ module internal WireGraph =
         | SemanticNodeKind.StringSlice(value, start, stop) ->
             tagged "stringSlice" [ "valueNodeId", identity value; "startNodeId", identity start; "endNodeId", identity stop ]
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
+        | SemanticNodeKind.StringIndexOf(value, substring, from) ->
+            tagged "stringIndexOf" [ "valueNodeId", identity value; "substringNodeId", identity substring; "fromNodeId", identity from ]
+        | SemanticNodeKind.StringLastIndexOf(value, other) -> tagged "stringLastIndexOf" [ "valueNodeId", identity value; "substringNodeId", identity other ]
+        | SemanticNodeKind.StringStartsWith(value, other) -> tagged "stringStartsWith" [ "valueNodeId", identity value; "prefixNodeId", identity other ]
+        | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
+        | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringLessThan(left, right) -> tagged "stringLessThan" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.ValueEqual(left, right) -> tagged "valueEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]

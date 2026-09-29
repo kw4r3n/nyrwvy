@@ -87,6 +87,11 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringLength of valueNodeId: GraphNodeId
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    | StringIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    | StringLastIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    | StringStartsWith of valueNodeId: GraphNodeId * prefixNodeId: GraphNodeId
+    | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
+    | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | ValueEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -286,6 +291,16 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId))
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
+                    | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId))
+                    | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId))
+                    | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId))
+                    | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId))
+                    | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId))
                     | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->

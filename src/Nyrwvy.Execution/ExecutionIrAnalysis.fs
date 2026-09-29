@@ -37,6 +37,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
+        | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) -> [ valueNodeId; substringNodeId; fromNodeId ]
+        | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
+        | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
+        | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
+        | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
@@ -141,6 +146,11 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
+            | TypedSemanticNodeKind.StringIndexOf _
+            | TypedSemanticNodeKind.StringLastIndexOf _
+            | TypedSemanticNodeKind.StringStartsWith _
+            | TypedSemanticNodeKind.StringEndsWith _
+            | TypedSemanticNodeKind.StringSplit _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _
@@ -266,6 +276,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringSlice _
         | TypedSemanticNodeKind.BoolNot _
         | TypedSemanticNodeKind.StringContains _
+        | TypedSemanticNodeKind.StringIndexOf _
+        | TypedSemanticNodeKind.StringLastIndexOf _
+        | TypedSemanticNodeKind.StringStartsWith _
+        | TypedSemanticNodeKind.StringEndsWith _
+        | TypedSemanticNodeKind.StringSplit _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringLessThan _
         | TypedSemanticNodeKind.ValueEqual _
@@ -374,6 +389,11 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
+            | TypedSemanticNodeKind.StringIndexOf _
+            | TypedSemanticNodeKind.StringLastIndexOf _
+            | TypedSemanticNodeKind.StringStartsWith _
+            | TypedSemanticNodeKind.StringEndsWith _
+            | TypedSemanticNodeKind.StringSplit _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _

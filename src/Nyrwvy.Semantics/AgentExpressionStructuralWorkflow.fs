@@ -30,6 +30,11 @@ type ExpressionRecipe =
     | StringLength of ExpressionRecipe
     | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
+    | StringIndexOf of ExpressionRecipe * ExpressionRecipe * ExpressionRecipe
+    | StringLastIndexOf of ExpressionRecipe * ExpressionRecipe
+    | StringStartsWith of ExpressionRecipe * ExpressionRecipe
+    | StringEndsWith of ExpressionRecipe * ExpressionRecipe
+    | StringSplit of ExpressionRecipe * ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringLessThan of ExpressionRecipe * ExpressionRecipe
     | ValueEqual of ExpressionRecipe * ExpressionRecipe
@@ -158,6 +163,11 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringLength value -> ExpressionRecipe.StringLength(go value)
         | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
+        | ExpressionRecipe.StringIndexOf(value, substring, from) -> ExpressionRecipe.StringIndexOf(go value, go substring, go from)
+        | ExpressionRecipe.StringLastIndexOf(left, right) -> ExpressionRecipe.StringLastIndexOf(go left, go right)
+        | ExpressionRecipe.StringStartsWith(left, right) -> ExpressionRecipe.StringStartsWith(go left, go right)
+        | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
+        | ExpressionRecipe.StringSplit(left, right) -> ExpressionRecipe.StringSplit(go left, go right)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
         | ExpressionRecipe.ValueEqual(left, right) -> ExpressionRecipe.ValueEqual(go left, go right)
@@ -350,7 +360,12 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Abort child
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
+        | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
         | ExpressionRecipe.StringContains(left, right)
+        | ExpressionRecipe.StringLastIndexOf(left, right)
+        | ExpressionRecipe.StringStartsWith(left, right)
+        | ExpressionRecipe.StringEndsWith(left, right)
+        | ExpressionRecipe.StringSplit(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.ValueEqual(left, right)
         | ExpressionRecipe.StringLessThan(left, right)
@@ -428,6 +443,12 @@ module AgentExpressionStructuralWorkflow =
             match caseName, index with
             | "StringContains", 0 -> "value"
             | "StringContains", _ -> "substring"
+            | ("StringIndexOf" | "StringLastIndexOf" | "StringStartsWith" | "StringEndsWith" | "StringSplit"), 0 -> "value"
+            | ("StringIndexOf" | "StringLastIndexOf"), 1 -> "substring"
+            | "StringIndexOf", _ -> "from"
+            | "StringStartsWith", _ -> "prefix"
+            | "StringEndsWith", _ -> "suffix"
+            | "StringSplit", _ -> "separator"
             | _, 0 -> "left"
             | _ -> "right"
 
@@ -1017,6 +1038,20 @@ module AgentExpressionStructuralWorkflow =
                         | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "end" int64Type actual)
                         | Ok _ -> Ok stringType
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
+            | ExpressionRecipe.StringIndexOf(value, substring, from) ->
+                match binary "StringIndexOf" stringType stringType value substring with
+                | Error error -> Error error
+                | Ok _ ->
+                    match infer frames from with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringIndexOf" "from" int64Type actual)
+                    | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ]))
+            | ExpressionRecipe.StringLastIndexOf(value, substring) ->
+                binary "StringLastIndexOf" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value substring
+            | ExpressionRecipe.StringStartsWith(value, prefix) -> binary "StringStartsWith" stringType boolType value prefix
+            | ExpressionRecipe.StringEndsWith(value, suffix) -> binary "StringEndsWith" stringType boolType value suffix
+            | ExpressionRecipe.StringSplit(value, separator) ->
+                binary "StringSplit" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value separator
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringLessThan(left, right) -> binary "StringLessThan" stringType boolType left right
             | ExpressionRecipe.ValueEqual(left, right) ->
@@ -1772,6 +1807,18 @@ module AgentExpressionStructuralWorkflow =
             @ [ { Id = nodeId; Kind = SemanticNodeKind.StringSlice(valueResult, startResult, stopResult) } ],
             nodeId
         | ExpressionRecipe.StringContains(value, substring) -> binary SemanticNodeKind.StringContains value substring
+        | ExpressionRecipe.StringIndexOf(value, substring, from) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let substringNodes, substringResult = materializeRecipe substring
+            let fromNodes, fromResult = materializeRecipe from
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ substringNodes @ fromNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringIndexOf(valueResult, substringResult, fromResult) } ],
+            nodeId
+        | ExpressionRecipe.StringLastIndexOf(left, right) -> binary SemanticNodeKind.StringLastIndexOf left right
+        | ExpressionRecipe.StringStartsWith(left, right) -> binary SemanticNodeKind.StringStartsWith left right
+        | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right
+        | ExpressionRecipe.StringSplit(left, right) -> binary SemanticNodeKind.StringSplit left right
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right
         | ExpressionRecipe.ValueEqual(left, right) -> binary SemanticNodeKind.ValueEqual left right

@@ -90,6 +90,11 @@ type ExecutionInstructionKind =
     | BoolNot of ExecutionValueId
     | StringSlice of valueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
+    | StringIndexOf of valueId: ExecutionValueId * substringId: ExecutionValueId * fromId: ExecutionValueId
+    | StringLastIndexOf of valueId: ExecutionValueId * substringId: ExecutionValueId
+    | StringStartsWith of valueId: ExecutionValueId * prefixId: ExecutionValueId
+    | StringEndsWith of valueId: ExecutionValueId * suffixId: ExecutionValueId
+    | StringSplit of valueId: ExecutionValueId * separatorId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Ordinal code-point ordering of two Strings: left sorts strictly before right.
     | StringLessThan of leftId: ExecutionValueId * rightId: ExecutionValueId

@@ -50,6 +50,11 @@ ExpressionRecipe =
   | StringLength(expr)
   | StringSlice(expr, expr, expr)
   | StringCodePoints(expr)
+  | StringIndexOf(value, substring, from)
+  | StringLastIndexOf(value, substring)
+  | StringStartsWith(value, prefix)
+  | StringEndsWith(value, suffix)
+  | StringSplit(value, separator)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
@@ -319,6 +324,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringCodePoints
 
 `StringCodePoints(text)` (wire `stringCodePoints`, Nyason `string-code-points`) takes a String and produces `List<String>`: each code point as a one-code-point String, in order, counted as `StringLength` counts them (an unpaired surrogate is its own item), as defined in the [language subset](../reference/language-subset.md). It runs in linear time and never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. It is the way to iterate text: `ListFold(StringCodePoints(text), seed, folder)` replaces a self-recursive scan that slices one character per call.
+
+## String search and split
+
+`StringIndexOf(value, substring, from)` (wire `stringIndexOf` with `value`, `substring`, `from`; Nyason `string-index-of`) and `StringLastIndexOf(value, substring)` (`stringLastIndexOf`, `string-last-index-of`) produce `Option<Int64>` code-point positions. `StringStartsWith(value, prefix)` (`stringStartsWith`, `string-starts-with`) and `StringEndsWith(value, suffix)` (`stringEndsWith`, `string-ends-with`) produce Bool. `StringSplit(value, separator)` (`stringSplit`, `string-split`) produces `List<String>`. Every text operand is a String and `from` is an Int64; another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. The semantics (ordinal, code-point positions, `from` clamped like `StringSlice`, an empty separator giving `[value]`, never failing) are defined in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-search-and-affixes.md).
 
 ## Int64ToFloat64
 

@@ -221,6 +221,22 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// [0, StringLength], and end <= start yields the empty String, so slicing never fails.
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    /// Code-point position of the first ordinal occurrence of the substring starting at or after
+    /// `from`, as Option<Int64> (Python `str.find(sub, start)`). `from` is clamped to
+    /// [0, StringLength] like StringSlice; an empty substring is found at the clamped `from`. A match
+    /// never starts or ends inside a surrogate pair. Never fails.
+    | StringIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    /// Code-point position of the last ordinal occurrence of the substring, as Option<Int64>
+    /// (Python `str.rfind(sub)`); an empty substring is found at StringLength. Never fails.
+    | StringLastIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
+    /// True when the String begins with the prefix, compared ordinally; the empty prefix always matches.
+    | StringStartsWith of valueNodeId: GraphNodeId * prefixNodeId: GraphNodeId
+    /// True when the String ends with the suffix, compared ordinally; the empty suffix always matches.
+    | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
+    /// The pieces between non-overlapping ordinal occurrences of the separator, left to right, as
+    /// List<String>, keeping empty pieces (Python `str.split(sep)`). An empty separator never fails:
+    /// it yields the one-item list [value]. Never splits a surrogate pair.
+    | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// Ordinal String ordering: true when the left String sorts strictly before the right one,
     /// comparing Unicode code points lexicographically (a proper prefix sorts first). Scalar values
@@ -434,6 +450,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) -> [ valueNodeId; substringNodeId; fromNodeId ]
+        | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
+        | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
+        | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
+        | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
@@ -536,6 +557,16 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringSlice(mapNodeId valueNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
             | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                 SemanticNodeKind.StringContains(mapNodeId valueNodeId, mapNodeId substringNodeId)
+            | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+                SemanticNodeKind.StringIndexOf(mapNodeId valueNodeId, mapNodeId substringNodeId, mapNodeId fromNodeId)
+            | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
+                SemanticNodeKind.StringLastIndexOf(mapNodeId valueNodeId, mapNodeId substringNodeId)
+            | SemanticNodeKind.StringStartsWith(valueNodeId, prefixNodeId) ->
+                SemanticNodeKind.StringStartsWith(mapNodeId valueNodeId, mapNodeId prefixNodeId)
+            | SemanticNodeKind.StringEndsWith(valueNodeId, suffixNodeId) ->
+                SemanticNodeKind.StringEndsWith(mapNodeId valueNodeId, mapNodeId suffixNodeId)
+            | SemanticNodeKind.StringSplit(valueNodeId, separatorNodeId) ->
+                SemanticNodeKind.StringSplit(mapNodeId valueNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -692,6 +723,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringLength _
         | SemanticNodeKind.StringSlice _
         | SemanticNodeKind.StringContains _
+        | SemanticNodeKind.StringIndexOf _
+        | SemanticNodeKind.StringLastIndexOf _
+        | SemanticNodeKind.StringStartsWith _
+        | SemanticNodeKind.StringEndsWith _
+        | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
         | SemanticNodeKind.ValueEqual _

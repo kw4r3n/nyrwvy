@@ -701,6 +701,42 @@ module SnapshotValidator =
                             $"StringContains node '{StableId.value node.Id}' requires a String substring."
                             (TypeRef.Primitive PrimitiveType.String)
                             substringNodeId
+                    | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringIndexOf node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringIndexOf node '{StableId.value node.Id}' requires a String substring."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            substringNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringIndexOf node '{StableId.value node.Id}' requires an Int64 from."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            fromNodeId
+                    | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
+                    | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
+                    | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
+                    | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
+                        let name, otherRole =
+                            match node.Kind with
+                            | SemanticNodeKind.StringLastIndexOf _ -> "StringLastIndexOf", "substring"
+                            | SemanticNodeKind.StringStartsWith _ -> "StringStartsWith", "prefix"
+                            | SemanticNodeKind.StringEndsWith _ -> "StringEndsWith", "suffix"
+                            | _ -> "StringSplit", "separator"
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String {otherRole}."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            otherNodeId
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
@@ -1479,6 +1515,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
+                | SemanticNodeKind.StringIndexOf _
+                | SemanticNodeKind.StringLastIndexOf _
+                | SemanticNodeKind.StringStartsWith _
+                | SemanticNodeKind.StringEndsWith _
+                | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _

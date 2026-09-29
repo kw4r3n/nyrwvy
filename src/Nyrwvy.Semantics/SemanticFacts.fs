@@ -171,10 +171,16 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseInt64 _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
-                    | SemanticNodeKind.StringCodePoints _ ->
+                    | SemanticNodeKind.StringIndexOf _
+                    | SemanticNodeKind.StringLastIndexOf _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
+                    | SemanticNodeKind.StringCodePoints _
+                    | SemanticNodeKind.StringSplit _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive PrimitiveType.String ]))
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.StringContains _
+                    | SemanticNodeKind.StringStartsWith _
+                    | SemanticNodeKind.StringEndsWith _
                     | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.StringLessThan _
                     | SemanticNodeKind.ValueEqual _

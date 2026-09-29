@@ -39,6 +39,11 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.BoolAnd _
                 | TypedSemanticNodeKind.BoolOr _
                 | TypedSemanticNodeKind.StringContains _
+                | TypedSemanticNodeKind.StringIndexOf _
+                | TypedSemanticNodeKind.StringLastIndexOf _
+                | TypedSemanticNodeKind.StringStartsWith _
+                | TypedSemanticNodeKind.StringEndsWith _
+                | TypedSemanticNodeKind.StringSplit _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringLessThan _
                 | TypedSemanticNodeKind.ValueEqual _
