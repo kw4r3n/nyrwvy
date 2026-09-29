@@ -335,6 +335,27 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringContains")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
+        | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+            writer.WriteString("kind", "stringIndexOf")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
+            writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
+            writer.WriteString("kind", "stringLastIndexOf")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value otherNodeId)
+        | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
+            writer.WriteString("kind", "stringStartsWith")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("prefixNodeId", StableId.value otherNodeId)
+        | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId) ->
+            writer.WriteString("kind", "stringEndsWith")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("suffixNodeId", StableId.value otherNodeId)
+        | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
+            writer.WriteString("kind", "stringSplit")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("separatorNodeId", StableId.value otherNodeId)
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->

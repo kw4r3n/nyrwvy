@@ -7,6 +7,10 @@ type ValueDependencyRole =
     | Substring
     | SliceStart
     | SliceEnd
+    | SearchFrom
+    | Prefix
+    | Suffix
+    | Separator
     | LeftOperand
     | RightOperand
     | Source
@@ -54,6 +58,22 @@ module ValueDependency =
         | SemanticNodeKind.StringContains(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
+        | SemanticNodeKind.StringIndexOf(sourceNodeId, substringNodeId, fromNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Substring substringNodeId
+              create ValueDependencyRole.SearchFrom fromNodeId ]
+        | SemanticNodeKind.StringLastIndexOf(sourceNodeId, substringNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Substring substringNodeId ]
+        | SemanticNodeKind.StringStartsWith(sourceNodeId, prefixNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Prefix prefixNodeId ]
+        | SemanticNodeKind.StringEndsWith(sourceNodeId, suffixNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Suffix suffixNodeId ]
+        | SemanticNodeKind.StringSplit(sourceNodeId, separatorNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Separator separatorNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)

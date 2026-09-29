@@ -268,6 +268,37 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "value" element),
                 recipe declarations parameterContext (property "substring" element)
             )
+        | "stringIndexOf" ->
+            ensureFields "string-index-of recipe" [ "kind"; "value"; "substring"; "from" ] [ "kind"; "value"; "substring"; "from" ] element
+            ExpressionRecipe.StringIndexOf(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "substring" element),
+                recipe declarations parameterContext (property "from" element)
+            )
+        | "stringLastIndexOf" ->
+            ensureFields "string-last-index-of recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
+            ExpressionRecipe.StringLastIndexOf(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "substring" element)
+            )
+        | "stringStartsWith" ->
+            ensureFields "string-starts-with recipe" [ "kind"; "value"; "prefix" ] [ "kind"; "value"; "prefix" ] element
+            ExpressionRecipe.StringStartsWith(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "prefix" element)
+            )
+        | "stringEndsWith" ->
+            ensureFields "string-ends-with recipe" [ "kind"; "value"; "suffix" ] [ "kind"; "value"; "suffix" ] element
+            ExpressionRecipe.StringEndsWith(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "suffix" element)
+            )
+        | "stringSplit" ->
+            ensureFields "string-split recipe" [ "kind"; "value"; "separator" ] [ "kind"; "value"; "separator" ] element
+            ExpressionRecipe.StringSplit(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "separator" element)
+            )
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
         | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
         | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual

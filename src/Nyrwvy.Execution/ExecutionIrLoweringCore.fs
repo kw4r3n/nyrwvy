@@ -289,6 +289,25 @@ module ExecutionIr =
                                 Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringContains(valueId, substringId)))
                             | Error error, _
                             | _, Error error -> Error error
+                        | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
+                            match
+                                requireNodeValue environment valueNodeId,
+                                requireNodeValue environment substringNodeId,
+                                requireNodeValue environment fromNodeId
+                            with
+                            | Ok valueId, Ok substringId, Ok fromId ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringIndexOf(valueId, substringId, fromId)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
+                            lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringLastIndexOf(value, other))
+                        | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
+                            lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringStartsWith(value, other))
+                        | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId) ->
+                            lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringEndsWith(value, other))
+                        | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
+                            lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringSplit(value, other))
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringEqual(left, right))
                         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -699,6 +718,11 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringSlice _
                         | TypedSemanticNodeKind.BoolNot _
                         | TypedSemanticNodeKind.StringContains _
+                        | TypedSemanticNodeKind.StringIndexOf _
+                        | TypedSemanticNodeKind.StringLastIndexOf _
+                        | TypedSemanticNodeKind.StringStartsWith _
+                        | TypedSemanticNodeKind.StringEndsWith _
+                        | TypedSemanticNodeKind.StringSplit _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringLessThan _
                         | TypedSemanticNodeKind.ValueEqual _

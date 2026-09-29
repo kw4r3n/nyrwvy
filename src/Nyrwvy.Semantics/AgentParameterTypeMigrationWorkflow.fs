@@ -282,6 +282,11 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
+            | ExpressionRecipe.StringIndexOf(value, substring, from) -> three ExpressionRecipe.StringIndexOf value substring from
+            | ExpressionRecipe.StringLastIndexOf(left, right) -> two ExpressionRecipe.StringLastIndexOf left right
+            | ExpressionRecipe.StringStartsWith(left, right) -> two ExpressionRecipe.StringStartsWith left right
+            | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
+            | ExpressionRecipe.StringSplit(left, right) -> two ExpressionRecipe.StringSplit left right
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
             | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right
             | ExpressionRecipe.ValueEqual(left, right) -> two ExpressionRecipe.ValueEqual left right

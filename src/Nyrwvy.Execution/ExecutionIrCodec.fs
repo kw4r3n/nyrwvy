@@ -268,6 +268,27 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringContains")
               property "valueId" (executionValueIdValue valueId)
               property "substringId" (executionValueIdValue substringId) ]
+        | ExecutionInstructionKind.StringIndexOf(valueId, substringId, fromId) ->
+            [ property "kind" (quote "stringIndexOf")
+              property "valueId" (executionValueIdValue valueId)
+              property "substringId" (executionValueIdValue substringId)
+              property "fromId" (executionValueIdValue fromId) ]
+        | ExecutionInstructionKind.StringLastIndexOf(valueId, otherId) ->
+            [ property "kind" (quote "stringLastIndexOf")
+              property "valueId" (executionValueIdValue valueId)
+              property "substringId" (executionValueIdValue otherId) ]
+        | ExecutionInstructionKind.StringStartsWith(valueId, otherId) ->
+            [ property "kind" (quote "stringStartsWith")
+              property "valueId" (executionValueIdValue valueId)
+              property "prefixId" (executionValueIdValue otherId) ]
+        | ExecutionInstructionKind.StringEndsWith(valueId, otherId) ->
+            [ property "kind" (quote "stringEndsWith")
+              property "valueId" (executionValueIdValue valueId)
+              property "suffixId" (executionValueIdValue otherId) ]
+        | ExecutionInstructionKind.StringSplit(valueId, otherId) ->
+            [ property "kind" (quote "stringSplit")
+              property "valueId" (executionValueIdValue valueId)
+              property "separatorId" (executionValueIdValue otherId) ]
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "stringEqual" leftValueId rightValueId
         | ExecutionInstructionKind.StringLessThan(leftValueId, rightValueId) ->

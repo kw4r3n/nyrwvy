@@ -97,6 +97,11 @@ module SemanticQuery =
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.StringSlice _
                     | SemanticNodeKind.StringContains _
+                    | SemanticNodeKind.StringIndexOf _
+                    | SemanticNodeKind.StringLastIndexOf _
+                    | SemanticNodeKind.StringStartsWith _
+                    | SemanticNodeKind.StringEndsWith _
+                    | SemanticNodeKind.StringSplit _
                     | SemanticNodeKind.StringEqual _
                     | SemanticNodeKind.StringLessThan _
                     | SemanticNodeKind.ValueEqual _

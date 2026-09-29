@@ -59,6 +59,10 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `StringCodePoints` emits one pass over the UTF-16 string: a high surrogate followed by a low surrogate is taken as one two-unit item, and any other code unit, including an unpaired surrogate, as a one-unit item, exactly as `StringLength` counts. The items are collected into a `List<string>` presized to the string length and wrapped with `NyList<string>.FromOwnedArray`, so the whole operation is linear and cannot fail.
 
+## String search
+
+`StringIndexOf`, `StringLastIndexOf`, `StringStartsWith`, `StringEndsWith` and `StringSplit` call `NyText` helpers emitted with the runtime. They search with ordinal `string.IndexOf`, `LastIndexOf`, `StartsWith` and `EndsWith` and accept a match only when both of its UTF-16 ends are code-point boundaries (not between a high surrogate and the low surrogate after it); a rejected match resumes the search one code unit further. `StringIndexOf` first walks the text to map the clamped `from` to a UTF-16 offset, and both index operations convert the matched offset back to code points in one pass, producing `NyOption<long>`. `StringSplit` collects the pieces into a doubling array wrapped with `NyList<string>.FromOwnedArray`, and returns a one-item list for an empty separator. None of them throws.
+
 ## List sorting
 
 `ListSortBy` emits `source.SortBy(lessThan)`, with the callback rendered like other List callbacks (a method group, or a lambda passing context and the two items by parameter name). `NyList<T>.SortBy` copies the items and runs the specified top-down merge sort: the left half is the first `length / 2` items, and the merge takes the right head only when `lessThan(rightHead, leftHead)` is true, so equal items keep their order. It does not use `Array.Sort` or `List<T>.Sort`, which are unstable introsorts whose result for an inconsistent comparer is unspecified and which may throw for one.

@@ -74,6 +74,7 @@
     <Compile Include="Int64TextTests.fs" />
     <Compile Include="StringSliceTests.fs" />
     <Compile Include="StringCodePointsTests.fs" />
+    <Compile Include="StringSearchTests.fs" />
     <Compile Include="BoolOperatorTests.fs" />
     <Compile Include="Int64DivisionTests.fs" />
     <Compile Include="ResultTypeMigrationTests.fs" />
