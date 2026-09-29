@@ -180,6 +180,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringLastIndexOf _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.StringCodePoints _
+                    | SemanticNodeKind.StringSplitLines _
                     | SemanticNodeKind.StringSplit _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive PrimitiveType.String ]))
                     | SemanticNodeKind.StringIsEmpty _

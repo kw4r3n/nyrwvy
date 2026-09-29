@@ -194,6 +194,18 @@ module StructuralDiagnosticTextTests =
                 I
                 """{"kind":"stringSpanBack","value":{"kind":"parameter","name":"text"},"set":{"kind":"stringLiteral","value":" "},"end":{"kind":"stringLength","value":{"kind":"int64Literal","value":11}}}"""
         Assert.EndsWith("At body.end (stringLength).", spanEnd)
+        let _, linesValue =
+            reject
+                [ "text", S ]
+                (listOf S)
+                """{"kind":"stringSplitLines","value":{"kind":"int64Literal","value":12},"breaks":{"kind":"parameter","name":"text"}}"""
+        Assert.Equal("StringSplitLines value operand requires String, but the recipe produces Int64. At body (stringSplitLines).", linesValue)
+        let _, linesBreaks =
+            reject
+                [ "text", S ]
+                (listOf S)
+                """{"kind":"stringSplitLines","value":{"kind":"parameter","name":"text"},"breaks":{"kind":"stringLength","value":{"kind":"int64Literal","value":13}}}"""
+        Assert.EndsWith("At body.breaks (stringLength).", linesBreaks)
 
     [<Fact>]
     let ``type references render as display names in wire notation`` () =

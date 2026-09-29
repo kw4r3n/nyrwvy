@@ -96,6 +96,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringStartsWith of valueNodeId: GraphNodeId * prefixNodeId: GraphNodeId
     | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
     | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
+    | StringSplitLines of valueNodeId: GraphNodeId * breaksNodeId: GraphNodeId
     | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -315,6 +316,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId))
                     | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
                         Ok(TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId))
+                    | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId))
                     | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                         Ok(TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->

@@ -135,6 +135,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringStartsWith -> "string starts with"
         | ViewerNodeRole.StringEndsWith -> "string ends with"
         | ViewerNodeRole.StringSplit -> "string split"
+        | ViewerNodeRole.StringSplitLines -> "string split lines"
         | ViewerNodeRole.StringJoin -> "string join"
         | ViewerNodeRole.StringEqual -> "string equal"
         | ViewerNodeRole.StringLessThan -> "string less than"

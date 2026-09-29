@@ -305,6 +305,10 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringSplit")
               property "valueId" (executionValueIdValue valueId)
               property "separatorId" (executionValueIdValue otherId) ]
+        | ExecutionInstructionKind.StringSplitLines(valueId, breaksId) ->
+            [ property "kind" (quote "stringSplitLines")
+              property "valueId" (executionValueIdValue valueId)
+              property "breaksId" (executionValueIdValue breaksId) ]
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             [ property "kind" (quote "stringJoin")
               property "listValueId" (executionValueIdValue listValueId)

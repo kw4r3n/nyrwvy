@@ -67,6 +67,10 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `StringSpan` and `StringSpanBack` call the emitted `NyText.Span(text, set, from)` and `NyText.SpanBack(text, set, end)`. Each first walks the text once to map the clamped bound to a UTF-16 offset, returns that position for an empty set, and otherwise collects the set's code points (a surrogate pair as its scalar value, an unpaired surrogate as itself) into a `HashSet<int>`. `Span` then advances one code point at a time while it is a member; `SpanBack` steps back one code point at a time, treating a low surrogate directly after a high surrogate as one pair, so the boundaries are the ones a forward walk finds. Both are linear and never throw.
 
+## String split lines
+
+`StringSplitLines` calls the emitted `NyText.SplitLines(text, breaks)`, which returns the same `NyList<string>` as `NyText.Split`. It returns the empty list for empty text and a one-item list for an empty `breaks`; otherwise it collects the break code points into a `HashSet<int>` as `Span` does, walks the text one code point at a time, and at each member cuts the line before it, skipping a directly following `\n` after `\r` when both are members. Lines go into a doubling array wrapped with `NyList<string>.FromOwnedArray`, and the text after the last break is added only when non-empty. It is linear and never throws.
+
 ## String lowercase and UTF-8 length
 
 `StringToLower` calls the emitted `NyText.ToLower`, one pass over the UTF-16 string: a surrogate pair is mapped with `System.Text.Rune.ToLowerInvariant`, an unpaired surrogate is copied unchanged, U+0130 becomes `i` (the UnicodeData simple mapping, which .NET's invariant casing does not apply), and every other code unit is mapped with `char.ToLowerInvariant`. `string.ToLowerInvariant` must not be used: it replaces an unpaired surrogate with U+FFFD. `StringUtf8ByteCount` calls `NyText.Utf8ByteCount`, which is `Encoding.UTF8.GetByteCount`; its replacement fallback counts an unpaired surrogate as the 3 bytes of U+FFFD.

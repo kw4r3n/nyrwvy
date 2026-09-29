@@ -450,6 +450,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringSplit")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("separatorNodeId", StableId.value separatorNodeId)
+        | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
+            writer.WriteString("kind", "stringSplitLines")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("breaksNodeId", StableId.value breaksNodeId)
         | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
             writer.WriteString("kind", "stringJoin")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1160,12 +1164,14 @@ module SnapshotCodec =
             | "stringLastIndexOf"
             | "stringStartsWith"
             | "stringEndsWith"
-            | "stringSplit" as kindName ->
+            | "stringSplit"
+            | "stringSplitLines" as kindName ->
                 let label, other, build =
                     match kindName with
                     | "stringLastIndexOf" -> "StringLastIndexOf node", "substringNodeId", (fun v o -> SemanticNodeKind.StringLastIndexOf(v, o))
                     | "stringStartsWith" -> "StringStartsWith node", "prefixNodeId", (fun v o -> SemanticNodeKind.StringStartsWith(v, o))
                     | "stringEndsWith" -> "StringEndsWith node", "suffixNodeId", (fun v o -> SemanticNodeKind.StringEndsWith(v, o))
+                    | "stringSplitLines" -> "StringSplitLines node", "breaksNodeId", (fun v o -> SemanticNodeKind.StringSplitLines(v, o))
                     | _ -> "StringSplit node", "separatorNodeId", (fun v o -> SemanticNodeKind.StringSplit(v, o))
                 ensureProperties label (set [ "id"; "kind"; "valueNodeId"; other ]) (set [ "id"; "kind"; "valueNodeId"; other ]) element
                 build (readId<GraphNodeTag> "valueNodeId" element) (readId<GraphNodeTag> other element)

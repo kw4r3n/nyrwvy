@@ -253,6 +253,47 @@ module CSharpBackend =
         writer.Line("return NyList<string>.FromOwnedArray(pieces);")
         writer.Pop()
         writer.Line("}")
+        // SplitLines walks code points once, with membership as in Span; "\r\n" is one break only when
+        // both halves are members. A final break adds no trailing empty line (Python splitlines).
+        writer.Line("public static NyList<string> SplitLines(string text, string breaks)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (text.Length == 0) return NyList<string>.Empty();")
+        writer.Line("if (breaks.Length == 0) return NyList<string>.Create(text);")
+        writer.Line("var members = CodePointSet(breaks);")
+        writer.Line("var crlf = members.Contains('\\r') && members.Contains('\\n');")
+        writer.Line("var lines = new string[4];")
+        writer.Line("var count = 0;")
+        writer.Line("var start = 0;")
+        writer.Line("var offset = 0;")
+        writer.Line("while (offset < text.Length)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var next = offset;")
+        writer.Line("var codePoint = CodePointAt(text, ref next);")
+        writer.Line("if (members.Contains(codePoint))")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (count == lines.Length) Array.Resize(ref lines, count * 2);")
+        writer.Line("lines[count++] = text.Substring(start, offset - start);")
+        writer.Line("if (crlf && codePoint == '\\r' && next < text.Length && text[next] == '\\n') next++;")
+        writer.Line("start = next;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("offset = next;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("if (start < text.Length)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (count == lines.Length) Array.Resize(ref lines, count + 1);")
+        writer.Line("lines[count++] = text.Substring(start);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("Array.Resize(ref lines, count);")
+        writer.Line("return NyList<string>.FromOwnedArray(lines);")
+        writer.Pop()
+        writer.Line("}")
         // ToLower applies the Unicode simple (one-to-one) lowercase mapping per code point, culture
         // invariant. string.ToLowerInvariant is not used: it replaces an unpaired surrogate with U+FFFD,
         // and .NET's invariant casing keeps U+0130 where UnicodeData maps it to U+0069.
@@ -1111,6 +1152,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.EndsWith(" + valueName sourceValueId + ", " + valueName otherId + ");")
         | ExecutionInstructionKind.StringSplit(sourceValueId, otherId) ->
             writer.Line(target + " = NyText.Split(" + valueName sourceValueId + ", " + valueName otherId + ");")
+        | ExecutionInstructionKind.StringSplitLines(sourceValueId, breaksId) ->
+            writer.Line(target + " = NyText.SplitLines(" + valueName sourceValueId + ", " + valueName breaksId + ");")
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             writer.Line(target + " = NyText.Join(" + valueName listValueId + ", " + valueName separatorId + ");")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->

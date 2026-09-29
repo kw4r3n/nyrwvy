@@ -57,6 +57,7 @@ ExpressionRecipe =
   | StringStartsWith(value, prefix)
   | StringEndsWith(value, suffix)
   | StringSplit(value, separator)
+  | StringSplitLines(value, breaks)
   | StringJoin(list, separator)
   | StringToLower(expr)
   | StringUtf8ByteCount(expr)
@@ -338,6 +339,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringSpan and StringSpanBack
 
 `StringSpan(value, set, from)` (wire `stringSpan` with `value`, `set`, `from`; Nyason `string-span`) and `StringSpanBack(value, set, end)` (wire `stringSpanBack` with `value`, `set`, `end`; Nyason `string-span-back`) take two Strings and an Int64 and produce an Int64 code-point position: where a run of `set` members that starts at the clamped `from` ends, and where a run that ends at the clamped `end` starts. They never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-spans.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.set`, `body.from`, `body.end`); a persisted graph reports `StringIntrinsicTypeMismatch`.
+
+## StringSplitLines
+
+`StringSplitLines(value, breaks)` (wire `stringSplitLines` with `value`, `breaks`; Nyason `string-split-lines`) takes two Strings and produces `List<String>`: the lines of `value` split at any code point of `breaks`, with `"\r\n"` as one break when both are members, `""` giving `[]` and no trailing empty line after a final break. It never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-split-lines.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.breaks`); a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringToLower and StringUtf8ByteCount
 

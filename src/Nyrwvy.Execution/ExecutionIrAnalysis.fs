@@ -45,7 +45,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
-        | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
+        | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId)
+        | TypedSemanticNodeKind.StringSplitLines(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) -> [ listNodeId; separatorNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
@@ -162,6 +163,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringEndsWith _
             | TypedSemanticNodeKind.StringJoin _
             | TypedSemanticNodeKind.StringSplit _
+            | TypedSemanticNodeKind.StringSplitLines _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _
@@ -298,6 +300,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringEndsWith _
         | TypedSemanticNodeKind.StringJoin _
         | TypedSemanticNodeKind.StringSplit _
+        | TypedSemanticNodeKind.StringSplitLines _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringLessThan _
         | TypedSemanticNodeKind.ValueEqual _
@@ -417,6 +420,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringEndsWith _
             | TypedSemanticNodeKind.StringJoin _
             | TypedSemanticNodeKind.StringSplit _
+            | TypedSemanticNodeKind.StringSplitLines _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
             | TypedSemanticNodeKind.Int64WrappingMultiply _

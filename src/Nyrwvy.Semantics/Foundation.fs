@@ -252,6 +252,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// List<String>, keeping empty pieces (Python `str.split(sep)`). An empty separator never fails:
     /// it yields the one-item list [value]. Never splits a surrogate pair.
     | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
+    /// The lines of the String as List<String>: each code point that is a member of `breaks` (any code
+    /// point of the breaks String, as StringSpan counts them) ends the current line and is dropped; when
+    /// both "\r" and "\n" are members, "\r\n" is one break. Like Python `str.splitlines()`, an empty
+    /// value gives [] and a final break adds no trailing empty line; an empty `breaks` gives [value]
+    /// (or [] for ""). Linear time; never fails.
+    | StringSplitLines of valueNodeId: GraphNodeId * breaksNodeId: GraphNodeId
     /// The List<String> items concatenated in order with the separator between adjacent items
     /// (Python `sep.join(list)`): an empty list gives "", one item gives that item. Never fails.
     | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
@@ -480,7 +486,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
-        | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
+        | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId)
+        | SemanticNodeKind.StringSplitLines(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
         | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) -> [ listNodeId; separatorNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
@@ -601,6 +608,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringEndsWith(mapNodeId valueNodeId, mapNodeId suffixNodeId)
             | SemanticNodeKind.StringSplit(valueNodeId, separatorNodeId) ->
                 SemanticNodeKind.StringSplit(mapNodeId valueNodeId, mapNodeId separatorNodeId)
+            | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
+                SemanticNodeKind.StringSplitLines(mapNodeId valueNodeId, mapNodeId breaksNodeId)
             | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                 SemanticNodeKind.StringJoin(mapNodeId listNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -771,6 +780,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringSplit _
+        | SemanticNodeKind.StringSplitLines _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
         | SemanticNodeKind.ValueEqual _

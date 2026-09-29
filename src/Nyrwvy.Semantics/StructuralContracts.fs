@@ -85,6 +85,9 @@ module ValueDependency =
         | SemanticNodeKind.StringSplit(sourceNodeId, separatorNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Separator separatorNodeId ]
+        | SemanticNodeKind.StringSplitLines(sourceNodeId, breaksNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.CharacterSet breaksNodeId ]
         | SemanticNodeKind.StringJoin(sourceNodeId, separatorNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Separator separatorNodeId ]
