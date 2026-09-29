@@ -210,6 +210,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
     /// range; any other text, including '+', whitespace or an empty String, is None.
     | StringParseInt64 of valueNodeId: GraphNodeId
+    /// Each code point of the String as a one-code-point String, in order, as a List<String>. A
+    /// surrogate pair is one element; an unpaired surrogate code unit is its own one-unit element,
+    /// as StringLength counts it, so the list length always equals StringLength and it never fails.
+    | StringCodePoints of valueNodeId: GraphNodeId
     /// Number of code points in the String, as an Int64. A surrogate pair counts once; an unpaired
     /// surrogate code unit counts as one code point.
     | StringLength of valueNodeId: GraphNodeId
@@ -424,6 +428,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringCodePoints valueNodeId
         | SemanticNodeKind.StringLength valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
@@ -525,6 +530,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringIsEmpty valueNodeId -> SemanticNodeKind.StringIsEmpty(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToString valueNodeId -> SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
             | SemanticNodeKind.StringParseInt64 valueNodeId -> SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
             | SemanticNodeKind.StringLength valueNodeId -> SemanticNodeKind.StringLength(mapNodeId valueNodeId)
             | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.StringSlice(mapNodeId valueNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
@@ -682,6 +688,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringIsEmpty _
         | SemanticNodeKind.Int64ToString _
         | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringCodePoints _
         | SemanticNodeKind.StringLength _
         | SemanticNodeKind.StringSlice _
         | SemanticNodeKind.StringContains _

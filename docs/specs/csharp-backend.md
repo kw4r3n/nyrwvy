@@ -55,6 +55,10 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `StringLessThan` emits `NyText.LessThan(left, right)`, which walks both strings decoding code points (a valid surrogate pair to its scalar value with `char.ConvertToUtf32`, any other code unit as itself) and compares the first differing code point, a proper prefix sorting first. It must not use `string.CompareOrdinal` or `StringComparison.Ordinal` ordering, which compare UTF-16 code units and put U+10000 and above before U+E000..U+FFFF, and it must not use culture-sensitive comparison.
 
+## String code points
+
+`StringCodePoints` emits one pass over the UTF-16 string: a high surrogate followed by a low surrogate is taken as one two-unit item, and any other code unit, including an unpaired surrogate, as a one-unit item, exactly as `StringLength` counts. The items are collected into a `List<string>` presized to the string length and wrapped with `NyList<string>.FromOwnedArray`, so the whole operation is linear and cannot fail.
+
 ## List sorting
 
 `ListSortBy` emits `source.SortBy(lessThan)`, with the callback rendered like other List callbacks (a method group, or a lambda passing context and the two items by parameter name). `NyList<T>.SortBy` copies the items and runs the specified top-down merge sort: the left half is the first `length / 2` items, and the merge takes the right head only when `lessThan(rightHead, leftHead)` is true, so equal items keep their order. It does not use `Array.Sort` or `List<T>.Sort`, which are unstable introsorts whose result for an inconsistent comparer is unspecified and which may throw for one.

@@ -83,6 +83,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringIsEmpty of valueNodeId: GraphNodeId
     | Int64ToString of valueNodeId: GraphNodeId
     | StringParseInt64 of valueNodeId: GraphNodeId
+    | StringCodePoints of valueNodeId: GraphNodeId
     | StringLength of valueNodeId: GraphNodeId
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
@@ -277,6 +278,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
                     | SemanticNodeKind.StringParseInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
+                    | SemanticNodeKind.StringCodePoints valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringCodePoints valueNodeId)
                     | SemanticNodeKind.StringLength valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringLength valueNodeId)
                     | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->

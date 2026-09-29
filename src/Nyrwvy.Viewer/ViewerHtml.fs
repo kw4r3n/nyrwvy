@@ -117,6 +117,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
         | ViewerNodeRole.Int64ToString -> "int64 to string"
         | ViewerNodeRole.StringParseInt64 -> "parse int64"
+        | ViewerNodeRole.StringCodePoints -> "code points"
         | ViewerNodeRole.StringLength -> "string length"
         | ViewerNodeRole.StringSlice -> "string slice"
         | ViewerNodeRole.StringContains -> "string contains"

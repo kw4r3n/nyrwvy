@@ -57,6 +57,7 @@ module internal WireGraph =
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
         | SemanticNodeKind.Int64ToString value -> unary "int64ToString" value
         | SemanticNodeKind.StringParseInt64 value -> unary "stringParseInt64" value
+        | SemanticNodeKind.StringCodePoints value -> unary "stringCodePoints" value
         | SemanticNodeKind.StringLength value -> unary "stringLength" value
         | SemanticNodeKind.StringSlice(value, start, stop) ->
             tagged "stringSlice" [ "valueNodeId", identity value; "startNodeId", identity start; "endNodeId", identity stop ]

@@ -1184,6 +1184,10 @@ module PureRun =
                             + fakeClasses
                         File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         let frames = frameResolver artifact.Symbols
+                        let stackOverflowMessage =
+                            "Stack overflow: recursion was too deep. Nested self or mutual DirectCall recursion runs on the runner's thread stack, "
+                            + "which holds only several thousand frames of a typical function; iterate a List with ListFold "
+                            + "(for text, over StringCodePoints) instead of recursing once per item."
                         let runtimeFailure exceptionType message frameNames exhausted calls =
                             PureRunError.RuntimeFailure
                                 { SnapshotId = status.SnapshotId
@@ -1207,7 +1211,7 @@ module PureRun =
                             elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
                                 // A stack overflow cannot be caught; the runtime prints the stack to stderr.
                                 let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
-                                Error(runtimeFailure "System.StackOverflowException" "Stack overflow." names false [])
+                                Error(runtimeFailure "System.StackOverflowException" stackOverflowMessage names false [])
                             else Error(processFailure output errors))
                         |> Result.map (fun (actual, calls) ->
                             { SnapshotId = status.SnapshotId

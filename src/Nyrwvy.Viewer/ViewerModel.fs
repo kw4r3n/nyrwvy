@@ -42,6 +42,7 @@ type ViewerNodeRole =
     | StringIsEmpty
     | Int64ToString
     | StringParseInt64
+    | StringCodePoints
     | StringLength
     | StringSlice
     | StringContains
@@ -206,6 +207,7 @@ module ViewerProjection =
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.Int64ToString _ -> ViewerNodeRole.Int64ToString, []
         | SemanticNodeKind.StringParseInt64 _ -> ViewerNodeRole.StringParseInt64, []
+        | SemanticNodeKind.StringCodePoints _ -> ViewerNodeRole.StringCodePoints, []
         | SemanticNodeKind.StringLength _ -> ViewerNodeRole.StringLength, []
         | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
