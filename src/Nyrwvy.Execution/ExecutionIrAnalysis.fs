@@ -33,6 +33,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64ToString valueNodeId
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
+        | TypedSemanticNodeKind.StringToLower valueNodeId
+        | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId
         | TypedSemanticNodeKind.StringLength valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
@@ -142,6 +144,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringCodePoints _
+            | TypedSemanticNodeKind.StringToLower _
+            | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _
@@ -272,6 +276,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64ToString _
         | TypedSemanticNodeKind.StringParseInt64 _
         | TypedSemanticNodeKind.StringCodePoints _
+        | TypedSemanticNodeKind.StringToLower _
+        | TypedSemanticNodeKind.StringUtf8ByteCount _
         | TypedSemanticNodeKind.StringLength _
         | TypedSemanticNodeKind.StringSlice _
         | TypedSemanticNodeKind.BoolNot _
@@ -385,6 +391,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64ToString _
             | TypedSemanticNodeKind.StringParseInt64 _
             | TypedSemanticNodeKind.StringCodePoints _
+            | TypedSemanticNodeKind.StringToLower _
+            | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _

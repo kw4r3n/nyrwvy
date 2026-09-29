@@ -27,6 +27,8 @@ type ExpressionRecipe =
     | Int64ToString of ExpressionRecipe
     | StringParseInt64 of ExpressionRecipe
     | StringCodePoints of ExpressionRecipe
+    | StringToLower of ExpressionRecipe
+    | StringUtf8ByteCount of ExpressionRecipe
     | StringLength of ExpressionRecipe
     | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
@@ -160,6 +162,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64ToString value -> ExpressionRecipe.Int64ToString(go value)
         | ExpressionRecipe.StringParseInt64 value -> ExpressionRecipe.StringParseInt64(go value)
         | ExpressionRecipe.StringCodePoints value -> ExpressionRecipe.StringCodePoints(go value)
+        | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
+        | ExpressionRecipe.StringUtf8ByteCount value -> ExpressionRecipe.StringUtf8ByteCount(go value)
         | ExpressionRecipe.StringLength value -> ExpressionRecipe.StringLength(go value)
         | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
@@ -347,6 +351,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64ToString child
         | ExpressionRecipe.StringParseInt64 child
         | ExpressionRecipe.StringCodePoints child
+        | ExpressionRecipe.StringToLower child
+        | ExpressionRecipe.StringUtf8ByteCount child
         | ExpressionRecipe.StringLength child
         | ExpressionRecipe.BoolNot child
         | ExpressionRecipe.Float64IsNaN child
@@ -1008,6 +1014,8 @@ module AgentExpressionStructuralWorkflow =
                 unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.StringCodePoints value ->
                 unary "StringCodePoints" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value
+            | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
+            | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
             | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
             | ExpressionRecipe.BoolNot operand -> unary "BoolNot" boolType boolType operand
             | ExpressionRecipe.BoolAnd(left, right)
@@ -1796,6 +1804,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64ToString value -> unary SemanticNodeKind.Int64ToString value
         | ExpressionRecipe.StringParseInt64 value -> unary SemanticNodeKind.StringParseInt64 value
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
+        | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
+        | ExpressionRecipe.StringUtf8ByteCount value -> unary SemanticNodeKind.StringUtf8ByteCount value
         | ExpressionRecipe.StringLength value -> unary SemanticNodeKind.StringLength value
         | ExpressionRecipe.BoolNot operand -> unary SemanticNodeKind.BoolNot operand
         | ExpressionRecipe.StringSlice(value, start, stop) ->

@@ -323,6 +323,12 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.StringCodePoints valueNodeId ->
             writer.WriteString("kind", "stringCodePoints")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringToLower valueNodeId ->
+            writer.WriteString("kind", "stringToLower")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
+            writer.WriteString("kind", "stringUtf8ByteCount")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringLength valueNodeId ->
             writer.WriteString("kind", "stringLength")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)

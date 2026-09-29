@@ -214,6 +214,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// surrogate pair is one element; an unpaired surrogate code unit is its own one-unit element,
     /// as StringLength counts it, so the list length always equals StringLength and it never fails.
     | StringCodePoints of valueNodeId: GraphNodeId
+    /// Each code point replaced by its Unicode simple (one-to-one) lowercase mapping, culture
+    /// invariant; code points without one, including unpaired surrogates, are kept. Never fails.
+    | StringToLower of valueNodeId: GraphNodeId
+    /// Number of bytes in the UTF-8 encoding of the String, as an Int64; an unpaired surrogate
+    /// counts as 3 bytes (its U+FFFD replacement, as WTF-8 also does). Never fails.
+    | StringUtf8ByteCount of valueNodeId: GraphNodeId
     /// Number of code points in the String, as an Int64. A surrogate pair counts once; an unpaired
     /// surrogate code unit counts as one code point.
     | StringLength of valueNodeId: GraphNodeId
@@ -445,6 +451,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
         | SemanticNodeKind.StringCodePoints valueNodeId
+        | SemanticNodeKind.StringToLower valueNodeId
+        | SemanticNodeKind.StringUtf8ByteCount valueNodeId
         | SemanticNodeKind.StringLength valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
@@ -552,6 +560,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.Int64ToString valueNodeId -> SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
             | SemanticNodeKind.StringParseInt64 valueNodeId -> SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringToLower valueNodeId -> SemanticNodeKind.StringToLower(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringUtf8ByteCount valueNodeId -> SemanticNodeKind.StringUtf8ByteCount(mapNodeId valueNodeId)
             | SemanticNodeKind.StringLength valueNodeId -> SemanticNodeKind.StringLength(mapNodeId valueNodeId)
             | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.StringSlice(mapNodeId valueNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
@@ -720,6 +730,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64ToString _
         | SemanticNodeKind.StringParseInt64 _
         | SemanticNodeKind.StringCodePoints _
+        | SemanticNodeKind.StringToLower _
+        | SemanticNodeKind.StringUtf8ByteCount _
         | SemanticNodeKind.StringLength _
         | SemanticNodeKind.StringSlice _
         | SemanticNodeKind.StringContains _

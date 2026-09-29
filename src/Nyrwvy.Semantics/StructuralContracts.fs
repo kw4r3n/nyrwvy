@@ -48,6 +48,8 @@ module ValueDependency =
         | SemanticNodeKind.Int64ToFloat64 sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
         | SemanticNodeKind.StringCodePoints sourceNodeId
+        | SemanticNodeKind.StringToLower sourceNodeId
+        | SemanticNodeKind.StringUtf8ByteCount sourceNodeId
         | SemanticNodeKind.StringLength sourceNodeId
         | SemanticNodeKind.BoolNot sourceNodeId ->
             [ create ValueDependencyRole.Source sourceNodeId ]

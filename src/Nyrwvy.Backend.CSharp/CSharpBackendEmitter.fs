@@ -194,6 +194,27 @@ module CSharpBackend =
         writer.Line("return NyList<string>.FromOwnedArray(pieces);")
         writer.Pop()
         writer.Line("}")
+        // ToLower applies the Unicode simple (one-to-one) lowercase mapping per code point, culture
+        // invariant. string.ToLowerInvariant is not used: it replaces an unpaired surrogate with U+FFFD,
+        // and .NET's invariant casing keeps U+0130 where UnicodeData maps it to U+0069.
+        writer.Line("public static string ToLower(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var builder = new System.Text.StringBuilder(text.Length);")
+        writer.Line("for (var index = 0; index < text.Length; index++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var unit = text[index];")
+        writer.Line("if (Width(text, index) == 2) builder.Append(System.Text.Rune.ToLowerInvariant(new System.Text.Rune(unit, text[++index])).ToString());")
+        writer.Line("else if (char.IsSurrogate(unit)) builder.Append(unit);")
+        writer.Line("else builder.Append(unit == '\\u0130' ? 'i' : char.ToLowerInvariant(unit));")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return builder.ToString();")
+        writer.Pop()
+        writer.Line("}")
+        // UTF-8 length; the replacement fallback encodes an unpaired surrogate as U+FFFD, 3 bytes.
+        writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
         writer.Line("private static int Find(string text, string value, int offset)")
         writer.Line("{")
         writer.Push()
@@ -946,6 +967,10 @@ module CSharpBackend =
             writer.Line(target + " = count;")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.StringToLower sourceValueId ->
+            writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringUtf8ByteCount sourceValueId ->
+            writer.Line(target + " = NyText.Utf8ByteCount(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringCodePoints sourceValueId ->
             // One String per code point, walked once: a surrogate pair stays together and an unpaired
             // surrogate code unit is its own element, as StringLength counts it.

@@ -141,6 +141,7 @@ module SemanticFacts =
                         |> Option.map (fun binding -> binding.Type)
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.StringConcat _
+                    | SemanticNodeKind.StringToLower _
                     | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
                     // BoolAnd/BoolOr complete normally even when their right graph aborts,
@@ -159,6 +160,7 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64FloorDivide _
                     | SemanticNodeKind.Int64FloorModulo _
                     | SemanticNodeKind.StringLength _
+                    | SemanticNodeKind.StringUtf8ByteCount _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _
