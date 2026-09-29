@@ -255,6 +255,7 @@ module Transaction =
                 | SemanticNodeKind.StringEndsWith _
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
+                | SemanticNodeKind.StringSplitLines _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
@@ -787,6 +788,7 @@ module Transaction =
                         | SemanticNodeKind.StringEndsWith _
                         | SemanticNodeKind.StringJoin _
                         | SemanticNodeKind.StringSplit _
+                        | SemanticNodeKind.StringSplitLines _
                         | SemanticNodeKind.StringEqual _
                         | SemanticNodeKind.StringLessThan _
                         | SemanticNodeKind.ValueEqual _

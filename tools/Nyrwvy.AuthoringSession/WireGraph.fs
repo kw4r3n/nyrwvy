@@ -74,6 +74,7 @@ module internal WireGraph =
         | SemanticNodeKind.StringStartsWith(value, other) -> tagged "stringStartsWith" [ "valueNodeId", identity value; "prefixNodeId", identity other ]
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
         | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
+        | SemanticNodeKind.StringSplitLines(value, breaks) -> tagged "stringSplitLines" [ "valueNodeId", identity value; "breaksNodeId", identity breaks ]
         | SemanticNodeKind.StringJoin(list, separator) -> tagged "stringJoin" [ "listNodeId", identity list; "separatorNodeId", identity separator ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringLessThan(left, right) -> tagged "stringLessThan" [ "leftNodeId", identity left; "rightNodeId", identity right ]

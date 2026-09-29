@@ -315,6 +315,12 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "value" element),
                 recipe declarations parameterContext (property "separator" element)
             )
+        | "stringSplitLines" ->
+            ensureFields "string-split-lines recipe" [ "kind"; "value"; "breaks" ] [ "kind"; "value"; "breaks" ] element
+            ExpressionRecipe.StringSplitLines(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "breaks" element)
+            )
         | "stringJoin" ->
             ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
             ExpressionRecipe.StringJoin(

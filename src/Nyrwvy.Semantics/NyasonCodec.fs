@@ -524,6 +524,12 @@ module NyasonCodec =
                 [ nodeId
                   "value", encodeId "node" valueNodeId
                   "separator", encodeId "node" separatorNodeId ]
+        | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
+            record
+                "string-split-lines"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "breaks", encodeId "node" breaksNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             encodeBinaryNode "string-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -917,12 +923,13 @@ module NyasonCodec =
                     (decodeId<GraphNodeTag> "node" (require "value" fields))
                     (decodeId<GraphNodeTag> "node" (require "set" fields))
                     (decodeId<GraphNodeTag> "node" (require bound fields)) }
-        | NyasonValue.Record(("string-last-index-of" | "string-starts-with" | "string-ends-with" | "string-split") as tag, _) ->
+        | NyasonValue.Record(("string-last-index-of" | "string-starts-with" | "string-ends-with" | "string-split" | "string-split-lines") as tag, _) ->
             let other, build =
                 match tag with
                 | "string-last-index-of" -> "substring", (fun v o -> SemanticNodeKind.StringLastIndexOf(v, o))
                 | "string-starts-with" -> "prefix", (fun v o -> SemanticNodeKind.StringStartsWith(v, o))
                 | "string-ends-with" -> "suffix", (fun v o -> SemanticNodeKind.StringEndsWith(v, o))
+                | "string-split-lines" -> "breaks", (fun v o -> SemanticNodeKind.StringSplitLines(v, o))
                 | _ -> "separator", (fun v o -> SemanticNodeKind.StringSplit(v, o))
             let fields = recordFields tag [ "id"; "value"; other ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

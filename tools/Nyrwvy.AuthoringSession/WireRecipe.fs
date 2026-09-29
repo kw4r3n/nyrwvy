@@ -106,6 +106,9 @@ module internal WireRecipe =
         | "stringSplit" ->
             ensureFields "string-split recipe" [ "kind"; "value"; "separator" ] [ "kind"; "value"; "separator" ] element
             ExpressionRecipe.StringSplit(recipe (property "value" element), recipe (property "separator" element))
+        | "stringSplitLines" ->
+            ensureFields "string-split-lines recipe" [ "kind"; "value"; "breaks" ] [ "kind"; "value"; "breaks" ] element
+            ExpressionRecipe.StringSplitLines(recipe (property "value" element), recipe (property "breaks" element))
         | "stringJoin" ->
             ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
             ExpressionRecipe.StringJoin(recipe (property "list" element), recipe (property "separator" element))

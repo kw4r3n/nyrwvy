@@ -101,6 +101,8 @@ type ExecutionInstructionKind =
     | StringStartsWith of valueId: ExecutionValueId * prefixId: ExecutionValueId
     | StringEndsWith of valueId: ExecutionValueId * suffixId: ExecutionValueId
     | StringSplit of valueId: ExecutionValueId * separatorId: ExecutionValueId
+    /// Lines of `value` split at code points of `breaks` ("\r\n" is one break when both are members).
+    | StringSplitLines of valueId: ExecutionValueId * breaksId: ExecutionValueId
     | StringJoin of listValueId: ExecutionValueId * separatorId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Ordinal code-point ordering of two Strings: left sorts strictly before right.

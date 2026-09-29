@@ -39,6 +39,7 @@ type ExpressionRecipe =
     | StringStartsWith of ExpressionRecipe * ExpressionRecipe
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
     | StringSplit of ExpressionRecipe * ExpressionRecipe
+    | StringSplitLines of value: ExpressionRecipe * breaks: ExpressionRecipe
     | StringJoin of list: ExpressionRecipe * separator: ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringLessThan of ExpressionRecipe * ExpressionRecipe
@@ -178,6 +179,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringStartsWith(left, right) -> ExpressionRecipe.StringStartsWith(go left, go right)
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
         | ExpressionRecipe.StringSplit(left, right) -> ExpressionRecipe.StringSplit(go left, go right)
+        | ExpressionRecipe.StringSplitLines(value, breaks) -> ExpressionRecipe.StringSplitLines(go value, go breaks)
         | ExpressionRecipe.StringJoin(list, separator) -> ExpressionRecipe.StringJoin(go list, go separator)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
@@ -383,6 +385,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringStartsWith(left, right)
         | ExpressionRecipe.StringEndsWith(left, right)
         | ExpressionRecipe.StringSplit(left, right)
+        | ExpressionRecipe.StringSplitLines(left, right)
         | ExpressionRecipe.StringJoin(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.ValueEqual(left, right)
@@ -1090,6 +1093,15 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringEndsWith(value, suffix) -> binary "StringEndsWith" stringType boolType value suffix
             | ExpressionRecipe.StringSplit(value, separator) ->
                 binary "StringSplit" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value separator
+            | ExpressionRecipe.StringSplitLines(value, breaks) ->
+                match infer frames value with
+                | Error error -> Error error
+                | Ok actual when actual <> stringType -> Error(typeMismatch "StringSplitLines" "value" stringType actual)
+                | Ok _ ->
+                    match infer frames breaks with
+                    | Error error -> Error error
+                    | Ok actual when actual <> stringType -> Error(typeMismatch "StringSplitLines" "breaks" stringType actual)
+                    | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]))
             | ExpressionRecipe.StringJoin(list, separator) ->
                 let stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
                 match infer frames list with
@@ -1895,6 +1907,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringStartsWith(left, right) -> binary SemanticNodeKind.StringStartsWith left right
         | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right
         | ExpressionRecipe.StringSplit(left, right) -> binary SemanticNodeKind.StringSplit left right
+        | ExpressionRecipe.StringSplitLines(value, breaks) -> binary SemanticNodeKind.StringSplitLines value breaks
         | ExpressionRecipe.StringJoin(list, separator) -> binary SemanticNodeKind.StringJoin list separator
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right

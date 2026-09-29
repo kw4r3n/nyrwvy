@@ -530,6 +530,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringStartsWith"
               "StringEndsWith"
               "StringSplit"
+              "StringSplitLines"
               "StringJoin"
               "StringEqual"
               "StringLessThan"

@@ -372,6 +372,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringSplit")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("separatorNodeId", StableId.value otherNodeId)
+        | TypedSemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
+            writer.WriteString("kind", "stringSplitLines")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("breaksNodeId", StableId.value breaksNodeId)
         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
             writer.WriteString("kind", "stringJoin")
             writer.WriteString("listNodeId", StableId.value listNodeId)

@@ -753,12 +753,14 @@ module SnapshotValidator =
                     | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
                     | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
                     | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
-                    | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
+                    | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId)
+                    | SemanticNodeKind.StringSplitLines(valueNodeId, otherNodeId) ->
                         let name, otherRole =
                             match node.Kind with
                             | SemanticNodeKind.StringLastIndexOf _ -> "StringLastIndexOf", "substring"
                             | SemanticNodeKind.StringStartsWith _ -> "StringStartsWith", "prefix"
                             | SemanticNodeKind.StringEndsWith _ -> "StringEndsWith", "suffix"
+                            | SemanticNodeKind.StringSplitLines _ -> "StringSplitLines", "breaks"
                             | _ -> "StringSplit", "separator"
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1587,6 +1589,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringEndsWith _
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
+                | SemanticNodeKind.StringSplitLines _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _

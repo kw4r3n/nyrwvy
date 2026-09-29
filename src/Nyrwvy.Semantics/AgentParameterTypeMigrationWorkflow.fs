@@ -291,6 +291,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringStartsWith(left, right) -> two ExpressionRecipe.StringStartsWith left right
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
             | ExpressionRecipe.StringSplit(left, right) -> two ExpressionRecipe.StringSplit left right
+            | ExpressionRecipe.StringSplitLines(value, breaks) -> two ExpressionRecipe.StringSplitLines value breaks
             | ExpressionRecipe.StringJoin(list, separator) -> two ExpressionRecipe.StringJoin list separator
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
             | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right
