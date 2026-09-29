@@ -250,6 +250,9 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringParseInt64 valueId ->
             [ property "kind" (quote "stringParseInt64")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringCodePoints valueId ->
+            [ property "kind" (quote "stringCodePoints")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringLength valueId ->
             [ property "kind" (quote "stringLength")
               property "valueId" (executionValueIdValue valueId) ]

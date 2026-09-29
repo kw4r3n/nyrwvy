@@ -860,6 +860,24 @@ module CSharpBackend =
             writer.Line(target + " = count;")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.StringCodePoints sourceValueId ->
+            // One String per code point, walked once: a surrogate pair stays together and an unpaired
+            // surrogate code unit is its own element, as StringLength counts it.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var text = " + valueName sourceValueId + ";")
+            writer.Line("var codePoints = new System.Collections.Generic.List<string>(text.Length);")
+            writer.Line("for (var index = 0; index < text.Length; index++)")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var width = char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;")
+            writer.Line("codePoints.Add(text.Substring(index, width));")
+            writer.Line("index += width - 1;")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line(target + " = NyList<string>.FromOwnedArray(codePoints.ToArray());")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.StringSlice(sourceValueId, startId, endId) ->
             // Clamp both code-point bounds to [0, length], then map them to UTF-16 offsets without splitting a pair.
             writer.Line("{")

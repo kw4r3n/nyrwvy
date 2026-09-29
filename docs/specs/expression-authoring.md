@@ -49,6 +49,7 @@ ExpressionRecipe =
   | StringParseInt64(expr)
   | StringLength(expr)
   | StringSlice(expr, expr, expr)
+  | StringCodePoints(expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
@@ -307,6 +308,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `StringLessThan(left, right)` (wire `stringLessThan`, Nyason `string-less-than`) takes two Strings and produces Bool: whether `left` sorts strictly before `right` in ordinal code-point order, as defined in the [language subset](../reference/language-subset.md). An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. There is no three-way `StringCompare`: sort callbacks and conditions need a Bool, and `StringEqual` plus `StringLessThan` express every other comparison.
 
+## StringCodePoints
+
+`StringCodePoints(text)` (wire `stringCodePoints`, Nyason `string-code-points`) takes a String and produces `List<String>`: each code point as a one-code-point String, in order, counted as `StringLength` counts them (an unpaired surrogate is its own item), as defined in the [language subset](../reference/language-subset.md). It runs in linear time and never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. It is the way to iterate text: `ListFold(StringCodePoints(text), seed, folder)` replaces a self-recursive scan that slices one character per call.
+
 ## Int64ToFloat64
 
 `Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`. There is no Float64 to Int64 conversion.
@@ -343,6 +348,8 @@ This surface does **not** create missing-argument obligations. Incomplete calls 
 `SelfCall` adds no semantic node kind. It materializes to an ordinary `DirectCall(ownerFunctionId, bindings)`: creation allocates the new `FunctionId` and `ParameterId`s before materializing the body. Bindings follow the owner's parameter order, so persistence, typed IR, execution IR, and the backend are unchanged. Parameter- and result-type migration accept `SelfCall` in the target replacement, which stays a call to the migrated target, and in a caller replacement, which becomes a call to that unchanged caller; a target replacement's `DirectCall` to the target's own FunctionId is treated as a `SelfCall`, so it is typed against the new signature rather than the pre-migration function.
 
 Out of scope: a `FunctionReference` to the function being created, for higher-order use, and mutual recursion. Both still need an existing function, so the placeholder-then-replace route remains for them.
+
+A self call is a real call at run time, so recursion depth is limited by the runtime stack: several thousand nested calls for a small function, fewer for one with many parameters or locals, after which `runPure` reports `RunRuntimeFailure` `System.StackOverflowException` with a "recursion was too deep" message. Author per-item iteration, including per-character text scans, as `ListFold` over a list (`StringCodePoints(text)` for text) instead of a self call per item.
 
 ## Complete CapabilityInvoke
 

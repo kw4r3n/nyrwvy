@@ -142,6 +142,7 @@ module PureRunProvenanceTests =
             match PureRun.run session (functionId "loop") [ PureRunValue.Int64 0L ] None with
             | Error(PureRunError.RuntimeFailure failure) ->
                 Assert.Equal("System.StackOverflowException", failure.ExceptionType)
+                Assert.Contains("recursion was too deep", failure.Message)
                 Assert.Equal(functionId "loop", failure.FunctionId)
                 Assert.NotEmpty(failure.Frames)
                 Assert.All(failure.Frames, fun frame -> Assert.Equal(PureRunFrame.Function(functionId "loop"), frame))

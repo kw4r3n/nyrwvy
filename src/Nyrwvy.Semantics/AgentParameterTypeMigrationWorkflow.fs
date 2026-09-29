@@ -272,6 +272,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
             | ExpressionRecipe.Int64ToString value -> one ExpressionRecipe.Int64ToString value
             | ExpressionRecipe.StringParseInt64 value -> one ExpressionRecipe.StringParseInt64 value
+            | ExpressionRecipe.StringCodePoints value -> one ExpressionRecipe.StringCodePoints value
             | ExpressionRecipe.StringLength value -> one ExpressionRecipe.StringLength value
             | ExpressionRecipe.StringSlice(value, start, stop) -> three ExpressionRecipe.StringSlice value start stop
             | ExpressionRecipe.Float64IsNaN value -> one ExpressionRecipe.Float64IsNaN value
