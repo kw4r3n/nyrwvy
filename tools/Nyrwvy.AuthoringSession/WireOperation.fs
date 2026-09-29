@@ -94,3 +94,27 @@ module internal WireOperation =
             if kind = "addRequiredEffect" then AgentOperationIntent.AddFunctionRequiredEffect intent
             else AgentOperationIntent.RemoveFunctionRequiredEffect intent
         | value -> fail $"Unsupported operation kind '{value}'."
+
+    /// Name-resolved deletion operations (`simulateOperationsByName`). Every name is resolved against
+    /// the current snapshot before the batch is simulated, with the same unknown/ambiguous rejection
+    /// as the other `…ByName` requests; the result is the ordinary exact-ID operation.
+    let operationByName (declarations: AuthoringDeclarations) (element: JsonElement): AgentOperationIntent =
+        match requiredString "kind" element with
+        | "deleteFunction" ->
+            ensureFields "delete-function operation" [ "kind"; "function" ] [ "kind"; "function" ] element
+            AgentOperationIntent.DeleteFunction((WireSymbolic.resolveFunction declarations (requiredString "function" element)).Id)
+        | "deleteType" ->
+            ensureFields "delete-type operation" [ "kind"; "type" ] [ "kind"; "type" ] element
+            AgentOperationIntent.DeleteType((WireSymbolic.resolveType declarations (requiredString "type" element)).Id)
+        | "deleteEffect" ->
+            ensureFields "delete-effect operation" [ "kind"; "effect" ] [ "kind"; "effect" ] element
+            AgentOperationIntent.DeleteEffect((WireSymbolic.resolveEffect declarations (requiredString "effect" element)).Id)
+        | "deleteCapability" ->
+            ensureFields "delete-capability operation" [ "kind"; "capability" ] [ "kind"; "capability" ] element
+            AgentOperationIntent.DeleteCapability((WireSymbolic.resolveCapability declarations (requiredString "capability" element)).Id)
+        | "deleteCapabilityOperation" ->
+            ensureFields "delete-capability-operation operation" [ "kind"; "capability"; "operation" ] [ "kind"; "capability"; "operation" ] element
+            let owner = WireSymbolic.resolveCapability declarations (requiredString "capability" element)
+            AgentOperationIntent.DeleteCapabilityOperation((WireSymbolic.capabilityOperation owner (requiredString "operation" element)).Id)
+        | value ->
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation; use simulateOperations with exact IDs for the others."

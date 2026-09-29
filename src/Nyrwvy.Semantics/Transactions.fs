@@ -681,13 +681,34 @@ module Transaction =
         match snapshot.Functions |> List.tryFind (fun fn -> fn.Id = functionId) with
         | None -> Error("TargetNotFound", "The function to delete was not found.")
         | Some target ->
-            let callers = SemanticQuery.getCallers snapshot functionId
+            // A function's references to itself (SelfCall/DirectCall, its own callbacks) disappear with
+            // its body, so only other functions' references block the deletion.
+            let callers =
+                SemanticQuery.getCallers snapshot functionId
+                |> Result.map (List.filter (fun site -> site.CallerFunctionId <> functionId))
             let bodyNodeIds =
                 ValueGraph.collectNodes target.Body |> List.map (fun node -> node.Id) |> Set.ofList
             match callers with
             | Error _ -> Error("FunctionCallSiteInspectionFailed", "The function's callers could not be inspected.")
-            | Ok (_ :: _) ->
-                Error("FunctionStillReferenced", "Repair all direct calls and List callbacks before deleting this function.")
+            | Ok (_ :: _ as sites) ->
+                let describe (id: FunctionId) =
+                    let name =
+                        snapshot.Functions
+                        |> List.tryFind (fun fn -> fn.Id = id)
+                        |> Option.map (fun fn -> fn.DisplayName)
+                        |> Option.defaultValue "?"
+                    $"'{name}' ({StableId.value id})"
+                let referrers =
+                    sites
+                    |> List.map (fun site -> site.CallerFunctionId)
+                    |> List.distinct
+                    |> List.sortBy StableId.value
+                    |> List.map describe
+                    |> String.concat ", "
+                Error(
+                    "FunctionStillReferenced",
+                    $"Function {describe functionId} is still referenced by {referrers}. Repair or remove those direct calls, callbacks and function references, or delete the referring functions earlier in the same batch, before deleting this function."
+                )
             | Ok [] when snapshot.Obligations |> List.exists (fun item -> Set.contains item.CallNodeId bodyNodeIds) ->
                 Error("FunctionHasObligations", "Resolve or remove obligations attached to this function before deletion.")
             | Ok [] ->
