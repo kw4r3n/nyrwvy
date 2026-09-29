@@ -66,3 +66,18 @@ Two adversarial inputs still show the cost of walking code-point positions. Pyth
 | 6 | **Trivial callback wrappers** | `endsWith` 3, `sameText` 3, `sectionName` 2, `fileSelected` 4. | Not queued (unchanged). |
 
 Not queued, unchanged: the verbose run-value encoding, `commit: true` on `simulate*`, and a larger `runPure` value budget.
+
+## Follow-up: orders 23 and 24
+
+The slice was re-authored again on the order-24 build (main `2f486da`), changing only what the new builtins replace: `skipIn`, `rskipIn`, `digitsEnd` and `isDigit` became `StringSpan`/`StringSpanBack` (order 23), `strip` became one slice over both spans, and `SplitAcc`, `splitStep` and the `splitLines` function became `StringSplitLines(text, breaks)` with Python's break set for `parse_findings` and `"\n\r"` for `bytes.splitlines` in `repo_map` (order 24). The harness and cases were unchanged.
+
+| Part | Before (types / functions / nodes) | After | Requests / request JSON / reply JSON |
+| --- | --- | --- | --- |
+| Text helpers | 1 / 8 / 114 | 0 / 4 / 27 (`charAt`, `inSet`, `strip`, `endsWith`) | 8 / 2.8 KB / 5.9 KB |
+| `parse_findings` | 2 / 8 / 243 | 2 / 6 / 230 | 16 / 16.9 KB / 12.1 KB |
+| `repo_map` core | 9 / 22 / 540 | 9 / 22 / 540 | 62 / 44.3 KB / 45.9 KB |
+| **Total** | **12 / 38 / 897**; 100 requests / 75.0 KB / 74.4 KB | **11 / 32 / 797** | **86 / 64.1 KB / 63.8 KB** |
+
+Against probe 4's final port (14 / 47 / 1106, 138 requests) this is 28% fewer nodes and 38% fewer requests. There were no recipe retries. The results are unchanged: 24/24 in-scope checks pass, FX1-FX3 differ as before, and R2 exceeds the argument limit.
+
+At scale, 16,000 spaces before the path now take 1.5 s instead of 3.3 s, the same as a short line, because the whitespace run is one `StringSpan`. 4,000 colons in one path take 2.2 s (2.5 s before). At 8,000 and 16,000 colons, `findPath`'s per-colon recursion still overflows the stack. That is now the port's only recursion whose depth grows with the input, apart from `repeat` (bounded by the symbol depth). The position cost behind it is documented in the [language subset](../reference/language-subset.md) (order 25).
