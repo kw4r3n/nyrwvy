@@ -27,4 +27,4 @@ This decision settles order 26. [Probe 7](../verification/rrawrlet-slice-probe7-
 
 ## Revisit conditions
 
-- Traversing a recursive type with list operations needs a function and its callback to call each other, which still needs a placeholder callee. Revisit if a probe measures that cost.
+- Traversing a recursive type with list operations needs a function and its callback to call each other, which still needs a placeholder callee. [Probe 8](../verification/rrawrlet-slice-probe8-20260929.md#recursion-through-callbacks-measured) measured it: one extra reviewed transaction per recursive cycle (4 of 122 requests for `redact_value` and Python `==`), so function groups are not queued; the by-name rejection now names the route. Revisit if a probe needs several interlocking cycles or a live placeholder causes a wrong run.
