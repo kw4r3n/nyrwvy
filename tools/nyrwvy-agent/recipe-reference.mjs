@@ -13,7 +13,7 @@ const categories = {
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
     "boolNot", "boolAnd", "boolOr",
-    "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice", "stringCodePoints",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -71,6 +71,7 @@ const references = {
   boolAnd: { ...binary("boolAnd"), notes: "Bool left and right. right is a nested branch evaluated only when left is true (its effects, calls and aborts happen only then); it must produce Bool or abort." },
   boolOr: { ...binary("boolOr"), notes: "Bool left or right. right is a nested branch evaluated only when left is false (its effects, calls and aborts happen only then); it must produce Bool or abort." },
   stringLength: { ...unary("stringLength"), notes: "Int64 count of code points: a surrogate pair counts once, an unpaired surrogate once." },
+  stringCodePoints: { ...unary("stringCodePoints"), notes: "List<String> of each code point as a one-code-point String, in order, in linear time; never fails. A surrogate pair is one item, an unpaired surrogate its own item, so the length equals stringLength. Iterate text with listFold over it instead of self-recursion per character, which overflows the stack at a few thousand characters." },
   stringSlice: { shape: { kind: "stringSlice", value: recipe, start: recipe, end: recipe }, notes: "Code points at Int64 positions [start, end). Both bounds clamp to [0, length]; end <= start gives \"\". Never fails; never splits a surrogate pair." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
   int64WrappingAdd: binary("int64WrappingAdd"),

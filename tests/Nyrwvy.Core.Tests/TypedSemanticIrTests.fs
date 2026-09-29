@@ -33,6 +33,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64ToString _
                 | TypedSemanticNodeKind.StringParseInt64 _
                 | TypedSemanticNodeKind.StringLength _
+                | TypedSemanticNodeKind.StringCodePoints _
                 | TypedSemanticNodeKind.StringSlice _
                 | TypedSemanticNodeKind.BoolNot _
                 | TypedSemanticNodeKind.BoolAnd _

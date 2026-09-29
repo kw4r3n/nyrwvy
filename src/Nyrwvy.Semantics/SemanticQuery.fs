@@ -93,6 +93,7 @@ module SemanticQuery =
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.Int64ToString _
                     | SemanticNodeKind.StringParseInt64 _
+                    | SemanticNodeKind.StringCodePoints _
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.StringSlice _
                     | SemanticNodeKind.StringContains _

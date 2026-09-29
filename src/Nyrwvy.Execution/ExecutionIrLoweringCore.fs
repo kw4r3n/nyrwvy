@@ -268,6 +268,8 @@ module ExecutionIr =
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
                         | TypedSemanticNodeKind.StringLength valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringLength
+                        | TypedSemanticNodeKind.StringCodePoints valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringCodePoints
                         | TypedSemanticNodeKind.BoolNot operandNodeId ->
                             lowerUnaryNode node operandNodeId ExecutionInstructionKind.BoolNot
                         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
@@ -692,6 +694,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.Int64ToString _
                         | TypedSemanticNodeKind.StringParseInt64 _
+                        | TypedSemanticNodeKind.StringCodePoints _
                         | TypedSemanticNodeKind.StringLength _
                         | TypedSemanticNodeKind.StringSlice _
                         | TypedSemanticNodeKind.BoolNot _

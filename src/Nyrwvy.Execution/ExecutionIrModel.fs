@@ -85,6 +85,7 @@ type ExecutionInstructionKind =
     | StringIsEmpty of ExecutionValueId
     | Int64ToString of ExecutionValueId
     | StringParseInt64 of ExecutionValueId
+    | StringCodePoints of ExecutionValueId
     | StringLength of ExecutionValueId
     | BoolNot of ExecutionValueId
     | StringSlice of valueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId

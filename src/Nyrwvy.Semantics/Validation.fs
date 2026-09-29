@@ -662,6 +662,12 @@ module SnapshotValidator =
                             $"StringParseInt64 node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringCodePoints valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringCodePoints node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringLength valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1469,6 +1475,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
