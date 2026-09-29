@@ -242,6 +242,8 @@ module Transaction =
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
                 | SemanticNodeKind.StringCodePoints _
+                | SemanticNodeKind.StringToLower _
+                | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
@@ -768,6 +770,8 @@ module Transaction =
                         | SemanticNodeKind.Int64ToString _
                         | SemanticNodeKind.StringParseInt64 _
                         | SemanticNodeKind.StringCodePoints _
+                        | SemanticNodeKind.StringToLower _
+                        | SemanticNodeKind.StringUtf8ByteCount _
                         | SemanticNodeKind.StringLength _
                         | SemanticNodeKind.StringSlice _
                         | SemanticNodeKind.StringContains _

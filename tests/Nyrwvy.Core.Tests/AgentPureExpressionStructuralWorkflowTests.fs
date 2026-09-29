@@ -518,6 +518,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Int64ToString"
               "StringParseInt64"
               "StringCodePoints"
+              "StringToLower"
+              "StringUtf8ByteCount"
               "StringLength"
               "StringSlice"
               "StringContains"

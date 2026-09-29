@@ -14,7 +14,7 @@ const categories = {
   scalar: [
     "boolNot", "boolAnd", "boolOr",
     "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice", "stringCodePoints",
-    "stringIndexOf", "stringLastIndexOf", "stringStartsWith", "stringEndsWith", "stringSplit",
+    "stringIndexOf", "stringLastIndexOf", "stringStartsWith", "stringEndsWith", "stringSplit", "stringToLower", "stringUtf8ByteCount",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -78,6 +78,8 @@ const references = {
   stringStartsWith: { shape: { kind: "stringStartsWith", value: recipe, prefix: recipe }, notes: "Bool: value begins with prefix, ordinal and case-sensitive; an empty prefix is true. A prefix ending in half of a surrogate pair does not match." },
   stringEndsWith: { shape: { kind: "stringEndsWith", value: recipe, suffix: recipe }, notes: "Bool: value ends with suffix, ordinal and case-sensitive; an empty suffix is true." },
   stringSplit: { shape: { kind: "stringSplit", value: recipe, separator: recipe }, notes: "List<String> of the pieces between non-overlapping ordinal occurrences of separator, left to right, keeping empty pieces, like Python str.split(sep): \"a,,b\" by \",\" gives [\"a\", \"\", \"b\"]; \"\" gives [\"\"]. An empty separator never fails: it gives [value] (use stringCodePoints for characters). Linear time." },
+  stringToLower: { ...unary("stringToLower"), notes: "String with each code point lowercased by the Unicode simple (one-to-one) mapping, culture invariant (I to i, Kelvin sign to k); the length in code points never changes and an unpaired surrogate is kept. Like Python str.lower() except \u0130 gives \"i\" (Python \"i\u0307\") and a word-final Sigma gives \u03c3 (Python \u03c2). Not casefold. Never fails." },
+  stringUtf8ByteCount: { ...unary("stringUtf8ByteCount"), notes: "Int64 length in bytes of the UTF-8 encoding, like Python len(text.encode(\"utf-8\")): 1-4 bytes per code point; an unpaired surrogate counts 3. Never fails." },
   stringSlice: { shape: { kind: "stringSlice", value: recipe, start: recipe, end: recipe }, notes: "Code points at Int64 positions [start, end). Both bounds clamp to [0, length]; end <= start gives \"\". Never fails; never splits a surrogate pair." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
   int64WrappingAdd: binary("int64WrappingAdd"),

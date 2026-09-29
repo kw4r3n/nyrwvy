@@ -401,6 +401,12 @@ module SnapshotCodec =
         | SemanticNodeKind.StringCodePoints valueNodeId ->
             writer.WriteString("kind", "stringCodePoints")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringToLower valueNodeId ->
+            writer.WriteString("kind", "stringToLower")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
+            writer.WriteString("kind", "stringUtf8ByteCount")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringLength valueNodeId ->
             writer.WriteString("kind", "stringLength")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -1072,6 +1078,12 @@ module SnapshotCodec =
             | "stringCodePoints" ->
                 ensureProperties "StringCodePoints node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringCodePoints(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringToLower" ->
+                ensureProperties "StringToLower node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringToLower(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringUtf8ByteCount" ->
+                ensureProperties "StringUtf8ByteCount node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringUtf8ByteCount(readId<GraphNodeTag> "valueNodeId" element)
             | "stringLength" ->
                 ensureProperties "StringLength node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringLength(readId<GraphNodeTag> "valueNodeId" element)

@@ -158,6 +158,12 @@ module StructuralDiagnosticTextTests =
                 (listOf S)
                 """{"kind":"stringSplit","value":{"kind":"parameter","name":"text"},"separator":{"kind":"stringLength","value":{"kind":"int64Literal","value":5}}}"""
         Assert.EndsWith("At body.separator (stringLength).", separator)
+        let _, lowered =
+            reject
+                [ "text", S ]
+                I
+                """{"kind":"stringUtf8ByteCount","value":{"kind":"stringToLower","value":{"kind":"int64Literal","value":6}}}"""
+        Assert.Equal("StringToLower value operand requires String, but the recipe produces Int64. At body.value (stringToLower).", lowered)
 
     [<Fact>]
     let ``type references render as display names in wire notation`` () =

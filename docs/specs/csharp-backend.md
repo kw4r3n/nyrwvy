@@ -63,6 +63,10 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `StringIndexOf`, `StringLastIndexOf`, `StringStartsWith`, `StringEndsWith` and `StringSplit` call `NyText` helpers emitted with the runtime. They search with ordinal `string.IndexOf`, `LastIndexOf`, `StartsWith` and `EndsWith` and accept a match only when both of its UTF-16 ends are code-point boundaries (not between a high surrogate and the low surrogate after it); a rejected match resumes the search one code unit further. `StringIndexOf` first walks the text to map the clamped `from` to a UTF-16 offset, and both index operations convert the matched offset back to code points in one pass, producing `NyOption<long>`. `StringSplit` collects the pieces into a doubling array wrapped with `NyList<string>.FromOwnedArray`, and returns a one-item list for an empty separator. None of them throws.
 
+## String lowercase and UTF-8 length
+
+`StringToLower` calls the emitted `NyText.ToLower`, one pass over the UTF-16 string: a surrogate pair is mapped with `System.Text.Rune.ToLowerInvariant`, an unpaired surrogate is copied unchanged, U+0130 becomes `i` (the UnicodeData simple mapping, which .NET's invariant casing does not apply), and every other code unit is mapped with `char.ToLowerInvariant`. `string.ToLowerInvariant` must not be used: it replaces an unpaired surrogate with U+FFFD. `StringUtf8ByteCount` calls `NyText.Utf8ByteCount`, which is `Encoding.UTF8.GetByteCount`; its replacement fallback counts an unpaired surrogate as the 3 bytes of U+FFFD.
+
 ## List sorting
 
 `ListSortBy` emits `source.SortBy(lessThan)`, with the callback rendered like other List callbacks (a method group, or a lambda passing context and the two items by parameter name). `NyList<T>.SortBy` copies the items and runs the specified top-down merge sort: the left half is the first `length / 2` items, and the merge takes the right head only when `lessThan(rightHead, leftHead)` is true, so equal items keep their order. It does not use `Array.Sort` or `List<T>.Sort`, which are unstable introsorts whose result for an inconsistent comparer is unspecified and which may throw for one.

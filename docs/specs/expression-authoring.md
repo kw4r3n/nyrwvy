@@ -55,6 +55,8 @@ ExpressionRecipe =
   | StringStartsWith(value, prefix)
   | StringEndsWith(value, suffix)
   | StringSplit(value, separator)
+  | StringToLower(expr)
+  | StringUtf8ByteCount(expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
@@ -328,6 +330,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## String search and split
 
 `StringIndexOf(value, substring, from)` (wire `stringIndexOf` with `value`, `substring`, `from`; Nyason `string-index-of`) and `StringLastIndexOf(value, substring)` (`stringLastIndexOf`, `string-last-index-of`) produce `Option<Int64>` code-point positions. `StringStartsWith(value, prefix)` (`stringStartsWith`, `string-starts-with`) and `StringEndsWith(value, suffix)` (`stringEndsWith`, `string-ends-with`) produce Bool. `StringSplit(value, separator)` (`stringSplit`, `string-split`) produces `List<String>`. Every text operand is a String and `from` is an Int64; another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. The semantics (ordinal, code-point positions, `from` clamped like `StringSlice`, an empty separator giving `[value]`, never failing) are defined in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-search-and-affixes.md).
+
+## StringToLower and StringUtf8ByteCount
+
+`StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. Both use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## Int64ToFloat64
 
