@@ -146,6 +146,18 @@ module StructuralDiagnosticTextTests =
                 I
                 """{"kind":"directCall","function":"countStep","arguments":[{"parameter":"line","value":{"kind":"parameter","name":"text"}},{"parameter":"acc","value":{"kind":"stringLength","value":{"kind":"int64Literal","value":3}}}]}"""
         Assert.EndsWith("At body.arguments[1].value (stringLength).", argument)
+        let _, searchFrom =
+            reject
+                [ "text", S ]
+                (optionOf I)
+                """{"kind":"stringIndexOf","value":{"kind":"parameter","name":"text"},"substring":{"kind":"stringLiteral","value":"a"},"from":{"kind":"stringLength","value":{"kind":"int64Literal","value":4}}}"""
+        Assert.EndsWith("At body.from (stringLength).", searchFrom)
+        let _, separator =
+            reject
+                [ "text", S ]
+                (listOf S)
+                """{"kind":"stringSplit","value":{"kind":"parameter","name":"text"},"separator":{"kind":"stringLength","value":{"kind":"int64Literal","value":5}}}"""
+        Assert.EndsWith("At body.separator (stringLength).", separator)
 
     [<Fact>]
     let ``type references render as display names in wire notation`` () =

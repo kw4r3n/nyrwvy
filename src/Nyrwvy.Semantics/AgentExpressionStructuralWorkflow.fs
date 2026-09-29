@@ -443,6 +443,12 @@ module AgentExpressionStructuralWorkflow =
             match caseName, index with
             | "StringContains", 0 -> "value"
             | "StringContains", _ -> "substring"
+            | ("StringIndexOf" | "StringLastIndexOf" | "StringStartsWith" | "StringEndsWith" | "StringSplit"), 0 -> "value"
+            | ("StringIndexOf" | "StringLastIndexOf"), 1 -> "substring"
+            | "StringIndexOf", _ -> "from"
+            | "StringStartsWith", _ -> "prefix"
+            | "StringEndsWith", _ -> "suffix"
+            | "StringSplit", _ -> "separator"
             | _, 0 -> "left"
             | _ -> "right"
 
