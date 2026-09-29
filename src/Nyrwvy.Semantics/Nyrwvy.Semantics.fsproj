@@ -10,6 +10,7 @@
     <Compile Include="StableId.fs" />
     <Compile Include="StableIdAllocator.fs" />
     <Compile Include="Foundation.fs" />
+    <Compile Include="DiagnosticText.fs" />
     <Compile Include="SnapshotComputationScope.fs" />
     <Compile Include="PureFunctions.fs" />
     <Compile Include="CapabilityImplementations.fs" />

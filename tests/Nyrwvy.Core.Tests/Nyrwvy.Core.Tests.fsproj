@@ -97,6 +97,7 @@
     <Compile Include="Float64ConversionTests.fs" />
     <Compile Include="SelfCallTests.fs" />
     <Compile Include="ScopeDepthDiagnosticsTests.fs" />
+    <Compile Include="StructuralDiagnosticTextTests.fs" />
     <Compile Include="JsonDepthBoundTests.fs" />
     <Compile Include="TaskScopeCompositionTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />

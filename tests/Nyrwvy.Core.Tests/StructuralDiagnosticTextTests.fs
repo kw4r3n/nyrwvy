@@ -1,0 +1,158 @@
+namespace Nyrwvy.Core.Tests
+
+open System
+open System.IO
+open System.Text.Json
+open Nyrwvy.Core
+open Nyrwvy.Tools.AuthoringSession
+open Xunit
+
+/// Structural rejections render types by display name in wire TypeRef notation, name callbacks
+/// with their actual signature, and end with the recipe path of the node that failed
+/// (probe 4, friction 4).
+module StructuralDiagnosticTextTests =
+    let private id<'tag> name = StableId.createForTesting<'tag> ("diag-text-" + name)
+    let private stringType = TypeRef.Primitive PrimitiveType.String
+    let private int64Type = TypeRef.Primitive PrimitiveType.Int64
+
+    let private tailTypeId = id<TypeTag> "tail"
+    let private findingTypeId = id<TypeTag> "finding"
+    let private tailLineFieldId = id<FieldTag> "tail-line"
+    let private findingLineFieldId = id<FieldTag> "finding-line"
+    let private countStepId = id<FunctionTag> "count-step"
+    let private cmpLenId = id<FunctionTag> "cmp-len"
+
+    let private snapshot =
+        let product typeId name fieldId: SemanticType =
+            { Id = typeId
+              DisplayName = name
+              Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "line"; Type = int64Type } ] }
+        let int64Function functionId name (parameters: (string * TypeRef) list): SemanticFunction =
+            let resultNodeId = id<GraphNodeTag> (name + "-result")
+            { Id = functionId
+              DisplayName = name
+              Parameters =
+                parameters
+                |> List.map (fun (parameterName, parameterType) ->
+                    { Id = id<ParameterTag> (name + "-" + parameterName); DisplayName = parameterName; Type = parameterType })
+              ResultType = int64Type
+              RequiredEffects = []
+              Body = { Nodes = [ { Id = resultNodeId; Kind = SemanticNodeKind.Int64Literal 0L } ]; ResultNodeId = resultNodeId } }
+        let value: Snapshot =
+            { Snapshot.empty (id<SnapshotTag> "base") with
+                Types = [ product tailTypeId "Tail" tailLineFieldId; product findingTypeId "Finding" findingLineFieldId ]
+                Functions =
+                    [ int64Function countStepId "countStep" [ "line", stringType; "acc", int64Type ]
+                      int64Function cmpLenId "cmpLen" [ "a", stringType; "b", stringType ] ] }
+        Assert.Empty(SnapshotValidator.validate value)
+        value
+
+    let private S = """{"kind":"primitive","primitive":"string"}"""
+    let private I = """{"kind":"primitive","primitive":"int64"}"""
+    let private listOf item = $$"""{"kind":"builtinGeneric","generic":"list","arguments":[{{item}}]}"""
+    let private optionOf item = $$"""{"kind":"builtinGeneric","generic":"option","arguments":[{{item}}]}"""
+    let private named name = $$"""{"kind":"named","name":"{{name}}"}"""
+
+    /// Sends one `simulateCreateFunctionByName` and returns the single diagnostic's code and message.
+    let private reject (parameters: (string * string) list) resultType body =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-diag-text-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            File.WriteAllText(path, SnapshotCodec.serialize snapshot |> function Ok json -> json | Error error -> failwithf "%A" error)
+            use session = AuthoringSession.openExisting path |> function Ok value -> value | Error error -> failwithf "%A" error
+            let parameterJson =
+                parameters
+                |> List.map (fun (name, typeJson) -> $$"""{"displayName":"{{name}}","type":{{typeJson}}}""")
+                |> String.concat ","
+            let request =
+                $$"""{"id":"r","op":"simulateCreateFunctionByName","displayName":"probe","parameters":[{{parameterJson}}],"resultType":{{resultType}},"requiredEffects":[],"body":{{body}}}"""
+            use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+            let text = response.RootElement.ToString()
+            Assert.False(response.RootElement.GetProperty("ok").GetBoolean(), text)
+            let error = response.RootElement.GetProperty("error")
+            Assert.Equal("SimulationRejected", error.GetProperty("code").GetString())
+            let diagnostic = error.GetProperty("details").GetProperty("diagnostics").[0]
+            let message = diagnostic.GetProperty("message").GetString()
+            Assert.DoesNotContain("StableId", message)
+            Assert.DoesNotContain("Primitive", message)
+            Assert.DoesNotContain("BuiltinGeneric", message)
+            diagnostic.GetProperty("code").GetString(), message
+        finally
+            Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``a ListFold folder with swapped parameters is named with its actual and expected signature`` () =
+        let code, message =
+            reject [ "xs", listOf S ] I """{"kind":"listFold","source":{"kind":"parameter","name":"xs"},"seed":{"kind":"int64Literal","value":0},"function":"countStep"}"""
+        Assert.Equal("PureExpressionListCallbackInputTypeMismatch", code)
+        Assert.Equal(
+            $"ListFold folder 'countStep' ({StableId.value countStepId}) must have type (accumulator, item) -> accumulator, here (Int64, String) -> Int64; "
+            + "the folder has type (line: String, acc: Int64) -> Int64. At body (listFold).",
+            message
+        )
+
+    [<Fact>]
+    let ``a field access on the wrong owner names both types`` () =
+        let code, message =
+            reject [ "t", named "Tail" ] I """{"kind":"fieldAccess","source":{"kind":"parameter","name":"t"},"type":"Finding","field":"line"}"""
+        Assert.Equal("PureExpressionFieldAccessTypeMismatch", code)
+        Assert.Equal(
+            $"Field access to 'line' ({StableId.value findingLineFieldId}) requires 'Finding' ({StableId.value findingTypeId}), "
+            + $"but the source recipe produces 'Tail' ({StableId.value tailTypeId}). At body (fieldAccess).",
+            message
+        )
+
+    [<Fact>]
+    let ``a comparator-style sort callback is named with its result type`` () =
+        let code, message =
+            reject [ "xs", listOf S ] (listOf S) """{"kind":"listSortBy","source":{"kind":"parameter","name":"xs"},"function":"cmpLen"}"""
+        Assert.Equal("PureExpressionListCallbackResultTypeMismatch", code)
+        Assert.Equal(
+            $"ListSortBy less-than callback 'cmpLen' ({StableId.value cmpLenId}) must return Bool; it has type (a: String, b: String) -> Int64. At body (listSortBy).",
+            message
+        )
+
+    [<Fact>]
+    let ``a branch type mismatch renders both types in wire notation`` () =
+        let code, message =
+            reject
+                [ "text", S ]
+                (optionOf S)
+                ("""{"kind":"conditional","condition":{"kind":"stringIsEmpty","value":{"kind":"parameter","name":"text"}},"whenTrue":{"kind":"optionNone","itemType":""" + S + """},"whenFalse":{"kind":"parameter","name":"text"}}""")
+        Assert.Equal("PureExpressionBranchTypeMismatch", code)
+        Assert.Equal(
+            "Conditional normally completing branches must produce one common type; found Option<String> and String. At body (conditional).",
+            message
+        )
+
+    [<Fact>]
+    let ``the path locates a nested operand and a list item`` () =
+        let _, nested =
+            reject
+                [ "text", S ]
+                I
+                """{"kind":"conditional","condition":{"kind":"boolLiteral","value":true},"whenTrue":{"kind":"int64Literal","value":1},"whenFalse":{"kind":"stringLength","value":{"kind":"int64Literal","value":2}}}"""
+        Assert.Equal("StringLength value operand requires String, but the recipe produces Int64. At body.whenFalse (stringLength).", nested)
+        let _, item =
+            reject
+                []
+                (listOf I)
+                ("""{"kind":"listConstruct","itemType":""" + I + ""","items":[{"kind":"int64Literal","value":1},{"kind":"stringLength","value":{"kind":"int64Literal","value":2}}]}""")
+        Assert.EndsWith("At body.items[1] (stringLength).", item)
+        let _, argument =
+            reject
+                [ "text", S ]
+                I
+                """{"kind":"directCall","function":"countStep","arguments":[{"parameter":"line","value":{"kind":"parameter","name":"text"}},{"parameter":"acc","value":{"kind":"stringLength","value":{"kind":"int64Literal","value":3}}}]}"""
+        Assert.EndsWith("At body.arguments[1].value (stringLength).", argument)
+
+    [<Fact>]
+    let ``type references render as display names in wire notation`` () =
+        let render = DiagnosticText.typeRef snapshot
+        Assert.Equal("Option<String>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])))
+        Assert.Equal("List<Tail>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named tailTypeId ])))
+        Assert.Equal("Result<Int64, Finding>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64Type; TypeRef.Named findingTypeId ])))
+        Assert.Equal("(String, Int64) -> Bool", render (TypeRef.Function([ stringType; int64Type ], TypeRef.Primitive PrimitiveType.Bool)))
+        let unknown = id<TypeTag> "unknown"
+        Assert.Equal($"type '{StableId.value unknown}'", render (TypeRef.Named unknown))

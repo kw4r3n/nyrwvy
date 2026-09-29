@@ -122,3 +122,17 @@ Provisional, in the same way as the earlier queues. The queue is maintained in t
 | 22 | `StringJoin` and `ListSlice` (friction 7) | 4 functions, 2 types, 62 nodes | `StringJoin(list, sep)`, then `ListSlice(list, start, end)`. |
 
 Considered and not proposed yet: regex, which is a larger decision that orders 18 and 21 should precede; a plain run-output view (the known verbose encoding); `commit: true` on simulate; and raising the `runPure` value budget. Inferred, not measured: with orders 17, 18, 21 and 22 the port would shrink by roughly 20-25 of 47 functions and 350-400 of 1106 nodes, based on the category counts above.
+
+## Follow-up: order 19 (structural diagnostics)
+
+The `mistakes.py` requests were replayed against a copy of the probe snapshot with the order-19 build. Codes are unchanged; IDs are shortened here.
+
+| Mistake | Before | After |
+| --- | --- | --- |
+| m1 folder parameters swapped | `ListFold folder must have type (accumulator, item) -> accumulator.` | `ListFold folder 'countStep' (…) must have type (accumulator, item) -> accumulator, here (Int64, String) -> Int64; the folder has type (line: String, acc: Int64) -> Int64. At body (listFold).` |
+| m2 wrong owner type | `Field access requires Named (StableId "…"), but the source recipe produces Named (StableId "…").` | `Field access to 'line' (…) requires 'Finding' (…), but the source recipe produces 'Tail' (…). At body (fieldAccess).` |
+| m3 comparator returns Int64 | `ListSortBy less-than callback '…' must return Bool.` | `ListSortBy less-than callback 'cmpLen' (…) must return Bool; it has type (a: String, b: String) -> Int64. At body (listSortBy).` |
+| m4 branch type mismatch | `…found Normal (BuiltinGeneric (Option, [Primitive String])) and Normal (Primitive String).` | `…found Option<String> and String. At body (conditional).` |
+| m6 wrong operand | `StringLength value operand requires Primitive String, but the recipe produces Primitive Int64.` | `StringLength value operand requires String, but the recipe produces Int64. At body.someBody.body.left (stringLength).` |
+
+m5 and m7 are `ProtocolError`s from the name-resolving reader and already named the property or parameter; they are unchanged.
