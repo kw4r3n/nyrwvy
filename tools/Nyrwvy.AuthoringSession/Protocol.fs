@@ -777,11 +777,49 @@ module AuthoringProtocol =
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
-                let request: AgentCreateTypeDeclarationRequest =
+                let displayName = requiredString "displayName" root
+                // A declaration that names itself is a recursive type: it is created as a group of one.
+                let self = StableIdAllocator.newTypeId ()
+                let kind = WireSymbolic.typeKindIntentIn (Map.ofList [ displayName, self ]) declarations (property "typeKind" root)
+                let simulated =
+                    if WireSymbolic.kindReferences self kind then
+                        session.SimulateCreateTypeGroup
+                            { ExpectedBaseSnapshotId = currentSnapshotId session
+                              Declarations = [ { Reference = self; DisplayName = displayName; Kind = kind } ] }
+                    else
+                        session.SimulateCreateType
+                            { ExpectedBaseSnapshotId = currentSnapshotId session
+                              DisplayName = displayName
+                              Kind = kind }
+                match simulated with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
+            | "simulateCreateTypesByName" ->
+                ensureFields
+                    "simulateCreateTypesByName request"
+                    [ "id"; "op"; "types"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "types" ]
+                    root
+                let declarations = session.Declarations()
+                let items =
+                    array "types" root
+                    |> List.map (fun item ->
+                        ensureFields "type declaration" [ "displayName"; "typeKind" ] [ "displayName"; "typeKind" ] item
+                        requiredString "displayName" item, property "typeKind" item)
+                let references = items |> List.map (fun (name, _) -> name, StableIdAllocator.newTypeId ())
+                // A name declared twice keeps its first reference; the workflow rejects the duplicate.
+                let group = references |> List.rev |> Map.ofList
+                let request: AgentCreateTypeDeclarationGroupRequest =
                     { ExpectedBaseSnapshotId = currentSnapshotId session
-                      DisplayName = requiredString "displayName" root
-                      Kind = WireSymbolic.typeKindIntent declarations (property "typeKind" root) }
-                match session.SimulateCreateType request with
+                      Declarations =
+                        List.map2
+                            (fun (name, kind) (_, reference) ->
+                                { Reference = reference
+                                  DisplayName = name
+                                  Kind = WireSymbolic.typeKindIntentIn group declarations kind })
+                            items
+                            references }
+                match session.SimulateCreateTypeGroup request with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
             | "simulateAddFieldlessUnionVariantLike" ->

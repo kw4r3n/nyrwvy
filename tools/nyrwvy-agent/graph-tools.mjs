@@ -88,7 +88,7 @@ export function createGraphTools(schema) {
       execute: async args => JSON.stringify(recipeReference(args.kind)),
     }),
     create_type: defineTool({
-      description: "Propose a Product or Union declaration. Resolve named type references inside the session; review the result before committing.",
+      description: "Propose a Product or Union declaration. Resolve named type references inside the session; review the result before committing. A field type may name the type itself (a recursive type such as Tree with children: List<Tree>); for types that name each other, use request op simulateCreateTypesByName with types: [{displayName, typeKind}].",
       args: { displayName: schema.string(), typeKind: object.describe('Product: {kind:"product",fields:[{displayName,type}]}. Union: {kind:"union",variants:[{displayName,fields:[]}]}') },
       /** @param {{ displayName: string; typeKind: Record<string, unknown> }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateTypeByName", ...args }, context),

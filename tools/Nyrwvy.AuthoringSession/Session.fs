@@ -51,6 +51,7 @@ type AuthoringProposalReview =
     | ResultTypeMigration of AgentResultTypeMigrationReview
     | ProductFieldTypeMigration of AgentProductFieldTypeMigrationReview
     | CreateType of AgentTypeDeclarationReview
+    | CreateTypeGroup of AgentTypeDeclarationGroupReview
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionReview
     | CreateEffect of AgentEffectDeclarationReview
     | CreateCapability of AgentCapabilityDeclarationReview
@@ -81,6 +82,7 @@ type private PendingProposal =
     | ResultTypeMigration of AgentResultTypeMigrationProposal
     | ProductFieldTypeMigration of AgentProductFieldTypeMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
+    | CreateTypeGroup of AgentTypeDeclarationGroupProposal
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
@@ -471,6 +473,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 item.RepairedFunctionIds, [ item.UpdatedType.Id ]
             | AuthoringProposalReview.CreateFunction _
             | AuthoringProposalReview.CreateType _
+            | AuthoringProposalReview.CreateTypeGroup _
             | AuthoringProposalReview.CreateEffect _
             | AuthoringProposalReview.CreateCapability _ -> [], []
         let removesImportedDeclaration =
@@ -685,6 +688,16 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentTypeDeclarationProposal.transactionId proposal) (PendingProposal.CreateType proposal) (AuthoringProposalReview.CreateType(AgentTypeDeclarationProposal.review proposal))
 
+    member _.SimulateCreateTypeGroup(request: AgentCreateTypeDeclarationGroupRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentTypeDeclarationWorkflow.simulateGroup workspace request with
+            | Error error -> Error(AuthoringSessionError.TypeDeclarationSimulationFailure error)
+            | Ok proposal ->
+                register (AgentTypeDeclarationGroupProposal.transactionId proposal) (PendingProposal.CreateTypeGroup proposal) (AuthoringProposalReview.CreateTypeGroup(AgentTypeDeclarationGroupProposal.review proposal))
+
     member _.SimulateAddFieldlessUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
@@ -783,6 +796,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 match AgentTypeDeclarationWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentTypeDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentTypeDeclarationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, (_, PendingProposal.CreateTypeGroup proposal) ->
+                match AgentTypeDeclarationWorkflow.commitGroupWithPolicy workspace proposal policy with
+                | AgentTypeDeclarationGroupCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentTypeDeclarationGroupCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
             | true, (_, PendingProposal.FieldlessUnionVariantEvolution proposal) ->
                 match AgentFieldlessUnionVariantEvolutionWorkflow.commitWithPolicy workspace proposal policy with

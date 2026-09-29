@@ -43,6 +43,6 @@ Float64 is not equatable because of NaN (compare with `Float64Equal` explicitly)
 
 ## Revisit conditions
 
-- **Map:** measured fold cost matters at real sizes, or a consumer needs lookup where a linear fold is the dominant cost. The smallest candidate is a Map keyed by an equatable type.
+- **Map:** measured fold cost matters at real sizes, or a consumer needs lookup where a linear fold is the dominant cost. The smallest candidate is a Map keyed by an equatable type. [Probe 7](../verification/rrawrlet-slice-probe7-20260929.md#scale) is the first measured consumer: after one restructuring, linear keyed lookups were most of the time of an event observer (about 3.4 s of 3.7 s at 19,200 events and 1,600 keys, within 10 times Python), but nothing was blocked, so Map stayed deferred.
 - **Equatable type parameters:** equality callbacks passed to generic helpers become a measured authoring cost across several consumers.
 - **Float64 in `ValueEqual`:** a real program needs structural equality over Float64 fields. It would need an explicit NaN rule, for example bitwise equality of canonical NaN.
