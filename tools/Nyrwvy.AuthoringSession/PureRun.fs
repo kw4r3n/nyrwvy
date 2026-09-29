@@ -370,7 +370,8 @@ module PureRun =
         local || (children value |> List.exists oversized)
 
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
-    let private launchRaw (workingDirectory: string) (args: string list) (timeoutMs: int) =
+    /// `phase` names the timed step ("build" or "pure function") in the timeout diagnostic.
+    let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
         try
             let info = ProcessStartInfo("dotnet")
             info.WorkingDirectory <- workingDirectory
@@ -387,7 +388,7 @@ module PureRun =
                     | :? InvalidOperationException
                     | :? System.ComponentModel.Win32Exception -> ()
                     if child.WaitForExit(5000) then
-                        Error(diagnostic "RunTimeout" "The build or pure function exceeded its time limit.")
+                        Error(diagnostic "RunTimeout" $"The {phase} exceeded its time limit of {timeoutMs / 1000} s.")
                     else
                         Error(diagnostic "RunReapFailure" "The timed-out child has not been confirmed terminated.")
                 elif not (System.Threading.Tasks.Task.WaitAll([| stdout :> System.Threading.Tasks.Task; stderr :> System.Threading.Tasks.Task |], 5000)) then
@@ -408,8 +409,8 @@ module PureRun =
         let details = output + "\n" + errors
         diagnostic "RunProcessFailure" (if details.Length > 4096 then details.Substring(0, 4096) else details)
 
-    let private launch workingDirectory args timeoutMs =
-        launchRaw workingDirectory args timeoutMs
+    let private launch phase workingDirectory args timeoutMs =
+        launchRaw phase workingDirectory args timeoutMs
         |> Result.bind (fun (exitCode, output, errors) ->
             if exitCode <> 0 then Error(processFailure output errors) else Ok output)
 
@@ -1137,6 +1138,10 @@ module PureRun =
                         // conversion limits, or ["exception", type, message, frames] for a program failure.
                         let program =
                             "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
+                            // A stack overflow aborts the child. Where the OS captures core dumps (for example
+                            // systemd-coredump), writing the dump delays process exit by seconds under load and
+                            // consumes the run's time limit, so the runner opts out of core dumps first.
+                            + "if (OperatingSystem.IsLinux()) RunnerProcess.prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);\n"
                             + "var options = new JsonSerializerOptions { MaxDepth = 256 };\n"
                             + "int remaining = 8192;\n"
                             + (if checksText then "long textRemaining = 65536;\n" else "")
@@ -1164,6 +1169,7 @@ module PureRun =
                                 "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
                                else "")
                             + namedEncoders
+                            + "static class RunnerProcess { [System.Runtime.InteropServices.DllImport(\"libc\")] public static extern int prctl(int option, nuint arg2, nuint arg3, nuint arg4, nuint arg5); }\n"
                             + "sealed class RunnerException(string message) : Exception(message);\n"
                             + "sealed class FakeCapabilityException(string message) : Exception(message);\n"
                             + "sealed class FakeArgumentsUnmatchedException() : Exception(\"No fake case matches the complete call arguments.\");\n"
@@ -1187,9 +1193,9 @@ module PureRun =
                                   Frames = frames frameNames
                                   BindingExhausted = exhausted
                                   Calls = calls }
-                        launch root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
+                        launch "build" root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
                         |> Result.bind (fun _ ->
-                            launchRaw root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
+                            launchRaw "pure function" root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
                                 parseEnvelope declarations.Types fn.ResultType sites output
