@@ -91,7 +91,8 @@ module ScopeDepthDiagnosticsTests =
         Assert.Equal(
             $"Pattern-reference slot field 'member' ({StableId.value memberFieldId}) of variant 'Stop' of 'Action' does not exist in scope depth 0. "
             + "The slot is found at depth 1. Visible frames, innermost first: "
-            + "depth 0 = None arm of MatchOption (no bindings); depth 1 = arm 'Stop' of MatchUnion on 'Action' (binds 'member').",
+            + "depth 0 = None arm of MatchOption (no bindings); depth 1 = arm 'Stop' of MatchUnion on 'Action' (binds 'member'). "
+            + "At replacement.arms[0].body.noneBody (patternReference).",
             diagnostic.Message
         )
         Assert.DoesNotContain("StableId", diagnostic.Message)
@@ -114,7 +115,8 @@ module ScopeDepthDiagnosticsTests =
             rejection (ExpressionRecipe.Bind(ExpressionRecipe.StringLiteral "x", pattern 0 RecipePatternSlot.Error))
         Assert.Equal("PureExpressionPatternSlotNotFound", diagnostic.Code)
         Assert.Equal(
-            "Pattern-reference slot Error does not exist in scope depth 0. Visible frames, innermost first: depth 0 = Bind body (binds Value).",
+            "Pattern-reference slot Error does not exist in scope depth 0. Visible frames, innermost first: depth 0 = Bind body (binds Value). "
+            + "At replacement.body (patternReference).",
             diagnostic.Message
         )
 
@@ -129,12 +131,13 @@ module ScopeDepthDiagnosticsTests =
         Assert.Equal("PureExpressionPatternScopeNotFound", diagnostic.Code)
         Assert.Equal(
             "Pattern-reference scope depth 3 for slot Value is not visible here. The slot is found at depths 0, 1 (the innermost is usually meant). "
-            + "Visible frames, innermost first: depth 0 = Some arm of MatchOption (binds Value); depth 1 = Bind body (binds Value).",
+            + "Visible frames, innermost first: depth 0 = Some arm of MatchOption (binds Value); depth 1 = Bind body (binds Value). "
+            + "At replacement.body.someBody (patternReference).",
             diagnostic.Message
         )
         let outside = rejection (pattern 0 RecipePatternSlot.Value)
         Assert.Equal("PureExpressionPatternScopeNotFound", outside.Code)
-        Assert.EndsWith("No frames are visible here; only a Bind body or a match arm opens one.", outside.Message)
+        Assert.EndsWith("No frames are visible here; only a Bind body or a match arm opens one. At replacement (patternReference).", outside.Message)
 
     [<Fact>]
     let ``a parameter of another function is named with its owner and the target's parameters`` () =
@@ -143,7 +146,7 @@ module ScopeDepthDiagnosticsTests =
         Assert.Equal(
             $"Parameter 'foreign' ({StableId.value foreignParameterId}) of function 'other' ({StableId.value otherId}) is not owned by "
             + $"target function 'target' ({StableId.value targetId}). Parameters of target function 'target' ({StableId.value targetId}): "
-            + $"0 = 'action' ({StableId.value actionParameterId}), 1 = 'maybe' ({StableId.value maybeParameterId}).",
+            + $"0 = 'action' ({StableId.value actionParameterId}), 1 = 'maybe' ({StableId.value maybeParameterId}). At replacement (parameter).",
             diagnostic.Message
         )
 
@@ -161,7 +164,7 @@ module ScopeDepthDiagnosticsTests =
         | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
             Assert.Equal("PureExpressionParameterSlotOutOfRange", diagnostic.Code)
             Assert.Equal(
-                "Parameter slot 2 is outside the requested parameter list. Parameters of the function being created: 0 = 'text'.",
+                "Parameter slot 2 is outside the requested parameter list. Parameters of the function being created: 0 = 'text'. At body (parameterSlot).",
                 diagnostic.Message
             )
         | other -> failwithf "Expected one rejection, got %A" other
@@ -189,6 +192,7 @@ module ScopeDepthDiagnosticsTests =
             Assert.Contains("field 'member' (", text)
             Assert.Contains("of variant 'Stop' of 'Action' does not exist in scope depth 0. The slot is found at depth 1.", text)
             Assert.Contains("depth 0 = None arm of MatchOption (no bindings); depth 1 = arm 'Stop' of MatchUnion on 'Action' (binds 'member')", text)
+            Assert.EndsWith("At body.arms[0].body.noneBody (patternReference).", text)
             use accepted = AuthoringProtocol.executeLine session (request 1) |> JsonDocument.Parse
             Assert.True(accepted.RootElement.GetProperty("ok").GetBoolean(), accepted.RootElement.ToString())
         finally

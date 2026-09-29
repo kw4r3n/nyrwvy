@@ -178,6 +178,14 @@ For `Bind`, input inference uses only the enclosing frames. Its body receives a 
 
 There is no implicit numeric conversion, collection item conversion, or fallback type coercion.
 
+### Diagnostic text
+
+A preflight rejection keeps its code; its message is written for the author of the recipe:
+
+- Types are rendered by display name in the wire `TypeRef` vocabulary: `String`, `Option<String>`, `List<Tail>`, `Result<Int64, Finding>`, `(String, Int64) -> Bool`, a type parameter by its name. A named type or capability that is not in the snapshot keeps its ID (`type '01a0…'`). Where two named types are compared, as in a `FieldAccess` on the wrong owner, both carry their IDs: `Field access to 'line' (id) requires 'Finding' (id), but the source recipe produces 'Tail' (id).` A branch that always aborts is described as having no value.
+- Callbacks, callees and bodies are named as `'name' (id)`, and a callback that does not fit its role is shown with its declared signature and, where the role fixes it, the concrete shape it needs: `ListFold folder 'countStep' (id) must have type (accumulator, item) -> accumulator, here (Int64, String) -> Int64; the folder has type (line: String, acc: Int64) -> Int64.` or `ListSortBy less-than callback 'cmpLen' (id) must return Bool; it has type (a: String, b: String) -> Int64.` Call and capability arguments are named by parameter display name and ID.
+- The message ends with the location of the node whose own check failed, as a path of request property names from the recipe root followed by that node's kind: `At body.whenFalse (stringLength).`, `At body.items[1] (stringLength).`, `At replacement.arms[0].body.noneBody (patternReference).` The root is `body` for function creation and `replacement` for body and targeted replacement; list elements are indexed in request order, and the recipe of a keyed entry (`arguments`, `fields`, `context`) is its `.value`, of a `MatchUnion` arm its `.body`. The path is the same for exact-ID and name-resolved (`…ByName`) requests, because both use the same property names. A parameter-migration rewrite, which is checked through an internal creation request, is not located.
+
 ## Effect requirements
 
 Every call and invocation is checked against the same enclosing target function's existing `RequiredEffects`. Recursive preflight visits receivers, arguments, scalar/structured-value children, match inputs, and every branch.
