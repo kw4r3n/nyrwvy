@@ -136,3 +136,16 @@ The `mistakes.py` requests were replayed against a copy of the probe snapshot wi
 | m6 wrong operand | `StringLength value operand requires Primitive String, but the recipe produces Primitive Int64.` | `StringLength value operand requires String, but the recipe produces Int64. At body.someBody.body.left (stringLength).` |
 
 m5 and m7 are `ProtocolError`s from the name-resolving reader and already named the property or parameter; they are unchanged.
+
+## Follow-up: order 22 (StringJoin and ListSlice)
+
+The `repo_map` part (`author_map.py`) was re-authored with the order-22 build: `joinFirst(xs, sep, BIG)` became `stringJoin`, `joinFirst(xs, ", ", 20)` became `stringJoin(listSlice(xs, 0, 20), ", ")`, and the `omitStep` fold became `listMap(listSlice(sorted, len(shown), len(sorted)), sectionName)`, where `sectionName` is a 2-node field read. The text and findings parts were left as they were, so orders 17, 18 and 21 are not counted here. Both versions were authored and run with the same build.
+
+| Map part | Before | After |
+| --- | --- | --- |
+| Functions | 27 | 25 (`joinStep`, `joinFirst`, `omitStep` removed; `sectionName` added) |
+| Types | 11 | 9 (`JoinAcc`, `OmitAcc` removed) |
+| Nodes | 651 | 603 (-48) |
+| Authoring requests / request bytes | 76 / 55,237 | 68 / 50,047 |
+
+All map cases gave the same results before and after (M1-M8 pass; MX1 is the known Kelvin-sign divergence of the unchanged suffix check; R2 exceeds the `runPure` argument size). With this build, R1 and the headings case H3 fail with `RunRuntimeFailure` (stack overflow in the per-character `splitFrom` recursion) in both versions, so the failure is unrelated to order 22 (the original probe binary passed them); re-authoring `splitFrom` over `StringCodePoints` or `StringSplit` (orders 17 and 18) would remove that recursion and was not measured here. The rest of friction 7 (`repeat` for `'  ' * n` and padding, and the `stopped` flags for early exit, 12 nodes and 2 fields) is not addressed by order 22.

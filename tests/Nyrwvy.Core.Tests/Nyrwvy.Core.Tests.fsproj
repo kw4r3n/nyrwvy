@@ -76,6 +76,7 @@
     <Compile Include="StringCodePointsTests.fs" />
     <Compile Include="StringSearchTests.fs" />
     <Compile Include="StringCaseTests.fs" />
+    <Compile Include="StringJoinListSliceTests.fs" />
     <Compile Include="BoolOperatorTests.fs" />
     <Compile Include="Int64DivisionTests.fs" />
     <Compile Include="ResultTypeMigrationTests.fs" />

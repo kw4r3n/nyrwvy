@@ -70,6 +70,7 @@ module internal WireGraph =
         | SemanticNodeKind.StringStartsWith(value, other) -> tagged "stringStartsWith" [ "valueNodeId", identity value; "prefixNodeId", identity other ]
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
         | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
+        | SemanticNodeKind.StringJoin(list, separator) -> tagged "stringJoin" [ "listNodeId", identity list; "separatorNodeId", identity separator ]
         | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.StringLessThan(left, right) -> tagged "stringLessThan" [ "leftNodeId", identity left; "rightNodeId", identity right ]
         | SemanticNodeKind.ValueEqual(left, right) -> tagged "valueEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
@@ -99,6 +100,8 @@ module internal WireGraph =
         | SemanticNodeKind.ListLength value -> unary "listLength" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListItemAt(list, index) -> tagged "listItemAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
+        | SemanticNodeKind.ListSlice(list, start, stop) ->
+            tagged "listSlice" [ "listNodeId", identity list; "startNodeId", identity start; "endNodeId", identity stop ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
         | SemanticNodeKind.ListFold(source, seed, folder, bindings) ->
             tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)

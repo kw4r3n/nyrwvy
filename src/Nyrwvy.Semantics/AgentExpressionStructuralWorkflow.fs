@@ -37,6 +37,7 @@ type ExpressionRecipe =
     | StringStartsWith of ExpressionRecipe * ExpressionRecipe
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
     | StringSplit of ExpressionRecipe * ExpressionRecipe
+    | StringJoin of list: ExpressionRecipe * separator: ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringLessThan of ExpressionRecipe * ExpressionRecipe
     | ValueEqual of ExpressionRecipe * ExpressionRecipe
@@ -66,6 +67,7 @@ type ExpressionRecipe =
     | ListLength of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
     | ListItemAt of list: ExpressionRecipe * index: ExpressionRecipe
+    | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -172,6 +174,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringStartsWith(left, right) -> ExpressionRecipe.StringStartsWith(go left, go right)
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
         | ExpressionRecipe.StringSplit(left, right) -> ExpressionRecipe.StringSplit(go left, go right)
+        | ExpressionRecipe.StringJoin(list, separator) -> ExpressionRecipe.StringJoin(go list, go separator)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
         | ExpressionRecipe.ValueEqual(left, right) -> ExpressionRecipe.ValueEqual(go left, go right)
@@ -201,6 +204,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
         | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
         | ExpressionRecipe.ListItemAt(list, index) -> ExpressionRecipe.ListItemAt(go list, go index)
+        | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -367,11 +371,13 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
+        | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
         | ExpressionRecipe.StringStartsWith(left, right)
         | ExpressionRecipe.StringEndsWith(left, right)
         | ExpressionRecipe.StringSplit(left, right)
+        | ExpressionRecipe.StringJoin(left, right)
         | ExpressionRecipe.StringEqual(left, right)
         | ExpressionRecipe.ValueEqual(left, right)
         | ExpressionRecipe.StringLessThan(left, right)
@@ -1060,6 +1066,16 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringEndsWith(value, suffix) -> binary "StringEndsWith" stringType boolType value suffix
             | ExpressionRecipe.StringSplit(value, separator) ->
                 binary "StringSplit" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value separator
+            | ExpressionRecipe.StringJoin(list, separator) ->
+                let stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
+                match infer frames list with
+                | Error error -> Error error
+                | Ok actual when actual <> stringListType -> Error(typeMismatch "StringJoin" "list" stringListType actual)
+                | Ok _ ->
+                    match infer frames separator with
+                    | Error error -> Error error
+                    | Ok actual when actual <> stringType -> Error(typeMismatch "StringJoin" "separator" stringType actual)
+                    | Ok _ -> Ok stringType
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringLessThan(left, right) -> binary "StringLessThan" stringType boolType left right
             | ExpressionRecipe.ValueEqual(left, right) ->
@@ -1131,6 +1147,21 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok actual when actual <> int64Type -> Error(typeMismatch "ListItemAt" "index" int64Type actual)
                         | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
+            | ExpressionRecipe.ListSlice(list, start, stop) ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok listResultType ->
+                    match listItemType listResultType with
+                    | None -> Error(listMismatch "ListSlice" "list" listResultType)
+                    | Some _ ->
+                        match infer frames start with
+                        | Error error -> Error error
+                        | Ok actual when actual <> int64Type -> Error(typeMismatch "ListSlice" "start" int64Type actual)
+                        | Ok _ ->
+                            match infer frames stop with
+                            | Error error -> Error error
+                            | Ok actual when actual <> int64Type -> Error(typeMismatch "ListSlice" "end" int64Type actual)
+                            | Ok _ -> Ok listResultType
             | ExpressionRecipe.ListAppendItem(list, item) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1829,6 +1860,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringStartsWith(left, right) -> binary SemanticNodeKind.StringStartsWith left right
         | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right
         | ExpressionRecipe.StringSplit(left, right) -> binary SemanticNodeKind.StringSplit left right
+        | ExpressionRecipe.StringJoin(list, separator) -> binary SemanticNodeKind.StringJoin list separator
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right
         | ExpressionRecipe.ValueEqual(left, right) -> binary SemanticNodeKind.ValueEqual left right
@@ -1863,6 +1895,14 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListLength list -> unary SemanticNodeKind.ListLength list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
         | ExpressionRecipe.ListItemAt(list, index) -> binary SemanticNodeKind.ListItemAt list index
+        | ExpressionRecipe.ListSlice(list, start, stop) ->
+            let listNodes, listResult = materializeRecipe list
+            let startNodes, startResult = materializeRecipe start
+            let stopNodes, stopResult = materializeRecipe stop
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ startNodes @ stopNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSlice(listResult, startResult, stopResult) } ],
+            nodeId
         | ExpressionRecipe.ListConcat(left, right) -> binary SemanticNodeKind.ListConcat left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source

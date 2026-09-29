@@ -44,6 +44,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
+        | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) -> [ listNodeId; separatorNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
@@ -93,6 +94,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
+        | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
         | TypedSemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
@@ -154,6 +156,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringLastIndexOf _
             | TypedSemanticNodeKind.StringStartsWith _
             | TypedSemanticNodeKind.StringEndsWith _
+            | TypedSemanticNodeKind.StringJoin _
             | TypedSemanticNodeKind.StringSplit _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -178,6 +181,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListSlice _
             | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _
@@ -286,6 +290,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringLastIndexOf _
         | TypedSemanticNodeKind.StringStartsWith _
         | TypedSemanticNodeKind.StringEndsWith _
+        | TypedSemanticNodeKind.StringJoin _
         | TypedSemanticNodeKind.StringSplit _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringLessThan _
@@ -314,6 +319,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
+        | TypedSemanticNodeKind.ListSlice _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
@@ -401,6 +407,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringLastIndexOf _
             | TypedSemanticNodeKind.StringStartsWith _
             | TypedSemanticNodeKind.StringEndsWith _
+            | TypedSemanticNodeKind.StringJoin _
             | TypedSemanticNodeKind.StringSplit _
             | TypedSemanticNodeKind.Int64WrappingAdd _
             | TypedSemanticNodeKind.Int64WrappingSubtract _
@@ -425,6 +432,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListSlice _
             | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _
             | TypedSemanticNodeKind.ListConcat _

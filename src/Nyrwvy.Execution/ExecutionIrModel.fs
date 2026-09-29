@@ -97,6 +97,7 @@ type ExecutionInstructionKind =
     | StringStartsWith of valueId: ExecutionValueId * prefixId: ExecutionValueId
     | StringEndsWith of valueId: ExecutionValueId * suffixId: ExecutionValueId
     | StringSplit of valueId: ExecutionValueId * separatorId: ExecutionValueId
+    | StringJoin of listValueId: ExecutionValueId * separatorId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Ordinal code-point ordering of two Strings: left sorts strictly before right.
     | StringLessThan of leftId: ExecutionValueId * rightId: ExecutionValueId
@@ -128,6 +129,7 @@ type ExecutionInstructionKind =
     | ListLength of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
+    | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list

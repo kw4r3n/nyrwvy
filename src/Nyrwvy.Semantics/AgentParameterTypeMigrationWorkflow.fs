@@ -289,6 +289,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringStartsWith(left, right) -> two ExpressionRecipe.StringStartsWith left right
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
             | ExpressionRecipe.StringSplit(left, right) -> two ExpressionRecipe.StringSplit left right
+            | ExpressionRecipe.StringJoin(list, separator) -> two ExpressionRecipe.StringJoin list separator
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
             | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right
             | ExpressionRecipe.ValueEqual(left, right) -> two ExpressionRecipe.ValueEqual left right
@@ -311,6 +312,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64LessThan(left, right) -> two ExpressionRecipe.Float64LessThan left right
             | ExpressionRecipe.ListAppendItem(list, item) -> two ExpressionRecipe.ListAppendItem list item
             | ExpressionRecipe.ListItemAt(list, index) -> two ExpressionRecipe.ListItemAt list index
+            | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
             | ExpressionRecipe.ListConstruct(itemType, items) ->

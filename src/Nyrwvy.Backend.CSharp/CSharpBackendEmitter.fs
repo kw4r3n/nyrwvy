@@ -215,6 +215,8 @@ module CSharpBackend =
         writer.Line("}")
         // UTF-8 length; the replacement fallback encodes an unpaired surrogate as U+FFFD, 3 bytes.
         writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
+        // Join is Python sep.join(list): the items in order with the separator between adjacent ones.
+        writer.Line("public static string Join(NyList<string> list, string separator) => string.Join(separator, list.OwnedItems);")
         writer.Line("private static int Find(string text, string value, int offset)")
         writer.Line("{")
         writer.Push()
@@ -271,6 +273,21 @@ module CSharpBackend =
         writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
         writer.Line("public long Length => _items.LongLength;")
         writer.Line("public NyOption<T> ItemAt(long index) => index >= 0L && index < _items.LongLength ? NyOption<T>.Some(_items[index]) : NyOption<T>.None();")
+        // Read-only view for runtime helpers; callers must not write to the array.
+        writer.Line("internal T[] OwnedItems => _items;")
+        // Slice clamps both bounds to [0, Length] like StringSlice; end <= start gives the empty list.
+        writer.Line("public NyList<T> Slice(long start, long end)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var from = System.Math.Clamp(start, 0L, _items.LongLength);")
+        writer.Line("var to = System.Math.Clamp(end, 0L, _items.LongLength);")
+        writer.Line("if (to <= from) return Empty();")
+        writer.Line("if (from == 0L && to == _items.LongLength) return this;")
+        writer.Line("var next = new T[to - from];")
+        writer.Line("Array.Copy(_items, from, next, 0L, to - from);")
+        writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyList<T> AppendItem(T item)")
         writer.Line("{")
         writer.Push()
@@ -1023,6 +1040,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.EndsWith(" + valueName sourceValueId + ", " + valueName otherId + ");")
         | ExecutionInstructionKind.StringSplit(sourceValueId, otherId) ->
             writer.Line(target + " = NyText.Split(" + valueName sourceValueId + ", " + valueName otherId + ");")
+        | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
+            writer.Line(target + " = NyText.Join(" + valueName listValueId + ", " + valueName separatorId + ");")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = string.Equals(" + valueName leftValueId + ", " + valueName rightValueId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringLessThan(leftValueId, rightValueId) ->
@@ -1112,6 +1131,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".Length;")
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".ItemAt(" + valueName indexValueId + ");")
+        | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
+            writer.Line(target + " = " + valueName listValueId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".AppendItem(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListConcat(leftListValueId, rightListValueId) ->

@@ -164,6 +164,24 @@ module StructuralDiagnosticTextTests =
                 I
                 """{"kind":"stringUtf8ByteCount","value":{"kind":"stringToLower","value":{"kind":"int64Literal","value":6}}}"""
         Assert.Equal("StringToLower value operand requires String, but the recipe produces Int64. At body.value (stringToLower).", lowered)
+        let _, joinSeparator =
+            reject
+                [ "xs", listOf S ]
+                S
+                """{"kind":"stringJoin","list":{"kind":"parameter","name":"xs"},"separator":{"kind":"stringLength","value":{"kind":"int64Literal","value":7}}}"""
+        Assert.EndsWith("At body.separator (stringLength).", joinSeparator)
+        let _, sliceEnd =
+            reject
+                [ "xs", listOf S ]
+                (listOf S)
+                """{"kind":"listSlice","list":{"kind":"parameter","name":"xs"},"start":{"kind":"int64Literal","value":0},"end":{"kind":"stringLength","value":{"kind":"int64Literal","value":8}}}"""
+        Assert.EndsWith("At body.end (stringLength).", sliceEnd)
+        let _, sliceList =
+            reject
+                [ "xs", listOf S ]
+                (listOf S)
+                """{"kind":"listSlice","list":{"kind":"stringLength","value":{"kind":"int64Literal","value":9}},"start":{"kind":"int64Literal","value":0},"end":{"kind":"int64Literal","value":1}}"""
+        Assert.EndsWith("At body.list (stringLength).", sliceList)
 
     [<Fact>]
     let ``type references render as display names in wire notation`` () =

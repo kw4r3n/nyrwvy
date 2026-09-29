@@ -94,6 +94,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringStartsWith of valueNodeId: GraphNodeId * prefixNodeId: GraphNodeId
     | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
     | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
+    | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | ValueEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -123,6 +124,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLength of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -307,6 +309,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId))
                     | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
                         Ok(TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId))
+                    | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId))
                     | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -365,6 +369,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                         Ok(TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId))
+                    | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->

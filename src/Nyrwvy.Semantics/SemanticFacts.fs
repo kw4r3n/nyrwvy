@@ -142,6 +142,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.StringConcat _
                     | SemanticNodeKind.StringToLower _
+                    | SemanticNodeKind.StringJoin _
                     | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
                     // BoolAnd/BoolOr complete normally even when their right graph aborts,
@@ -209,6 +210,7 @@ module SemanticFacts =
                         | Some _
                         | None -> None
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
+                    | SemanticNodeKind.ListSlice(listNodeId, _, _)
                     | SemanticNodeKind.ListFilter(listNodeId, _, _)
                     | SemanticNodeKind.ListSortBy(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with

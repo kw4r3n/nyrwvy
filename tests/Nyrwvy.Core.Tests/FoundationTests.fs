@@ -50,6 +50,7 @@ module FoundationTests =
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _
+                | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
@@ -78,6 +79,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _

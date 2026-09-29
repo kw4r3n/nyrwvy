@@ -301,6 +301,12 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "value" element),
                 recipe declarations parameterContext (property "separator" element)
             )
+        | "stringJoin" ->
+            ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
+            ExpressionRecipe.StringJoin(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "separator" element)
+            )
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
         | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
         | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual
@@ -340,6 +346,13 @@ module internal WireSymbolic =
             ExpressionRecipe.ListItemAt(
                 recipe declarations parameterContext (property "list" element),
                 recipe declarations parameterContext (property "index" element)
+            )
+        | "listSlice" ->
+            ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
+            ExpressionRecipe.ListSlice(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "start" element),
+                recipe declarations parameterContext (property "end" element)
             )
         | "listAppendItem" ->
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element

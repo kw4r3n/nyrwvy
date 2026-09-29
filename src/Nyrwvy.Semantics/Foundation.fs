@@ -243,6 +243,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// List<String>, keeping empty pieces (Python `str.split(sep)`). An empty separator never fails:
     /// it yields the one-item list [value]. Never splits a surrogate pair.
     | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
+    /// The List<String> items concatenated in order with the separator between adjacent items
+    /// (Python `sep.join(list)`): an empty list gives "", one item gives that item. Never fails.
+    | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// Ordinal String ordering: true when the left String sorts strictly before the right one,
     /// comparing Unicode code points lexicographically (a proper prefix sorts first). Scalar values
@@ -280,6 +283,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    /// The items at zero-based Int64 positions [start, end), both bounds clamped to [0, length]
+    /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
+    /// empty list). Same List<T> type as the input; never fails.
+    | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     /// List callbacks reference an existing pure function. `context` binds some of its parameters,
     /// by identity, to values evaluated once before iteration; the remaining parameters, in
@@ -463,6 +470,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringSplit(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
+        | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) -> [ listNodeId; separatorNodeId ]
         | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
@@ -494,6 +502,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
+        | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: contextValues context
@@ -577,6 +586,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringEndsWith(mapNodeId valueNodeId, mapNodeId suffixNodeId)
             | SemanticNodeKind.StringSplit(valueNodeId, separatorNodeId) ->
                 SemanticNodeKind.StringSplit(mapNodeId valueNodeId, mapNodeId separatorNodeId)
+            | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+                SemanticNodeKind.StringJoin(mapNodeId listNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -628,6 +639,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListAppendItem(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                 SemanticNodeKind.ListItemAt(mapNodeId listNodeId, mapNodeId indexNodeId)
+            | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+                SemanticNodeKind.ListSlice(mapNodeId listNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
             | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.ListConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ListFold(listNodeId, seedNodeId, functionId, context) ->
@@ -739,6 +752,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringLastIndexOf _
         | SemanticNodeKind.StringStartsWith _
         | SemanticNodeKind.StringEndsWith _
+        | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -768,6 +782,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
         | SemanticNodeKind.ListAppendItem _
+        | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _

@@ -312,6 +312,8 @@ module ExecutionIr =
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringEndsWith(value, other))
                         | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId) ->
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringSplit(value, other))
+                        | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+                            lowerBinaryNode node listNodeId separatorNodeId (fun list separator -> ExecutionInstructionKind.StringJoin(list, separator))
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringEqual(left, right))
                         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -373,6 +375,17 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                             lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
                                 ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))
+                        | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+                            match
+                                requireNodeValue environment listNodeId,
+                                requireNodeValue environment startNodeId,
+                                requireNodeValue environment endNodeId
+                            with
+                            | Ok listValueId, Ok startId, Ok endId ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.ListSlice(listValueId, startId, endId)))
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
                         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                             lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId))
@@ -728,6 +741,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringLastIndexOf _
                         | TypedSemanticNodeKind.StringStartsWith _
                         | TypedSemanticNodeKind.StringEndsWith _
+                        | TypedSemanticNodeKind.StringJoin _
                         | TypedSemanticNodeKind.StringSplit _
                         | TypedSemanticNodeKind.StringEqual _
                         | TypedSemanticNodeKind.StringLessThan _
@@ -756,6 +770,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _
+                        | TypedSemanticNodeKind.ListSlice _
                         | TypedSemanticNodeKind.ListItemAt _
                         | TypedSemanticNodeKind.ListAppendItem _
                         | TypedSemanticNodeKind.ListConcat _

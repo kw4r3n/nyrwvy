@@ -567,6 +567,19 @@ module NyasonCodec =
                   "item-type", encodeTypeRef itemType
                   // List item order is semantic. Do not sort.
                   "items", itemNodeIds |> List.map (encodeId "node") |> list ]
+        | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+            record
+                "string-join"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "separator", encodeId "node" separatorNodeId ]
+        | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+            record
+                "list-slice"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "start", encodeId "node" startNodeId
+                  "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.ListLength listNodeId ->
             record "list-length" [ nodeId; "list", encodeId "node" listNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
@@ -955,6 +968,23 @@ module NyasonCodec =
             let fields = recordFields "list-length" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListLength(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("string-join", _) ->
+            let fields = recordFields "string-join" [ "id"; "list"; "separator" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.StringJoin(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "separator" fields)
+                ) }
+        | NyasonValue.Record("list-slice", _) ->
+            let fields = recordFields "list-slice" [ "id"; "list"; "start"; "end" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListSlice(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "start" fields),
+                    decodeId<GraphNodeTag> "node" (require "end" fields)
+                ) }
         | NyasonValue.Record("list-item-at", _) ->
             let fields = recordFields "list-item-at" [ "id"; "list"; "index" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

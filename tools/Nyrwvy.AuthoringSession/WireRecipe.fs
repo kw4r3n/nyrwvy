@@ -100,6 +100,9 @@ module internal WireRecipe =
         | "stringSplit" ->
             ensureFields "string-split recipe" [ "kind"; "value"; "separator" ] [ "kind"; "value"; "separator" ] element
             ExpressionRecipe.StringSplit(recipe (property "value" element), recipe (property "separator" element))
+        | "stringJoin" ->
+            ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
+            ExpressionRecipe.StringJoin(recipe (property "list" element), recipe (property "separator" element))
         | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
         | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
         | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual
@@ -138,6 +141,9 @@ module internal WireRecipe =
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))
+        | "listSlice" ->
+            ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
+            ExpressionRecipe.ListSlice(recipe (property "list" element), recipe (property "start" element), recipe (property "end" element))
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())

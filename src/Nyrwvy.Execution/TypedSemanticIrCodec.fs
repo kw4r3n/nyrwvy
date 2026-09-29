@@ -362,6 +362,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringSplit")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("separatorNodeId", StableId.value otherNodeId)
+        | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+            writer.WriteString("kind", "stringJoin")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("separatorNodeId", StableId.value separatorNodeId)
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -426,6 +430,11 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "listItemAt")
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("indexNodeId", StableId.value indexNodeId)
+        | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "listSlice")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             writer.WriteString("kind", "listAppendItem")
             writer.WriteString("listNodeId", StableId.value listNodeId)

@@ -295,6 +295,10 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringSplit")
               property "valueId" (executionValueIdValue valueId)
               property "separatorId" (executionValueIdValue otherId) ]
+        | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
+            [ property "kind" (quote "stringJoin")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "separatorId" (executionValueIdValue separatorId) ]
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
             writeBinaryInstruction "stringEqual" leftValueId rightValueId
         | ExecutionInstructionKind.StringLessThan(leftValueId, rightValueId) ->
@@ -356,6 +360,11 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listItemAt")
               property "listValueId" (executionValueIdValue listValueId)
               property "indexValueId" (executionValueIdValue indexValueId) ]
+        | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
+            [ property "kind" (quote "listSlice")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "startId" (executionValueIdValue startId)
+              property "endId" (executionValueIdValue endId) ]
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             [ property "kind" (quote "listAppendItem")
               property "listValueId" (executionValueIdValue listValueId)

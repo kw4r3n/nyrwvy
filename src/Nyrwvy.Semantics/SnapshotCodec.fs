@@ -440,6 +440,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringSplit")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("separatorNodeId", StableId.value separatorNodeId)
+        | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+            writer.WriteString("kind", "stringJoin")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("separatorNodeId", StableId.value separatorNodeId)
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "stringEqual" leftNodeId rightNodeId
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -508,6 +512,11 @@ module SnapshotCodec =
             writer.WriteString("kind", "listItemAt")
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("indexNodeId", StableId.value indexNodeId)
+        | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "listSlice")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             writer.WriteString("kind", "listAppendItem")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1202,6 +1211,24 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "indexNodeId" element
                 )
+            | "listSlice" ->
+                ensureProperties
+                    "ListSlice node"
+                    (set [ "id"; "kind"; "listNodeId"; "startNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "startNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.ListSlice(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "startNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
+                )
+            | "stringJoin" ->
+                ensureProperties
+                    "StringJoin node"
+                    (set [ "id"; "kind"; "listNodeId"; "separatorNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "separatorNodeId" ])
+                    element
+                SemanticNodeKind.StringJoin(readId<GraphNodeTag> "listNodeId" element, readId<GraphNodeTag> "separatorNodeId" element)
             | "listAppendItem" ->
                 ensureProperties
                     "ListAppendItem node"

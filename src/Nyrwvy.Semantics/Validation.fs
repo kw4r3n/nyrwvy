@@ -749,6 +749,17 @@ module SnapshotValidator =
                             $"{name} node '{StableId.value node.Id}' requires a String {otherRole}."
                             (TypeRef.Primitive PrimitiveType.String)
                             otherNodeId
+                    | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringJoin node '{StableId.value node.Id}' requires a List<String> list."
+                            (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive PrimitiveType.String ]))
+                            listNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringJoin node '{StableId.value node.Id}' requires a String separator."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            separatorNodeId
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
                         requireBinaryOperands
                             "StringIntrinsicTypeMismatch" "StringEqual" (TypeRef.Primitive PrimitiveType.String)
@@ -834,6 +845,24 @@ module SnapshotValidator =
                             add
                                 "ListItemAtIndexTypeMismatch"
                                 $"ListItemAt node '{StableId.value node.Id}' requires an Int64 index."
+                    | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
+                        | None -> ()
+                        | Some _ ->
+                            add
+                                "ListSliceListTypeMismatch"
+                                $"ListSlice node '{StableId.value node.Id}' requires List<T> as its list input."
+                        requireNodeType
+                            "ListSliceBoundTypeMismatch"
+                            $"ListSlice node '{StableId.value node.Id}' requires an Int64 start."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            startNodeId
+                        requireNodeType
+                            "ListSliceBoundTypeMismatch"
+                            $"ListSlice node '{StableId.value node.Id}' requires an Int64 end."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            endNodeId
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         match nodeType listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
@@ -1533,6 +1562,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _
+                | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
@@ -1561,6 +1591,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
