@@ -76,6 +76,9 @@ module ValueDependency =
         | SemanticNodeKind.StringSplit(sourceNodeId, separatorNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Separator separatorNodeId ]
+        | SemanticNodeKind.StringJoin(sourceNodeId, separatorNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Separator separatorNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
@@ -147,6 +150,10 @@ module ValueDependency =
         | SemanticNodeKind.ListItemAt(sourceNodeId, indexNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Index indexNodeId ]
+        | SemanticNodeKind.ListSlice(sourceNodeId, startNodeId, endNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.SliceStart startNodeId
+              create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->

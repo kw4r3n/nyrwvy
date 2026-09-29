@@ -53,6 +53,7 @@ type ViewerNodeRole =
     | StringStartsWith
     | StringEndsWith
     | StringSplit
+    | StringJoin
     | StringEqual
     | StringLessThan
     | ValueEqual
@@ -82,6 +83,7 @@ type ViewerNodeRole =
     | ListLength
     | ListAppendItem
     | ListItemAt
+    | ListSlice
     | ListConcat
     | ListFold
     | ListEffectFold
@@ -225,6 +227,7 @@ module ViewerProjection =
         | SemanticNodeKind.StringStartsWith _ -> ViewerNodeRole.StringStartsWith, []
         | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []
         | SemanticNodeKind.StringSplit _ -> ViewerNodeRole.StringSplit, []
+        | SemanticNodeKind.StringJoin _ -> ViewerNodeRole.StringJoin, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []
         | SemanticNodeKind.ValueEqual _ -> ViewerNodeRole.ValueEqual, []
@@ -254,6 +257,7 @@ module ViewerProjection =
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
+        | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold(_, _, folderFunctionId, _) ->
             ViewerNodeRole.ListFold, callbackRelation folderFunctionId

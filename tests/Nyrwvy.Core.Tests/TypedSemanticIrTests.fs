@@ -45,6 +45,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringLastIndexOf _
                 | TypedSemanticNodeKind.StringStartsWith _
                 | TypedSemanticNodeKind.StringEndsWith _
+                | TypedSemanticNodeKind.StringJoin _
                 | TypedSemanticNodeKind.StringSplit _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringLessThan _
@@ -73,6 +74,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _
+                | TypedSemanticNodeKind.ListSlice _
                 | TypedSemanticNodeKind.ListItemAt _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _

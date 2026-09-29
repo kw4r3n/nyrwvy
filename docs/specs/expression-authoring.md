@@ -55,6 +55,7 @@ ExpressionRecipe =
   | StringStartsWith(value, prefix)
   | StringEndsWith(value, suffix)
   | StringSplit(value, separator)
+  | StringJoin(list, separator)
   | StringToLower(expr)
   | StringUtf8ByteCount(expr)
   | Int64WrappingAdd(left, right)
@@ -81,6 +82,7 @@ ExpressionRecipe =
   | ListConstruct(itemType, items)
   | ListLength(list)
   | ListItemAt(list, index)
+  | ListSlice(list, start, end)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
   | ListFold(source, seed, folderFunctionId, context)
@@ -334,6 +336,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringToLower and StringUtf8ByteCount
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. Both use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+
+## StringJoin and ListSlice
+
+`StringJoin(list, separator)` (wire `stringJoin` with `list`, `separator`; Nyason `string-join`) takes exactly a `List<String>` and a String and produces a String, Python `separator.join(list)`. `ListSlice(list, start, end)` (wire `listSlice` with `list`, `start`, `end`; Nyason `list-slice`) is generic like `ListItemAt`: the item type is inferred from `list`, which must be some `List<T>`, and the result is that same `List<T>`; `start` and `end` are Int64 and clamp like `StringSlice` bounds. Both never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-join-and-list-slice.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.separator`, `body.end`). A persisted graph reports `StringIntrinsicTypeMismatch` for `StringJoin`, and `ListSliceListTypeMismatch` or `ListSliceBoundTypeMismatch` for `ListSlice`.
 
 ## Int64ToFloat64
 

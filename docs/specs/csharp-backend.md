@@ -81,6 +81,8 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `ListItemAt` emits `list.ItemAt(index)`, which returns `NyOption<T>.Some(item)` when `0 <= index < Length` and `NyOption<T>.None()` otherwise, without exceptions.
 
+`ListSlice` emits `list.Slice(start, end)`. `NyList<T>.Slice` clamps both bounds with `Math.Clamp(bound, 0, Length)`, returns the empty list when `end <= start`, the list itself when the slice covers it (lists are immutable), and otherwise copies the range into a new array. `StringJoin` emits `NyText.Join(list, separator)`, which is `string.Join(separator, items)` over the list's backing array without copying it; neither throws.
+
 ## Float64 literal emission
 
 Float64 source construction uses exact bits rather than decimal source text, conceptually:
