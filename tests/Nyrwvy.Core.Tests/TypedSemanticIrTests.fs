@@ -42,6 +42,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.BoolOr _
                 | TypedSemanticNodeKind.StringContains _
                 | TypedSemanticNodeKind.StringIndexOf _
+                | TypedSemanticNodeKind.StringSpan _
+                | TypedSemanticNodeKind.StringSpanBack _
                 | TypedSemanticNodeKind.StringLastIndexOf _
                 | TypedSemanticNodeKind.StringStartsWith _
                 | TypedSemanticNodeKind.StringEndsWith _

@@ -14,7 +14,7 @@ const categories = {
   scalar: [
     "boolNot", "boolAnd", "boolOr",
     "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice", "stringCodePoints",
-    "stringIndexOf", "stringLastIndexOf", "stringStartsWith", "stringEndsWith", "stringSplit", "stringJoin", "stringToLower", "stringUtf8ByteCount",
+    "stringIndexOf", "stringLastIndexOf", "stringSpan", "stringSpanBack", "stringStartsWith", "stringEndsWith", "stringSplit", "stringJoin", "stringToLower", "stringUtf8ByteCount",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -74,6 +74,8 @@ const references = {
   stringLength: { ...unary("stringLength"), notes: "Int64 count of code points: a surrogate pair counts once, an unpaired surrogate once." },
   stringCodePoints: { ...unary("stringCodePoints"), notes: "List<String> of each code point as a one-code-point String, in order, in linear time; never fails. A surrogate pair is one item, an unpaired surrogate its own item, so the length equals stringLength. Iterate text with listFold over it instead of self-recursion per character, which overflows the stack at a few thousand characters." },
   stringIndexOf: { shape: { kind: "stringIndexOf", value: recipe, substring: recipe, from: recipe }, notes: "Option<Int64> code-point position of the first ordinal occurrence of substring at or after from, like Python str.find(sub, start) but None instead of -1. from clamps to [0, length] like stringSlice (no negative-from-the-end); an empty substring is Some(clamped from). A match never splits a surrogate pair. Never fails." },
+  stringSpan: { shape: { kind: "stringSpan", value: recipe, set: recipe, from: recipe }, notes: "Int64 code-point position of the first code point at or after from that is not in set (any code point of the set String), or the length when all are, like Python start + len(v[start:]) - len(v[start:].lstrip(set)). from clamps to [0, length]; an empty set gives the clamped from. Use for runs of a character class (skip whitespace, digits end) instead of self-recursion. Linear time; never fails." },
+  stringSpanBack: { shape: { kind: "stringSpanBack", value: recipe, set: recipe, end: recipe }, notes: "Int64 least code-point position p <= end with every code point in [p, end) in set, like Python len(v[:end].rstrip(set)). end clamps to [0, length]; an empty set gives the clamped end. Python strip(chars) is stringSlice(v, stringSpan(v, set, 0), stringSpanBack(v, set, stringLength(v))). Linear time; never fails." },
   stringLastIndexOf: { shape: { kind: "stringLastIndexOf", value: recipe, substring: recipe }, notes: "Option<Int64> code-point position of the last ordinal occurrence, like Python str.rfind(sub) but None instead of -1; an empty substring is Some(length). Never fails." },
   stringStartsWith: { shape: { kind: "stringStartsWith", value: recipe, prefix: recipe }, notes: "Bool: value begins with prefix, ordinal and case-sensitive; an empty prefix is true. A prefix ending in half of a surrogate pair does not match." },
   stringEndsWith: { shape: { kind: "stringEndsWith", value: recipe, suffix: recipe }, notes: "Bool: value ends with suffix, ordinal and case-sensitive; an empty suffix is true." },

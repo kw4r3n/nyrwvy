@@ -232,6 +232,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// [0, StringLength] like StringSlice; an empty substring is found at the clamped `from`. A match
     /// never starts or ends inside a surrogate pair. Never fails.
     | StringIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    /// The code-point position of the first code point at or after `from` that is not a member of
+    /// `set` (any code point of the set String), or StringLength when there is none, as Int64 (Python
+    /// `start + len(v[start:]) - len(v[start:].lstrip(set))`). `from` is clamped to [0, StringLength];
+    /// an empty set yields the clamped `from`. Never fails.
+    | StringSpan of valueNodeId: GraphNodeId * setNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    /// The least code-point position p <= `end` such that every code point in [p, end) is a member of
+    /// `set`, as Int64 (Python `len(v[:end].rstrip(set))`). `end` is clamped to [0, StringLength]; an
+    /// empty set yields the clamped `end`. Never fails.
+    | StringSpanBack of valueNodeId: GraphNodeId * setNodeId: GraphNodeId * endNodeId: GraphNodeId
     /// Code-point position of the last ordinal occurrence of the substring, as Option<Int64>
     /// (Python `str.rfind(sub)`); an empty substring is found at StringLength. Never fails.
     | StringLastIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
@@ -466,6 +475,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
         | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) -> [ valueNodeId; substringNodeId; fromNodeId ]
+        | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
+        | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) -> [ valueNodeId; setNodeId; boundNodeId ]
         | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
@@ -578,6 +589,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringContains(mapNodeId valueNodeId, mapNodeId substringNodeId)
             | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
                 SemanticNodeKind.StringIndexOf(mapNodeId valueNodeId, mapNodeId substringNodeId, mapNodeId fromNodeId)
+            | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId) ->
+                SemanticNodeKind.StringSpan(mapNodeId valueNodeId, mapNodeId setNodeId, mapNodeId fromNodeId)
+            | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId) ->
+                SemanticNodeKind.StringSpanBack(mapNodeId valueNodeId, mapNodeId setNodeId, mapNodeId endNodeId)
             | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
                 SemanticNodeKind.StringLastIndexOf(mapNodeId valueNodeId, mapNodeId substringNodeId)
             | SemanticNodeKind.StringStartsWith(valueNodeId, prefixNodeId) ->
@@ -749,6 +764,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringSlice _
         | SemanticNodeKind.StringContains _
         | SemanticNodeKind.StringIndexOf _
+        | SemanticNodeKind.StringSpan _
+        | SemanticNodeKind.StringSpanBack _
         | SemanticNodeKind.StringLastIndexOf _
         | SemanticNodeKind.StringStartsWith _
         | SemanticNodeKind.StringEndsWith _

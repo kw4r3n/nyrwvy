@@ -66,6 +66,10 @@ module internal WireGraph =
         | SemanticNodeKind.StringContains(value, substring) -> tagged "stringContains" [ "valueNodeId", identity value; "substringNodeId", identity substring ]
         | SemanticNodeKind.StringIndexOf(value, substring, from) ->
             tagged "stringIndexOf" [ "valueNodeId", identity value; "substringNodeId", identity substring; "fromNodeId", identity from ]
+        | SemanticNodeKind.StringSpan(value, set, from) ->
+            tagged "stringSpan" [ "valueNodeId", identity value; "setNodeId", identity set; "fromNodeId", identity from ]
+        | SemanticNodeKind.StringSpanBack(value, set, stop) ->
+            tagged "stringSpanBack" [ "valueNodeId", identity value; "setNodeId", identity set; "endNodeId", identity stop ]
         | SemanticNodeKind.StringLastIndexOf(value, other) -> tagged "stringLastIndexOf" [ "valueNodeId", identity value; "substringNodeId", identity other ]
         | SemanticNodeKind.StringStartsWith(value, other) -> tagged "stringStartsWith" [ "valueNodeId", identity value; "prefixNodeId", identity other ]
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]

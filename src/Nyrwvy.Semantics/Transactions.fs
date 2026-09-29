@@ -248,6 +248,8 @@ module Transaction =
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringIndexOf _
+                | SemanticNodeKind.StringSpan _
+                | SemanticNodeKind.StringSpanBack _
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _
@@ -778,6 +780,8 @@ module Transaction =
                         | SemanticNodeKind.StringSlice _
                         | SemanticNodeKind.StringContains _
                         | SemanticNodeKind.StringIndexOf _
+                        | SemanticNodeKind.StringSpan _
+                        | SemanticNodeKind.StringSpanBack _
                         | SemanticNodeKind.StringLastIndexOf _
                         | SemanticNodeKind.StringStartsWith _
                         | SemanticNodeKind.StringEndsWith _

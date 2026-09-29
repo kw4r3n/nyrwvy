@@ -8,6 +8,7 @@ type ValueDependencyRole =
     | SliceStart
     | SliceEnd
     | SearchFrom
+    | CharacterSet
     | Prefix
     | Suffix
     | Separator
@@ -64,6 +65,14 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId
               create ValueDependencyRole.SearchFrom fromNodeId ]
+        | SemanticNodeKind.StringSpan(sourceNodeId, setNodeId, fromNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.CharacterSet setNodeId
+              create ValueDependencyRole.SearchFrom fromNodeId ]
+        | SemanticNodeKind.StringSpanBack(sourceNodeId, setNodeId, endNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.CharacterSet setNodeId
+              create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.StringLastIndexOf(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]

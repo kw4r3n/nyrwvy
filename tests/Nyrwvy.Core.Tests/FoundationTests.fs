@@ -47,6 +47,8 @@ module FoundationTests =
                 | SemanticNodeKind.BoolOr _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringIndexOf _
+                | SemanticNodeKind.StringSpan _
+                | SemanticNodeKind.StringSpanBack _
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _

@@ -40,6 +40,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) -> [ valueNodeId; substringNodeId; fromNodeId ]
+        | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
+        | TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) -> [ valueNodeId; setNodeId; boundNodeId ]
         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
@@ -153,6 +155,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.StringIndexOf _
+            | TypedSemanticNodeKind.StringSpan _
+            | TypedSemanticNodeKind.StringSpanBack _
             | TypedSemanticNodeKind.StringLastIndexOf _
             | TypedSemanticNodeKind.StringStartsWith _
             | TypedSemanticNodeKind.StringEndsWith _
@@ -287,6 +291,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.BoolNot _
         | TypedSemanticNodeKind.StringContains _
         | TypedSemanticNodeKind.StringIndexOf _
+        | TypedSemanticNodeKind.StringSpan _
+        | TypedSemanticNodeKind.StringSpanBack _
         | TypedSemanticNodeKind.StringLastIndexOf _
         | TypedSemanticNodeKind.StringStartsWith _
         | TypedSemanticNodeKind.StringEndsWith _
@@ -404,6 +410,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.BoolNot _
             | TypedSemanticNodeKind.StringContains _
             | TypedSemanticNodeKind.StringIndexOf _
+            | TypedSemanticNodeKind.StringSpan _
+            | TypedSemanticNodeKind.StringSpanBack _
             | TypedSemanticNodeKind.StringLastIndexOf _
             | TypedSemanticNodeKind.StringStartsWith _
             | TypedSemanticNodeKind.StringEndsWith _

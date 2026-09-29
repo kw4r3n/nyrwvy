@@ -162,6 +162,8 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64FloorModulo _
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.StringUtf8ByteCount _
+                    | SemanticNodeKind.StringSpan _
+                    | SemanticNodeKind.StringSpanBack _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _

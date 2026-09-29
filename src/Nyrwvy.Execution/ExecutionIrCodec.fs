@@ -279,6 +279,16 @@ module ExecutionIrCodec =
               property "valueId" (executionValueIdValue valueId)
               property "substringId" (executionValueIdValue substringId)
               property "fromId" (executionValueIdValue fromId) ]
+        | ExecutionInstructionKind.StringSpan(valueId, setId, fromId) ->
+            [ property "kind" (quote "stringSpan")
+              property "valueId" (executionValueIdValue valueId)
+              property "setId" (executionValueIdValue setId)
+              property "fromId" (executionValueIdValue fromId) ]
+        | ExecutionInstructionKind.StringSpanBack(valueId, setId, endId) ->
+            [ property "kind" (quote "stringSpanBack")
+              property "valueId" (executionValueIdValue valueId)
+              property "setId" (executionValueIdValue setId)
+              property "endId" (executionValueIdValue endId) ]
         | ExecutionInstructionKind.StringLastIndexOf(valueId, otherId) ->
             [ property "kind" (quote "stringLastIndexOf")
               property "valueId" (executionValueIdValue valueId)

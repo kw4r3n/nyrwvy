@@ -277,6 +277,20 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "substring" element),
                 recipe declarations parameterContext (property "from" element)
             )
+        | "stringSpan" ->
+            ensureFields "string-span recipe" [ "kind"; "value"; "set"; "from" ] [ "kind"; "value"; "set"; "from" ] element
+            ExpressionRecipe.StringSpan(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "from" element)
+            )
+        | "stringSpanBack" ->
+            ensureFields "string-span-back recipe" [ "kind"; "value"; "set"; "end" ] [ "kind"; "value"; "set"; "end" ] element
+            ExpressionRecipe.StringSpanBack(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "end" element)
+            )
         | "stringLastIndexOf" ->
             ensureFields "string-last-index-of recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringLastIndexOf(

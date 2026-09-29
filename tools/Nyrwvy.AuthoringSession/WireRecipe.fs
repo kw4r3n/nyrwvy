@@ -88,6 +88,12 @@ module internal WireRecipe =
         | "stringIndexOf" ->
             ensureFields "string-index-of recipe" [ "kind"; "value"; "substring"; "from" ] [ "kind"; "value"; "substring"; "from" ] element
             ExpressionRecipe.StringIndexOf(recipe (property "value" element), recipe (property "substring" element), recipe (property "from" element))
+        | "stringSpan" ->
+            ensureFields "string-span recipe" [ "kind"; "value"; "set"; "from" ] [ "kind"; "value"; "set"; "from" ] element
+            ExpressionRecipe.StringSpan(recipe (property "value" element), recipe (property "set" element), recipe (property "from" element))
+        | "stringSpanBack" ->
+            ensureFields "string-span-back recipe" [ "kind"; "value"; "set"; "end" ] [ "kind"; "value"; "set"; "end" ] element
+            ExpressionRecipe.StringSpanBack(recipe (property "value" element), recipe (property "set" element), recipe (property "end" element))
         | "stringLastIndexOf" ->
             ensureFields "string-last-index-of recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringLastIndexOf(recipe (property "value" element), recipe (property "substring" element))

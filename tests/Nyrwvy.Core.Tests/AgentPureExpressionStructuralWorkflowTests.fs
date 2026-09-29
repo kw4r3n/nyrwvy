@@ -524,6 +524,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringSlice"
               "StringContains"
               "StringIndexOf"
+              "StringSpan"
+              "StringSpanBack"
               "StringLastIndexOf"
               "StringStartsWith"
               "StringEndsWith"

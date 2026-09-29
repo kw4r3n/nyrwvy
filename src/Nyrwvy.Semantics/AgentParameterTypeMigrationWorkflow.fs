@@ -285,6 +285,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
             | ExpressionRecipe.StringIndexOf(value, substring, from) -> three ExpressionRecipe.StringIndexOf value substring from
+            | ExpressionRecipe.StringSpan(value, set, from) -> three ExpressionRecipe.StringSpan value set from
+            | ExpressionRecipe.StringSpanBack(value, set, stop) -> three ExpressionRecipe.StringSpanBack value set stop
             | ExpressionRecipe.StringLastIndexOf(left, right) -> two ExpressionRecipe.StringLastIndexOf left right
             | ExpressionRecipe.StringStartsWith(left, right) -> two ExpressionRecipe.StringStartsWith left right
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right

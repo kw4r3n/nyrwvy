@@ -196,6 +196,10 @@ Not queued: regex (orders 18 and 21 come first), a plain run-output view for the
 
 [Probe 5](../verification/rrawrlet-slice-probe5-20260930.md) re-authored probe 4's whole slice with orders 17-22 on main `4f69c9b`. It matched Python on 24/24 in-scope checks, including H3, R1 and MX1, with no depth workaround, and the port shrank from 14 types, 47 functions and 1106 nodes to 12, 38 and 897. Nothing blocks the slice, so nothing is queued yet. The largest remaining costs are character-class spans and strip (7 functions and 70 nodes of per-character self-recursion) and line splitting with Python's break set (1 type, 2 functions and 55 nodes). Position-walking scans are still O(n²) and stack-bound on adversarial input only. Pick one of these only if the next task shows it again or the owner chooses it.
 
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 23 | **Done: character-class spans** (was: spans and strip as hand-written self-recursion, cost #1) | 7 functions and 70 nodes of per-character recursion; both adversarial slowdowns | `StringSpan(value, set, from)` and `StringSpanBack(value, set, end)`, Int64 code-point positions (Python `lstrip`/`rstrip` as positions, bounds clamped like `StringSlice`), so `strip(set)` is one `StringSlice` over both. Both never fail, run in linear time and are wired through every layer (`NyText.Span`/`SpanBack`), with a `runPure` Python-parity table. See the [decision](../decisions/string-spans.md). |
+
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 
 Preserve these constraints:
