@@ -636,6 +636,17 @@ module AuthoringProtocol =
                 match session.SimulateOperations operations with
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            | "simulateOperationsByName" ->
+                ensureFields
+                    "simulateOperationsByName request"
+                    [ "id"; "op"; "operations"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "operations" ]
+                    root
+                let declarations = session.Declarations()
+                let operations = array "operations" root |> List.map (WireOperation.operationByName declarations)
+                match session.SimulateOperations operations with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> sessionFailure requestId error
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
