@@ -1176,7 +1176,7 @@ module SnapshotValidator =
                         match functionEntity.ResultType with
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) ->
                             requireNodeType "AbortPayloadTypeMismatch"
-                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {errorType} of function {StableId.describe functionEntity.DisplayName functionEntity.Id}."
+                                $"Abort node '{StableId.value node.Id}' payload '{StableId.value errorNodeId}' must match error type {DiagnosticText.typeRef snapshot errorType} of function {StableId.describe functionEntity.DisplayName functionEntity.Id}."
                                 errorType errorNodeId
                         | _ -> add "AbortOwnerResultTypeMismatch" $"Abort node '{StableId.value node.Id}' requires function {StableId.describe functionEntity.DisplayName functionEntity.Id} to return Result<T, E>."
                     | SemanticNodeKind.OptionSome _ -> ()
