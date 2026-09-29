@@ -171,7 +171,7 @@ This supports explicit propagation without inventing a hidden call-graph rewrite
 
 Use complete declaration-shaped construction with system-owned `TypeId`, `VariantId`, and `FieldId` values. Validate field `TypeRef`s explicitly. Do not introduce partial type declarations until a concrete workflow needs them.
 
-The first type-declaration slice need not solve mutually recursive/newly co-referential declarations; add ephemeral declaration references only when that use case becomes concrete.
+The first type-declaration slice need not solve mutually recursive/newly co-referential declarations; add ephemeral declaration references only when that use case becomes concrete. Probe 7 made it concrete: type groups with request-local references are [implemented](recursive-type-declarations.md).
 
 ### Effect
 

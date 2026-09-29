@@ -164,7 +164,8 @@ The maintained operation set is:
 | `simulateOperationsByName` | Resolve display names in a list of deletion operations, then simulate them as `simulateOperations` does. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
 | `simulateCreateFunctionByName` | Resolve display names to current semantic identities, then simulate function creation. |
-| `simulateCreateTypeByName` | Resolve display-name type references, then simulate product/union creation. |
+| `simulateCreateTypeByName` | Resolve display-name type references, then simulate product/union creation. A type that names itself is created as a group of one. |
+| `simulateCreateTypesByName` | Simulate creating a group of product/union types that may name themselves and each other. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. |
 | `simulateCreateEffect` | Simulate atomic effect declaration creation. |
 | `simulateCreateCapability` | Simulate atomic capability/operation declaration creation. |
@@ -262,6 +263,7 @@ The transport parser is only a DTO-to-existing-authoring-intent adapter. Type in
 The maintained protocol also exposes a convenience layer for AI tool use when persistent stable IDs are not themselves the subject of the task. These operations resolve exact display names against the current session snapshot and immediately lower them to the existing stable-ID authoring requests:
 
 - `simulateCreateTypeByName`
+- `simulateCreateTypesByName`
 - `simulateCreateFunctionByName`
 - `simulateReplaceBodyByName`
 - `simulateCreateCapabilityByName`
@@ -309,6 +311,23 @@ A `directCall` whose `function` is the display name of the function being create
 The exact-ID form is `{"kind":"selfCall","arguments":[{"slot":0,"value":<recipe>}]}`, with arguments keyed by zero-based parameter slot, because the new function's IDs are system-assigned. Both persist as an ordinary `DirectCall` to the owner.
 
 Creation by name already rejects a display name held by any existing function, so a self call in a creation body cannot be ambiguous; if one were, it would fail as `Ambiguous function`. During replacement the target is already resolved, so a call naming the target's own display name is a self call by the target's ID, even if another function shares that name. Mutual recursion and a `functionReference` to the function being created are out of scope; they still need the placeholder-then-replace route.
+
+### Recursive types
+
+`simulateCreateTypesByName` takes `types: [{ "displayName", "typeKind" }]`, each in the `simulateCreateTypeByName` shape. A named type reference inside any member resolves first to a member of the group, then to a published type, so the members may name themselves and each other:
+
+```json
+{"id": "json-1", "op": "simulateCreateTypesByName", "types": [
+  {"displayName": "Json", "typeKind": {"kind": "union", "variants": [
+    {"displayName": "Str", "fields": [{"displayName": "value", "type": {"kind": "primitive", "primitive": "string"}}]},
+    {"displayName": "Arr", "fields": [{"displayName": "items", "type": {"kind": "builtinGeneric", "generic": "list", "arguments": [{"kind": "named", "name": "Json"}]}}]},
+    {"displayName": "Obj", "fields": [{"displayName": "members", "type": {"kind": "builtinGeneric", "generic": "list", "arguments": [{"kind": "named", "name": "Member"}]}}]}]}},
+  {"displayName": "Member", "typeKind": {"kind": "product", "fields": [
+    {"displayName": "key", "type": {"kind": "primitive", "primitive": "string"}},
+    {"displayName": "value", "type": {"kind": "named", "name": "Json"}}]}}]}
+```
+
+`simulateCreateTypeByName` accepts its own display name the same way (for example `Tree` with `children: List<Tree>`). Both review as `{ "kind": "createTypes", "receipt", "readiness", "createdTypes": [...] }` in request order, and one `commit` publishes every member; a single declaration that names no member keeps the `createType` review. The transport gives each member a request-local reference that simulation replaces with an allocated TypeId, so no reference is persisted. A member that could never be constructed, because each of its Product fields or of its Union variants needs a group member without a value, is rejected as `TypeDeclarationUninhabited`; see the [type-declaration contract](type-declaration-authoring.md#type-groups).
 
 `simulateCreateCapabilityByName` takes the `simulateCreateCapability` shape with name-resolved `TypeRef`s and `"effect": "<effect display name>"` in place of `effectId`. Like function creation, it rejects a display name already held by any local or imported capability. `simulateCreateEffect` already takes no references and has no separate name form.
 

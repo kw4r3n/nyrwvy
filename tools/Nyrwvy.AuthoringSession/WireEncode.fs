@@ -301,6 +301,12 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdType", semanticType item.CreatedType ]
+            | AuthoringProposalReview.CreateTypeGroup item ->
+                objectValue
+                    [ "kind", box "createTypes"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "createdTypes", item.CreatedTypes |> List.map semanticType |> arrayValue ]
             | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
                 withRewritten
                     [ "kind", box "fieldlessUnionVariantEvolution"

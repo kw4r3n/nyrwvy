@@ -47,7 +47,10 @@ module internal WireSymbolic =
     let capabilityParameter (operation: SemanticCapabilityOperation) displayName =
         exactOne $"parameter on operation {operation.DisplayName}" displayName operation.Parameters (fun item -> item.DisplayName)
 
-    let rec typeRef (declarations: AuthoringDeclarations) (element: JsonElement): TypeRef =
+    /// Resolves a symbolic TypeRef. A name in `group` (types being created together) resolves to its
+    /// request-local reference before existing declarations are consulted.
+    let rec private typeRefIn (group: Map<string, TypeId>) (declarations: AuthoringDeclarations) (element: JsonElement): TypeRef =
+        let typeRef = typeRefIn group
         match requiredString "kind" element with
         | "function" ->
             ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
@@ -63,7 +66,10 @@ module internal WireSymbolic =
             | value -> fail $"Unsupported primitive type '{value}'."
         | "named" ->
             ensureFields "named type" [ "kind"; "name" ] [ "kind"; "name" ] element
-            TypeRef.Named((resolveType declarations (requiredString "name" element)).Id)
+            let name = requiredString "name" element
+            match Map.tryFind name group with
+            | Some reference -> TypeRef.Named reference
+            | None -> TypeRef.Named((resolveType declarations name).Id)
         | "capability" ->
             ensureFields "capability type" [ "kind"; "name" ] [ "kind"; "name" ] element
             TypeRef.Capability((resolveCapability declarations (requiredString "name" element)).Id)
@@ -86,16 +92,19 @@ module internal WireSymbolic =
             TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
         | value -> fail $"Unsupported symbolic type kind '{value}'."
 
-    let private typeFieldIntent declarations (item: JsonElement): AgentTypeFieldIntent =
+    let typeRef declarations element = typeRefIn Map.empty declarations element
+
+    let private typeFieldIntent group declarations (item: JsonElement): AgentTypeFieldIntent =
         ensureFields "type field" [ "displayName"; "type" ] [ "displayName"; "type" ] item
         { DisplayName = requiredString "displayName" item
-          Type = typeRef declarations (property "type" item) }
+          Type = typeRefIn group declarations (property "type" item) }
 
-    let typeKindIntent declarations (element: JsonElement): AgentTypeDeclarationKindIntent =
+    /// Resolves a type declaration's kind; names in `group` resolve to request-local references.
+    let typeKindIntentIn group declarations (element: JsonElement): AgentTypeDeclarationKindIntent =
         match requiredString "kind" element with
         | "product" ->
             ensureFields "product type kind" [ "kind"; "fields" ] [ "kind"; "fields" ] element
-            AgentTypeDeclarationKindIntent.Product(array "fields" element |> List.map (typeFieldIntent declarations))
+            AgentTypeDeclarationKindIntent.Product(array "fields" element |> List.map (typeFieldIntent group declarations))
         | "union" ->
             ensureFields "union type kind" [ "kind"; "variants" ] [ "kind"; "variants" ] element
             let variants =
@@ -103,9 +112,25 @@ module internal WireSymbolic =
                 |> List.map (fun item ->
                     ensureFields "union variant" [ "displayName"; "fields" ] [ "displayName"; "fields" ] item
                     { DisplayName = requiredString "displayName" item
-                      Fields = array "fields" item |> List.map (typeFieldIntent declarations) })
+                      Fields = array "fields" item |> List.map (typeFieldIntent group declarations) })
             AgentTypeDeclarationKindIntent.Union variants
         | value -> fail $"Unsupported type declaration kind '{value}'."
+
+    let typeKindIntent declarations element = typeKindIntentIn Map.empty declarations element
+
+    /// Whether a declaration kind names `reference` anywhere in its field types.
+    let kindReferences (reference: TypeId) (kind: AgentTypeDeclarationKindIntent) =
+        let rec mentions typeRef =
+            match typeRef with
+            | TypeRef.Named id -> id = reference
+            | TypeRef.Function(arguments, result) -> List.exists mentions arguments || mentions result
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentions arguments
+            | _ -> false
+        let fields =
+            match kind with
+            | AgentTypeDeclarationKindIntent.Product fields -> fields
+            | AgentTypeDeclarationKindIntent.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
+        fields |> List.exists (fun field -> mentions field.Type)
 
     /// Name-resolved capability operation: types use symbolic TypeRefs and `effect` names an existing effect.
     let capabilityOperationIntent declarations (item: JsonElement): AgentCapabilityOperationIntent =

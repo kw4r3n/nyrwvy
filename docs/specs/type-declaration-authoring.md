@@ -52,9 +52,20 @@ Preflight requires:
 
 `TypeRef.Named` may reference only an already-published `TypeId`. `TypeRef.Capability` may reference only an already-published `CapabilityId`. Primitive and valid builtin-generic references remain available normally.
 
-The new declaration is not visible during preflight. Therefore the first slice cannot express self recursion, mutual recursion, or references to another declaration being created in the same request. No future-ID placeholders or draft-ID lifecycle is introduced.
+The new declaration is not visible during preflight, so a single-type request cannot refer to itself. Self-recursive and mutually recursive types are created as a **type group** (below). No draft-ID lifecycle is introduced.
 
 No additional structural rule is invented when the existing semantic model permits a shape. The one name rule is uniqueness of the new type's own display name among types: by-name session requests resolve exactly one declaration of a kind, so a duplicate (for example from a retried create) would make that name permanently ambiguous. Field and variant names are unaffected, and uniqueness is not a snapshot validation rule, so an existing snapshot or dependency set that already holds duplicates stays valid.
+
+## Type groups
+
+`AgentTypeDeclarationWorkflow.simulateGroup` takes `AgentCreateTypeDeclarationGroupRequest`: the expected base and one or more members, each with a `Reference`, a display name and a kind. A `Reference` is a request-local TypeId that any field in the group may use in `TypeRef.Named` to name that member. Preflight adds these rules to the ones above:
+
+- the group is not empty (`TypeDeclarationGroupEmpty`);
+- references are distinct and name no published type (`TypeDeclarationGroupReferenceInvalid`);
+- display names are unique within the group as well as among published types (`TypeDeclarationDuplicateDisplayName`);
+- every member has a finite value (`TypeDeclarationUninhabited`): its Product fields, or all fields of at least one of its Union variants, are inhabited, where published types, primitives, `List`, `Option`, function, capability and task types are inhabited, a `Result` is inhabited when either side is, and a group member is inhabited once this holds for it (a fixpoint over the group).
+
+Materialization allocates every member's TypeId before any field, rewrites each reference to the allocated TypeId, and appends the members in request order. The review lists `CreatedTypes` in the same order, and commit publishes all of them or none. The session exposes it as `simulateCreateTypesByName`, and `simulateCreateTypeByName` uses it for a declaration that names itself; see the [decision](../decisions/recursive-type-declarations.md).
 
 ## Allocation and materialization
 
@@ -107,7 +118,7 @@ A successful session commit persists the reviewed candidate through the M3 publi
 
 ## Non-goals
 
-This slice does not implement type mutation or deletion, field migration, exhaustive-match repair, partial declarations, recursive type groups, caller-owned declaration IDs, future-ID guessing, multi-declaration draft protocols, effect/capability/provider creation, or a generalized schema-authoring framework.
+This slice does not implement type mutation or deletion, field migration, exhaustive-match repair, partial declarations, caller-owned declaration IDs, future-ID guessing, multi-declaration draft protocols, effect/capability/provider creation, or a generalized schema-authoring framework.
 
 ## Verification contract
 
