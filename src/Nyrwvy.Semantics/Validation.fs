@@ -9,97 +9,6 @@ type ValidationIssue =
 
 [<RequireQualifiedAccess>]
 module SnapshotValidator =
-    let private directValueReferences (node: SemanticNode): GraphNodeId list =
-        match node.Kind with
-        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
-        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
-        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
-        | SemanticNodeKind.Int64ToString valueNodeId
-        | SemanticNodeKind.StringParseInt64 valueNodeId
-        | SemanticNodeKind.StringLength valueNodeId
-        | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
-        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
-        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
-            [ valueNodeId; substringNodeId ]
-        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
-        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
-        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
-            [ leftNodeId; rightNodeId ]
-        | SemanticNodeKind.Float64IsNaN valueNodeId
-        | SemanticNodeKind.Float64IsFinite valueNodeId
-        | SemanticNodeKind.Int64ToFloat64 valueNodeId
-        | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
-        | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
-        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
-        | SemanticNodeKind.ListMap(listNodeId, _, context)
-        | SemanticNodeKind.ListFilter(listNodeId, _, context)
-        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
-        | SemanticNodeKind.ListAny(listNodeId, _, context)
-        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
-        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
-        | SemanticNodeKind.CapabilityConstruct _
-        | SemanticNodeKind.FunctionReference _ -> []
-        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
-        | SemanticNodeKind.DirectCall(_, arguments) ->
-            arguments |> List.map (fun argument -> argument.ValueNodeId)
-        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
-            capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
-        | SemanticNodeKind.ProductConstruct(_, fields)
-        | SemanticNodeKind.UnionConstruct(_, fields) ->
-            fields |> List.map (fun field -> field.ValueNodeId)
-        | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
-        | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
-        | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
-        | SemanticNodeKind.Abort errorNodeId
-        | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
-            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
-            listNodeId :: seedNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
-            acquireNodeId :: releaseCapabilityNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
-            sourceListNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.CancellationRequested -> []
-        | SemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun binding -> binding.ValueNodeId)
-        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
-            scopeNodeId :: itemNodeId :: (context |> List.map (fun binding -> binding.ValueNodeId))
-        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
-        | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
-        | SemanticNodeKind.BoolNot operandNodeId
-        | SemanticNodeKind.BoolAnd(operandNodeId, _)
-        | SemanticNodeKind.BoolOr(operandNodeId, _) -> [ operandNodeId ]
-        | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
-        | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
-        | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
-        | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
-        | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
-        | SemanticNodeKind.ParameterReference _
-        | SemanticNodeKind.PatternReference _
-        | SemanticNodeKind.StringLiteral _
-        | SemanticNodeKind.BoolLiteral _
-        | SemanticNodeKind.UnitLiteral
-        | SemanticNodeKind.Int64Literal _
-        | SemanticNodeKind.Float64Literal _
-        | SemanticNodeKind.ListEmpty _
-        | SemanticNodeKind.OptionNone _ -> []
-
     /// Follows the edges IR lowering orders by: a control node depends on every node its
     /// branches reference from outside themselves, not only on their result nodes, so a
     /// branch that references its own enclosing node is a cycle here rather than an
@@ -116,7 +25,7 @@ module SnapshotValidator =
                 | None -> false
                 | Some node ->
                     let nextPath = Set.add nodeId path
-                    let hasCycle = GraphOrder.dependencies node |> List.exists (visit nextPath)
+                    let hasCycle = SemanticNodeShape.dependencies node |> List.exists (visit nextPath)
                     if not hasCycle then acyclic.Add nodeId |> ignore
                     hasCycle
 
@@ -473,7 +382,7 @@ module SnapshotValidator =
             let compatibleArms graphs = graphs |> List.map (SemanticFacts.graphCompletion completion) |> GraphCompletion.merge |> Option.isSome
 
             for node in allNodes do
-                for dependency in SemanticFacts.directValueDependencies node do
+                for dependency in SemanticNodeShape.directValueReferences node do
                     if completion dependency = Some GraphCompletion.Aborts then
                         add "AbortValueUse" $"Node '{StableId.value node.Id}' uses abrupt node '{StableId.value dependency}' as a value in function {StableId.describe functionEntity.DisplayName functionEntity.Id}."
 
@@ -709,7 +618,7 @@ module SnapshotValidator =
                         $"{context} result node '{StableId.value graph.ResultNodeId}' is not owned directly by that graph."
 
                 for node in graph.Nodes do
-                    for referencedNodeId in directValueReferences node do
+                    for referencedNodeId in SemanticNodeShape.directValueReferences node do
                         if not (Set.contains referencedNodeId visibleNodes) then
                             add
                                 "ValueNodeOutOfScope"
@@ -975,7 +884,7 @@ module SnapshotValidator =
                                     "UseResourceAcquireOutOfGraph"
                                     $"UseResource node '{StableId.value node.Id}' acquires resource node '{StableId.value acquireNodeId}' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it."
                             for other in allNodes do
-                                if other.Id <> node.Id && SemanticFacts.directValueDependencies other |> List.contains acquireNodeId then
+                                if other.Id <> node.Id && SemanticNodeShape.directValueReferences other |> List.contains acquireNodeId then
                                     add
                                         "UseResourceAcquireShared"
                                         $"UseResource node '{StableId.value node.Id}' must be the only consumer of resource node '{StableId.value acquireNodeId}', which node '{StableId.value other.Id}' also uses."

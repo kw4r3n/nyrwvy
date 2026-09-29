@@ -547,6 +547,7 @@ module internal SignatureMigrationCore =
         let remap = remapGraph ownerParameterMap ownerTypeParameters temporaryTarget targetFunctionId
 
         let mapNode (node: SemanticNode) =
+            let node = SemanticNodeShape.mapNested mapBinding remap node
             let kind =
                 match node.Kind with
                 | SemanticNodeKind.ParameterReference parameterId ->
@@ -569,35 +570,6 @@ module internal SignatureMigrationCore =
                 | SemanticNodeKind.OptionNone itemType -> SemanticNodeKind.OptionNone(mapType itemType)
                 | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(mapType errorType, valueNodeId)
                 | SemanticNodeKind.ResultErr(okType, errorNodeId) -> SemanticNodeKind.ResultErr(mapType okType, errorNodeId)
-                | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(leftNodeId, remap right)
-                | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(leftNodeId, remap right)
-                | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
-                    SemanticNodeKind.Conditional(conditionNodeId, remap whenTrue, remap whenFalse)
-                | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
-                    SemanticNodeKind.MatchUnion(
-                        inputNodeId,
-                        arms
-                        |> List.map (fun arm ->
-                            { arm with
-                                FieldBindings =
-                                    arm.FieldBindings
-                                    |> List.map (fun fieldBinding -> { fieldBinding with Binding = mapBinding fieldBinding.Binding })
-                                Body = remap arm.Body })
-                    )
-                | SemanticNodeKind.Bind(inputNodeId, body) ->
-                    SemanticNodeKind.Bind(inputNodeId, { ValueBinding = mapBinding body.ValueBinding; Body = remap body.Body })
-                | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    SemanticNodeKind.MatchOption(
-                        inputNodeId,
-                        { ValueBinding = mapBinding someArm.ValueBinding; Body = remap someArm.Body },
-                        remap noneBody
-                    )
-                | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    SemanticNodeKind.MatchResult(
-                        inputNodeId,
-                        { ValueBinding = mapBinding okArm.ValueBinding; Body = remap okArm.Body },
-                        { ErrorBinding = mapBinding errArm.ErrorBinding; Body = remap errArm.Body }
-                    )
                 | other -> other
             { node with Kind = kind }
 

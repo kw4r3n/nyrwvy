@@ -362,202 +362,469 @@ type Snapshot =
       Functions: SemanticFunction list
       Obligations: MissingArgumentObligation list }
 
+/// The role one nested graph plays in the node that owns it.
+[<RequireQualifiedAccess>]
+type NestedGraphRole =
+    | WhenTrue
+    | WhenFalse
+    | BoolAndRight
+    | BoolOrRight
+    | UnionArm of VariantId
+    | BindBody
+    | OptionSome
+    | OptionNone
+    | ResultOk
+    | ResultErr
+
+/// One pattern binding a nested graph's scope introduces, in the role its arm gives it.
+[<RequireQualifiedAccess>]
+type NestedBinding =
+    | Field of FieldId * PatternBinding
+    | Value of PatternBinding
+    | Error of PatternBinding
+
+/// A nested graph owned by a node: its role and the bindings visible only inside it.
+type NestedScope =
+    { Role: NestedGraphRole
+      Bindings: NestedBinding list
+      Graph: ValueGraph }
+
+[<RequireQualifiedAccess>]
+module NestedBinding =
+    let pattern (binding: NestedBinding): PatternBinding =
+        match binding with
+        | NestedBinding.Field(_, pattern)
+        | NestedBinding.Value pattern
+        | NestedBinding.Error pattern -> pattern
+
+/// The one definition of how a node refers to other nodes and which graphs it owns. Every
+/// structural traversal in the Semantics layer (dependency order, cycle detection, pruning,
+/// cloning, migration, review and viewer projection) derives from these functions, so a new
+/// node kind is described here once. Typing, validation, lowering and serialization keep their
+/// own kind-specific rules. `SemanticNodeShapeTests` checks each case against the union's shape.
+[<RequireQualifiedAccess>]
+module SemanticNodeShape =
+    let private contextValues (context: ArgumentBinding list) =
+        context |> List.map (fun binding -> binding.ValueNodeId)
+
+    let private mapContextValues mapNodeId (context: ArgumentBinding list) =
+        context |> List.map (fun binding -> { binding with ValueNodeId = mapNodeId binding.ValueNodeId })
+
+    let private mapFieldValues mapNodeId (fields: FieldValueBinding list) =
+        fields |> List.map (fun field -> { field with ValueNodeId = mapNodeId field.ValueNodeId })
+
+    /// Direct value-node references required to interpret one node locally, in operand order.
+    /// Nodes inside nested graphs are intentionally not included: `nestedScopes` exposes the
+    /// graphs and `dependencies` adds the references they make from outside themselves.
+    let directValueReferences (node: SemanticNode): GraphNodeId list =
+        match node.Kind with
+        | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringLength valueNodeId
+        | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
+        | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
+            [ valueNodeId; substringNodeId ]
+        | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
+            [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.Float64IsNaN valueNodeId
+        | SemanticNodeKind.Float64IsFinite valueNodeId
+        | SemanticNodeKind.Int64ToFloat64 valueNodeId
+        | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
+        | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
+        | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
+        | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
+        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: contextValues context
+        | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
+            acquireNodeId :: releaseCapabilityNodeId :: contextValues context
+        | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
+            sourceListNodeId :: contextValues context
+        | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _ -> []
+        | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
+        | SemanticNodeKind.TaskScope(_, context) -> contextValues context
+        | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
+            scopeNodeId :: itemNodeId :: contextValues context
+        | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
+        | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
+        | SemanticNodeKind.DirectCall(_, arguments) -> contextValues arguments
+        | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
+            capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
+        | SemanticNodeKind.ProductConstruct(_, fields)
+        | SemanticNodeKind.UnionConstruct(_, fields) ->
+            fields |> List.map (fun field -> field.ValueNodeId)
+        | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
+        | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
+        | SemanticNodeKind.Abort errorNodeId
+        | SemanticNodeKind.ResultErr(_, errorNodeId) -> [ errorNodeId ]
+        | SemanticNodeKind.BoolNot operandNodeId
+        | SemanticNodeKind.BoolAnd(operandNodeId, _)
+        | SemanticNodeKind.BoolOr(operandNodeId, _) -> [ operandNodeId ]
+        | SemanticNodeKind.Conditional(conditionNodeId, _, _) -> [ conditionNodeId ]
+        | SemanticNodeKind.MatchUnion(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.Bind(inputNodeId, _) -> [ inputNodeId ]
+        | SemanticNodeKind.MatchOption(inputNodeId, _, _) -> [ inputNodeId ]
+        | SemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
+        | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.OptionNone _ -> []
+
+    /// The same node with every direct value reference replaced. Nested graphs, the node's own
+    /// ID and every other payload are untouched; `mapNested` handles the graphs.
+    let mapValueReferences (mapNodeId: GraphNodeId -> GraphNodeId) (node: SemanticNode): SemanticNode =
+        let kind =
+            match node.Kind with
+            | SemanticNodeKind.ParameterReference _
+            | SemanticNodeKind.PatternReference _
+            | SemanticNodeKind.StringLiteral _
+            | SemanticNodeKind.BoolLiteral _
+            | SemanticNodeKind.UnitLiteral
+            | SemanticNodeKind.Int64Literal _
+            | SemanticNodeKind.Float64Literal _
+            | SemanticNodeKind.ListEmpty _
+            | SemanticNodeKind.OptionNone _
+            | SemanticNodeKind.CancellationRequested
+            | SemanticNodeKind.CapabilityConstruct _
+            | SemanticNodeKind.FunctionReference _ -> node.Kind
+            | SemanticNodeKind.StringIsEmpty valueNodeId -> SemanticNodeKind.StringIsEmpty(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64ToString valueNodeId -> SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringParseInt64 valueNodeId -> SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringLength valueNodeId -> SemanticNodeKind.StringLength(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
+                SemanticNodeKind.StringSlice(mapNodeId valueNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
+            | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
+                SemanticNodeKind.StringContains(mapNodeId valueNodeId, mapNodeId substringNodeId)
+            | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.StringEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.StringLessThan(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.ValueEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.StringConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64WrappingAdd(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64WrappingAdd(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64WrappingSubtract(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64WrappingSubtract(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64WrappingMultiply(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64FloorDivide(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64FloorModulo(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64Equal(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64LessThan(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64LessThanOrEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64GreaterThan(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64GreaterThanOrEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Add(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Subtract(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Multiply(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Divide(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Equal(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64LessThan(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64IsNaN valueNodeId -> SemanticNodeKind.Float64IsNaN(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64IsFinite valueNodeId -> SemanticNodeKind.Float64IsFinite(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64IsInfinite valueNodeId -> SemanticNodeKind.Float64IsInfinite(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64ToFloat64 valueNodeId -> SemanticNodeKind.Int64ToFloat64(mapNodeId valueNodeId)
+            | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+                SemanticNodeKind.ListConstruct(itemType, List.map mapNodeId itemNodeIds)
+            | SemanticNodeKind.ListLength listNodeId -> SemanticNodeKind.ListLength(mapNodeId listNodeId)
+            | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
+                SemanticNodeKind.ListAppendItem(mapNodeId listNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
+                SemanticNodeKind.ListItemAt(mapNodeId listNodeId, mapNodeId indexNodeId)
+            | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.ListConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.ListFold(listNodeId, seedNodeId, functionId, context) ->
+                SemanticNodeKind.ListFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, functionId, context) ->
+                SemanticNodeKind.ListEffectFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ParallelAll(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ParallelAll(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, operationId, functionId, context) ->
+                SemanticNodeKind.UseResource(
+                    mapNodeId acquireNodeId,
+                    mapNodeId releaseCapabilityNodeId,
+                    operationId,
+                    functionId,
+                    mapContextValues mapNodeId context
+                )
+            | SemanticNodeKind.TaskScope(functionId, context) ->
+                SemanticNodeKind.TaskScope(functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.TaskStart(scopeNodeId, functionId, context, itemNodeId) ->
+                SemanticNodeKind.TaskStart(mapNodeId scopeNodeId, functionId, mapContextValues mapNodeId context, mapNodeId itemNodeId)
+            | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
+                SemanticNodeKind.TaskWait(mapNodeId tasksNodeId, mode, Option.map mapNodeId limitNodeId)
+            | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
+            | SemanticNodeKind.ListMap(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListFilter(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListFilter(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListAny(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListAny(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListAll(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListAll(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.FunctionInvoke(value, arguments) ->
+                SemanticNodeKind.FunctionInvoke(mapNodeId value, List.map mapNodeId arguments)
+            | SemanticNodeKind.DirectCall(functionId, arguments) ->
+                SemanticNodeKind.DirectCall(functionId, mapContextValues mapNodeId arguments)
+            | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, operationId, arguments) ->
+                SemanticNodeKind.CapabilityInvoke(
+                    mapNodeId capabilityValueNodeId,
+                    operationId,
+                    arguments |> List.map (fun argument -> { argument with ValueNodeId = mapNodeId argument.ValueNodeId })
+                )
+            | SemanticNodeKind.ProductConstruct(typeId, fields) ->
+                SemanticNodeKind.ProductConstruct(typeId, mapFieldValues mapNodeId fields)
+            | SemanticNodeKind.UnionConstruct(variantId, fields) ->
+                SemanticNodeKind.UnionConstruct(variantId, mapFieldValues mapNodeId fields)
+            | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) -> SemanticNodeKind.FieldAccess(mapNodeId sourceNodeId, fieldId)
+            | SemanticNodeKind.OptionSome valueNodeId -> SemanticNodeKind.OptionSome(mapNodeId valueNodeId)
+            | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(errorType, mapNodeId valueNodeId)
+            | SemanticNodeKind.Abort errorNodeId -> SemanticNodeKind.Abort(mapNodeId errorNodeId)
+            | SemanticNodeKind.ResultErr(okType, errorNodeId) -> SemanticNodeKind.ResultErr(okType, mapNodeId errorNodeId)
+            | SemanticNodeKind.BoolNot operandNodeId -> SemanticNodeKind.BoolNot(mapNodeId operandNodeId)
+            | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(mapNodeId leftNodeId, right)
+            | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(mapNodeId leftNodeId, right)
+            | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
+                SemanticNodeKind.Conditional(mapNodeId conditionNodeId, whenTrue, whenFalse)
+            | SemanticNodeKind.MatchUnion(inputNodeId, arms) -> SemanticNodeKind.MatchUnion(mapNodeId inputNodeId, arms)
+            | SemanticNodeKind.Bind(inputNodeId, body) -> SemanticNodeKind.Bind(mapNodeId inputNodeId, body)
+            | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
+                SemanticNodeKind.MatchOption(mapNodeId inputNodeId, someArm, noneBody)
+            | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
+                SemanticNodeKind.MatchResult(mapNodeId inputNodeId, okArm, errArm)
+
+        { node with Kind = kind }
+
+    /// The nested graphs a node owns, in evaluation order, each with its role and the pattern
+    /// bindings its scope introduces. This is the exhaustive list of nested-graph node kinds.
+    let nestedScopes (node: SemanticNode): NestedScope list =
+        let scope role bindings graph = { Role = role; Bindings = bindings; Graph = graph }
+        match node.Kind with
+        | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
+            [ scope NestedGraphRole.WhenTrue [] whenTrue
+              scope NestedGraphRole.WhenFalse [] whenFalse ]
+        | SemanticNodeKind.BoolAnd(_, right) -> [ scope NestedGraphRole.BoolAndRight [] right ]
+        | SemanticNodeKind.BoolOr(_, right) -> [ scope NestedGraphRole.BoolOrRight [] right ]
+        | SemanticNodeKind.MatchUnion(_, arms) ->
+            arms
+            |> List.map (fun arm ->
+                scope
+                    (NestedGraphRole.UnionArm arm.VariantId)
+                    (arm.FieldBindings |> List.map (fun field -> NestedBinding.Field(field.SourceFieldId, field.Binding)))
+                    arm.Body)
+        | SemanticNodeKind.Bind(_, body) ->
+            [ scope NestedGraphRole.BindBody [ NestedBinding.Value body.ValueBinding ] body.Body ]
+        | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
+            [ scope NestedGraphRole.OptionSome [ NestedBinding.Value someArm.ValueBinding ] someArm.Body
+              scope NestedGraphRole.OptionNone [] noneBody ]
+        | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
+            [ scope NestedGraphRole.ResultOk [ NestedBinding.Value okArm.ValueBinding ] okArm.Body
+              scope NestedGraphRole.ResultErr [ NestedBinding.Error errArm.ErrorBinding ] errArm.Body ]
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
+        | SemanticNodeKind.StringIsEmpty _
+        | SemanticNodeKind.Int64ToString _
+        | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringLength _
+        | SemanticNodeKind.StringSlice _
+        | SemanticNodeKind.StringContains _
+        | SemanticNodeKind.StringEqual _
+        | SemanticNodeKind.StringLessThan _
+        | SemanticNodeKind.ValueEqual _
+        | SemanticNodeKind.StringConcat _
+        | SemanticNodeKind.Int64WrappingAdd _
+        | SemanticNodeKind.Int64WrappingSubtract _
+        | SemanticNodeKind.Int64WrappingMultiply _
+        | SemanticNodeKind.Int64FloorDivide _
+        | SemanticNodeKind.Int64FloorModulo _
+        | SemanticNodeKind.Int64Equal _
+        | SemanticNodeKind.Int64LessThan _
+        | SemanticNodeKind.Int64LessThanOrEqual _
+        | SemanticNodeKind.Int64GreaterThan _
+        | SemanticNodeKind.Int64GreaterThanOrEqual _
+        | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Subtract _
+        | SemanticNodeKind.Float64Multiply _
+        | SemanticNodeKind.Float64Divide _
+        | SemanticNodeKind.Float64Equal _
+        | SemanticNodeKind.Float64LessThan _
+        | SemanticNodeKind.Float64IsNaN _
+        | SemanticNodeKind.Float64IsFinite _
+        | SemanticNodeKind.Float64IsInfinite _
+        | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.ListConstruct _
+        | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.ListAppendItem _
+        | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.ListConcat _
+        | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ParallelAll _
+        | SemanticNodeKind.CancellationRequested
+        | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.TaskScope _
+        | SemanticNodeKind.TaskStart _
+        | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.TaskCancel _
+        | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListAll _
+        | SemanticNodeKind.DirectCall _
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _
+        | SemanticNodeKind.FunctionInvoke _
+        | SemanticNodeKind.CapabilityInvoke _
+        | SemanticNodeKind.ProductConstruct _
+        | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.UnionConstruct _
+        | SemanticNodeKind.OptionNone _
+        | SemanticNodeKind.OptionSome _
+        | SemanticNodeKind.ResultOk _
+        | SemanticNodeKind.Abort _
+        | SemanticNodeKind.ResultErr _
+        | SemanticNodeKind.BoolNot _ -> []
+
+    /// The nested graphs a node owns, in evaluation order.
+    let nestedGraphs (node: SemanticNode): ValueGraph list =
+        nestedScopes node |> List.map (fun scope -> scope.Graph)
+
+    /// The same node with every nested graph and every scope binding replaced. Direct value
+    /// references and the rest of the payload are untouched; `mapValueReferences` handles those.
+    let mapNested
+        (mapBinding: PatternBinding -> PatternBinding)
+        (mapGraph: ValueGraph -> ValueGraph)
+        (node: SemanticNode)
+        : SemanticNode =
+        let mapValueArm (arm: ValueMatchArm): ValueMatchArm =
+            { ValueBinding = mapBinding arm.ValueBinding
+              Body = mapGraph arm.Body }
+
+        let kind =
+            match node.Kind with
+            | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
+                SemanticNodeKind.Conditional(conditionNodeId, mapGraph whenTrue, mapGraph whenFalse)
+            | SemanticNodeKind.BoolAnd(leftNodeId, right) -> SemanticNodeKind.BoolAnd(leftNodeId, mapGraph right)
+            | SemanticNodeKind.BoolOr(leftNodeId, right) -> SemanticNodeKind.BoolOr(leftNodeId, mapGraph right)
+            | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
+                SemanticNodeKind.MatchUnion(
+                    inputNodeId,
+                    arms
+                    |> List.map (fun arm ->
+                        { arm with
+                            FieldBindings =
+                                arm.FieldBindings
+                                |> List.map (fun field -> { field with Binding = mapBinding field.Binding })
+                            Body = mapGraph arm.Body })
+                )
+            | SemanticNodeKind.Bind(inputNodeId, body) -> SemanticNodeKind.Bind(inputNodeId, mapValueArm body)
+            | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
+                SemanticNodeKind.MatchOption(inputNodeId, mapValueArm someArm, mapGraph noneBody)
+            | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
+                SemanticNodeKind.MatchResult(
+                    inputNodeId,
+                    mapValueArm okArm,
+                    { ErrorBinding = mapBinding errArm.ErrorBinding
+                      Body = mapGraph errArm.Body }
+                )
+            // Every other kind owns no nested graph: `nestedScopes` is the exhaustive list.
+            | other -> other
+
+        { node with Kind = kind }
+
+    /// The same node with every nested graph replaced; scope bindings stay as they are.
+    let mapNestedGraphs (mapGraph: ValueGraph -> ValueGraph) (node: SemanticNode): SemanticNode =
+        mapNested id mapGraph node
+
+    /// Folds over the nested scopes of one node, in evaluation order.
+    let foldNestedGraphs (folder: 'State -> NestedScope -> 'State) (state: 'State) (node: SemanticNode): 'State =
+        nestedScopes node |> List.fold folder state
+
+    /// A node depends on its direct value references and on every node its nested graphs
+    /// reference from outside themselves, the same edges IR lowering orders by. A nested
+    /// graph's local nodes are not dependencies of the enclosing node.
+    let rec dependencies (node: SemanticNode): GraphNodeId list =
+        directValueReferences node
+        @ (nestedGraphs node |> List.collect freeReferences)
+        |> List.distinct
+
+    /// The nodes a graph references that it does not own, through any nesting depth.
+    and freeReferences (graph: ValueGraph): GraphNodeId list =
+        let localIds = graph.Nodes |> List.map (fun node -> node.Id) |> Set.ofList
+        graph.Nodes |> List.collect dependencies |> List.filter (fun id -> not (Set.contains id localIds))
+
 [<RequireQualifiedAccess>]
 module ValueGraph =
+    /// Every node of the graph and of its nested graphs, each node before the nodes it owns.
     let rec collectNodes (graph: ValueGraph): SemanticNode list =
-        let collectNode (node: SemanticNode) =
-            let nested =
-                match node.Kind with
-                | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                    collectNodes whenTrue @ collectNodes whenFalse
-                | SemanticNodeKind.BoolAnd(_, right)
-                | SemanticNodeKind.BoolOr(_, right) -> collectNodes right
-                | SemanticNodeKind.MatchUnion(_, arms) ->
-                    arms |> List.collect (fun arm -> collectNodes arm.Body)
-                | SemanticNodeKind.Bind(_, body) -> collectNodes body.Body
-                | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                    collectNodes someArm.Body @ collectNodes noneBody
-                | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                    collectNodes okArm.Body @ collectNodes errArm.Body
-                | SemanticNodeKind.StringConcat _
-                | SemanticNodeKind.StringEqual _
-                | SemanticNodeKind.StringLessThan _
-                | SemanticNodeKind.ValueEqual _
-                | SemanticNodeKind.ParameterReference _
-                | SemanticNodeKind.PatternReference _
-                | SemanticNodeKind.StringLiteral _
-                | SemanticNodeKind.BoolLiteral _
-                | SemanticNodeKind.UnitLiteral
-                | SemanticNodeKind.Int64Literal _
-                | SemanticNodeKind.Float64Literal _
-                | SemanticNodeKind.StringIsEmpty _
-                | SemanticNodeKind.Int64ToString _
-                | SemanticNodeKind.StringParseInt64 _
-                | SemanticNodeKind.StringLength _
-                | SemanticNodeKind.StringSlice _
-                | SemanticNodeKind.BoolNot _
-                | SemanticNodeKind.StringContains _
-                | SemanticNodeKind.Int64WrappingAdd _
-                | SemanticNodeKind.Int64WrappingSubtract _
-                | SemanticNodeKind.Int64WrappingMultiply _
-                | SemanticNodeKind.Int64FloorDivide _
-                | SemanticNodeKind.Int64FloorModulo _
-                | SemanticNodeKind.Int64Equal _
-                | SemanticNodeKind.Int64LessThan _
-                | SemanticNodeKind.Int64LessThanOrEqual _
-                | SemanticNodeKind.Int64GreaterThan _
-                | SemanticNodeKind.Int64GreaterThanOrEqual _
-                | SemanticNodeKind.Float64Add _
-                | SemanticNodeKind.Float64Subtract _
-                | SemanticNodeKind.Float64Multiply _
-                | SemanticNodeKind.Float64Divide _
-                | SemanticNodeKind.Float64Equal _
-                | SemanticNodeKind.Float64LessThan _
-                | SemanticNodeKind.Float64IsNaN _
-                | SemanticNodeKind.Float64IsFinite _
-                | SemanticNodeKind.Float64IsInfinite _
-                | SemanticNodeKind.Int64ToFloat64 _
-                | SemanticNodeKind.ListEmpty _
-                | SemanticNodeKind.ListConstruct _
-                | SemanticNodeKind.ListLength _
-                | SemanticNodeKind.ListItemAt _
-                | SemanticNodeKind.ListAppendItem _
-                | SemanticNodeKind.ListConcat _
-                | SemanticNodeKind.ListFold _
-                | SemanticNodeKind.ListEffectFold _
-                | SemanticNodeKind.UseResource _
-                | SemanticNodeKind.ParallelAll _
-                | SemanticNodeKind.CancellationRequested
-                | SemanticNodeKind.TaskScope _
-                | SemanticNodeKind.TaskStart _
-                | SemanticNodeKind.TaskWait _
-                | SemanticNodeKind.TaskCancel _
-                | SemanticNodeKind.ListMap _
-                | SemanticNodeKind.ListFilter _
-                | SemanticNodeKind.ListSortBy _
-                | SemanticNodeKind.ListAny _
-                | SemanticNodeKind.ListAll _
-                | SemanticNodeKind.CapabilityConstruct _
-                | SemanticNodeKind.FunctionReference _
-                | SemanticNodeKind.FunctionInvoke _
-                | SemanticNodeKind.DirectCall _
-                | SemanticNodeKind.CapabilityInvoke _
-                | SemanticNodeKind.ProductConstruct _
-                | SemanticNodeKind.FieldAccess _
-                | SemanticNodeKind.UnionConstruct _
-                | SemanticNodeKind.OptionNone _
-                | SemanticNodeKind.OptionSome _
-                | SemanticNodeKind.ResultOk _
-                | SemanticNodeKind.Abort _
-                | SemanticNodeKind.ResultErr _ -> []
+        graph.Nodes
+        |> List.collect (fun node -> node :: (SemanticNodeShape.nestedGraphs node |> List.collect collectNodes))
 
-            node :: nested
-
-        graph.Nodes |> List.collect collectNode
-
+    /// Transforms every node of the graph and of its nested graphs, innermost graphs first.
     let rec mapNodes (transform: SemanticNode -> SemanticNode) (graph: ValueGraph): ValueGraph =
-        let mapNode (node: SemanticNode) =
-            let kind =
-                match node.Kind with
-                | SemanticNodeKind.Conditional(conditionNodeId, whenTrue, whenFalse) ->
-                    SemanticNodeKind.Conditional(
-                        conditionNodeId,
-                        mapNodes transform whenTrue,
-                        mapNodes transform whenFalse
-                    )
-                | SemanticNodeKind.BoolAnd(leftNodeId, right) ->
-                    SemanticNodeKind.BoolAnd(leftNodeId, mapNodes transform right)
-                | SemanticNodeKind.BoolOr(leftNodeId, right) ->
-                    SemanticNodeKind.BoolOr(leftNodeId, mapNodes transform right)
-                | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
-                    let mappedArms =
-                        arms
-                        |> List.map (fun arm -> { arm with Body = mapNodes transform arm.Body })
-                    SemanticNodeKind.MatchUnion(inputNodeId, mappedArms)
-                | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                    let mappedSomeArm = { someArm with Body = mapNodes transform someArm.Body }
-                    SemanticNodeKind.MatchOption(inputNodeId, mappedSomeArm, mapNodes transform noneBody)
-                | SemanticNodeKind.Bind(inputNodeId, body) ->
-                    SemanticNodeKind.Bind(inputNodeId, { body with Body = mapNodes transform body.Body })
-                | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                    let mappedOkArm = { okArm with Body = mapNodes transform okArm.Body }
-                    let mappedErrArm = { errArm with Body = mapNodes transform errArm.Body }
-                    SemanticNodeKind.MatchResult(inputNodeId, mappedOkArm, mappedErrArm)
-                | SemanticNodeKind.StringConcat _
-                | SemanticNodeKind.StringEqual _
-                | SemanticNodeKind.StringLessThan _
-                | SemanticNodeKind.ValueEqual _
-                | SemanticNodeKind.ParameterReference _
-                | SemanticNodeKind.PatternReference _
-                | SemanticNodeKind.StringLiteral _
-                | SemanticNodeKind.BoolLiteral _
-                | SemanticNodeKind.UnitLiteral
-                | SemanticNodeKind.Int64Literal _
-                | SemanticNodeKind.Float64Literal _
-                | SemanticNodeKind.StringIsEmpty _
-                | SemanticNodeKind.Int64ToString _
-                | SemanticNodeKind.StringParseInt64 _
-                | SemanticNodeKind.StringLength _
-                | SemanticNodeKind.StringSlice _
-                | SemanticNodeKind.BoolNot _
-                | SemanticNodeKind.StringContains _
-                | SemanticNodeKind.Int64WrappingAdd _
-                | SemanticNodeKind.Int64WrappingSubtract _
-                | SemanticNodeKind.Int64WrappingMultiply _
-                | SemanticNodeKind.Int64FloorDivide _
-                | SemanticNodeKind.Int64FloorModulo _
-                | SemanticNodeKind.Int64Equal _
-                | SemanticNodeKind.Int64LessThan _
-                | SemanticNodeKind.Int64LessThanOrEqual _
-                | SemanticNodeKind.Int64GreaterThan _
-                | SemanticNodeKind.Int64GreaterThanOrEqual _
-                | SemanticNodeKind.Float64Add _
-                | SemanticNodeKind.Float64Subtract _
-                | SemanticNodeKind.Float64Multiply _
-                | SemanticNodeKind.Float64Divide _
-                | SemanticNodeKind.Float64Equal _
-                | SemanticNodeKind.Float64LessThan _
-                | SemanticNodeKind.Float64IsNaN _
-                | SemanticNodeKind.Float64IsFinite _
-                | SemanticNodeKind.Float64IsInfinite _
-                | SemanticNodeKind.Int64ToFloat64 _
-                | SemanticNodeKind.ListEmpty _
-                | SemanticNodeKind.ListConstruct _
-                | SemanticNodeKind.ListLength _
-                | SemanticNodeKind.ListItemAt _
-                | SemanticNodeKind.ListAppendItem _
-                | SemanticNodeKind.ListConcat _
-                | SemanticNodeKind.ListFold _
-                | SemanticNodeKind.ListEffectFold _
-                | SemanticNodeKind.UseResource _
-                | SemanticNodeKind.ParallelAll _
-                | SemanticNodeKind.CancellationRequested
-                | SemanticNodeKind.TaskScope _
-                | SemanticNodeKind.TaskStart _
-                | SemanticNodeKind.TaskWait _
-                | SemanticNodeKind.TaskCancel _
-                | SemanticNodeKind.ListMap _
-                | SemanticNodeKind.ListFilter _
-                | SemanticNodeKind.ListSortBy _
-                | SemanticNodeKind.ListAny _
-                | SemanticNodeKind.ListAll _
-                | SemanticNodeKind.CapabilityConstruct _
-                | SemanticNodeKind.FunctionReference _
-                | SemanticNodeKind.FunctionInvoke _
-                | SemanticNodeKind.DirectCall _
-                | SemanticNodeKind.CapabilityInvoke _
-                | SemanticNodeKind.ProductConstruct _
-                | SemanticNodeKind.FieldAccess _
-                | SemanticNodeKind.UnionConstruct _
-                | SemanticNodeKind.OptionNone _
-                | SemanticNodeKind.OptionSome _
-                | SemanticNodeKind.ResultOk _
-                | SemanticNodeKind.Abort _
-                | SemanticNodeKind.ResultErr _ -> node.Kind
-
-            transform { node with Kind = kind }
-
-        { graph with Nodes = graph.Nodes |> List.map mapNode }
+        { graph with
+            Nodes =
+                graph.Nodes
+                |> List.map (fun node -> transform (SemanticNodeShape.mapNestedGraphs (mapNodes transform) node)) }
 
 [<RequireQualifiedAccess>]
 module FunctionAbort =

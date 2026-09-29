@@ -223,7 +223,7 @@ module SemanticQuery =
             match ValueGraph.collectNodes functionEntity.Body |> List.tryFind (fun node -> node.Id = nodeId) with
             | None -> Error(SemanticQueryError.NodeNotFound(functionId, nodeId))
             | Some node ->
-                SemanticFacts.directValueDependencies node
+                SemanticNodeShape.directValueReferences node
                 |> List.distinct
                 |> List.sortBy StableId.value
                 |> Ok)
@@ -241,7 +241,7 @@ module SemanticQuery =
             else
                 nodes
                 |> List.choose (fun node ->
-                    if SemanticFacts.directValueDependencies node |> List.contains nodeId then
+                    if SemanticNodeShape.directValueReferences node |> List.contains nodeId then
                         Some node.Id
                     else
                         None)
@@ -329,7 +329,7 @@ module SemanticQuery =
                     let mutable changed = true
                     while changed do
                         let next = nodes |> List.fold (fun found candidate ->
-                            if SemanticFacts.directValueDependencies candidate |> List.exists (fun id -> Set.contains id found)
+                            if SemanticNodeShape.directValueReferences candidate |> List.exists (fun id -> Set.contains id found)
                             then Set.add candidate.Id found else found) dependent
                         changed <- next <> dependent
                         dependent <- next
@@ -337,14 +337,7 @@ module SemanticQuery =
                         ErrorType = Map.tryFind error types |> Option.flatten
                         EnclosingControlNodeIds = parents
                         DependentContinuationNodeIds = Set.difference dependent seeds |> Set.toList |> List.sortBy StableId.value } ]
-                | SemanticNodeKind.Conditional(_, a, b) -> visit (node.Id :: parents) a @ visit (node.Id :: parents) b
-                | SemanticNodeKind.BoolAnd(_, right)
-                | SemanticNodeKind.BoolOr(_, right) -> visit (node.Id :: parents) right
-                | SemanticNodeKind.Bind(_, arm) -> visit (node.Id :: parents) arm.Body
-                | SemanticNodeKind.MatchUnion(_, arms) -> arms |> List.collect (fun arm -> visit (node.Id :: parents) arm.Body)
-                | SemanticNodeKind.MatchOption(_, arm, other) -> visit (node.Id :: parents) arm.Body @ visit (node.Id :: parents) other
-                | SemanticNodeKind.MatchResult(_, a, b) -> visit (node.Id :: parents) a.Body @ visit (node.Id :: parents) b.Body
-                | _ -> [])
+                | _ -> SemanticNodeShape.nestedGraphs node |> List.collect (visit (node.Id :: parents)))
         visit [] functionEntity.Body |> List.sortBy (fun item -> StableId.value item.NodeId)
 
     let focusFunction

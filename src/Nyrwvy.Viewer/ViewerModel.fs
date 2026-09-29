@@ -344,110 +344,40 @@ module ViewerProjection =
                     { Kind = ViewerRelationKind.DependsOn
                       Target = ViewerTarget.Node dependency.NodeId })
 
+            let branchRole (role: NestedGraphRole) =
+                match role with
+                | NestedGraphRole.WhenTrue -> ViewerBranchRole.WhenTrue
+                | NestedGraphRole.WhenFalse -> ViewerBranchRole.WhenFalse
+                | NestedGraphRole.BoolAndRight
+                | NestedGraphRole.BoolOrRight -> ViewerBranchRole.RightOperand
+                | NestedGraphRole.UnionArm variantId -> ViewerBranchRole.UnionVariant variantId
+                | NestedGraphRole.BindBody -> ViewerBranchRole.BindBody
+                | NestedGraphRole.OptionSome -> ViewerBranchRole.OptionSome
+                | NestedGraphRole.OptionNone -> ViewerBranchRole.OptionNone
+                | NestedGraphRole.ResultOk -> ViewerBranchRole.ResultOk
+                | NestedGraphRole.ResultErr -> ViewerBranchRole.ResultErr
+
+            // Union arms and their field bindings are shown in stable ID order; the other
+            // scopes keep evaluation order.
             let branches =
-                match node.Kind with
-                | SemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                    [ projectBranch ViewerBranchRole.WhenTrue [] whenTrue
-                      projectBranch ViewerBranchRole.WhenFalse [] whenFalse ]
-                | SemanticNodeKind.BoolAnd(_, right)
-                | SemanticNodeKind.BoolOr(_, right) -> [ projectBranch ViewerBranchRole.RightOperand [] right ]
-                | SemanticNodeKind.MatchUnion(_, arms) ->
-                    arms
-                    |> List.sortBy (fun arm -> StableId.value arm.VariantId)
-                    |> List.map (fun arm ->
-                        let bindings =
-                            arm.FieldBindings
-                            |> List.sortBy (fun item -> StableId.value item.SourceFieldId)
-                            |> List.map (fun item -> patternBinding (Some item.SourceFieldId) item.Binding)
-                        projectBranch (ViewerBranchRole.UnionVariant arm.VariantId) bindings arm.Body)
-                | SemanticNodeKind.Bind(_, body) ->
-                    [ projectBranch ViewerBranchRole.BindBody [ patternBinding None body.ValueBinding ] body.Body ]
-                | SemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                    [ projectBranch
-                        ViewerBranchRole.OptionSome
-                        [ patternBinding None someArm.ValueBinding ]
-                        someArm.Body
-                      projectBranch ViewerBranchRole.OptionNone [] noneBody ]
-                | SemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                    [ projectBranch
-                        ViewerBranchRole.ResultOk
-                        [ patternBinding None okArm.ValueBinding ]
-                        okArm.Body
-                      projectBranch
-                        ViewerBranchRole.ResultErr
-                        [ patternBinding None errArm.ErrorBinding ]
-                        errArm.Body ]
-                | SemanticNodeKind.ParameterReference _
-                | SemanticNodeKind.PatternReference _
-                | SemanticNodeKind.StringLiteral _
-                | SemanticNodeKind.BoolLiteral _
-                | SemanticNodeKind.UnitLiteral
-                | SemanticNodeKind.Int64Literal _
-                | SemanticNodeKind.Float64Literal _
-                | SemanticNodeKind.StringIsEmpty _
-                | SemanticNodeKind.Int64ToString _
-                | SemanticNodeKind.StringParseInt64 _
-                | SemanticNodeKind.StringLength _
-                | SemanticNodeKind.StringSlice _
-                | SemanticNodeKind.BoolNot _
-                | SemanticNodeKind.StringContains _
-                | SemanticNodeKind.StringEqual _
-                | SemanticNodeKind.StringLessThan _
-                | SemanticNodeKind.ValueEqual _
-                | SemanticNodeKind.StringConcat _
-                | SemanticNodeKind.Int64WrappingAdd _
-                | SemanticNodeKind.Int64WrappingSubtract _
-                | SemanticNodeKind.Int64WrappingMultiply _
-                | SemanticNodeKind.Int64FloorDivide _
-                | SemanticNodeKind.Int64FloorModulo _
-                | SemanticNodeKind.Int64Equal _
-                | SemanticNodeKind.Int64LessThan _
-                | SemanticNodeKind.Int64LessThanOrEqual _
-                | SemanticNodeKind.Int64GreaterThan _
-                | SemanticNodeKind.Int64GreaterThanOrEqual _
-                | SemanticNodeKind.Float64Add _
-                | SemanticNodeKind.Float64Subtract _
-                | SemanticNodeKind.Float64Multiply _
-                | SemanticNodeKind.Float64Divide _
-                | SemanticNodeKind.Float64Equal _
-                | SemanticNodeKind.Float64LessThan _
-                | SemanticNodeKind.Float64IsNaN _
-                | SemanticNodeKind.Float64IsFinite _
-                | SemanticNodeKind.Float64IsInfinite _
-                | SemanticNodeKind.Int64ToFloat64 _
-                | SemanticNodeKind.ListEmpty _
-                | SemanticNodeKind.ListConstruct _
-                | SemanticNodeKind.ListLength _
-                | SemanticNodeKind.ListItemAt _
-                | SemanticNodeKind.ListAppendItem _
-                | SemanticNodeKind.ListConcat _
-                | SemanticNodeKind.ListFold _
-                | SemanticNodeKind.ListEffectFold _
-                | SemanticNodeKind.UseResource _
-                | SemanticNodeKind.ParallelAll _
-                | SemanticNodeKind.CancellationRequested
-                | SemanticNodeKind.TaskScope _
-                | SemanticNodeKind.TaskStart _
-                | SemanticNodeKind.TaskWait _
-                | SemanticNodeKind.TaskCancel _
-                | SemanticNodeKind.ListMap _
-                | SemanticNodeKind.ListFilter _
-                | SemanticNodeKind.ListSortBy _
-                | SemanticNodeKind.ListAny _
-                | SemanticNodeKind.ListAll _
-                | SemanticNodeKind.CapabilityConstruct _
-                | SemanticNodeKind.FunctionReference _
-                | SemanticNodeKind.FunctionInvoke _
-                | SemanticNodeKind.DirectCall _
-                | SemanticNodeKind.CapabilityInvoke _
-                | SemanticNodeKind.ProductConstruct _
-                | SemanticNodeKind.FieldAccess _
-                | SemanticNodeKind.UnionConstruct _
-                | SemanticNodeKind.OptionNone _
-                | SemanticNodeKind.OptionSome _
-                | SemanticNodeKind.ResultOk _
-                | SemanticNodeKind.Abort _
-                | SemanticNodeKind.ResultErr _ -> []
+                SemanticNodeShape.nestedScopes node
+                |> List.sortBy (fun scope ->
+                    match scope.Role with
+                    | NestedGraphRole.UnionArm variantId -> Some(StableId.value variantId)
+                    | _ -> None)
+                |> List.map (fun scope ->
+                    let bindings =
+                        scope.Bindings
+                        |> List.sortBy (fun binding ->
+                            match binding with
+                            | NestedBinding.Field(fieldId, _) -> Some(StableId.value fieldId)
+                            | _ -> None)
+                        |> List.map (fun binding ->
+                            match binding with
+                            | NestedBinding.Field(fieldId, pattern) -> patternBinding (Some fieldId) pattern
+                            | NestedBinding.Value pattern
+                            | NestedBinding.Error pattern -> patternBinding None pattern)
+                    projectBranch (branchRole scope.Role) bindings scope.Graph)
 
             { Id = node.Id
               Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None

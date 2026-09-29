@@ -20,19 +20,6 @@ module internal GraphOrder =
                 | None -> pairs rest
         observable |> List.sortBy StableId.value |> pairs
 
-    /// A node depends on its direct value references and on every node its nested graphs
-    /// reference from outside themselves, the same edges IR lowering orders by. A nested
-    /// graph's local nodes are not dependencies of the enclosing node.
-    let rec dependencies (node: SemanticNode): GraphNodeId list =
-        SemanticFacts.directValueDependencies node
-        @ (SemanticFacts.nestedGraphs node |> List.collect freeReferences)
-        |> List.distinct
-
-    /// The nodes a graph references that it does not own, through any nesting depth.
-    and freeReferences (graph: ValueGraph): GraphNodeId list =
-        let localIds = graph.Nodes |> List.map (fun node -> node.Id) |> Set.ofList
-        graph.Nodes |> List.collect dependencies |> List.filter (fun id -> not (Set.contains id localIds))
-
     /// Legacy effect-only graphs retain their existing lowering-time readiness check.
     /// A new local exit must also pass ordering before it can be published or reopened.
     let tryAbortOrderConflict (functions: Map<FunctionId, SemanticFunction>) (fn: SemanticFunction) =
@@ -53,10 +40,10 @@ module internal GraphOrder =
                 | SemanticNodeKind.DirectCall(id, _)
                 | SemanticNodeKind.ListEffectFold(_, _, id, _)
                 | SemanticNodeKind.ParallelAll(_, id, _) -> functionHasEffects id
-                | _ -> SemanticFacts.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
+                | _ -> SemanticNodeShape.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
             let rec check graph =
-                let edges = graph.Nodes |> List.map (fun node -> node.Id, dependencies node) |> Map.ofList
+                let edges = graph.Nodes |> List.map (fun node -> node.Id, SemanticNodeShape.dependencies node) |> Map.ofList
                 match tryUnorderedPair edges (graph.Nodes |> List.filter observable |> List.map (fun node -> node.Id)) with
                 | Some pair -> Some pair
-                | None -> graph.Nodes |> List.collect SemanticFacts.nestedGraphs |> List.tryPick check
+                | None -> graph.Nodes |> List.collect SemanticNodeShape.nestedGraphs |> List.tryPick check
             check fn.Body

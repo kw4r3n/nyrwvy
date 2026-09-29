@@ -10,6 +10,7 @@
     <Compile Include="StableIdAllocatorTests.fs" />
     <Compile Include="ValidationTests.fs" />
     <Compile Include="SemanticFactsTests.fs" />
+    <Compile Include="SemanticNodeShapeTests.fs" />
     <Compile Include="SnapshotComputationScopeTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="FingerprintTests.fs" />
