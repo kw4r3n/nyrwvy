@@ -180,3 +180,23 @@ module SelfCallTests =
                 Assert.Equal(PureRunValue.Int64 expected, run factorial value)
             for value, expected in [ 0L, 0L; 1L, 1L; 10L, 55L ] do
                 Assert.Equal(PureRunValue.Int64 expected, run sumTo value))
+
+    [<Fact>]
+    let ``a callback naming the function being created explains the placeholder route`` () =
+        withSession (fun session path ->
+            // step(n) = ListLength(ListMap([n], step)): the callback is the function itself.
+            let callsBack =
+                sprintf """{"kind":"listLength","value":{"kind":"listMap","source":{"kind":"listConstruct","itemType":%s,"items":[{"kind":"parameter","name":"n"}]},"function":"step"}}""" int64Json
+            let createStep body =
+                sprintf """{"id":"step","op":"simulateCreateFunctionByName","displayName":"step","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json int64Json body
+            for body in [ callsBack; """{"kind":"functionReference","function":"step"}""" ] do
+                let message =
+                    (JsonDocument.Parse(failure session (createStep body))).RootElement.GetProperty("error").GetProperty("message").GetString()
+                Assert.Contains("Function 'step' is the function being created", message)
+                Assert.Contains("simulateReplaceBodyByName", message)
+            // The route the message names: a placeholder body, then the real body by name.
+            use placeholder = send session (createStep """{"kind":"parameter","name":"n"}""")
+            publishWire session placeholder
+            use replaced = send session (sprintf """{"id":"real","op":"simulateReplaceBodyByName","function":"step","replacement":%s}""" callsBack)
+            publishWire session replaced
+            Assert.Empty(SnapshotValidator.validate (snapshot path)))

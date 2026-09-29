@@ -176,6 +176,18 @@ module internal WireSymbolic =
         | NewFunction of displayName: string * AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list
         | ExistingFunction of SemanticFunction
 
+    /// Resolves a callback, worker or function value. Only a `directCall` naming the function being
+    /// created becomes a self call, so a reference naming it has no function to resolve to yet.
+    let private resolveReferencedFunction (declarations: AuthoringDeclarations) context displayName =
+        match context with
+        | ParameterContext.NewFunction(ownerName, _) when
+            ownerName = displayName
+            && not (declarations.Functions |> List.exists (fun item -> item.DisplayName = displayName))
+            ->
+            fail
+                $"Function '{displayName}' is the function being created: only a directCall to it is a self call. A callback, worker or functionReference naming it (and mutual recursion through another new function) needs it to exist, so create it with a placeholder body, create the functions it calls back, then give it the real body with simulateReplaceBodyByName."
+        | _ -> resolveFunction declarations displayName
+
     let private parameterRecipe context displayName =
         match context with
         | ParameterContext.NewFunction(_, parameters) ->
@@ -408,7 +420,7 @@ module internal WireSymbolic =
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
-            let callback = resolveFunction declarations (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
             ExpressionRecipe.ListFold(
                 recipe declarations parameterContext (property "source" element),
                 recipe declarations parameterContext (property "seed" element),
@@ -417,7 +429,7 @@ module internal WireSymbolic =
             )
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
-            let callback = resolveFunction declarations (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
             ExpressionRecipe.ListEffectFold(
                 recipe declarations parameterContext (property "source" element),
                 recipe declarations parameterContext (property "seed" element),
@@ -432,7 +444,7 @@ module internal WireSymbolic =
                 element
             let capability = resolveCapability declarations (requiredString "capability" element)
             let operation = capabilityOperation capability (requiredString "releaseOperation" element)
-            let body = resolveFunction declarations (requiredString "body" element)
+            let body = resolveReferencedFunction declarations parameterContext (requiredString "body" element)
             ExpressionRecipe.UseResource(
                 recipe declarations parameterContext (property "acquire" element),
                 recipe declarations parameterContext (property "releaseCapability" element),
@@ -441,18 +453,18 @@ module internal WireSymbolic =
                 callbackContext body)
         | "parallelAll" ->
             ensureFields "parallel-all recipe" [ "kind"; "source"; "worker"; "context" ] [ "kind"; "source"; "worker" ] element
-            let worker = resolveFunction declarations (requiredString "worker" element)
+            let worker = resolveReferencedFunction declarations parameterContext (requiredString "worker" element)
             ExpressionRecipe.ParallelAll(recipe declarations parameterContext (property "source" element), worker.Id, callbackContext worker)
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
         | "taskScope" ->
             ensureFields "task-scope recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
-            let body = resolveFunction declarations (requiredString "body" element)
+            let body = resolveReferencedFunction declarations parameterContext (requiredString "body" element)
             ExpressionRecipe.TaskScope(body.Id, callbackContext body)
         | "taskStart" ->
             ensureFields "task-start recipe" [ "kind"; "scope"; "worker"; "item"; "context" ] [ "kind"; "scope"; "worker"; "item" ] element
-            let worker = resolveFunction declarations (requiredString "worker" element)
+            let worker = resolveReferencedFunction declarations parameterContext (requiredString "worker" element)
             ExpressionRecipe.TaskStart(
                 recipe declarations parameterContext (property "scope" element),
                 worker.Id,
@@ -474,7 +486,7 @@ module internal WireSymbolic =
         | "listAll" as kind ->
             ensureFields $"{kind} recipe" [ "kind"; "source"; "function"; "context" ] [ "kind"; "source"; "function" ] element
             let source = recipe declarations parameterContext (property "source" element)
-            let callback = resolveFunction declarations (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
             let context = callbackContext callback
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
@@ -544,11 +556,11 @@ module internal WireSymbolic =
             let implementations = array "implementations" element |> List.map (fun item ->
                 ensureFields "Capability implementation" [ "operation"; "function" ] [ "operation"; "function" ] item
                 (capabilityOperation capability (requiredString "operation" item)).Id,
-                (resolveFunction declarations (requiredString "function" item)).Id)
+                (resolveReferencedFunction declarations parameterContext (requiredString "function" item)).Id)
             ExpressionRecipe.CapabilityConstruct(capability.Id, implementations)
         | "functionReference" ->
             ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
-            ExpressionRecipe.FunctionReference((resolveFunction declarations (requiredString "function" element)).Id)
+            ExpressionRecipe.FunctionReference((resolveReferencedFunction declarations parameterContext (requiredString "function" element)).Id)
         | "functionInvoke" ->
             ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
             ExpressionRecipe.FunctionInvoke(recipe declarations parameterContext (property "functionValue" element), array "arguments" element |> List.map (recipe declarations parameterContext))
