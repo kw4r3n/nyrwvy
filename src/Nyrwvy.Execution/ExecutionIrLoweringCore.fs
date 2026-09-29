@@ -304,6 +304,22 @@ module ExecutionIr =
                             | Error error, _, _
                             | _, Error error, _
                             | _, _, Error error -> Error error
+                        | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
+                        | TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) ->
+                            match
+                                requireNodeValue environment valueNodeId,
+                                requireNodeValue environment setNodeId,
+                                requireNodeValue environment boundNodeId
+                            with
+                            | Ok valueId, Ok setId, Ok boundId ->
+                                let kind =
+                                    match node.Kind with
+                                    | TypedSemanticNodeKind.StringSpan _ -> ExecutionInstructionKind.StringSpan(valueId, setId, boundId)
+                                    | _ -> ExecutionInstructionKind.StringSpanBack(valueId, setId, boundId)
+                                Ok(addInstruction currentBlock node kind)
+                            | Error error, _, _
+                            | _, Error error, _
+                            | _, _, Error error -> Error error
                         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringLastIndexOf(value, other))
                         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
@@ -738,6 +754,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.BoolNot _
                         | TypedSemanticNodeKind.StringContains _
                         | TypedSemanticNodeKind.StringIndexOf _
+                        | TypedSemanticNodeKind.StringSpan _
+                        | TypedSemanticNodeKind.StringSpanBack _
                         | TypedSemanticNodeKind.StringLastIndexOf _
                         | TypedSemanticNodeKind.StringStartsWith _
                         | TypedSemanticNodeKind.StringEndsWith _

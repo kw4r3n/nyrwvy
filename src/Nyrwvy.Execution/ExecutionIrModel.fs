@@ -93,6 +93,10 @@ type ExecutionInstructionKind =
     | StringSlice of valueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | StringContains of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringIndexOf of valueId: ExecutionValueId * substringId: ExecutionValueId * fromId: ExecutionValueId
+    /// Code-point position of the first code point at or after `from` (clamped) not in `set`.
+    | StringSpan of valueId: ExecutionValueId * setId: ExecutionValueId * fromId: ExecutionValueId
+    /// Least code-point position p <= `end` (clamped) with every code point in [p, end) in `set`.
+    | StringSpanBack of valueId: ExecutionValueId * setId: ExecutionValueId * endId: ExecutionValueId
     | StringLastIndexOf of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringStartsWith of valueId: ExecutionValueId * prefixId: ExecutionValueId
     | StringEndsWith of valueId: ExecutionValueId * suffixId: ExecutionValueId

@@ -729,6 +729,27 @@ module SnapshotValidator =
                             $"StringIndexOf node '{StableId.value node.Id}' requires an Int64 from."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             fromNodeId
+                    | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
+                    | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) ->
+                        let name, boundRole =
+                            match node.Kind with
+                            | SemanticNodeKind.StringSpan _ -> "StringSpan", "from"
+                            | _ -> "StringSpanBack", "end"
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String set."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            setNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires an Int64 {boundRole}."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            boundNodeId
                     | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId)
                     | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId)
                     | SemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
@@ -1559,6 +1580,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _
                 | SemanticNodeKind.StringIndexOf _
+                | SemanticNodeKind.StringSpan _
+                | SemanticNodeKind.StringSpanBack _
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _

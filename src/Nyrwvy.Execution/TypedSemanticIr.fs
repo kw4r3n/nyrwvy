@@ -90,6 +90,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringSlice of valueNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringContains of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    | StringSpan of valueNodeId: GraphNodeId * setNodeId: GraphNodeId * fromNodeId: GraphNodeId
+    | StringSpanBack of valueNodeId: GraphNodeId * setNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringLastIndexOf of valueNodeId: GraphNodeId * substringNodeId: GraphNodeId
     | StringStartsWith of valueNodeId: GraphNodeId * prefixNodeId: GraphNodeId
     | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
@@ -301,6 +303,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId))
                     | SemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
                         Ok(TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId))
+                    | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId))
+                    | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId))
                     | SemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
                         Ok(TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId))
                     | SemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->

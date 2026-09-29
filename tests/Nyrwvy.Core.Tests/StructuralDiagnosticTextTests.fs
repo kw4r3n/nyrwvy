@@ -182,6 +182,18 @@ module StructuralDiagnosticTextTests =
                 (listOf S)
                 """{"kind":"listSlice","list":{"kind":"stringLength","value":{"kind":"int64Literal","value":9}},"start":{"kind":"int64Literal","value":0},"end":{"kind":"int64Literal","value":1}}"""
         Assert.EndsWith("At body.list (stringLength).", sliceList)
+        let _, spanSet =
+            reject
+                [ "text", S ]
+                I
+                """{"kind":"stringSpan","value":{"kind":"parameter","name":"text"},"set":{"kind":"stringLength","value":{"kind":"int64Literal","value":10}},"from":{"kind":"int64Literal","value":0}}"""
+        Assert.EndsWith("At body.set (stringLength).", spanSet)
+        let _, spanEnd =
+            reject
+                [ "text", S ]
+                I
+                """{"kind":"stringSpanBack","value":{"kind":"parameter","name":"text"},"set":{"kind":"stringLiteral","value":" "},"end":{"kind":"stringLength","value":{"kind":"int64Literal","value":11}}}"""
+        Assert.EndsWith("At body.end (stringLength).", spanEnd)
 
     [<Fact>]
     let ``type references render as display names in wire notation`` () =

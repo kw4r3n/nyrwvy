@@ -33,6 +33,8 @@ type ExpressionRecipe =
     | StringSlice of value: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringContains of ExpressionRecipe * ExpressionRecipe
     | StringIndexOf of ExpressionRecipe * ExpressionRecipe * ExpressionRecipe
+    | StringSpan of value: ExpressionRecipe * set: ExpressionRecipe * from: ExpressionRecipe
+    | StringSpanBack of value: ExpressionRecipe * set: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringLastIndexOf of ExpressionRecipe * ExpressionRecipe
     | StringStartsWith of ExpressionRecipe * ExpressionRecipe
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
@@ -170,6 +172,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringSlice(value, start, stop) -> ExpressionRecipe.StringSlice(go value, go start, go stop)
         | ExpressionRecipe.StringContains(left, right) -> ExpressionRecipe.StringContains(go left, go right)
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> ExpressionRecipe.StringIndexOf(go value, go substring, go from)
+        | ExpressionRecipe.StringSpan(value, set, from) -> ExpressionRecipe.StringSpan(go value, go set, go from)
+        | ExpressionRecipe.StringSpanBack(value, set, stop) -> ExpressionRecipe.StringSpanBack(go value, go set, go stop)
         | ExpressionRecipe.StringLastIndexOf(left, right) -> ExpressionRecipe.StringLastIndexOf(go left, go right)
         | ExpressionRecipe.StringStartsWith(left, right) -> ExpressionRecipe.StringStartsWith(go left, go right)
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
@@ -371,6 +375,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
+        | ExpressionRecipe.StringSpan(value, set, bound)
+        | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
@@ -1060,6 +1066,24 @@ module AgentExpressionStructuralWorkflow =
                     | Error error -> Error error
                     | Ok actual when actual <> int64Type -> Error(typeMismatch "StringIndexOf" "from" int64Type actual)
                     | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ]))
+            | ExpressionRecipe.StringSpan(value, set, bound)
+            | ExpressionRecipe.StringSpanBack(value, set, bound) ->
+                let name, boundRole =
+                    match recipe with
+                    | ExpressionRecipe.StringSpan _ -> "StringSpan", "from"
+                    | _ -> "StringSpanBack", "end"
+                match infer frames value with
+                | Error error -> Error error
+                | Ok actual when actual <> stringType -> Error(typeMismatch name "value" stringType actual)
+                | Ok _ ->
+                    match infer frames set with
+                    | Error error -> Error error
+                    | Ok actual when actual <> stringType -> Error(typeMismatch name "set" stringType actual)
+                    | Ok _ ->
+                        match infer frames bound with
+                        | Error error -> Error error
+                        | Ok actual when actual <> int64Type -> Error(typeMismatch name boundRole int64Type actual)
+                        | Ok _ -> Ok int64Type
             | ExpressionRecipe.StringLastIndexOf(value, substring) ->
                 binary "StringLastIndexOf" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value substring
             | ExpressionRecipe.StringStartsWith(value, prefix) -> binary "StringStartsWith" stringType boolType value prefix
@@ -1856,6 +1880,17 @@ module AgentExpressionStructuralWorkflow =
             valueNodes @ substringNodes @ fromNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.StringIndexOf(valueResult, substringResult, fromResult) } ],
             nodeId
+        | ExpressionRecipe.StringSpan(value, set, bound)
+        | ExpressionRecipe.StringSpanBack(value, set, bound) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let setNodes, setResult = materializeRecipe set
+            let boundNodes, boundResult = materializeRecipe bound
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            let kind =
+                match recipe with
+                | ExpressionRecipe.StringSpan _ -> SemanticNodeKind.StringSpan(valueResult, setResult, boundResult)
+                | _ -> SemanticNodeKind.StringSpanBack(valueResult, setResult, boundResult)
+            valueNodes @ setNodes @ boundNodes @ [ { Id = nodeId; Kind = kind } ], nodeId
         | ExpressionRecipe.StringLastIndexOf(left, right) -> binary SemanticNodeKind.StringLastIndexOf left right
         | ExpressionRecipe.StringStartsWith(left, right) -> binary SemanticNodeKind.StringStartsWith left right
         | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right

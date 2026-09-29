@@ -346,6 +346,16 @@ module TypedSemanticIrCodec =
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
             writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId) ->
+            writer.WriteString("kind", "stringSpan")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("setNodeId", StableId.value setNodeId)
+            writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringSpanBack")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("setNodeId", StableId.value setNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
             writer.WriteString("kind", "stringLastIndexOf")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)

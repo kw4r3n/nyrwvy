@@ -494,6 +494,20 @@ module NyasonCodec =
                   "value", encodeId "node" valueNodeId
                   "substring", encodeId "node" substringNodeId
                   "from", encodeId "node" fromNodeId ]
+        | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId) ->
+            record
+                "string-span"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "set", encodeId "node" setNodeId
+                  "from", encodeId "node" fromNodeId ]
+        | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId) ->
+            record
+                "string-span-back"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "set", encodeId "node" setNodeId
+                  "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
             record
                 "string-last-index-of"
@@ -891,6 +905,18 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "substring" fields),
                     decodeId<GraphNodeTag> "node" (require "from" fields)
                 ) }
+        | NyasonValue.Record(("string-span" | "string-span-back") as tag, _) ->
+            let bound, build =
+                match tag with
+                | "string-span" -> "from", (fun v s b -> SemanticNodeKind.StringSpan(v, s, b))
+                | _ -> "end", (fun v s b -> SemanticNodeKind.StringSpanBack(v, s, b))
+            let fields = recordFields tag [ "id"; "value"; "set"; bound ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                build
+                    (decodeId<GraphNodeTag> "node" (require "value" fields))
+                    (decodeId<GraphNodeTag> "node" (require "set" fields))
+                    (decodeId<GraphNodeTag> "node" (require bound fields)) }
         | NyasonValue.Record(("string-last-index-of" | "string-starts-with" | "string-ends-with" | "string-split") as tag, _) ->
             let other, build =
                 match tag with

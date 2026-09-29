@@ -49,6 +49,8 @@ type ViewerNodeRole =
     | StringSlice
     | StringContains
     | StringIndexOf
+    | StringSpan
+    | StringSpanBack
     | StringLastIndexOf
     | StringStartsWith
     | StringEndsWith
@@ -223,6 +225,8 @@ module ViewerProjection =
         | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
         | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
         | SemanticNodeKind.StringIndexOf _ -> ViewerNodeRole.StringIndexOf, []
+        | SemanticNodeKind.StringSpan _ -> ViewerNodeRole.StringSpan, []
+        | SemanticNodeKind.StringSpanBack _ -> ViewerNodeRole.StringSpanBack, []
         | SemanticNodeKind.StringLastIndexOf _ -> ViewerNodeRole.StringLastIndexOf, []
         | SemanticNodeKind.StringStartsWith _ -> ViewerNodeRole.StringStartsWith, []
         | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []

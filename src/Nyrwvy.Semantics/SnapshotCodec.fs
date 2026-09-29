@@ -424,6 +424,16 @@ module SnapshotCodec =
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("substringNodeId", StableId.value substringNodeId)
             writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, fromNodeId) ->
+            writer.WriteString("kind", "stringSpan")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("setNodeId", StableId.value setNodeId)
+            writer.WriteString("fromNodeId", StableId.value fromNodeId)
+        | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringSpanBack")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("setNodeId", StableId.value setNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringLastIndexOf")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -1124,6 +1134,28 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "valueNodeId" element,
                     readId<GraphNodeTag> "substringNodeId" element,
                     readId<GraphNodeTag> "fromNodeId" element
+                )
+            | "stringSpan" ->
+                ensureProperties
+                    "StringSpan node"
+                    (set [ "id"; "kind"; "valueNodeId"; "setNodeId"; "fromNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "setNodeId"; "fromNodeId" ])
+                    element
+                SemanticNodeKind.StringSpan(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "setNodeId" element,
+                    readId<GraphNodeTag> "fromNodeId" element
+                )
+            | "stringSpanBack" ->
+                ensureProperties
+                    "StringSpanBack node"
+                    (set [ "id"; "kind"; "valueNodeId"; "setNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "setNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.StringSpanBack(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "setNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
                 )
             | "stringLastIndexOf"
             | "stringStartsWith"

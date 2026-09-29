@@ -51,6 +51,8 @@ ExpressionRecipe =
   | StringSlice(expr, expr, expr)
   | StringCodePoints(expr)
   | StringIndexOf(value, substring, from)
+  | StringSpan(value, set, from)
+  | StringSpanBack(value, set, end)
   | StringLastIndexOf(value, substring)
   | StringStartsWith(value, prefix)
   | StringEndsWith(value, suffix)
@@ -332,6 +334,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## String search and split
 
 `StringIndexOf(value, substring, from)` (wire `stringIndexOf` with `value`, `substring`, `from`; Nyason `string-index-of`) and `StringLastIndexOf(value, substring)` (`stringLastIndexOf`, `string-last-index-of`) produce `Option<Int64>` code-point positions. `StringStartsWith(value, prefix)` (`stringStartsWith`, `string-starts-with`) and `StringEndsWith(value, suffix)` (`stringEndsWith`, `string-ends-with`) produce Bool. `StringSplit(value, separator)` (`stringSplit`, `string-split`) produces `List<String>`. Every text operand is a String and `from` is an Int64; another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. The semantics (ordinal, code-point positions, `from` clamped like `StringSlice`, an empty separator giving `[value]`, never failing) are defined in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-search-and-affixes.md).
+
+## StringSpan and StringSpanBack
+
+`StringSpan(value, set, from)` (wire `stringSpan` with `value`, `set`, `from`; Nyason `string-span`) and `StringSpanBack(value, set, end)` (wire `stringSpanBack` with `value`, `set`, `end`; Nyason `string-span-back`) take two Strings and an Int64 and produce an Int64 code-point position: where a run of `set` members that starts at the clamped `from` ends, and where a run that ends at the clamped `end` starts. They never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-spans.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.set`, `body.from`, `body.end`); a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringToLower and StringUtf8ByteCount
 
