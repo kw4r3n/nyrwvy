@@ -61,7 +61,7 @@ Current dedicated constructs and their status:
 | --- | --- | --- |
 | `ListMap`, `ListFilter`, `ListAny`, `ListAll` | Expressible with `ListFold`. | Review reads the intent directly. |
 | `BoolNot`, `BoolAnd`, `BoolOr` | Expressible with `Conditional`. | Review reads the intent directly. |
-| `ListEffectFold` | Not expressible; pure callbacks cannot perform effects. | Ordered effectful traversal. |
+| `ListEffectFold` | Not expressible with an effectful folder; pure callbacks cannot perform effects. With a pure folder returning `Result<S, E>`, `ListFold` over a `Result` accumulator with a pass-through `Err` arm gives the same value. | Ordered effectful traversal, and a fold that stops at the first `Err`. |
 | `UseResource` | Not expressible; host exceptions are outside program meaning. | Release on every exit. |
 | `ParallelAll` | Not expressible; there is no other concurrency construct. | Structured concurrency and cancellation. |
 

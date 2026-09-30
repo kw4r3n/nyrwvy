@@ -89,6 +89,7 @@
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
     <Compile Include="ListCallbackContextTests.fs" />
     <Compile Include="ListEffectFoldTests.fs" />
+    <Compile Include="ResultFoldTests.fs" />
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
     <Compile Include="FunctionValueTests.fs" />
