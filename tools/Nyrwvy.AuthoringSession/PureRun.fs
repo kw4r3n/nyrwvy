@@ -414,6 +414,50 @@ module PureRun =
         |> Result.bind (fun (exitCode, output, errors) ->
             if exitCode <> 0 then Error(processFailure output errors) else Ok output)
 
+    let private generatedProject =
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>"
+
+    let private restoreGate = obj ()
+    let mutable private restoredProject: string option = None
+
+    /// Restores `generatedProject` once per process and returns its directory. The project and its
+    /// package graph never change, so every run copies this `obj` and builds with `--no-restore`.
+    /// A failed restore is not kept; that run restores on its own and a later run tries again.
+    let private restoredTemplate () =
+        lock restoreGate (fun () ->
+            match restoredProject with
+            | Some directory when File.Exists(Path.Combine(directory, "obj", "project.assets.json")) -> Some directory
+            | _ ->
+                let directory = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-restore-" + Guid.NewGuid().ToString("N"))
+                try
+                    Directory.CreateDirectory(directory) |> ignore
+                    File.WriteAllText(Path.Combine(directory, "Generated.csproj"), generatedProject)
+                    match launch "restore" directory [ "restore"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000 with
+                    | Ok _ ->
+                        if restoredProject.IsNone then
+                            AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
+                                restoredProject |> Option.iter (fun path ->
+                                    try Directory.Delete(path, true)
+                                    with
+                                    | :? IOException
+                                    | :? UnauthorizedAccessException -> ()))
+                        restoredProject <- Some directory
+                        Some directory
+                    | Error _ -> None
+                with
+                | :? IOException
+                | :? UnauthorizedAccessException -> None)
+
+    /// Copies the shared restore output into `root`; false when the run must restore itself.
+    let private copyRestore (root: string) =
+        match restoredTemplate () with
+        | None -> false
+        | Some template ->
+            let target = Directory.CreateDirectory(Path.Combine(root, "obj"))
+            for file in Directory.GetFiles(Path.Combine(template, "obj")) do
+                File.Copy(file, Path.Combine(target.FullName, Path.GetFileName file))
+            true
+
     /// Maps generated symbol names back to semantic identities using the emitted symbol manifest.
     let private frameResolver (symbols: CSharpSymbolManifest) =
         let functions = symbols.Functions |> List.map (fun symbol -> symbol.Name, PureRunFrame.Function symbol.Id)
@@ -971,8 +1015,7 @@ module PureRun =
                 try
                     try
                         Directory.CreateDirectory(root) |> ignore
-                        File.WriteAllText(Path.Combine(root, "Generated.csproj"),
-                            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
+                        File.WriteAllText(Path.Combine(root, "Generated.csproj"), generatedProject)
                         File.WriteAllText(Path.Combine(root, "Generated.cs"), artifact.Source)
                         hostSources |> List.iteri (fun index (_, text) -> File.WriteAllText(Path.Combine(root, $"HostSource{index}.cs"), text))
                         let args =
@@ -1197,9 +1240,11 @@ module PureRun =
                                   Frames = frames frameNames
                                   BindingExhausted = exhausted
                                   Calls = calls }
-                        launch "build" root [ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000
+                        // Release: the time limit measures optimized code, not the unoptimized Debug JIT.
+                        let restore = if copyRestore root then [ "--no-restore" ] else [ "--ignore-failed-sources" ]
+                        launch "build" root ([ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "-c"; "Release" ] @ restore) 30000
                         |> Result.bind (fun _ ->
-                            launchRaw "pure function" root [ Path.Combine(root, "bin", "Debug", "net10.0", "Generated.dll") ] 5000)
+                            launchRaw "pure function" root [ Path.Combine(root, "bin", "Release", "net10.0", "Generated.dll") ] 5000)
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
                                 parseEnvelope declarations.Types fn.ResultType sites output
