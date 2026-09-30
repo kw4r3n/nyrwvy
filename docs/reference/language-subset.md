@@ -110,6 +110,8 @@ ListAny
 ListAll
 ```
 
+`ListAppendItem` onto the list the previous append produced is amortised constant time, so a `ListFold` that appends one item per step builds its list in linear time, and `StringJoin` of such a list is a linear text builder. Repeated `StringConcat` copies its left operand each time and stays quadratic. Values are unaffected: appending to an older list, or twice to the same list, gives independent lists.
+
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
 
 `ListEffectFold(source, seed, folder, context)` is the exception with an explicit contract: its folder may use effects the enclosing function declares, and runs once per item, left to right. It is also the fold that stops early. When the folder returns `Result<S, E>` for seed `S` (pure or effectful), the node yields `Result<S, E>` and calls the folder for no item after the first `Err`. With a pure folder no effect is needed, so Python code that raises inside a loop is one folder returning `Result`, with no `Result` accumulator and no pass-through `Err` arm ([decision](../decisions/result-fold-short-circuit.md)).

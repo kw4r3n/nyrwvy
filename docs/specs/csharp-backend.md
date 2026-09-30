@@ -93,7 +93,9 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `ListItemAt` emits `list.ItemAt(index)`, which returns `NyOption<T>.Some(item)` when `0 <= index < Length` and `NyOption<T>.None()` otherwise, without exceptions.
 
-`ListSlice` emits `list.Slice(start, end)`. `NyList<T>.Slice` clamps both bounds with `Math.Clamp(bound, 0, Length)`, returns the empty list when `end <= start`, the list itself when the slice covers it (lists are immutable), and otherwise copies the range into a new array. `StringJoin` emits `NyText.Join(list, separator)`, which is `string.Join(separator, items)` over the list's backing array without copying it; neither throws.
+`ListSlice` emits `list.Slice(start, end)`. `NyList<T>.Slice` clamps both bounds with `Math.Clamp(bound, 0, Length)`, returns the empty list when `end <= start`, the list itself when the slice covers it (lists are immutable), and otherwise copies the range into a new array. `StringJoin` emits `NyText.Join(list, separator)`, which is `string.Join(separator, items)` over a span of the list's items without copying them; neither throws.
+
+A `NyList<T>` is the first `count` items of a store (an array and a used count) that several lists may share, like a Go slice. `ListAppendItem` and `ListConcat` write into the store's spare capacity when the list ends exactly at the used count, taking the slots with an atomic compare-exchange of that count; otherwise they copy into a new store with doubled capacity. Appending to a list repeatedly, as a `ListFold` that builds a list does, is therefore amortised O(1) per item, and appending to an older list, or to the same list twice, copies and never changes a list already made. Every operation reads only the first `count` items, and a slot is written once, before any list containing it exists, so lists stay immutable when tasks and `ParallelAll` workers share them.
 
 ## Float64 literal emission
 
