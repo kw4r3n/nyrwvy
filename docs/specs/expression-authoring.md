@@ -83,6 +83,9 @@ ExpressionRecipe =
   | Float64IsFinite(expr)
   | Float64IsInfinite(expr)
   | Int64ToFloat64(expr)
+  | Bits32FromInt64(expr) | Bits32ToInt64(expr) | Bits32Not(expr)
+  | Bits32Xor(left, right) | Bits32And(left, right) | Bits32Or(left, right) | Bits32Add(left, right)
+  | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
   | Float64ToString(expr)
   | StringParseFloat64(expr)
   | ListEmpty(itemType)
@@ -366,7 +369,12 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`. There is no Float64 to Int64 conversion.
 
+## Bits32
+
+The [`Bits32`](../reference/language-subset.md#bits32) operations use these wire kinds (Nyason tags in parentheses): `bits32FromInt64` (`bits32-from-int64`), `bits32ToInt64` (`bits32-to-int64`) and `bits32Not` (`bits32-not`) take `value`; `bits32Xor`, `bits32And`, `bits32Or` and `bits32Add` (`bits32-xor`, `bits32-and`, `bits32-or`, `bits32-add`) take `left` and `right`; `bits32RotateRight`, `bits32ShiftRight` and `bits32ShiftLeft` (`bits32-rotate-right`, `bits32-shift-right`, `bits32-shift-left`) take a Bits32 `value` and an Int64 `amount`. Snapshot JSON writes the shift operands as `valueNodeId` and `amountNodeId`, and review lists the amount with the `Amount` dependency role. The type reference is `{"kind":"primitive","primitive":"bits32"}`. There is no Bits32 literal: a constant is `bits32FromInt64` of an `int64Literal`. All ten are total. An operand of the wrong type, including a Bits32 amount or an Int64 where a Bits32 is expected, reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Bits32OperandTypeMismatch`.
+
 ## Float64ToString and StringParseFloat64
+
 
 `Float64ToString(value)` (wire `float64ToString`, Nyason `float64-to-string`) takes a Float64 and produces a String, Python `repr(value)`. `StringParseFloat64(text)` (wire `stringParseFloat64`, Nyason `string-parse-float64`) takes a String and produces `Option<Float64>`, Python `float(text)` on the JSON number grammar with leading zeros, correctly rounded, with a signed infinity on overflow. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-decimal-text.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch` for `Float64ToString` and `StringIntrinsicTypeMismatch` for `StringParseFloat64`.
 

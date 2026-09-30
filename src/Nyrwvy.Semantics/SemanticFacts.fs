@@ -173,6 +173,17 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Divide _
                     | SemanticNodeKind.Int64ToFloat64 _ ->
                         Some(TypeRef.Primitive PrimitiveType.Float64)
+                    | SemanticNodeKind.Bits32ToInt64 _ -> Some(TypeRef.Primitive PrimitiveType.Int64)
+                    | SemanticNodeKind.Bits32FromInt64 _
+                    | SemanticNodeKind.Bits32Xor _
+                    | SemanticNodeKind.Bits32And _
+                    | SemanticNodeKind.Bits32Or _
+                    | SemanticNodeKind.Bits32Not _
+                    | SemanticNodeKind.Bits32Add _
+                    | SemanticNodeKind.Bits32RotateRight _
+                    | SemanticNodeKind.Bits32ShiftRight _
+                    | SemanticNodeKind.Bits32ShiftLeft _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Bits32)
                     | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseInt64 _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))

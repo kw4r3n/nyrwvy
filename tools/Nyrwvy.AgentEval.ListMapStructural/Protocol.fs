@@ -94,6 +94,7 @@ module private Encode =
         | PrimitiveType.Unit -> "Unit"
         | PrimitiveType.Int64 -> "Int64"
         | PrimitiveType.Float64 -> "Float64"
+        | PrimitiveType.Bits32 -> "Bits32"
 
     let private genericName = function
         | BuiltinGenericType.Option -> "Option"

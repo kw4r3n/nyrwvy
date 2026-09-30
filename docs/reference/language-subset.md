@@ -14,9 +14,10 @@ The current primitive value domains are:
 - `Bool`;
 - `Unit`;
 - `Int64`;
-- `Float64`.
+- `Float64`;
+- `Bits32`.
 
-There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; there is no conversion from `Float64` to `Int64`.
+There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; there is no conversion from `Float64` to `Int64`. `Bits32` is not numeric and converts to and from `Int64` only explicitly (see [`Bits32`](#bits32)).
 
 ## Structured values and control
 
@@ -39,7 +40,7 @@ Wildcard/default match arms are not part of the current accepted subset where ex
 
 `BoolNot(operand)` negates a Bool. `BoolAnd(left, right)` is true when both operands are true and `BoolOr(left, right)` when either is. Their `left` operand is an ordinary Bool value of the enclosing graph; their `right` operand is a nested value graph with the scope, typing and effect rules of a `Conditional` branch. It is evaluated at most once and only when `left` does not decide the result: for `BoolAnd` only when `left` is true, for `BoolOr` only when `left` is false. A right operand that aborts, invokes a capability or calls a failing function therefore has that effect only when it is evaluated. All operands and results are Bool; a right operand may instead abort. Each construct is the dedicated form of a checkable conditional expansion (`Conditional(operand, false, true)`, `Conditional(left, right, false)`, `Conditional(left, true, right)`); the graph keeps the dedicated node so review reads the intent directly (see the [decision](../decisions/bool-operators-and-map.md)). There is no Map or Set.
 
-`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool and Unit are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
+`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool, Unit and Bits32 are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
 
 ## `Int64`
 
@@ -172,6 +173,30 @@ StringParseFloat64
 
 Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
 
+## `Bits32`
+
+`Bits32` is exactly 32 bits with no numeric meaning: a separate domain, not a masked `Int64`. It has no literal, no ordering and no arithmetic besides wrapping addition; a constant is `Bits32FromInt64` of an `Int64Literal`. It is equatable (there is no NaN), so `ValueEqual` compares two Bits32 values bit for bit. Every operation is total and never fails:
+
+```text
+Bits32FromInt64(value: Int64): Bits32
+Bits32ToInt64(value: Bits32): Int64
+Bits32Xor(left, right) / Bits32And(left, right) / Bits32Or(left, right): Bits32
+Bits32Not(value): Bits32
+Bits32Add(left, right): Bits32
+Bits32RotateRight(value: Bits32, amount: Int64): Bits32
+Bits32ShiftRight(value: Bits32, amount: Int64): Bits32
+Bits32ShiftLeft(value: Bits32, amount: Int64): Bits32
+```
+
+- `Bits32FromInt64` keeps the low 32 bits of the Int64's two's complement form, that is `value mod 2^32`: `-1` gives all ones, `2^32` gives zero and `2^32 + 5` gives 5.
+- `Bits32ToInt64` reads the bits as an unsigned integer, `0..4294967295`. `Bits32ToInt64(Bits32FromInt64(x))` is `x` floor-modulo `2^32`.
+- `Bits32Xor`, `Bits32And`, `Bits32Or` and `Bits32Not` are bitwise.
+- `Bits32Add` is addition modulo `2^32`: `4294967295 + 2` gives 1.
+- `Bits32RotateRight` rotates right by the amount taken floor-modulo 32, so a negative amount rotates left: `-1` is a rotation right by 31 (left by 1), and 32, 64 and `Int64.MinValue` leave the value unchanged.
+- `Bits32ShiftRight` and `Bits32ShiftLeft` are logical shifts (zeros enter). An amount `<= 0` gives the value unchanged, and an amount `>= 32` gives zero; there is no masking of the amount.
+
+There are no other widths, no signed interpretation, no reinterpretation of Float64 bits and no generic `Bits<N>`. These operations serve SHA-256 and similar fixed-width algorithms; see the [decision](../decisions/bits32-domain.md) and the [verification record](../verification/bits32-20261001.md).
+
 ## Agent editing surfaces
 
 The implemented semantic language and agent editing authority are deliberately distinct. Typed agent operations expose useful semantic construction without making raw snapshot or graph payloads ordinary editing authority.
@@ -217,6 +242,9 @@ Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
 Float64IsNaN / IsFinite / IsInfinite
 Int64ToFloat64
+Bits32FromInt64 / ToInt64
+Bits32Xor / And / Or / Not / Add
+Bits32RotateRight / ShiftRight / ShiftLeft
 ListEmpty
 ListConstruct
 ListLength
@@ -365,9 +393,10 @@ The following are not currently accepted language features merely because a back
 - generic lambdas/closures;
 - effectful List traversal callbacks;
 - hidden backend exception/default semantics;
-- first-class exact bit manipulation.
+- exact bit manipulation beyond [`Bits32`](#bits32): other widths, byte strings and generic bit vectors.
 
-A dedicated exact-bit domain remains an [experiment](../experiments/bit-representation.md), separate from `Int64` and `Float64` numeric semantics.
+`Bits32` is the one implemented exact-bit domain, separate from `Int64` and `Float64` numeric semantics; the broader direction remains an [experiment](../experiments/bit-representation.md).
+
 
 ## Failure behavior
 

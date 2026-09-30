@@ -202,6 +202,7 @@ module private JsonInput =
         | "Unit" -> PrimitiveType.Unit
         | "Int64" -> PrimitiveType.Int64
         | "Float64" -> PrimitiveType.Float64
+        | "Bits32" -> PrimitiveType.Bits32
         | _ -> fail $"Unsupported primitive type '{name}'."
 
     let rec typeRef (element: JsonElement): TypeRef =
@@ -274,6 +275,7 @@ module private Encode =
         | PrimitiveType.Unit -> "Unit"
         | PrimitiveType.Int64 -> "Int64"
         | PrimitiveType.Float64 -> "Float64"
+        | PrimitiveType.Bits32 -> "Bits32"
 
     let private genericName = function
         | BuiltinGenericType.Option -> "Option"

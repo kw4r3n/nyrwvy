@@ -157,6 +157,7 @@ module SnapshotCodec =
                 | PrimitiveType.Unit -> "unit"
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
+                | PrimitiveType.Bits32 -> "bits32"
             )
         | TypeRef.Function(arguments, result) ->
             writer.WriteString("kind", "function")
@@ -518,6 +519,25 @@ module SnapshotCodec =
             writeUnaryNode writer "float64IsInfinite" valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
             writeUnaryNode writer "int64ToFloat64" valueNodeId
+        | SemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
+        | SemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
+        | SemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId
+        | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Xor" leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32And" leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Or" leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Add" leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32RotateRight(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32RotateRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | SemanticNodeKind.Bits32ShiftRight(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32ShiftRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | SemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32ShiftLeft")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
         | SemanticNodeKind.ListEmpty itemType ->
             writer.WriteString("kind", "listEmpty")
             writer.WritePropertyName("itemType")
@@ -908,6 +928,7 @@ module SnapshotCodec =
                 | "unit" -> PrimitiveType.Unit
                 | "int64" -> PrimitiveType.Int64
                 | "float64" -> PrimitiveType.Float64
+                | "bits32" -> PrimitiveType.Bits32
                 | value -> invalidShape $"Unsupported primitive type '{value}'."
             TypeRef.Primitive primitive
         | "named" ->
@@ -1247,6 +1268,34 @@ module SnapshotCodec =
                 readUnaryNode "Float64IsInfinite node" element SemanticNodeKind.Float64IsInfinite
             | "int64ToFloat64" ->
                 readUnaryNode "Int64ToFloat64 node" element SemanticNodeKind.Int64ToFloat64
+            | "bits32FromInt64" -> readUnaryNode "Bits32FromInt64 node" element SemanticNodeKind.Bits32FromInt64
+            | "bits32ToInt64" -> readUnaryNode "Bits32ToInt64 node" element SemanticNodeKind.Bits32ToInt64
+            | "bits32Not" -> readUnaryNode "Bits32Not node" element SemanticNodeKind.Bits32Not
+            | "bits32Xor" -> readBinaryNode "Bits32Xor node" element (fun left right -> SemanticNodeKind.Bits32Xor(left, right))
+            | "bits32And" -> readBinaryNode "Bits32And node" element (fun left right -> SemanticNodeKind.Bits32And(left, right))
+            | "bits32Or" -> readBinaryNode "Bits32Or node" element (fun left right -> SemanticNodeKind.Bits32Or(left, right))
+            | "bits32Add" -> readBinaryNode "Bits32Add node" element (fun left right -> SemanticNodeKind.Bits32Add(left, right))
+            | "bits32RotateRight" ->
+                ensureProperties
+                    "Bits32RotateRight node"
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    element
+                SemanticNodeKind.Bits32RotateRight(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "amountNodeId" element)
+            | "bits32ShiftRight" ->
+                ensureProperties
+                    "Bits32ShiftRight node"
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    element
+                SemanticNodeKind.Bits32ShiftRight(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "amountNodeId" element)
+            | "bits32ShiftLeft" ->
+                ensureProperties
+                    "Bits32ShiftLeft node"
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
+                    element
+                SemanticNodeKind.Bits32ShiftLeft(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "amountNodeId" element)
             | "listEmpty" ->
                 ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))

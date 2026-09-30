@@ -78,6 +78,16 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Float64IsFinite _
                 | TypedSemanticNodeKind.Float64IsInfinite _
                 | TypedSemanticNodeKind.Int64ToFloat64 _
+                | TypedSemanticNodeKind.Bits32FromInt64 _
+                | TypedSemanticNodeKind.Bits32ToInt64 _
+                | TypedSemanticNodeKind.Bits32Xor _
+                | TypedSemanticNodeKind.Bits32And _
+                | TypedSemanticNodeKind.Bits32Or _
+                | TypedSemanticNodeKind.Bits32Not _
+                | TypedSemanticNodeKind.Bits32Add _
+                | TypedSemanticNodeKind.Bits32RotateRight _
+                | TypedSemanticNodeKind.Bits32ShiftRight _
+                | TypedSemanticNodeKind.Bits32ShiftLeft _
                 | TypedSemanticNodeKind.ListEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _

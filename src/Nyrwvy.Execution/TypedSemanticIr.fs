@@ -126,6 +126,16 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Float64IsFinite of valueNodeId: GraphNodeId
     | Float64IsInfinite of valueNodeId: GraphNodeId
     | Int64ToFloat64 of valueNodeId: GraphNodeId
+    | Bits32FromInt64 of valueNodeId: GraphNodeId
+    | Bits32ToInt64 of valueNodeId: GraphNodeId
+    | Bits32Not of valueNodeId: GraphNodeId
+    | Bits32Xor of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32And of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32Or of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32RotateRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | ListEmpty
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -380,6 +390,16 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64IsInfinite valueNodeId)
                     | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.Int64ToFloat64 valueNodeId)
+                    | SemanticNodeKind.Bits32FromInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32FromInt64 valueNodeId)
+                    | SemanticNodeKind.Bits32ToInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32ToInt64 valueNodeId)
+                    | SemanticNodeKind.Bits32Not valueNodeId -> Ok(TypedSemanticNodeKind.Bits32Not valueNodeId)
+                    | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32And(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32Or(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32Add(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId))
                     | SemanticNodeKind.ListEmpty _ ->
                         Ok TypedSemanticNodeKind.ListEmpty
                     | SemanticNodeKind.ListConstruct(_, itemNodeIds) ->

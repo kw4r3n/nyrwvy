@@ -119,6 +119,7 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.Unit -> record "primitive-unit" []
         | TypeRef.Primitive PrimitiveType.Int64 -> record "primitive-int64" []
         | TypeRef.Primitive PrimitiveType.Float64 -> record "primitive-float64" []
+        | TypeRef.Primitive PrimitiveType.Bits32 -> record "primitive-bits32" []
         | TypeRef.Function(arguments, result) ->
             record "function-type" [ "parameters", NyasonValue.List(List.map encodeTypeRef arguments); "result", encodeTypeRef result ]
         | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
@@ -163,7 +164,11 @@ module NyasonCodec =
         | NyasonValue.Record("primitive-float64", _) ->
             recordFields "primitive-float64" [] [] value |> ignore
             TypeRef.Primitive PrimitiveType.Float64
+        | NyasonValue.Record("primitive-bits32", _) ->
+            recordFields "primitive-bits32" [] [] value |> ignore
+            TypeRef.Primitive PrimitiveType.Bits32
         | NyasonValue.Record("function-type", _) ->
+
             let fields = recordFields "function-type" [ "parameters"; "result" ] [] value
             TypeRef.Function(decodeList decodeTypeRef (require "parameters" fields), decodeTypeRef (require "result" fields))
         | NyasonValue.Record("type-parameter", _) ->
@@ -586,6 +591,19 @@ module NyasonCodec =
             encodeUnaryNode "float64-is-infinite" nodeId valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
             encodeUnaryNode "int64-to-float64" nodeId valueNodeId
+        | SemanticNodeKind.Bits32FromInt64 valueNodeId -> encodeUnaryNode "bits32-from-int64" nodeId valueNodeId
+        | SemanticNodeKind.Bits32ToInt64 valueNodeId -> encodeUnaryNode "bits32-to-int64" nodeId valueNodeId
+        | SemanticNodeKind.Bits32Not valueNodeId -> encodeUnaryNode "bits32-not" nodeId valueNodeId
+        | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) -> encodeBinaryNode "bits32-xor" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId) -> encodeBinaryNode "bits32-and" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) -> encodeBinaryNode "bits32-or" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) -> encodeBinaryNode "bits32-add" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Bits32RotateRight(valueNodeId, amountNodeId) ->
+            record "bits32-rotate-right" [ nodeId; "value", encodeId "node" valueNodeId; "amount", encodeId "node" amountNodeId ]
+        | SemanticNodeKind.Bits32ShiftRight(valueNodeId, amountNodeId) ->
+            record "bits32-shift-right" [ nodeId; "value", encodeId "node" valueNodeId; "amount", encodeId "node" amountNodeId ]
+        | SemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
+            record "bits32-shift-left" [ nodeId; "value", encodeId "node" valueNodeId; "amount", encodeId "node" amountNodeId ]
         | SemanticNodeKind.ListEmpty itemType ->
             record "list-empty" [ nodeId; "item-type", encodeTypeRef itemType ]
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
@@ -1007,7 +1025,43 @@ module NyasonCodec =
             decodeUnaryNode "float64-is-finite" value SemanticNodeKind.Float64IsFinite
         | NyasonValue.Record("float64-is-infinite", _) ->
             decodeUnaryNode "float64-is-infinite" value SemanticNodeKind.Float64IsInfinite
+        | NyasonValue.Record("bits32-from-int64", _) -> decodeUnaryNode "bits32-from-int64" value SemanticNodeKind.Bits32FromInt64
+        | NyasonValue.Record("bits32-to-int64", _) -> decodeUnaryNode "bits32-to-int64" value SemanticNodeKind.Bits32ToInt64
+        | NyasonValue.Record("bits32-not", _) -> decodeUnaryNode "bits32-not" value SemanticNodeKind.Bits32Not
+        | NyasonValue.Record("bits32-xor", _) ->
+            decodeBinaryNode "bits32-xor" value (fun left right -> SemanticNodeKind.Bits32Xor(left, right))
+        | NyasonValue.Record("bits32-and", _) ->
+            decodeBinaryNode "bits32-and" value (fun left right -> SemanticNodeKind.Bits32And(left, right))
+        | NyasonValue.Record("bits32-or", _) ->
+            decodeBinaryNode "bits32-or" value (fun left right -> SemanticNodeKind.Bits32Or(left, right))
+        | NyasonValue.Record("bits32-add", _) ->
+            decodeBinaryNode "bits32-add" value (fun left right -> SemanticNodeKind.Bits32Add(left, right))
+        | NyasonValue.Record("bits32-rotate-right", _) ->
+            let fields = recordFields "bits32-rotate-right" [ "id"; "value"; "amount" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Bits32RotateRight(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "amount" fields)
+                ) }
+        | NyasonValue.Record("bits32-shift-right", _) ->
+            let fields = recordFields "bits32-shift-right" [ "id"; "value"; "amount" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Bits32ShiftRight(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "amount" fields)
+                ) }
+        | NyasonValue.Record("bits32-shift-left", _) ->
+            let fields = recordFields "bits32-shift-left" [ "id"; "value"; "amount" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Bits32ShiftLeft(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "amount" fields)
+                ) }
         | NyasonValue.Record("int64-to-float64", _) ->
+
             decodeUnaryNode "int64-to-float64" value SemanticNodeKind.Int64ToFloat64
         | NyasonValue.Record("list-empty", _) ->
             let fields = recordFields "list-empty" [ "id"; "item-type" ] [] value

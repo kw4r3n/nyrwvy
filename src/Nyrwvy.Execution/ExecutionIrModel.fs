@@ -134,6 +134,16 @@ type ExecutionInstructionKind =
     | Float64IsFinite of valueId: ExecutionValueId
     | Float64IsInfinite of valueId: ExecutionValueId
     | Int64ToFloat64 of valueId: ExecutionValueId
+    | Bits32FromInt64 of valueId: ExecutionValueId
+    | Bits32ToInt64 of valueId: ExecutionValueId
+    | Bits32Not of valueId: ExecutionValueId
+    | Bits32Xor of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Bits32And of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Bits32Or of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Bits32Add of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Bits32RotateRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
+    | Bits32ShiftRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
+    | Bits32ShiftLeft of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | ListEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId

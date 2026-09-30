@@ -69,6 +69,16 @@ type ExpressionRecipe =
     | Float64IsFinite of ExpressionRecipe
     | Float64IsInfinite of ExpressionRecipe
     | Int64ToFloat64 of ExpressionRecipe
+    | Bits32FromInt64 of ExpressionRecipe
+    | Bits32ToInt64 of ExpressionRecipe
+    | Bits32Not of ExpressionRecipe
+    | Bits32Xor of ExpressionRecipe * ExpressionRecipe
+    | Bits32And of ExpressionRecipe * ExpressionRecipe
+    | Bits32Or of ExpressionRecipe * ExpressionRecipe
+    | Bits32Add of ExpressionRecipe * ExpressionRecipe
+    | Bits32RotateRight of value: ExpressionRecipe * amount: ExpressionRecipe
+    | Bits32ShiftRight of value: ExpressionRecipe * amount: ExpressionRecipe
+    | Bits32ShiftLeft of value: ExpressionRecipe * amount: ExpressionRecipe
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * items: ExpressionRecipe list
     | ListLength of ExpressionRecipe
@@ -213,6 +223,16 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Float64IsFinite value -> ExpressionRecipe.Float64IsFinite(go value)
         | ExpressionRecipe.Float64IsInfinite value -> ExpressionRecipe.Float64IsInfinite(go value)
         | ExpressionRecipe.Int64ToFloat64 value -> ExpressionRecipe.Int64ToFloat64(go value)
+        | ExpressionRecipe.Bits32FromInt64 value -> ExpressionRecipe.Bits32FromInt64(go value)
+        | ExpressionRecipe.Bits32ToInt64 value -> ExpressionRecipe.Bits32ToInt64(go value)
+        | ExpressionRecipe.Bits32Not value -> ExpressionRecipe.Bits32Not(go value)
+        | ExpressionRecipe.Bits32Xor(left, right) -> ExpressionRecipe.Bits32Xor(go left, go right)
+        | ExpressionRecipe.Bits32And(left, right) -> ExpressionRecipe.Bits32And(go left, go right)
+        | ExpressionRecipe.Bits32Or(left, right) -> ExpressionRecipe.Bits32Or(go left, go right)
+        | ExpressionRecipe.Bits32Add(left, right) -> ExpressionRecipe.Bits32Add(go left, go right)
+        | ExpressionRecipe.Bits32RotateRight(left, right) -> ExpressionRecipe.Bits32RotateRight(go left, go right)
+        | ExpressionRecipe.Bits32ShiftRight(left, right) -> ExpressionRecipe.Bits32ShiftRight(go left, go right)
+        | ExpressionRecipe.Bits32ShiftLeft(left, right) -> ExpressionRecipe.Bits32ShiftLeft(go left, go right)
         | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
         | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
@@ -344,6 +364,7 @@ module AgentExpressionStructuralWorkflow =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private float64Type = TypeRef.Primitive PrimitiveType.Float64
+    let private bits32Type = TypeRef.Primitive PrimitiveType.Bits32
     let private listType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
     let private optionType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
     let private resultType okType errorType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
@@ -381,6 +402,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsFinite child
         | ExpressionRecipe.Float64IsInfinite child
         | ExpressionRecipe.Int64ToFloat64 child
+        | ExpressionRecipe.Bits32FromInt64 child
+        | ExpressionRecipe.Bits32ToInt64 child
+        | ExpressionRecipe.Bits32Not child
         | ExpressionRecipe.ListLength child
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
@@ -422,6 +446,13 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64Divide(left, right)
         | ExpressionRecipe.Float64Equal(left, right)
         | ExpressionRecipe.Float64LessThan(left, right)
+        | ExpressionRecipe.Bits32Xor(left, right)
+        | ExpressionRecipe.Bits32And(left, right)
+        | ExpressionRecipe.Bits32Or(left, right)
+        | ExpressionRecipe.Bits32Add(left, right)
+        | ExpressionRecipe.Bits32RotateRight(left, right)
+        | ExpressionRecipe.Bits32ShiftRight(left, right)
+        | ExpressionRecipe.Bits32ShiftLeft(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListItemAt(left, right)
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
@@ -1168,6 +1199,40 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Float64IsFinite value -> unary "Float64IsFinite" float64Type boolType value
             | ExpressionRecipe.Float64IsInfinite value -> unary "Float64IsInfinite" float64Type boolType value
             | ExpressionRecipe.Int64ToFloat64 value -> unary "Int64ToFloat64" int64Type float64Type value
+            | ExpressionRecipe.Bits32FromInt64 value -> unary "Bits32FromInt64" int64Type bits32Type value
+            | ExpressionRecipe.Bits32ToInt64 value -> unary "Bits32ToInt64" bits32Type int64Type value
+            | ExpressionRecipe.Bits32Not value -> unary "Bits32Not" bits32Type bits32Type value
+            | ExpressionRecipe.Bits32Xor(left, right) -> binary "Bits32Xor" bits32Type bits32Type left right
+            | ExpressionRecipe.Bits32And(left, right) -> binary "Bits32And" bits32Type bits32Type left right
+            | ExpressionRecipe.Bits32Or(left, right) -> binary "Bits32Or" bits32Type bits32Type left right
+            | ExpressionRecipe.Bits32Add(left, right) -> binary "Bits32Add" bits32Type bits32Type left right
+            | ExpressionRecipe.Bits32RotateRight(value, amount) ->
+                match infer frames value with
+                | Error error -> Error error
+                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32RotateRight" "value" bits32Type actual)
+                | Ok _ ->
+                    match infer frames amount with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32RotateRight" "amount" int64Type actual)
+                    | Ok _ -> Ok bits32Type
+            | ExpressionRecipe.Bits32ShiftRight(value, amount) ->
+                match infer frames value with
+                | Error error -> Error error
+                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32ShiftRight" "value" bits32Type actual)
+                | Ok _ ->
+                    match infer frames amount with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32ShiftRight" "amount" int64Type actual)
+                    | Ok _ -> Ok bits32Type
+            | ExpressionRecipe.Bits32ShiftLeft(value, amount) ->
+                match infer frames value with
+                | Error error -> Error error
+                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32ShiftLeft" "value" bits32Type actual)
+                | Ok _ ->
+                    match infer frames amount with
+                    | Error error -> Error error
+                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32ShiftLeft" "amount" int64Type actual)
+                    | Ok _ -> Ok bits32Type
             | ExpressionRecipe.ListEmpty itemType ->
                 match validateTypeRef snapshot itemType with
                 | Error error -> Error error
@@ -1962,6 +2027,16 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsFinite value -> unary SemanticNodeKind.Float64IsFinite value
         | ExpressionRecipe.Float64IsInfinite value -> unary SemanticNodeKind.Float64IsInfinite value
         | ExpressionRecipe.Int64ToFloat64 value -> unary SemanticNodeKind.Int64ToFloat64 value
+        | ExpressionRecipe.Bits32FromInt64 value -> unary SemanticNodeKind.Bits32FromInt64 value
+        | ExpressionRecipe.Bits32ToInt64 value -> unary SemanticNodeKind.Bits32ToInt64 value
+        | ExpressionRecipe.Bits32Not value -> unary SemanticNodeKind.Bits32Not value
+        | ExpressionRecipe.Bits32Xor(left, right) -> binary SemanticNodeKind.Bits32Xor left right
+        | ExpressionRecipe.Bits32And(left, right) -> binary SemanticNodeKind.Bits32And left right
+        | ExpressionRecipe.Bits32Or(left, right) -> binary SemanticNodeKind.Bits32Or left right
+        | ExpressionRecipe.Bits32Add(left, right) -> binary SemanticNodeKind.Bits32Add left right
+        | ExpressionRecipe.Bits32RotateRight(left, right) -> binary SemanticNodeKind.Bits32RotateRight left right
+        | ExpressionRecipe.Bits32ShiftRight(left, right) -> binary SemanticNodeKind.Bits32ShiftRight left right
+        | ExpressionRecipe.Bits32ShiftLeft(left, right) -> binary SemanticNodeKind.Bits32ShiftLeft left right
         | ExpressionRecipe.ListEmpty itemType ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ListEmpty itemType } ], nodeId
