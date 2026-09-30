@@ -47,6 +47,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Codex CLI MCP maintenance probe, Run 1](codex-cli-mcp-maintenance-probe.md) — host approval blocker
 - [Codex CLI MCP maintenance probe, Run 2](codex-cli-mcp-maintenance-probe-run-2.md) — qualified maintenance success
 - [Expression recipe reference live probe](expression-recipe-reference-live-probe.md)
+- [rrawrlet slice probe 12](rrawrlet-slice-probe12-20261001.md): `condense` material, cache key (SHA-256 in Int64 arithmetic) and citations, 304/304 against Python
 
 ## Project review and follow-ups
 
