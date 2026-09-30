@@ -149,7 +149,6 @@ module PureRunBindingTests =
             reject "query" [ query; PureRunValue.FakeCapability(fixture.Provider.Id, [ twice; twice ]) ] "RunBindingShapeMismatch"
             reject "query" [ query; provider fixture [ PureRunFakeResponse.Return(PureRunValue.String "wrong type") ] ] "RunBindingShapeMismatch"
             reject "query" [ query; provider fixture [ PureRunFakeResponse.Return(PureRunValue.FakeCapability(fixture.Log.Id, [])) ] ] "RunBindingPlacement"
-            reject "query" [ query; provider fixture [ PureRunFakeResponse.Throw(String([| char 0xD800 |])) ] ] "RunInvalidString"
             reject "measure" [ PureRunValue.FakeCapability(fixture.Metric.Id, []) ] "RunBindingTypeUnsupported"
             match PureRun.run fixture.Session (fixture.Function "declaresEffect").Id [ PureRunValue.String "x" ] (Some(PureRunValue.FakeCapability(fixture.Log.Id, []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunExpectedTypeMismatch", code)

@@ -137,11 +137,6 @@ module PureRunTests =
             match PureRun.run session fn.Id [ validValue; validValue ] (Some wrongExpected) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunExpectedTypeMismatch", code)
             | other -> failwithf "Mismatched Result expectation accepted: %A" other
-            let args = [ PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String(String([| char 0xD800 |])))
-                         PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 0L) ]
-            match PureRun.run session fn.Id args None with
-            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunInvalidString", code)
-            | other -> failwithf "Invalid payload accepted: %A" other
             let large = PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String(String('x', 65537)))
             match PureRun.run session fn.Id [ large; large ] None with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunArgumentTooLarge", code)
@@ -218,10 +213,6 @@ module PureRunTests =
             reject
                 ($"""{{"id":"bad-wire","op":"runPure","functionId":"{StableId.value concat}","arguments":[{{"kind":"string","value":"x","extra":0}},{{"kind":"string","value":"y"}}]}}""")
                 "ProtocolError"
-            let invalid = String([| char 0xD800 |])
-            match PureRun.run session concat [ PureRunValue.String invalid; PureRunValue.String "x" ] None with
-            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunInvalidString", code)
-            | other -> failwithf "Invalid UTF-16 argument passed execution: %A" other
             File.AppendAllText(path, " ")
             let modified = File.ReadAllText(path)
             let request =

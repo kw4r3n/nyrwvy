@@ -119,7 +119,6 @@ module PureRunInnerNestingTests =
             reject "item" [ PureRunValue.Product(itemId, [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.ListValue(stringType, []); scoreId, PureRunValue.Int64Option None ]) ] None "RunContainerTypeMismatch"
             reject "item" [ PureRunValue.Product(itemId, [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.StringList(List.replicate 4097 "") ; scoreId, PureRunValue.Int64Option None ]) ] None "RunArgumentTooLarge"
             reject "item" [ PureRunValue.Product(itemId, [ labelId, PureRunValue.String(String('x', 40000)); tagsId, PureRunValue.StringList [ String('y', 40000) ]; scoreId, PureRunValue.Int64Option None ]) ] None "RunArgumentTooLarge"
-            reject "item" [ PureRunValue.Product(itemId, [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.StringList [ String([| char 0xDC00 |]) ]; scoreId, PureRunValue.Int64Option None ]) ] None "RunInvalidString"
             reject "shape" [ PureRunValue.Union(shapeId, groupId, [ membersId, PureRunValue.ListValue(itemType, [ PureRunValue.Product(itemId, []) ]) ]) ] None "RunProductShapeMismatch"
             reject "shape" [ PureRunValue.Union(shapeId, wrappedId, [ innerId, PureRunValue.ResultValue(itemType, stringType, true, PureRunValue.String "not an item") ]) ] None "RunContainerTypeMismatch"
             reject "shape" [ PureRunValue.Union(shapeId, groupId, [ membersId, PureRunValue.ListValue(itemType, [ PureRunValue.Union(shapeId, circleId, [ radiusId, PureRunValue.Int64 1L ]) ]) ]) ] None "RunContainerTypeMismatch"

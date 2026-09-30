@@ -106,7 +106,7 @@ module PureRunUnionTests =
             match PureRun.run session (functionId "identity") [ valid ] (Some(PureRunValue.Union(unionId, foreignVariantId, []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunUnionShapeMismatch", code)
             | other -> failwithf "Foreign expectation accepted: %A" other
-            for text, expected in [ String('x', 65537), "RunArgumentTooLarge"; String([| char 0xD800 |]), "RunInvalidString" ] do
+            for text, expected in [ String('x', 65537), "RunArgumentTooLarge" ] do
                 let values = fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = textId then PureRunValue.String text else value))
                 reject (PureRunValue.Union(unionId, payloadId, values)) expected
             let large = fields |> List.map (fun (fieldId, value) ->

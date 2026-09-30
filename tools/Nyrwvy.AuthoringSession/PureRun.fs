@@ -311,17 +311,17 @@ module PureRun =
 
     let private diagnostic code message = PureRunError.Unsupported(code, message)
 
-    let private wellFormedUtf16 (text: string) =
-        if isNull text then false else
-            let mutable index = 0
-            let mutable valid = true
-            while valid && index < text.Length do
-                if Char.IsHighSurrogate(text[index]) then
-                    if index + 1 < text.Length && Char.IsLowSurrogate(text[index + 1]) then index <- index + 2
-                    else valid <- false
-                elif Char.IsLowSurrogate(text[index]) then valid <- false
-                else index <- index + 1
-            valid
+    /// Reads a String the runner reported as a text token (see `textToken`). Any sequence of UTF-16
+    /// code units, including lone surrogates, survives the round trip.
+    let private tokenText (item: JsonElement) =
+        if item.ValueKind <> JsonValueKind.String then None else
+            let token = item.GetString()
+            if isNull token || not (token.StartsWith("s", StringComparison.Ordinal)) then None else
+                try
+                    let bytes = Convert.FromBase64String(token.Substring 1)
+                    if bytes.Length % 2 <> 0 then None
+                    else Some(String(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(ReadOnlySpan<byte>(bytes))))
+                with :? FormatException -> None
 
     let private children = function
         | PureRunValue.ListValue(_, items) -> items
@@ -600,8 +600,7 @@ module PureRun =
     let private parseScalar itemType (item: JsonElement) =
         match itemType with
         | TypeRef.Primitive PrimitiveType.String when item.ValueKind = JsonValueKind.String ->
-            let text = item.GetString()
-            if wellFormedUtf16 text then Some(PureRunScalar.String text) else None
+            tokenText item |> Option.map PureRunScalar.String
         | TypeRef.Primitive PrimitiveType.Bool when item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False ->
             Some(PureRunScalar.Bool(item.GetBoolean()))
         | TypeRef.Primitive PrimitiveType.Int64 when item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64()) ->
@@ -674,9 +673,9 @@ module PureRun =
                 | PrimitiveType.Bool, None -> Ok(PureRunValue.BoolOption None)
                 | PrimitiveType.Int64, None -> Ok(PureRunValue.Int64Option None)
                 | PrimitiveType.String, Some item when item.ValueKind = JsonValueKind.String ->
-                    let text = item.GetString()
-                    if wellFormedUtf16 text then Ok(PureRunValue.StringOption(Some text))
-                    else Error(diagnostic "RunInvalidResult" "Invalid UTF-16 Option result.")
+                    match tokenText item with
+                    | Some text -> Ok(PureRunValue.StringOption(Some text))
+                    | None -> Error(diagnostic "RunInvalidResult" "Invalid String Option result.")
                 | PrimitiveType.Bool, Some item when item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False ->
                     Ok(PureRunValue.BoolOption(Some(item.GetBoolean())))
                 | PrimitiveType.Int64, Some item when item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64()) ->
@@ -689,10 +688,10 @@ module PureRun =
                     let items = value.EnumerateArray() |> Seq.toList
                     match primitive with
                     | PrimitiveType.String when items |> List.forall (fun item -> item.ValueKind = JsonValueKind.String) ->
-                        let texts = items |> List.map (fun item -> item.GetString())
-                        if texts |> List.exists (wellFormedUtf16 >> not) then
-                            Error(diagnostic "RunInvalidResult" "Invalid UTF-16 List result.")
-                        else Ok(PureRunValue.StringList texts)
+                        let texts = items |> List.map tokenText
+                        if texts |> List.exists Option.isNone then
+                            Error(diagnostic "RunInvalidResult" "Invalid String List result.")
+                        else Ok(PureRunValue.StringList(texts |> List.map Option.get))
                     | PrimitiveType.Bool when items |> List.forall (fun item -> item.ValueKind = JsonValueKind.True || item.ValueKind = JsonValueKind.False) ->
                         Ok(PureRunValue.BoolList(items |> List.map (fun item -> item.GetBoolean())))
                     | PrimitiveType.Int64 when items |> List.forall (fun item -> item.ValueKind = JsonValueKind.Number && fst (item.TryGetInt64())) ->
@@ -710,7 +709,9 @@ module PureRun =
                 | true, bits -> Ok(PureRunValue.Bits32 bits)
                 | false, _ -> Error(diagnostic "RunInvalidResult" "The result is not a Bits32.")
             | TypeRef.Primitive PrimitiveType.String, JsonValueKind.String ->
-                Ok(PureRunValue.String(value.GetString()))
+                match tokenText value with
+                | Some text -> Ok(PureRunValue.String text)
+                | None -> Error(diagnostic "RunInvalidResult" "The result is not a String.")
             | TypeRef.Primitive PrimitiveType.Bool, JsonValueKind.True
             | TypeRef.Primitive PrimitiveType.Bool, JsonValueKind.False ->
                 Ok(PureRunValue.Bool(value.GetBoolean()))
@@ -767,11 +768,11 @@ module PureRun =
                     parseElement types resultType root[1]
                     |> Result.bind (fun value -> parseCalls root[2] |> Result.map (fun calls -> Envelope.Value(value, calls)))
                 | Some "limit", 2 when (text root[1]).IsSome -> Ok(Envelope.Limit(root[1].GetString()))
-                | Some "exception", 6 when (text root[1]).IsSome && (text root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array
+                | Some "exception", 6 when (text root[1]).IsSome && (tokenText root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array
                                            && (root[5].ValueKind = JsonValueKind.True || root[5].ValueKind = JsonValueKind.False) ->
                     let frames = root[3].EnumerateArray() |> Seq.choose text |> Seq.toList
                     parseCalls root[4]
-                    |> Result.map (fun calls -> Envelope.Exception(root[1].GetString(), root[2].GetString(), frames, calls, root[5].GetBoolean()))
+                    |> Result.map (fun calls -> Envelope.Exception(root[1].GetString(), (tokenText root[2]).Value, frames, calls, root[5].GetBoolean()))
                 | _ -> invalid ()
         with :? JsonException -> invalid ()
 
@@ -989,8 +990,6 @@ module PureRun =
         | Some fn when arguments @ Option.toList expected |> List.exists (fun value ->
             strings value |> List.sumBy (fun text -> int64 text.Length) |> fun length -> length > 65536L) ->
             Error(diagnostic "RunArgumentTooLarge" "Each value is limited to 65536 aggregate String UTF-16 code units.")
-        | Some fn when arguments @ Option.toList expected |> List.collect strings |> List.exists (wellFormedUtf16 >> not) ->
-            Error(diagnostic "RunInvalidString" "String arguments and expectations must contain well-formed UTF-16.")
         | Some fn ->
             // Check only functions reachable from this entry; unrelated parallel functions do not
             // make a sequential host binding require a concurrency assertion.
@@ -1288,6 +1287,8 @@ module PureRun =
                         let checksText = (encoded + callArms + namedEncoders).Contains("CheckedString(")
                         // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
                         // conversion limits, or ["exception", type, message, frames] for a program failure.
+                        // String values and the exception message are text tokens ("s" and the Base64 of the
+                        // UTF-16 code units), so lone surrogates reach the session unchanged.
                         let program =
                             "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
                             // A stack overflow aborts the child. Where the OS captures core dumps (for example
@@ -1308,7 +1309,7 @@ module PureRun =
                             + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
                             + "catch (Exception error)\n{\n"
                             + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
-                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", error.Message, frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
+                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", RunnerText.ToToken(error.Message), frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
                             + "    catch (RunnerException limit) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", limit.Message })); }\n"
                             + "}\n"
                             // Calls are encoded after the result, with their own value budget.
@@ -1320,7 +1321,7 @@ module PureRun =
                             + "    _ => throw new RunnerException(\"Unknown capability call site.\"),\n};\n"
                             + "object Count(object value) { if (--remaining < 0) throw new RunnerException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
                             + (if checksText then
-                                "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); new UTF8Encoding(false, true).GetByteCount(value); return value; }\n"
+                                "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); return RunnerText.ToToken(value); }\n"
                                else "")
                             + namedEncoders
                             + "static class RunnerProcess { [System.Runtime.InteropServices.DllImport(\"libc\")] public static extern int prctl(int option, nuint arg2, nuint arg3, nuint arg4, nuint arg5); }\n"
