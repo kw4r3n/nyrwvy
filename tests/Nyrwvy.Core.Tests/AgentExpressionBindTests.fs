@@ -425,7 +425,7 @@ module AgentExpressionBindTests =
               $"sealed class RecordingConsole : {capabilityName}"
               "{"
               "    public List<string> Events { get; } = new();"
-              $"    public NyUnit {operationName}(string message)"
+              $"    public NyUnit {operationName}(NyStr message)"
               "    {"
               "        Events.Add(message);"
               "        return NyUnit.Value;"

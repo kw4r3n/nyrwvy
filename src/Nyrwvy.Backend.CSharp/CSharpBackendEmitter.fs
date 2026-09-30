@@ -48,7 +48,7 @@ module CSharpBackend =
 
     let rec private formatType (typeRef: TypeRef) =
         match typeRef with
-        | TypeRef.Primitive PrimitiveType.String -> "string"
+        | TypeRef.Primitive PrimitiveType.String -> "NyStr"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
@@ -213,11 +213,11 @@ module CSharpBackend =
         writer.Line("}")
         writer.Line("public static bool StartsWith(string text, string prefix) => text.StartsWith(prefix, StringComparison.Ordinal) && IsBoundary(text, prefix.Length);")
         writer.Line("public static bool EndsWith(string text, string suffix) => text.EndsWith(suffix, StringComparison.Ordinal) && IsBoundary(text, text.Length - suffix.Length);")
-        writer.Line("public static NyList<string> Split(string text, string separator)")
+        writer.Line("public static NyList<NyStr> Split(string text, string separator)")
         writer.Line("{")
         writer.Push()
-        writer.Line("if (separator.Length == 0) return NyList<string>.Create(text);")
-        writer.Line("var pieces = new string[4];")
+        writer.Line("if (separator.Length == 0) return NyList<NyStr>.Create(text);")
+        writer.Line("var pieces = new NyStr[4];")
         writer.Line("var count = 0;")
         writer.Line("var start = 0;")
         writer.Line("for (var found = Find(text, separator, 0); found >= 0; found = Find(text, separator, start))")
@@ -230,19 +230,19 @@ module CSharpBackend =
         writer.Line("}")
         writer.Line("Array.Resize(ref pieces, count + 1);")
         writer.Line("pieces[count] = text.Substring(start);")
-        writer.Line("return NyList<string>.FromOwnedArray(pieces);")
+        writer.Line("return NyList<NyStr>.FromOwnedArray(pieces);")
         writer.Pop()
         writer.Line("}")
         // SplitLines walks code points once, with membership as in Span; "\r\n" is one break only when
         // both halves are members. A final break adds no trailing empty line (Python splitlines).
-        writer.Line("public static NyList<string> SplitLines(string text, string breaks)")
+        writer.Line("public static NyList<NyStr> SplitLines(string text, string breaks)")
         writer.Line("{")
         writer.Push()
-        writer.Line("if (text.Length == 0) return NyList<string>.Empty();")
-        writer.Line("if (breaks.Length == 0) return NyList<string>.Create(text);")
+        writer.Line("if (text.Length == 0) return NyList<NyStr>.Empty();")
+        writer.Line("if (breaks.Length == 0) return NyList<NyStr>.Create(text);")
         writer.Line("var members = CodePointSet(breaks);")
         writer.Line("var crlf = members.Contains('\\r') && members.Contains('\\n');")
-        writer.Line("var lines = new string[4];")
+        writer.Line("var lines = new NyStr[4];")
         writer.Line("var count = 0;")
         writer.Line("var start = 0;")
         writer.Line("var offset = 0;")
@@ -271,7 +271,7 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("Array.Resize(ref lines, count);")
-        writer.Line("return NyList<string>.FromOwnedArray(lines);")
+        writer.Line("return NyList<NyStr>.FromOwnedArray(lines);")
         writer.Pop()
         writer.Line("}")
         // ToLower applies the Unicode simple (one-to-one) lowercase mapping per code point, culture
@@ -297,8 +297,8 @@ module CSharpBackend =
         writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
         // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
         // char.ConvertFromUtf32 is used only above U+FFFF, since it throws for a surrogate code.
-        writer.Line("public static NyOption<string> FromCodePoint(long code) =>")
-        writer.Line("code < 0L || code > 0x10FFFFL ? NyOption<string>.None() : NyOption<string>.Some(code < 0x10000L ? ((char)code).ToString() : char.ConvertFromUtf32((int)code));")
+        writer.Line("public static NyOption<NyStr> FromCodePoint(long code) =>")
+        writer.Line("code < 0L || code > 0x10FFFFL ? NyOption<NyStr>.None() : NyOption<NyStr>.Some(code < 0x10000L ? ((char)code).ToString() : char.ConvertFromUtf32((int)code));")
         // ToCodePoint is Python ord as an Option: one code point as StringLength counts it, so a surrogate
         // pair gives its scalar value and an unpaired surrogate its code unit.
         writer.Line("public static NyOption<long> ToCodePoint(string text) =>")
@@ -385,7 +385,26 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         // Join is Python sep.join(list): the items in order with the separator between adjacent ones.
-        writer.Line("public static string Join(NyList<string> list, string separator) => string.Join(separator, list.Items);")
+        writer.Line("public static NyStr Join(NyList<NyStr> list, string separator)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var items = list.Items;")
+        writer.Line("var total = 0L;")
+        writer.Line("for (var i = 0; i < items.Length; i++) total += items[i].Length + (i > 0 ? separator.Length : 0);")
+        writer.Line("if (total > int.MaxValue) throw new OutOfMemoryException();")
+        writer.Line("var chars = new char[total];")
+        writer.Line("var at = 0;")
+        writer.Line("for (var i = 0; i < items.Length; i++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (i > 0) { separator.AsSpan().CopyTo(chars.AsSpan(at)); at += separator.Length; }")
+        writer.Line("items[i].CopyTo(chars.AsSpan(at));")
+        writer.Line("at += items[i].Length;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return new string(chars);")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("private static int Find(string text, string value, int offset)")
         writer.Line("{")
         writer.Push()
@@ -539,6 +558,70 @@ module CSharpBackend =
         writer.Line("return unit;")
         writer.Pop()
         writer.Line("}")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
+        // A String is a .NET string, or the first _length chars of a char store that several Strings
+        // share, as NyList<T> shares its items. Concat writes the right operand past the left one only
+        // after a compare-exchange moves the store's Used count from exactly the left length, so a chain
+        // of concatenations onto the previous result is amortised O(1) per char, and concatenating onto
+        // an older String, or onto one String twice, copies. Chars below a String's length are written
+        // once, before it exists, and never change. Every other operation reads the materialised .NET
+        // string, made once per String and kept, so repeated reads (and NyText's position maps, which are
+        // keyed by string instance) see one string. Short results stay plain strings.
+        writer.Line("public sealed class NyStr : IEquatable<NyStr>")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("private sealed class Store")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("internal readonly char[] Chars;")
+        writer.Line("internal int Used;")
+        writer.Line("internal Store(char[] chars, int used) { Chars = chars; Used = used; }")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("private const int StoreThreshold = 256;")
+        writer.Line("private static readonly NyStr EmptyString = new(string.Empty);")
+        writer.Line("private readonly Store? _store;")
+        writer.Line("private readonly int _length;")
+        writer.Line("private string? _text;")
+        writer.Line("private NyStr(string text) { _text = text; _length = text.Length; }")
+        writer.Line("private NyStr(Store store, int length) { _store = store; _length = length; }")
+        writer.Line("public static implicit operator NyStr(string text) => text.Length == 0 ? EmptyString : new NyStr(text);")
+        writer.Line("public static implicit operator string(NyStr value) => value is null ? null! : value.Text;")
+        writer.Line("public int Length => _length;")
+        writer.Line("public string Text => _text ??= new string(_store!.Chars, 0, _length);")
+        writer.Line("private ReadOnlySpan<char> Chars => _text is { } text ? text.AsSpan() : new ReadOnlySpan<char>(_store!.Chars, 0, _length);")
+        writer.Line("public void CopyTo(Span<char> destination) => Chars.CopyTo(destination);")
+        writer.Line("public static NyStr Concat(NyStr left, NyStr right)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (right._length == 0) return left;")
+        writer.Line("if (left._length == 0) return right;")
+        writer.Line("var total = (long)left._length + right._length;")
+        writer.Line("if (total > Array.MaxLength) throw new OutOfMemoryException();")
+        writer.Line("var store = left._store;")
+        // When right shares this store its chars lie below left's length, so the copy cannot overlap them.
+        writer.Line("if (store != null && total <= store.Chars.Length && System.Threading.Interlocked.CompareExchange(ref store.Used, (int)total, left._length) == left._length)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("right.Chars.CopyTo(store.Chars.AsSpan(left._length));")
+        writer.Line("return new NyStr(store, (int)total);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("if (total < StoreThreshold) return new NyStr(string.Concat(left.Chars, right.Chars));")
+        writer.Line("var chars = new char[(int)System.Math.Min(total * 2L, Array.MaxLength)];")
+        writer.Line("left.Chars.CopyTo(chars);")
+        writer.Line("right.Chars.CopyTo(chars.AsSpan(left._length));")
+        writer.Line("return new NyStr(new Store(chars, (int)total), (int)total);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public bool Equals(NyStr? other) => other is not null && (ReferenceEquals(this, other) || Chars.SequenceEqual(other.Chars));")
+        writer.Line("public override bool Equals(object? obj) => obj is NyStr other && Equals(other);")
+        writer.Line("public override int GetHashCode() => string.GetHashCode(Chars);")
+        writer.Line("public override string ToString() => Text;")
+        writer.Line("public static bool operator ==(NyStr? left, NyStr? right) => left is null ? right is null : left.Equals(right);")
+        writer.Line("public static bool operator !=(NyStr? left, NyStr? right) => !(left == right);")
         writer.Pop()
         writer.Line("}")
         writer.Line("")
@@ -1296,7 +1379,7 @@ module CSharpBackend =
             // Only '-'? ASCII digits are accepted; TryParse then enforces the Int64 range.
             writer.Line("{")
             writer.Push()
-            writer.Line("var text = " + valueName sourceValueId + ";")
+            writer.Line("string text = " + valueName sourceValueId + ";")
             writer.Line("var start = text.Length > 0 && text[0] == '-' ? 1 : 0;")
             writer.Line("var digits = text.Length > start;")
             writer.Line("for (var index = start; digits && index < text.Length; index++) digits = text[index] >= '0' && text[index] <= '9';")
@@ -1325,8 +1408,8 @@ module CSharpBackend =
             // surrogate code unit is its own element, as StringLength counts it.
             writer.Line("{")
             writer.Push()
-            writer.Line("var text = " + valueName sourceValueId + ";")
-            writer.Line("var codePoints = new System.Collections.Generic.List<string>(text.Length);")
+            writer.Line("string text = " + valueName sourceValueId + ";")
+            writer.Line("var codePoints = new System.Collections.Generic.List<NyStr>(text.Length);")
             writer.Line("for (var index = 0; index < text.Length; index++)")
             writer.Line("{")
             writer.Push()
@@ -1335,14 +1418,14 @@ module CSharpBackend =
             writer.Line("index += width - 1;")
             writer.Pop()
             writer.Line("}")
-            writer.Line(target + " = NyList<string>.FromOwnedArray(codePoints.ToArray());")
+            writer.Line(target + " = NyList<NyStr>.FromOwnedArray(codePoints.ToArray());")
             writer.Pop()
             writer.Line("}")
         | ExecutionInstructionKind.StringSlice(sourceValueId, startId, endId) ->
             // Clamp both code-point bounds to [0, length], then map them to UTF-16 offsets without splitting a pair.
             writer.Line("{")
             writer.Push()
-            writer.Line("var text = " + valueName sourceValueId + ";")
+            writer.Line("string text = " + valueName sourceValueId + ";")
             writer.Line("var start = System.Math.Max(0L, " + valueName startId + ");")
             writer.Line("var end = System.Math.Max(0L, " + valueName endId + ");")
             writer.Line("var startOffset = NyText.OffsetOf(text, start);")
@@ -1351,7 +1434,7 @@ module CSharpBackend =
             writer.Pop()
             writer.Line("}")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
-            writer.Line(target + " = " + valueName sourceValueId + ".Contains(" + valueName substringId + ", StringComparison.Ordinal);")
+            writer.Line(target + " = ((string)" + valueName sourceValueId + ").Contains(" + valueName substringId + ", StringComparison.Ordinal);")
         | ExecutionInstructionKind.StringIndexOf(sourceValueId, substringId, fromId) ->
             writer.Line(target + " = NyText.IndexOf(" + valueName sourceValueId + ", " + valueName substringId + ", " + valueName fromId + ");")
         | ExecutionInstructionKind.StringSpan(sourceValueId, setId, fromId) ->
@@ -1377,7 +1460,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.ValueEqual(leftValueId, rightValueId) ->
             writer.Line(target + " = NyEquality.Equal(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.StringConcat(leftValueId, rightValueId) ->
-            writer.Line(target + " = string.Concat(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+            writer.Line(target + " = NyStr.Concat(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64WrappingAdd(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "+" rightValueId true
         | ExecutionInstructionKind.Int64WrappingSubtract(leftValueId, rightValueId) ->

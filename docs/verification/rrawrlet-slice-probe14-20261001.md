@@ -1,6 +1,6 @@
 # rrawrlet slice probe 14 — 2026-10-01
 
-**Status:** Complete. A part of rrawrlet that no earlier probe had touched was authored by name only: all of `repo_map.py` except the tree-sitter binding itself. That covers `repo_map`, `source_files` (`git ls-files -z`, or `os.walk` with its pruning and symlink rule), the `paths` filter (`expanduser`, `resolve`, `is_relative_to`), `outline` (the size, NUL and generated-name skips), `_headings` (the `HEADING` and `FENCE` byte regexes), and `_parsed` with `_named`, `_declarator_name` and `_signature` over the syntax tree a `Host` capability returns. The port matched the real Python on **310/310 cases on its first run**, including every host call in order. There were no recipe rejections and no port bugs, and there are no known divergences. **Nothing is blocked and nothing is queued.**
+**Status:** Complete. A part of rrawrlet that no earlier probe had touched was authored by name only: all of `repo_map.py` except the tree-sitter binding itself. That covers `repo_map`, `source_files` (`git ls-files -z`, or `os.walk` with its pruning and symlink rule), the `paths` filter (`expanduser`, `resolve`, `is_relative_to`), `outline` (the size, NUL and generated-name skips), `_headings` (the `HEADING` and `FENCE` byte regexes), and `_parsed` with `_named`, `_declarator_name` and `_signature` over the syntax tree a `Host` capability returns. The port matched the real Python on **310/310 cases on its first run**, including every host call in order. There were no recipe rejections and no port bugs, and there are no known divergences. **Nothing is blocked.** Afterwards the owner chose cost #1 as order 31, which made `StringConcat` accumulation linear (see [the follow-up](#follow-up-order-31-amortised-stringconcat)).
 
 The largest costs are bytes, which the language has no type for, and one performance trap. Bytes travel as Strings of one code point per byte, which kept every byte offset exact. The cost is `bytes.decode("utf-8", "replace")`, written by hand: 4 functions and 228 nodes, 13% of the port. The trap is in that decoder's first draft. It built its output with one `StringConcat` per character. That is quadratic: 97.5 KB took 3.0 s and 195 KB timed out. The language subset already documents this, and the list-and-join form fixed it in 12 requests: 1.56 MB now takes 0.85 s. The syntax tree could not be passed as a recursive run value, because real trees are deeper than the 32-layer bound allows, so the `Host` returns it as preorder text and the port rebuilds it. Throughput is close to Python's: 1,000 files take 1.7 s where Python takes 1.07 s. The 5 s run limit is reached at about 2,500–3,000 files per run.
 
@@ -130,7 +130,7 @@ Per file the port costs about 1.4–1.6 ms above the build and Python about 1.1 
 
 | # | Cost | Evidence | Smallest candidate change |
 | --- | --- | --- | --- |
-| 1 | **Quadratic `StringConcat` accumulation is the natural first draft** | The decoder written as in Python timed out at 195 KB; the list-and-join form takes 0.85 s for 1.56 MB. The rule is documented, but nothing at authoring time points to it, and the cases could not show it | None queued. Candidates for the owner: amortise `StringConcat` onto the String the previous concat produced, as `ListAppendItem` already is for lists, so the natural form is linear; or name the cost where it would be seen, in the `StringConcat` recipe reference |
+| 1 | **Quadratic `StringConcat` accumulation is the natural first draft** | The decoder written as in Python timed out at 195 KB; the list-and-join form takes 0.85 s for 1.56 MB. The rule is documented, but nothing at authoring time points to it, and the cases could not show it | **Done (order 31):** `StringConcat` onto the String the previous concat produced is amortised, as `ListAppendItem` is for lists. The first draft now runs 3.12 MB in 1.91 s ([follow-up](#follow-up-order-31-amortised-stringconcat)) |
 | 2 | **UTF-8 decoding with `replace`** | 4 functions and 228 nodes (13%), the most error-prone part of the port; 0.6 s for 1.56 MB where Python takes 5 ms | None queued. Candidate: a `StringDecodeUtf8Lossy(latin1Text)` builtin with Python's maximal-subpart rule. A `Bytes` type would add nothing else this port needed |
 | 3 | **Syntax trees cannot be fake values** | The 32-layer run-value bound allows 16 tree levels; most real files are deeper (rrawrlet median 18, nyrwvy F# median 30). The text form cost 5 functions and 126 nodes | None. This is a harness boundary; program values have no such bound |
 | 4 | **Fake budgets split the cases** | 65,536 UTF-16 units per fake argument, with each source counted twice (as `readBytes`' answer and as `parse`'s argument key) and its tree once, limit a differential case to about 9 KB of Python source. 256 argument cases per operation split two batches (4 and 16 cases) on the first run. The 1 MB skip could not be tested against Python | None. Harness reach, recorded with probe 13's |
@@ -138,6 +138,19 @@ Per file the port costs about 1.4–1.6 ms above the build and Python about 1.1 
 | 6 | **Constant sets as literal lists** | About 90 nodes of literals, tested with `ListAny`; 36 comparisons per tree node for `DEFINITIONS` | None. The deferred Map/set; not visible in the times |
 
 Against the deferred candidates: Map was weakly triggered, only as constant sets. StringFold was not needed, because every text pass is a fold over `StringCodePoints`. The build cache (#274) held across batches: after the first run, every batch took 0.3–0.5 s. Lone-surrogate run values (#275) were not needed, because nothing in this module produces a lone surrogate. Neither `Bits32` nor Float64 was needed.
+
+## Follow-up: order 31, amortised StringConcat
+
+The owner chose cost #1. The emitted C# now represents a `String` as `NyStr`, which shares a char store the way `NyList<T>` does, so `StringConcat` onto the previous result copies only its right operand ([verification](string-amortised-concat-20261001.md)). Re-run on the new build with the same snapshots:
+
+| Input | Before | After |
+| --- | --- | --- |
+| Identity copy by `StringConcat`, 97,500 / 195,000 code points | 3.93 s / `RunTimeout` | 0.30 / 0.35 s |
+| Identity copy by `StringConcat`, 3,120,000 code points | — | 1.24 s |
+| First-draft `decode`, 97,500 / 195,000 mixed bytes | 2.58 s / `RunTimeout` | 0.31 / 0.36 s |
+| First-draft `decode`, 3,120,000 mixed bytes | — | 1.91 s |
+
+The first draft is now in the same range as the list-and-join form (1.56 MB in 0.85 s), so the 12-request rewrite would not have been needed. The final port still matches 310/310 on the new build. Cost #2, the hand-written decoder itself, is unchanged. The scripts are `order31/scale3.py` and `order31/scale4.py` in the shared files.
 
 ## Reproducing
 

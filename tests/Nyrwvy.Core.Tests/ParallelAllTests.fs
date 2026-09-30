@@ -231,10 +231,10 @@ module ParallelAllTests =
                               $"public sealed class Counter : {CSharpBackendNames.capabilityName fixture.Jobs.Id}"
                               "{"
                               "    int count;"
-                              $"    public NyResult<string, string> {CSharpBackendNames.capabilityOperationName operation.Id}(string name)"
+                              $"    public NyResult<NyStr, NyStr> {CSharpBackendNames.capabilityOperationName operation.Id}(NyStr name)"
                               "    {"
                               "        int next = System.Threading.Interlocked.Increment(ref count);"
-                              "        return NyResult<string, string>.Ok(next.ToString(System.Globalization.CultureInfo.InvariantCulture));"
+                              "        return NyResult<NyStr, NyStr>.Ok(next.ToString(System.Globalization.CultureInfo.InvariantCulture));"
                               "    }"
                               "}" ]
             File.WriteAllText(Path.Combine(Path.GetDirectoryName fixture.Path, "Host.cs"), source)

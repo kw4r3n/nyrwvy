@@ -56,19 +56,19 @@ var policy = new {policyTypeName}();
 var valid = new {rawTypeName}(
     {nameFieldName}: "Alice",
     {emailFieldName}: "alice@example.test",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 NyFunctions.{mainFunctionName}(valid, policy, console);
 
 var emptyName = new {rawTypeName}(
     {nameFieldName}: "",
     {emailFieldName}: "alice@example.test",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 NyFunctions.{mainFunctionName}(emptyName, policy, console);
 
 var invalidEmail = new {rawTypeName}(
     {nameFieldName}: "Alice",
     {emailFieldName}: "not-an-email",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
 """
 

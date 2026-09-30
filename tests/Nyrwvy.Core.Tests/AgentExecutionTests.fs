@@ -52,15 +52,15 @@ var console = new {adapterName}();
 var valid = new {rawTypeName}(
     {nameFieldName}: "Alice",
     {emailFieldName}: "alice@example.test",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 var emptyName = new {rawTypeName}(
     {nameFieldName}: "",
     {emailFieldName}: "empty@example.test",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 var invalidEmail = new {rawTypeName}(
     {nameFieldName}: "Bob",
     {emailFieldName}: "not-an-email",
-    {displayNameFieldName}: NyOption<string>.None());
+    {displayNameFieldName}: NyOption<NyStr>.None());
 
 var mixed = NyList<{rawTypeName}>.Create(valid, emptyName, invalidEmail);
 NyFunctions.{mainFunctionName}(mixed, console);
