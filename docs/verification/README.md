@@ -50,6 +50,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Codex CLI MCP maintenance probe, Run 2](codex-cli-mcp-maintenance-probe-run-2.md) — qualified maintenance success
 - [Expression recipe reference live probe](expression-recipe-reference-live-probe.md)
 - [rrawrlet slice probe 12](rrawrlet-slice-probe12-20261001.md): `condense` material, cache key (SHA-256 in Int64 arithmetic) and citations, 304/304 against Python
+- [rrawrlet slice probe 13](rrawrlet-slice-probe13-20261001.md): `ref_backup` (Git ref snapshots and changes) and `supervisor` (`argparse` command line, a clocked poll and cleanup state machine), 371/371 against Python after 2 port bugs
 
 ## Project review and follow-ups
 
