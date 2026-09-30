@@ -293,6 +293,8 @@ module internal WireSymbolic =
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
         | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount
+        | "stringFromCodePoint" -> unary "string-from-code-point recipe" ExpressionRecipe.StringFromCodePoint
+        | "stringToCodePoint" -> unary "string-to-code-point recipe" ExpressionRecipe.StringToCodePoint
         | "stringLength" -> unary "string-length recipe" ExpressionRecipe.StringLength
         | "stringSlice" ->
             ensureFields "string-slice recipe" [ "kind"; "value"; "start"; "end" ] [ "kind"; "value"; "start"; "end" ] element

@@ -315,6 +315,16 @@ module CSharpBackend =
         writer.Line("}")
         // UTF-8 length; the replacement fallback encodes an unpaired surrogate as U+FFFD, 3 bytes.
         writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
+        // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
+        // char.ConvertFromUtf32 is used only above U+FFFF, since it throws for a surrogate code.
+        writer.Line("public static NyOption<string> FromCodePoint(long code) =>")
+        writer.Line("code < 0L || code > 0x10FFFFL ? NyOption<string>.None() : NyOption<string>.Some(code < 0x10000L ? ((char)code).ToString() : char.ConvertFromUtf32((int)code));")
+        // ToCodePoint is Python ord as an Option: one code point as StringLength counts it, so a surrogate
+        // pair gives its scalar value and an unpaired surrogate its code unit.
+        writer.Line("public static NyOption<long> ToCodePoint(string text) =>")
+        writer.Line("text.Length == 1 ? NyOption<long>.Some(text[0])")
+        writer.Line(": text.Length == 2 && Width(text, 0) == 2 ? NyOption<long>.Some(char.ConvertToUtf32(text[0], text[1]))")
+        writer.Line(": NyOption<long>.None();")
         // Join is Python sep.join(list): the items in order with the separator between adjacent ones.
         writer.Line("public static string Join(NyList<string> list, string separator) => string.Join(separator, list.OwnedItems);")
         writer.Line("private static int Find(string text, string value, int offset)")
@@ -1096,6 +1106,10 @@ module CSharpBackend =
             writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringUtf8ByteCount sourceValueId ->
             writer.Line(target + " = NyText.Utf8ByteCount(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringFromCodePoint sourceValueId ->
+            writer.Line(target + " = NyText.FromCodePoint(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringToCodePoint sourceValueId ->
+            writer.Line(target + " = NyText.ToCodePoint(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringCodePoints sourceValueId ->
             // One String per code point, walked once: a surrogate pair stays together and an unpaired
             // surrogate code unit is its own element, as StringLength counts it.

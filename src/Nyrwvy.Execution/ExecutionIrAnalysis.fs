@@ -35,6 +35,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId
+        | TypedSemanticNodeKind.StringFromCodePoint valueNodeId
+        | TypedSemanticNodeKind.StringToCodePoint valueNodeId
         | TypedSemanticNodeKind.StringLength valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
@@ -151,6 +153,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
+            | TypedSemanticNodeKind.StringFromCodePoint _
+            | TypedSemanticNodeKind.StringToCodePoint _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _
@@ -288,6 +292,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringCodePoints _
         | TypedSemanticNodeKind.StringToLower _
         | TypedSemanticNodeKind.StringUtf8ByteCount _
+        | TypedSemanticNodeKind.StringFromCodePoint _
+        | TypedSemanticNodeKind.StringToCodePoint _
         | TypedSemanticNodeKind.StringLength _
         | TypedSemanticNodeKind.StringSlice _
         | TypedSemanticNodeKind.BoolNot _
@@ -408,6 +414,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
+            | TypedSemanticNodeKind.StringFromCodePoint _
+            | TypedSemanticNodeKind.StringToCodePoint _
             | TypedSemanticNodeKind.StringLength _
             | TypedSemanticNodeKind.StringSlice _
             | TypedSemanticNodeKind.BoolNot _

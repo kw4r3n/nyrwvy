@@ -680,6 +680,18 @@ module SnapshotValidator =
                             $"StringUtf8ByteCount node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringFromCodePoint valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringFromCodePoint node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.StringToCodePoint valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringToCodePoint node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringLength valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1578,6 +1590,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
                 | SemanticNodeKind.StringUtf8ByteCount _
+                | SemanticNodeKind.StringFromCodePoint _
+                | SemanticNodeKind.StringToCodePoint _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringSlice _
                 | SemanticNodeKind.StringContains _

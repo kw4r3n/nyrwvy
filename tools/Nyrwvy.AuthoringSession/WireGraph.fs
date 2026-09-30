@@ -60,6 +60,8 @@ module internal WireGraph =
         | SemanticNodeKind.StringCodePoints value -> unary "stringCodePoints" value
         | SemanticNodeKind.StringToLower value -> unary "stringToLower" value
         | SemanticNodeKind.StringUtf8ByteCount value -> unary "stringUtf8ByteCount" value
+        | SemanticNodeKind.StringFromCodePoint value -> unary "stringFromCodePoint" value
+        | SemanticNodeKind.StringToCodePoint value -> unary "stringToCodePoint" value
         | SemanticNodeKind.StringLength value -> unary "stringLength" value
         | SemanticNodeKind.StringSlice(value, start, stop) ->
             tagged "stringSlice" [ "valueNodeId", identity value; "startNodeId", identity start; "endNodeId", identity stop ]

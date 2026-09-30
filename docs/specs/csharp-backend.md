@@ -75,6 +75,10 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `StringToLower` calls the emitted `NyText.ToLower`, one pass over the UTF-16 string: a surrogate pair is mapped with `System.Text.Rune.ToLowerInvariant`, an unpaired surrogate is copied unchanged, U+0130 becomes `i` (the UnicodeData simple mapping, which .NET's invariant casing does not apply), and every other code unit is mapped with `char.ToLowerInvariant`. `string.ToLowerInvariant` must not be used: it replaces an unpaired surrogate with U+FFFD. `StringUtf8ByteCount` calls `NyText.Utf8ByteCount`, which is `Encoding.UTF8.GetByteCount`; its replacement fallback counts an unpaired surrogate as the 3 bytes of U+FFFD.
 
+## String code point conversion
+
+`StringFromCodePoint` calls the emitted `NyText.FromCodePoint`, which returns `NyOption<string>.None()` outside 0..0x10FFFF, casts a code below 0x10000 to one `char` (so a surrogate code gives one unpaired surrogate code unit) and uses `char.ConvertFromUtf32` only above U+FFFF; `char.ConvertFromUtf32` must not be used for the whole range, since it throws for a surrogate code. `StringToCodePoint` calls `NyText.ToCodePoint`, which returns the code unit of a one-unit string, `char.ConvertToUtf32` of a two-unit string that is a valid surrogate pair, and `NyOption<long>.None()` otherwise. Both are constant time.
+
 ## List sorting
 
 `ListSortBy` emits `source.SortBy(lessThan)`, with the callback rendered like other List callbacks (a method group, or a lambda passing context and the two items by parameter name). `NyList<T>.SortBy` copies the items and runs the specified top-down merge sort: the left half is the first `length / 2` items, and the merge takes the right head only when `lessThan(rightHead, leftHead)` is true, so equal items keep their order. It does not use `Array.Sort` or `List<T>.Sort`, which are unstable introsorts whose result for an inconsistent comparer is unspecified and which may throw for one.
