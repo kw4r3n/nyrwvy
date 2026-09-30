@@ -213,108 +213,101 @@ module PureRun =
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | _ -> invalidOp "Unsupported runner type passed validation."
 
-    let rec private sourceArgument value =
-        let listSource name items =
-            let arguments = items |> List.map sourceArgument |> String.concat ", "
-            $"NyList<{name}>.Create({arguments})"
-        let optionSource name item =
-            match item with
-            | None -> $"NyOption<{name}>.None()"
-            | Some value -> $"NyOption<{name}>.Some({sourceArgument value})"
-        match value with
-        | PureRunValue.Unit -> "NyUnit.Value"
-        | PureRunValue.FakeCapability _
-        | PureRunValue.HostCapability _ -> invalidOp "Capability bindings are rendered by argument position."
-        | PureRunValue.ListValue(itemType, items) -> listSource (sourceType itemType) items
-        | PureRunValue.OptionValue(itemType, item) -> optionSource (sourceType itemType) item
-        | PureRunValue.Product(_, fields)
-        | PureRunValue.Union(_, _, fields) ->
-            let name =
-                match value with
-                | PureRunValue.Product(typeId, _) -> CSharpBackendNames.typeName typeId
-                | PureRunValue.Union(_, variantId, _) -> CSharpBackendNames.variantName variantId
-                | _ -> invalidOp "Expected a named value."
-            let arguments = fields |> List.map (fun (fieldId, item) ->
-                CSharpBackendNames.fieldName fieldId + ": " + sourceArgument item) |> String.concat ", "
-            "new " + name + "(" + arguments + ")"
-        | PureRunValue.ResultValue(okType, errorType, isOk, item) ->
-            let constructor = if isOk then "Ok" else "Err"
-            $"NyResult<{sourceType okType}, {sourceType errorType}>.{constructor}({sourceArgument item})"
-        | PureRunValue.ResultOk(errorKind, item) ->
-            let okType, errorType = scalarSourceType (scalarKind item), scalarSourceType errorKind
-            let source = sourceArgument (scalarValue item)
-            $"NyResult<{okType}, {errorType}>.Ok({source})"
-        | PureRunValue.ResultErr(okKind, item) ->
-            let okType, errorType = scalarSourceType okKind, scalarSourceType (scalarKind item)
-            let source = sourceArgument (scalarValue item)
-            $"NyResult<{okType}, {errorType}>.Err({source})"
-        | PureRunValue.StringOption item -> optionSource "string" (item |> Option.map PureRunValue.String)
-        | PureRunValue.BoolOption item -> optionSource "bool" (item |> Option.map PureRunValue.Bool)
-        | PureRunValue.Int64Option item -> optionSource "long" (item |> Option.map PureRunValue.Int64)
-        | PureRunValue.StringList items -> listSource "string" (items |> List.map PureRunValue.String)
-        | PureRunValue.BoolList items -> listSource "bool" (items |> List.map PureRunValue.Bool)
-        | PureRunValue.Int64List items -> listSource "long" (items |> List.map PureRunValue.Int64)
-        | PureRunValue.String text ->
-            let encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
-            $"Encoding.UTF8.GetString(Convert.FromBase64String(\"{encoded}\"))"
-        | PureRunValue.Bool value -> if value then "true" else "false"
-        | PureRunValue.Int64 value ->
-            let literal = value.ToString(CultureInfo.InvariantCulture)
-            $"long.Parse(\"{literal}\", CultureInfo.InvariantCulture)"
-        | PureRunValue.Float64 bits -> $"BitConverter.UInt64BitsToDouble(0x{Float64Bits.toHex bits}UL)"
-        | PureRunValue.Bits32 value -> value.ToString(CultureInfo.InvariantCulture) + "u"
+    /// A String as one input token: "s" and the Base64 of its UTF-16 code units in this machine's
+    /// byte order, which the child process shares.
+    let private textToken (text: string) =
+        "s" + Convert.ToBase64String(System.Runtime.InteropServices.MemoryMarshal.AsBytes(text.AsSpan()).ToArray())
 
-    /// Compare the supported value structure, never CLR container reference identity.
-    /// Generation is bounded by the already validated key, including recursive named types.
-    let private sourceMatches prefix expected actual =
-        let mutable next = 0
-        let fresh () = next <- next + 1; prefix + "Key" + string next
-        let rec compare value actual =
-            let fields owner values =
-                values |> List.map (fun (id, value) -> compare value (owner + "." + CSharpBackendNames.fieldName id))
-                |> String.concat " && "
-            let list values =
-                let state, item = fresh (), fresh ()
-                let arms = values |> List.mapi (fun i value -> string i + " => " + compare value item) |> String.concat ", "
-                let cases = if List.isEmpty values then "_ => false" else arms + ", _ => false"
-                $"({actual} != null && {actual}.Length == {values.Length}L && {actual}.Fold((Index: 0, Equal: true), ({state}, {item}) => ({state}.Index + 1, {state}.Equal && ({state}.Index switch {{ {cases} }}))).Equal)"
-            let option value =
-                match value with
-                | None -> $"(!{actual}.HasValue)"
-                | Some item ->
-                    let selected = compare item (actual + ".Value")
-                    $"({actual}.HasValue && {selected})"
-            let result isOk payload =
-                let selected = if isOk then ".OkValue" else ".ErrorValue"
-                let flag = if isOk then "" else "!"
-                $"({flag}{actual}.IsOk && {compare payload (actual + selected)})"
+    /// Appends a run value's input tokens in the order the generated decoder reads them. Arguments and
+    /// fake scripts reach the child process as this text instead of being compiled into the program,
+    /// so every call of one entry over one snapshot builds the same source. Product and Union fields
+    /// follow canonical field order; a Union starts with its variant's index in canonical order.
+    let rec private inputTokens (types: SemanticType list) (tokens: ResizeArray<string>) value =
+        let add (token: string) = tokens.Add token
+        let items (values: PureRunValue list) =
+            add (string values.Length)
+            values |> List.iter (inputTokens types tokens)
+        let option (value: PureRunValue option) =
             match value with
-            | PureRunValue.Unit -> $"System.Collections.Generic.EqualityComparer<NyUnit>.Default.Equals({actual}, NyUnit.Value)"
-            | PureRunValue.String _ -> $"string.Equals({actual}, {sourceArgument value}, StringComparison.Ordinal)"
-            | PureRunValue.Bool _ | PureRunValue.Int64 _ | PureRunValue.Bits32 _ -> $"({actual} == {sourceArgument value})"
-            // The same bitwise comparison as expected results: any NaN matches NaN, and -0.0 is not 0.0.
-            | PureRunValue.Float64 bits when Float64Bits.isNaN bits -> $"double.IsNaN({actual})"
-            | PureRunValue.Float64 bits -> $"(BitConverter.DoubleToUInt64Bits({actual}) == 0x{Float64Bits.toHex bits}UL)"
-            | PureRunValue.StringList items -> list (List.map PureRunValue.String items)
-            | PureRunValue.BoolList items -> list (List.map PureRunValue.Bool items)
-            | PureRunValue.Int64List items -> list (List.map PureRunValue.Int64 items)
-            | PureRunValue.ListValue(_, items) -> list items
-            | PureRunValue.StringOption item -> option (Option.map PureRunValue.String item)
-            | PureRunValue.BoolOption item -> option (Option.map PureRunValue.Bool item)
-            | PureRunValue.Int64Option item -> option (Option.map PureRunValue.Int64 item)
-            | PureRunValue.OptionValue(_, item) -> option item
-            | PureRunValue.ResultOk(_, payload) -> result true (scalarValue payload)
-            | PureRunValue.ResultErr(_, payload) -> result false (scalarValue payload)
-            | PureRunValue.ResultValue(_, _, isOk, payload) -> result isOk payload
-            | PureRunValue.Product(_, values) ->
-                let body = fields actual values
-                if List.isEmpty values then $"({actual} != null)" else $"({actual} != null && {body})"
-            | PureRunValue.Union(_, variant, values) ->
-                let name = fresh ()
-                let head = actual + " is " + CSharpBackendNames.variantName variant + " " + name
-                if List.isEmpty values then "(" + head + ")" else "(" + head + " && " + fields name values + ")"
-            | PureRunValue.FakeCapability _ | PureRunValue.HostCapability _ -> invalidOp "Capability values cannot be fake keys."
-        compare expected actual
+            | None -> add "0"
+            | Some item ->
+                add "1"
+                inputTokens types tokens item
+        let result isOk payload =
+            add (if isOk then "1" else "0")
+            inputTokens types tokens payload
+        let fields (values: (FieldId * PureRunValue) list) =
+            values |> List.sortBy (fst >> StableId.value) |> List.iter (snd >> inputTokens types tokens)
+        match value with
+        | PureRunValue.Unit -> add "u"
+        | PureRunValue.String text -> add (textToken text)
+        | PureRunValue.Bool value -> add (if value then "1" else "0")
+        | PureRunValue.Int64 value -> add (value.ToString(CultureInfo.InvariantCulture))
+        | PureRunValue.Float64 bits -> add ((Float64Bits.value bits).ToString("x16", CultureInfo.InvariantCulture))
+        | PureRunValue.Bits32 value -> add (value.ToString(CultureInfo.InvariantCulture))
+        | PureRunValue.StringList values -> items (List.map PureRunValue.String values)
+        | PureRunValue.BoolList values -> items (List.map PureRunValue.Bool values)
+        | PureRunValue.Int64List values -> items (List.map PureRunValue.Int64 values)
+        | PureRunValue.StringOption value -> option (Option.map PureRunValue.String value)
+        | PureRunValue.BoolOption value -> option (Option.map PureRunValue.Bool value)
+        | PureRunValue.Int64Option value -> option (Option.map PureRunValue.Int64 value)
+        | PureRunValue.ListValue(_, values) -> items values
+        | PureRunValue.OptionValue(_, value) -> option value
+        | PureRunValue.ResultOk(_, payload) -> result true (scalarValue payload)
+        | PureRunValue.ResultErr(_, payload) -> result false (scalarValue payload)
+        | PureRunValue.ResultValue(_, _, isOk, payload) -> result isOk payload
+        | PureRunValue.Product(_, values) -> fields values
+        | PureRunValue.Union(typeId, variantId, values) ->
+            let variants = types |> List.tryFind (fun item -> item.Id = typeId) |> Option.bind (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Union variants -> Some(variants |> List.sortBy (fun variant -> StableId.value variant.Id))
+                | _ -> None)
+            add (string (variants |> Option.get |> List.findIndex (fun variant -> variant.Id = variantId)))
+            fields values
+        | PureRunValue.FakeCapability _
+        | PureRunValue.HostCapability _ -> invalidOp "Capability bindings are not input values."
+
+    /// Appends a fake binding's script: per operation of the capability in canonical order, whether it
+    /// is keyed, then its queues. A keyed case carries its complete arguments as one key token, the
+    /// input tokens of each argument in canonical parameter order joined by commas, which the child
+    /// compares with the same encoding of the actual call arguments.
+    let private fakeInput types (operations: CapabilityOperationId list) (script: PureRunFakeOperation list) (tokens: ResizeArray<string>) =
+        let rec response item =
+            match item with
+            | PureRunFakeResponse.Return value ->
+                tokens.Add "0"
+                inputTokens types tokens value
+            | PureRunFakeResponse.Throw message ->
+                tokens.Add "1"
+                tokens.Add(textToken message)
+            | PureRunFakeResponse.AwaitCancellation value ->
+                tokens.Add "2"
+                inputTokens types tokens value
+            | PureRunFakeResponse.Delayed(delay, inner) ->
+                tokens.Add "3"
+                tokens.Add(delay.ToString(CultureInfo.InvariantCulture))
+                response inner
+        let queue (responses: PureRunFakeResponse list) =
+            tokens.Add(string responses.Length)
+            List.iter response responses
+        for operationId in operations do
+            match script |> List.tryFind (fun item -> item.OperationId = operationId) with
+            | Some { Cases = Some cases } ->
+                tokens.Add "1"
+                tokens.Add(string cases.Length)
+                for item in cases do
+                    let key = ResizeArray<string>()
+                    item.Arguments |> List.sortBy (fst >> StableId.value) |> List.iter (snd >> inputTokens types key)
+                    tokens.Add("k" + String.Join(",", key))
+                    queue item.Responses
+            | Some item ->
+                tokens.Add "0"
+                tokens.Add "1"
+                queue item.Responses
+            | None ->
+                tokens.Add "0"
+                tokens.Add "1"
+                tokens.Add "0"
 
     let private diagnostic code message = PureRunError.Unsupported(code, message)
 
@@ -881,6 +874,70 @@ module PureRun =
                 else None
         | _ -> None
 
+    /// The fixed runner classes that read input tokens, write keys and replay fake scripts.
+    let private runnerSupport =
+        String.concat "" [
+            "sealed class RunnerInput\n{\n"
+            "    readonly string[] tokens;\n    int next;\n"
+            "    public RunnerInput(string text) { tokens = text.Length == 0 ? Array.Empty<string>() : text.Split(' '); }\n"
+            "    string Next() => next < tokens.Length ? tokens[next++] : throw new InvalidOperationException(\"Runner input ended early.\");\n"
+            "    public NyUnit Unit() { Next(); return NyUnit.Value; }\n"
+            "    public bool Bool() => Next() == \"1\";\n"
+            "    public int Count() => int.Parse(Next(), NumberStyles.None, CultureInfo.InvariantCulture);\n"
+            "    public long Long() => long.Parse(Next(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);\n"
+            "    public uint UInt() => uint.Parse(Next(), NumberStyles.None, CultureInfo.InvariantCulture);\n"
+            "    public double Double() => BitConverter.UInt64BitsToDouble(ulong.Parse(Next(), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));\n"
+            "    public string String() => RunnerText.FromToken(Next());\n"
+            "    public string Key() => Next().Substring(1);\n"
+            "    public T[] Items<T>(Func<T> read) { var items = new T[Count()]; for (int index = 0; index < items.Length; index++) items[index] = read(); return items; }\n"
+            "}\n"
+            "static class RunnerText\n{\n"
+            "    public static string FromToken(string token) => new string(System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(Convert.FromBase64String(token.Substring(1)).AsSpan()));\n"
+            "    public static string ToToken(string text) => \"s\" + Convert.ToBase64String(System.Runtime.InteropServices.MemoryMarshal.AsBytes(text.AsSpan()));\n"
+            "}\n"
+            "sealed class RunnerKeyOverflow() : Exception(\"The key exceeds every case key.\");\n"
+            // A key is the input token form of the call arguments; writing stops once it is longer than every case key.
+            "sealed class RunnerKey\n{\n"
+            "    readonly StringBuilder text = new();\n    readonly int limit;\n    bool first = true;\n"
+            "    RunnerKey(int limit) { this.limit = limit; }\n"
+            "    public static string? Of(int limit, Action<RunnerKey> write) { var key = new RunnerKey(limit); try { write(key); } catch (RunnerKeyOverflow) { return null; } return key.text.ToString(); }\n"
+            "    public void Add(string token) { if (!first) text.Append(','); first = false; text.Append(token); if (text.Length > limit) throw new RunnerKeyOverflow(); }\n"
+            "    public void Add(long value) => Add(value.ToString(CultureInfo.InvariantCulture));\n"
+            "    public void Null() => Add(\"null\");\n"
+            "    public void String(string? value) { if (value == null) Null(); else if (value.Length > limit) throw new RunnerKeyOverflow(); else Add(RunnerText.ToToken(value)); }\n"
+            "    public void Double(double value) => Add((double.IsNaN(value) ? 0x7ff8000000000000UL : BitConverter.DoubleToUInt64Bits(value)).ToString(\"x16\", CultureInfo.InvariantCulture));\n"
+            "}\n"
+            // Kind: 0 return, 1 throw, 2 await cancellation, 3 delay, 4 no matching case, 5 exhausted.
+            "sealed class FakeResponse<T>\n{\n"
+            "    public static readonly FakeResponse<T> Unmatched = new() { Kind = 4 };\n"
+            "    public static readonly FakeResponse<T> Exhausted = new() { Kind = 5 };\n"
+            "    public int Kind;\n    public T Value = default!;\n    public string Message = \"\";\n    public long Delay;\n    public FakeResponse<T>? Inner;\n"
+            "    public static FakeResponse<T> Read(RunnerInput input, Func<T> read)\n    {\n"
+            "        var response = new FakeResponse<T> { Kind = input.Count() };\n"
+            "        switch (response.Kind)\n        {\n"
+            "            case 0: case 2: response.Value = read(); break;\n"
+            "            case 1: response.Message = input.String(); break;\n"
+            "            case 3: response.Delay = input.Long(); response.Inner = Read(input, read); break;\n"
+            "            default: throw new InvalidOperationException(\"Invalid runner input.\");\n"
+            "        }\n        return response;\n    }\n}\n"
+            // An ordered script is one queue; a keyed script has one queue per case.
+            "sealed class FakeScript<T>\n{\n"
+            "    public readonly bool Keyed;\n    public readonly int KeyLimit;\n"
+            "    readonly string[] keys;\n    readonly FakeResponse<T>[][] queues;\n    readonly int[] next;\n"
+            "    public FakeScript(RunnerInput input, Func<T> read)\n    {\n"
+            "        Keyed = input.Bool();\n        int count = input.Count();\n"
+            "        keys = new string[count];\n        queues = new FakeResponse<T>[count][];\n        next = new int[count];\n"
+            "        for (int index = 0; index < count; index++)\n        {\n"
+            "            if (Keyed) { keys[index] = input.Key(); KeyLimit = Math.Max(KeyLimit, keys[index].Length); }\n"
+            "            queues[index] = input.Items(() => FakeResponse<T>.Read(input, read));\n"
+            "        }\n    }\n"
+            "    public FakeResponse<T> Select(string? key)\n    {\n"
+            "        int selected = Keyed ? (key == null ? -1 : Array.IndexOf(keys, key)) : 0;\n"
+            "        if (selected < 0) return FakeResponse<T>.Unmatched;\n"
+            "        int local = next[selected]++;\n"
+            "        return local < queues[selected].Length ? queues[selected][local] : FakeResponse<T>.Exhausted;\n"
+            "    }\n}\n" ]
+
     let private runVerified
         (session: AuthoringSession)
         (functionId: FunctionId)
@@ -977,13 +1034,6 @@ module PureRun =
                 try
                     try
                         Directory.CreateDirectory(root) |> ignore
-                        let args =
-                            arguments |> List.mapi (fun index value ->
-                                match value with
-                                | PureRunValue.FakeCapability _ -> $"new Fake{index}()"
-                                | PureRunValue.HostCapability _ -> $"new Host{index}()"
-                                | value -> sourceArgument value)
-                            |> String.concat ", "
                         let fakes =
                             List.zip fn.Parameters arguments |> List.indexed |> List.choose (fun (index, (parameter, value)) ->
                                 let capability capabilityId = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
@@ -1061,14 +1111,104 @@ module PureRun =
                                     |> String.concat ", "
                                 $"    {site} => new object[] {{ {site}, new object[] {{ {arguments} }} }},\n")
                             |> String.concat ""
+                        // Argument values and fake scripts are decoded from the input file, never compiled in:
+                        // one decoder and one key writer per named type, like the encoders.
+                        let decoders = System.Collections.Generic.Dictionary<TypeId, string>()
+                        let keyWriters = System.Collections.Generic.Dictionary<TypeId, string>()
+                        let decodePending = System.Collections.Generic.Queue<TypeId>()
+                        let keyPending = System.Collections.Generic.Queue<TypeId>()
+                        let rec decode itemType =
+                            match itemType with
+                            | TypeRef.Primitive PrimitiveType.Unit -> "input.Unit()"
+                            | TypeRef.Primitive PrimitiveType.String -> "input.String()"
+                            | TypeRef.Primitive PrimitiveType.Bool -> "input.Bool()"
+                            | TypeRef.Primitive PrimitiveType.Int64 -> "input.Long()"
+                            | TypeRef.Primitive PrimitiveType.Float64 -> "input.Double()"
+                            | TypeRef.Primitive PrimitiveType.Bits32 -> "input.UInt()"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                let name = sourceType item
+                                $"NyList<{name}>.Create(input.Items<{name}>(() => {decode item}))"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                let name = sourceType item
+                                $"(input.Bool() ? NyOption<{name}>.Some({decode item}) : NyOption<{name}>.None())"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                let name = sourceType itemType
+                                $"(input.Bool() ? {name}.Ok({decode okType}) : {name}.Err({decode errorType}))"
+                            | TypeRef.Named typeId ->
+                                if not (decoders.ContainsKey typeId) then
+                                    decoders[typeId] <- "Decode" + CSharpBackendNames.typeName typeId
+                                    decodePending.Enqueue typeId
+                                "RunnerValues." + decoders[typeId] + "(input)"
+                            | _ -> invalidOp "Unsupported input type passed validation."
+                        let decodeFields (fields: SemanticField list) =
+                            fields |> List.map (fun field -> CSharpBackendNames.fieldName field.Id + ": " + decode field.Type) |> String.concat ", "
+                        let decodeNamed typeId =
+                            let typeName = CSharpBackendNames.typeName typeId
+                            let body =
+                                match productFields declarations.Types typeId with
+                                | Some declared -> $"new {typeName}({decodeFields declared})"
+                                | None ->
+                                    let arms =
+                                        unionVariants declarations.Types typeId |> Option.get
+                                        |> List.mapi (fun index variant ->
+                                            $"{index} => ({typeName})new {CSharpBackendNames.variantName variant.Id}({decodeFields variant.Fields}), ")
+                                        |> String.concat ""
+                                    "input.Count() switch { " + arms + "_ => throw new InvalidOperationException(\"Invalid runner input.\") }"
+                            $"    public static {typeName} {decoders[typeId]}(RunnerInput input) => {body};\n"
+                        // Writes a value in the input token form, for comparison with a keyed case.
+                        let rec keyStatement itemType access =
+                            match itemType with
+                            | TypeRef.Primitive PrimitiveType.Unit -> "key.Add(\"u\");"
+                            | TypeRef.Primitive PrimitiveType.String -> $"key.String({access});"
+                            | TypeRef.Primitive PrimitiveType.Bool -> $"key.Add({access} ? \"1\" : \"0\");"
+                            | TypeRef.Primitive PrimitiveType.Int64 -> $"key.Add({access});"
+                            | TypeRef.Primitive PrimitiveType.Bits32 -> $"key.Add((long){access});"
+                            | TypeRef.Primitive PrimitiveType.Float64 -> $"key.Double({access});"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                let state, name = fresh (), fresh ()
+                                $"if ({access} == null) key.Null(); else {{ key.Add({access}.Length); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                let some = keyStatement item (access + ".Value")
+                                $"if ({access}.HasValue) {{ key.Add(\"1\"); {some} }} else key.Add(\"0\");"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                let ok, error = keyStatement okType (access + ".OkValue"), keyStatement errorType (access + ".ErrorValue")
+                                $"if ({access}.IsOk) {{ key.Add(\"1\"); {ok} }} else {{ key.Add(\"0\"); {error} }}"
+                            | TypeRef.Named typeId ->
+                                if not (keyWriters.ContainsKey typeId) then
+                                    keyWriters[typeId] <- "Key" + CSharpBackendNames.typeName typeId
+                                    keyPending.Enqueue typeId
+                                $"RunnerValues.{keyWriters[typeId]}(key, {access});"
+                            | _ -> invalidOp "Unsupported key type passed validation."
+                        let keyFields owner (fields: SemanticField list) =
+                            fields |> List.map (fun field -> keyStatement field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> String.concat " "
+                        let keyNamed typeId =
+                            let typeName = CSharpBackendNames.typeName typeId
+                            let body =
+                                match productFields declarations.Types typeId with
+                                | Some declared -> "if (value == null) { key.Null(); return; } " + keyFields "value" declared
+                                | None ->
+                                    let arms =
+                                        unionVariants declarations.Types typeId |> Option.get
+                                        |> List.mapi (fun index variant ->
+                                            let variantName = CSharpBackendNames.variantName variant.Id
+                                            if List.isEmpty variant.Fields then $"case {variantName}: key.Add({index}); break; "
+                                            else
+                                                let name = fresh ()
+                                                $"case {variantName} {name}: key.Add({index}); {keyFields name variant.Fields} break; ")
+                                        |> String.concat ""
+                                    "switch (value) { " + arms + "default: key.Null(); break; }"
+                            $"    public static void {keyWriters[typeId]}(RunnerKey key, {typeName} value) {{ {body} }}\n"
+                        let concurrent = CSharpBackend.usesConcurrencyRuntime program
                         let fakeClasses =
                             let mutable site = 0
                             fakes |> List.map (fun (index, _, capability, binding) ->
                                 let interfaceName = CSharpBackendNames.capabilityName capability.Id
-                                let methods =
-                                    capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                let operations = capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                let members =
+                                    operations
                                     |> List.map (fun operation ->
                                         let name = CSharpBackendNames.capabilityOperationName operation.Id
+                                        let resultType = sourceType operation.ResultType
                                         let parameters =
                                             operation.Parameters |> List.map (fun parameter -> sourceType parameter.Type + " " + CSharpBackendNames.capabilityParameterName parameter.Id)
                                             |> String.concat ", "
@@ -1078,59 +1218,69 @@ module PureRun =
                                         let names =
                                             operation.Parameters |> List.map (fun parameter -> CSharpBackendNames.capabilityParameterName parameter.Id)
                                             |> String.concat ", "
-                                        let script =
-                                            match binding with
-                                            | Choice1Of2 scripted -> scripted |> List.tryFind (fun item -> item.OperationId = operation.Id)
-                                            | Choice2Of2 _ -> None
-                                        let keyed = script |> Option.bind (fun item -> item.Cases)
-                                        let responses = script |> Option.map PureRunFakeOperation.responses |> Option.defaultValue []
-                                        let selectResponse =
-                                            match keyed with
-                                            | None -> $"            response = {name}Next++;\n"
-                                            | Some keys ->
-                                                let mutable offset = 0
-                                                let branches =
-                                                    keys |> List.mapi (fun index item ->
-                                                        let conditions = item.Arguments |> List.map (fun (id, value) -> sourceMatches ("case" + string index + CSharpBackendNames.capabilityParameterName id) value (CSharpBackendNames.capabilityParameterName id))
-                                                        let condition = if List.isEmpty conditions then "true" else String.concat " && " conditions
-                                                        let prefix = if List.isEmpty conditions then "" elif index = 0 then "if (" + condition + ")" else "else if (" + condition + ")"
-                                                        let branch = $"            {prefix}\n            {{\n                int local = {name}Next[{index}]++;\n                if (local >= {item.Responses.Length}) throw new FakeResponsesExhaustedException();\n                response = {offset} + local;\n            }}\n"
-                                                        offset <- offset + item.Responses.Length
-                                                        branch) |> String.concat ""
-                                                branches + (if List.isEmpty keys then "            throw new FakeArgumentsUnmatchedException();\n" elif List.isEmpty operation.Parameters then "" else "            else throw new FakeArgumentsUnmatchedException();\n")
-                                        let rec answer response =
-                                            match response with
-                                            | PureRunFakeResponse.Return value -> $"return {sourceArgument value};"
-                                            | PureRunFakeResponse.Throw message -> $"throw new FakeCapabilityException({sourceArgument (PureRunValue.String message)});"
-                                            | PureRunFakeResponse.AwaitCancellation value -> $"NyRuntime.WaitForCancellation(); return {sourceArgument value};"
-                                            | PureRunFakeResponse.Delayed(delay, inner) -> $"NyRuntime.Delay({delay}L); " + answer inner
-                                        let cases =
-                                            responses |> List.mapi (fun position response -> $"            case {position}: {answer response}\n")
-                                            |> String.concat ""
-                                        let answer =
-                                            match binding with
-                                            | Choice1Of2 _ when keyed = Some [] ->
-                                                $"        FakeLog.Record({site}, new object[] {{ {values} }});\n        throw new FakeArgumentsUnmatchedException();\n"
-                                            | Choice1Of2 _ ->
-                                                $"        int response;\n        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n{selectResponse}        }}\n        switch (response)\n        {{\n{cases}            default: throw new FakeResponsesExhaustedException();\n        }}\n"
-                                            | Choice2Of2 _ -> $"        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n"
                                         let text =
-                                            (match binding, keyed with
-                                             | Choice1Of2 _, Some [] -> ""
-                                             | Choice1Of2 _, Some keys -> $"    readonly int[] {name}Next = new int[{keys.Length}];\n"
-                                             | Choice1Of2 _, None -> $"    int {name}Next;\n"
-                                             | Choice2Of2 _, _ -> "")
-                                            + $"    public {sourceType operation.ResultType} {name}({parameters})\n    {{\n"
-                                            + answer + "    }\n"
+                                            match binding with
+                                            | Choice1Of2 _ ->
+                                                let key =
+                                                    operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id)
+                                                    |> List.map (fun parameter -> keyStatement parameter.Type (CSharpBackendNames.capabilityParameterName parameter.Id))
+                                                    |> String.concat " "
+                                                let waits =
+                                                    if concurrent then
+                                                        "                case 2: NyRuntime.WaitForCancellation(); return response.Value;\n"
+                                                        + "                case 3: NyRuntime.Delay(response.Delay); response = response.Inner!; break;\n"
+                                                    else ""
+                                                $"    public {resultType} {name}({parameters})\n    {{\n        FakeResponse<{resultType}> response;\n"
+                                                + $"        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n"
+                                                + $"            response = {name}Script.Select({name}Script.Keyed ? RunnerKey.Of({name}Script.KeyLimit, key => {{ {key} }}) : null);\n        }}\n"
+                                                + "        while (true)\n        {\n            switch (response.Kind)\n            {\n"
+                                                + "                case 0: return response.Value;\n"
+                                                + "                case 1: throw new FakeCapabilityException(response.Message);\n"
+                                                + waits
+                                                + "                case 4: throw new FakeArgumentsUnmatchedException();\n"
+                                                + "                default: throw new FakeResponsesExhaustedException();\n"
+                                                + "            }\n        }\n    }\n"
+                                            | Choice2Of2 _ ->
+                                                $"    public {resultType} {name}({parameters})\n    {{\n        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n    }}\n"
                                         site <- site + 1
                                         text)
                                     |> String.concat ""
                                 match binding with
-                                | Choice1Of2 _ -> $"sealed class Fake{index} : {interfaceName}\n{{\n{methods}}}\n"
+                                | Choice1Of2 _ ->
+                                    let scripts =
+                                        operations |> List.map (fun operation ->
+                                            $"    readonly FakeScript<{sourceType operation.ResultType}> {CSharpBackendNames.capabilityOperationName operation.Id}Script;\n")
+                                        |> String.concat ""
+                                    let reads =
+                                        operations |> List.map (fun operation ->
+                                            let resultType = sourceType operation.ResultType
+                                            $"        {CSharpBackendNames.capabilityOperationName operation.Id}Script = new FakeScript<{resultType}>(input, () => {decode operation.ResultType});\n")
+                                        |> String.concat ""
+                                    $"sealed class Fake{index} : {interfaceName}\n{{\n{scripts}    public Fake{index}(RunnerInput input)\n    {{\n{reads}    }}\n{members}}}\n"
                                 | Choice2Of2 implementation ->
                                     // Records each call, then forwards it to the registered host implementation.
-                                    $"sealed class Host{index} : {interfaceName}\n{{\n    readonly {interfaceName} inner = new {implementation}();\n{methods}}}\n")
+                                    $"sealed class Host{index} : {interfaceName}\n{{\n    readonly {interfaceName} inner = new {implementation}();\n{members}}}\n")
                             |> String.concat ""
+                        let args =
+                            List.zip fn.Parameters arguments |> List.mapi (fun index (parameter, value) ->
+                                match value with
+                                | PureRunValue.FakeCapability _ -> $"new Fake{index}(input)"
+                                | PureRunValue.HostCapability _ -> $"new Host{index}()"
+                                | _ -> decode parameter.Type)
+                            |> String.concat ", "
+                        let runnerValues = StringBuilder()
+                        while decodePending.Count > 0 || keyPending.Count > 0 do
+                            if decodePending.Count > 0 then runnerValues.Append(decodeNamed (decodePending.Dequeue())) |> ignore
+                            else runnerValues.Append(keyNamed (keyPending.Dequeue())) |> ignore
+                        let runnerValues = runnerValues.ToString()
+                        let input = ResizeArray<string>()
+                        arguments |> List.iter (function
+                            | PureRunValue.FakeCapability(capabilityId, script) ->
+                                let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                                let operations = capability.Operations |> List.map (fun operation -> operation.Id) |> List.sortBy StableId.value
+                                fakeInput declarations.Types operations script input
+                            | PureRunValue.HostCapability _ -> ()
+                            | value -> inputTokens declarations.Types input value)
                         let namedEncoders = StringBuilder()
                         while pending.Count > 0 do
                             namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
@@ -1144,6 +1294,8 @@ module PureRun =
                             // systemd-coredump), writing the dump delays process exit by seconds under load and
                             // consumes the run's time limit, so the runner opts out of core dumps first.
                             + "if (OperatingSystem.IsLinux()) RunnerProcess.prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);\n"
+                            // Arguments and fake scripts arrive as input, so the program does not depend on them.
+                            + "var input = new RunnerInput(System.IO.File.ReadAllText(args[0]));\n"
                             + "var options = new JsonSerializerOptions { MaxDepth = 256 };\n"
                             + "int remaining = 8192;\n"
                             + (if checksText then "long textRemaining = 65536;\n" else "")
@@ -1183,6 +1335,8 @@ module PureRun =
                             + "        lock (Calls)\n        {\n"
                             + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
                             + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"
+                            + runnerSupport
+                            + "static class RunnerValues\n{\n" + runnerValues + "}\n"
                             + fakeClasses
                         let frames = frameResolver artifact.Symbols
                         let stackOverflowMessage =
@@ -1202,10 +1356,12 @@ module PureRun =
                             [ "Generated.cs", artifact.Source ]
                             @ (hostSources |> List.mapi (fun index (_, text) -> $"HostSource{index}.cs", text))
                             @ [ "Program.cs", program ]
-                        match GeneratedBuild.compile root sources 30000 with
+                        let inputPath = Path.Combine(root, "input.txt")
+                        File.WriteAllText(inputPath, String.Join(" ", input))
+                        match GeneratedBuild.compileCached root sources 30000 with
                         | Error GeneratedBuild.TimedOut -> Error(diagnostic "RunTimeout" "The build exceeded its time limit of 30 s.")
                         | Error(GeneratedBuild.Rejected errors) -> Error(processFailure "" errors)
-                        | Ok assembly -> launchRaw "pure function" root [ assembly ] 5000
+                        | Ok assembly -> launchRaw "pure function" root [ assembly; inputPath ] 5000
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
                                 parseEnvelope declarations.Types fn.ResultType sites output

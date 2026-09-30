@@ -48,5 +48,5 @@ The difference from `dotnet build`: the SDK's code analyzers (CA rules) no longe
 
 ## Not done
 
-- Passing arguments as input and caching the built program by fingerprint.
+- ~~Passing arguments as input and caching the built program by fingerprint.~~ Done in [runPure arguments as input and the build cache](runpure-build-cache-20261001.md).
 - Code-point offset caching for positional String operations.
