@@ -7,6 +7,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Session.fs" />
+    <Compile Include="GeneratedBuild.fs" />
     <Compile Include="PureRun.fs" />
     <Compile Include="WireJson.fs" />
     <Compile Include="WireInput.fs" />
@@ -19,6 +20,9 @@
     <Compile Include="WireProtocolAdapters.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />

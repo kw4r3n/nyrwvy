@@ -370,7 +370,7 @@ module PureRun =
         local || (children value |> List.exists oversized)
 
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
-    /// `phase` names the timed step ("build" or "pure function") in the timeout diagnostic.
+    /// `phase` names the timed step in the timeout diagnostic.
     let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
         try
             let info = ProcessStartInfo("dotnet")
@@ -408,55 +408,6 @@ module PureRun =
     let private processFailure (output: string) (errors: string) =
         let details = output + "\n" + errors
         diagnostic "RunProcessFailure" (if details.Length > 4096 then details.Substring(0, 4096) else details)
-
-    let private launch phase workingDirectory args timeoutMs =
-        launchRaw phase workingDirectory args timeoutMs
-        |> Result.bind (fun (exitCode, output, errors) ->
-            if exitCode <> 0 then Error(processFailure output errors) else Ok output)
-
-    let private generatedProject =
-        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>"
-
-    let private restoreGate = obj ()
-    let mutable private restoredProject: string option = None
-
-    /// Restores `generatedProject` once per process and returns its directory. The project and its
-    /// package graph never change, so every run copies this `obj` and builds with `--no-restore`.
-    /// A failed restore is not kept; that run restores on its own and a later run tries again.
-    let private restoredTemplate () =
-        lock restoreGate (fun () ->
-            match restoredProject with
-            | Some directory when File.Exists(Path.Combine(directory, "obj", "project.assets.json")) -> Some directory
-            | _ ->
-                let directory = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-restore-" + Guid.NewGuid().ToString("N"))
-                try
-                    Directory.CreateDirectory(directory) |> ignore
-                    File.WriteAllText(Path.Combine(directory, "Generated.csproj"), generatedProject)
-                    match launch "restore" directory [ "restore"; "Generated.csproj"; "--nologo"; "-v:q"; "--ignore-failed-sources" ] 30000 with
-                    | Ok _ ->
-                        if restoredProject.IsNone then
-                            AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
-                                restoredProject |> Option.iter (fun path ->
-                                    try Directory.Delete(path, true)
-                                    with
-                                    | :? IOException
-                                    | :? UnauthorizedAccessException -> ()))
-                        restoredProject <- Some directory
-                        Some directory
-                    | Error _ -> None
-                with
-                | :? IOException
-                | :? UnauthorizedAccessException -> None)
-
-    /// Copies the shared restore output into `root`; false when the run must restore itself.
-    let private copyRestore (root: string) =
-        match restoredTemplate () with
-        | None -> false
-        | Some template ->
-            let target = Directory.CreateDirectory(Path.Combine(root, "obj"))
-            for file in Directory.GetFiles(Path.Combine(template, "obj")) do
-                File.Copy(file, Path.Combine(target.FullName, Path.GetFileName file))
-            true
 
     /// Maps generated symbol names back to semantic identities using the emitted symbol manifest.
     let private frameResolver (symbols: CSharpSymbolManifest) =
@@ -1015,9 +966,6 @@ module PureRun =
                 try
                     try
                         Directory.CreateDirectory(root) |> ignore
-                        File.WriteAllText(Path.Combine(root, "Generated.csproj"), generatedProject)
-                        File.WriteAllText(Path.Combine(root, "Generated.cs"), artifact.Source)
-                        hostSources |> List.iteri (fun index (_, text) -> File.WriteAllText(Path.Combine(root, $"HostSource{index}.cs"), text))
                         let args =
                             arguments |> List.mapi (fun index value ->
                                 match value with
@@ -1225,7 +1173,6 @@ module PureRun =
                             + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
                             + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"
                             + fakeClasses
-                        File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                         let frames = frameResolver artifact.Symbols
                         let stackOverflowMessage =
                             "Stack overflow: recursion was too deep. Nested self or mutual DirectCall recursion runs on the runner's thread stack, "
@@ -1240,11 +1187,14 @@ module PureRun =
                                   Frames = frames frameNames
                                   BindingExhausted = exhausted
                                   Calls = calls }
-                        // Release: the time limit measures optimized code, not the unoptimized Debug JIT.
-                        let restore = if copyRestore root then [ "--no-restore" ] else [ "--ignore-failed-sources" ]
-                        launch "build" root ([ "build"; "Generated.csproj"; "--nologo"; "-v:q"; "-c"; "Release" ] @ restore) 30000
-                        |> Result.bind (fun _ ->
-                            launchRaw "pure function" root [ Path.Combine(root, "bin", "Release", "net10.0", "Generated.dll") ] 5000)
+                        let sources =
+                            [ "Generated.cs", artifact.Source ]
+                            @ (hostSources |> List.mapi (fun index (_, text) -> $"HostSource{index}.cs", text))
+                            @ [ "Program.cs", program ]
+                        match GeneratedBuild.compile root sources 30000 with
+                        | Error GeneratedBuild.TimedOut -> Error(diagnostic "RunTimeout" "The build exceeded its time limit of 30 s.")
+                        | Error(GeneratedBuild.Rejected errors) -> Error(processFailure "" errors)
+                        | Ok assembly -> launchRaw "pure function" root [ assembly ] 5000
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
                                 parseEnvelope declarations.Types fn.ResultType sites output
