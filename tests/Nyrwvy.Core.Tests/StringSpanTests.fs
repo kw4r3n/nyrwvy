@@ -159,9 +159,9 @@ module StringSpanTests =
                   ("123abc456", "0123456789", 3L, 6L), (3L, 6L)
                   ("😀😀x😀", "😀", 0L, 4L), (2L, 3L)
                   ("x😀😀", "😀", 0L, 3L), (0L, 1L)
-                  ("😀a", "\uD83D", 0L, 2L), (0L, 2L)
-                  ("a\uD800\uD800b", "\uD800", 1L, 3L), (3L, 1L)
-                  ("\uD800a\uD800", "a\uD800", 0L, 3L), (3L, 0L)
+                  ("😀a", utf16 "{D83D}", 0L, 2L), (0L, 2L)
+                  (utf16 "a{D800}{D800}b", utf16 "{D800}", 1L, 3L), (3L, 1L)
+                  (utf16 "{D800}a{D800}", utf16 "a{D800}", 0L, 3L), (3L, 0L)
                   ("abcabc", "cba", 0L, 6L), (6L, 0L)
                   ("abc", "abc", 1L, 2L), (3L, 0L) ]
             create "spanTable" (listOf intType)

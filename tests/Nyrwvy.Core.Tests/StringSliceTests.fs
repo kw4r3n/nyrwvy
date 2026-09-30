@@ -109,7 +109,7 @@ module StringSliceTests =
             create' "measureAll" [ listOf stringType ] (listOf intType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "measure", []))
             create' "cutAll" [ listOf (TypeRef.Named caseTypeId) ] (listOf stringType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "cut", []))
             // An unpaired surrogate cannot cross the runner boundary, so measure it from a literal.
-            create' "measureLone" [] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringLiteral "a\uD800b\uDC00"))
+            create' "measureLone" [] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}")))
             session.Close()
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "reopen"
             Assert.Empty(SnapshotValidator.validate snapshot)

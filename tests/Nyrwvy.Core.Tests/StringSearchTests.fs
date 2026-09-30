@@ -165,9 +165,9 @@ module StringSearchTests =
                   ("ABC", "b", 0L), None
                   ("é", "́", 0L), Some 1L
                   // Lone surrogates: a match never starts or ends inside a surrogate pair.
-                  ("😀\uDE00", "\uDE00", 0L), Some 1L
-                  ("😀", "\uD83D", 0L), None
-                  ("a\uD800b", "b", 0L), Some 2L
+                  (utf16 "😀{DE00}", utf16 "{DE00}", 0L), Some 1L
+                  ("😀", utf16 "{D83D}", 0L), None
+                  (utf16 "a{D800}b", "b", 0L), Some 2L
                   // Clamped `from`, where Python differs (negative counts from the end; past the end is -1).
                   ("hello", "h", -2L), Some 0L
                   ("hello", "", 9L), Some 5L ]
@@ -181,8 +181,8 @@ module StringSearchTests =
                   ("aaaa", "aa"), Some 2L
                   ("abc", "x"), None
                   ("😀😀", "😀😀"), Some 0L
-                  ("\uDE00😀", "\uDE00"), Some 0L
-                  ("😀", "\uDE00"), None ]
+                  (utf16 "{DE00}😀", utf16 "{DE00}"), Some 0L
+                  ("😀", utf16 "{DE00}"), None ]
             create "lastTable" (listOf (optionOf intType))
                 (ExpressionRecipe.ListConstruct(optionOf intType, lastCases |> List.map (fun ((value, sub), _) -> ExpressionRecipe.StringLastIndexOf(text value, text sub))))
             let affixCases =
@@ -193,8 +193,8 @@ module StringSearchTests =
                   ExpressionRecipe.StringStartsWith(text "😀x", text "😀"), true
                   ExpressionRecipe.StringStartsWith(text "hello", text "Hello"), false
                   ExpressionRecipe.StringStartsWith(text "he", text "hello"), false
-                  ExpressionRecipe.StringStartsWith(text "😀", text "\uD83D"), false
-                  ExpressionRecipe.StringStartsWith(text "\uD800x", text "\uD800"), true
+                  ExpressionRecipe.StringStartsWith(text "😀", text (utf16 "{D83D}")), false
+                  ExpressionRecipe.StringStartsWith(text (utf16 "{D800}x"), text (utf16 "{D800}")), true
                   ExpressionRecipe.StringEndsWith(text "hello", text "lo"), true
                   ExpressionRecipe.StringEndsWith(text "hello", text ""), true
                   ExpressionRecipe.StringEndsWith(text "", text ""), true
@@ -202,7 +202,7 @@ module StringSearchTests =
                   ExpressionRecipe.StringEndsWith(text "x😀", text "😀"), true
                   ExpressionRecipe.StringEndsWith(text "hello", text "LO"), false
                   ExpressionRecipe.StringEndsWith(text "lo", text "hello"), false
-                  ExpressionRecipe.StringEndsWith(text "😀", text "\uDE00"), false ]
+                  ExpressionRecipe.StringEndsWith(text "😀", text (utf16 "{DE00}")), false ]
             create "affixTable" (listOf boolType) (ExpressionRecipe.ListConstruct(boolType, affixCases |> List.map fst))
             let splitCases =
                 [ ("a,b,,c", ","), [ "a"; "b"; ""; "c" ]
@@ -213,8 +213,8 @@ module StringSearchTests =
                   ("aaa", "aa"), [ ""; "a" ]
                   ("😀x😀", "x"), [ "😀"; "😀" ]
                   ("a😀b😀c", "😀"), [ "a"; "b"; "c" ]
-                  ("a😀b", "\uDE00"), [ "a😀b" ]
-                  ("x\uD800y", "\uD800"), [ "x"; "y" ]
+                  ("a😀b", utf16 "{DE00}"), [ "a😀b" ]
+                  (utf16 "x{D800}y", utf16 "{D800}"), [ "x"; "y" ]
                   // An empty separator, where Python raises ValueError, is the whole text.
                   ("abc", ""), [ "abc" ] ]
             create "splitTable" (listOf (listOf stringType))

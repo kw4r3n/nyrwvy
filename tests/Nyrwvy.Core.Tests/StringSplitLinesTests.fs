@@ -169,9 +169,9 @@ module StringSplitLinesTests =
                   ("a\u2028b", "\u2028"), [ "a"; "b" ]
                   ("a😀b😀", "😀"), [ "a"; "b" ]
                   ("😀\n😀", pyBreaks), [ "😀"; "😀" ]
-                  ("a😀b", "\uD83D"), [ "a😀b" ]
-                  ("x\uD800y\uD800", "\uD800"), [ "x"; "y" ]
-                  ("\uD800\n\uDC00", pyBreaks), [ "\uD800"; "\uDC00" ]
+                  ("a😀b", utf16 "{D83D}"), [ "a😀b" ]
+                  (utf16 "x{D800}y{D800}", utf16 "{D800}"), [ "x"; "y" ]
+                  (utf16 "{D800}\n{DC00}", pyBreaks), [ utf16 "{D800}"; utf16 "{DC00}" ]
                   ("a,b;;c", ",;"), [ "a"; "b"; ""; "c" ]
                   (" a b ", " "), [ ""; "a"; "b" ] ]
             create "linesTable" (listOf (listOf stringType))

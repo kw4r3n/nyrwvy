@@ -4,6 +4,7 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Utf16Literal.fs" />
     <Compile Include="TestGraph.fs" />
     <Compile Include="MilestoneZeroGraph.fs" />
     <Compile Include="FoundationTests.fs" />
