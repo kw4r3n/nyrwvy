@@ -122,6 +122,7 @@
     <Compile Include="PureRunProvenanceTests.fs" />
     <Compile Include="GeneratedBuildTests.fs" />
     <Compile Include="PureRunBindingTests.fs" />
+    <Compile Include="PureRunBuildCacheTests.fs" />
     <Compile Include="PureRunByNameTests.fs" />
     <Compile Include="RecursiveTypeGroupTests.fs" />
     <Compile Include="DeleteFunctionByNameTests.fs" />
