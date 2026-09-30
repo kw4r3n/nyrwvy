@@ -133,8 +133,8 @@ module StringSplitLinesTests =
             // Python parity, generated with python3: with pyBreaks the expected value is
             // value.splitlines(); with byteBreaks it is [b.decode() for b in value.encode().splitlines()];
             // other sets use the per-code-point oracle of docs/decisions/string-split-lines.md. Python
-            // counts a non-BMP character as one code point, as the break set does. Lone surrogates come
-            // from literals, since they cannot cross the runner boundary.
+            // counts a non-BMP character as one code point, as the break set does. Lone surrogates are
+            // built with utf16, since F# literals turn them into U+FFFD.
             let pyBreaks = "\n\r\u000B\u000C\u001C\u001D\u001E\u0085  "
             let byteBreaks = "\n\r"
             let cases =
@@ -169,9 +169,9 @@ module StringSplitLinesTests =
                   ("a\u2028b", "\u2028"), [ "a"; "b" ]
                   ("a😀b😀", "😀"), [ "a"; "b" ]
                   ("😀\n😀", pyBreaks), [ "😀"; "😀" ]
-                  ("a😀b", "\uD83D"), [ "a😀b" ]
-                  ("x\uD800y\uD800", "\uD800"), [ "x"; "y" ]
-                  ("\uD800\n\uDC00", pyBreaks), [ "\uD800"; "\uDC00" ]
+                  ("a😀b", utf16 "{D83D}"), [ "a😀b" ]
+                  (utf16 "x{D800}y{D800}", utf16 "{D800}"), [ "x"; "y" ]
+                  (utf16 "{D800}\n{DC00}", pyBreaks), [ utf16 "{D800}"; utf16 "{DC00}" ]
                   ("a,b;;c", ",;"), [ "a"; "b"; ""; "c" ]
                   (" a b ", " "), [ ""; "a"; "b" ] ]
             create "linesTable" (listOf (listOf stringType))

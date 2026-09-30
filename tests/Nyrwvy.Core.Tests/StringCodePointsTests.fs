@@ -106,10 +106,10 @@ module StringCodePointsTests =
             create "measure" [ "text", stringType ] intType (ExpressionRecipe.StringLength(slot 0))
             create "pointsAll" [ "texts", listOf stringType ] (listOf (listOf stringType))
                 (ExpressionRecipe.ListMap(slot 0, functionId "points", []))
-            // An unpaired surrogate cannot cross the runner boundary, so split it from a literal and
+            // Split lone surrogates in a String literal (built with utf16) and
             // report each item's code-point length: a pair stays one item, a lone surrogate is its own.
             create "loneWidths" [] (listOf intType)
-                (ExpressionRecipe.ListMap(ExpressionRecipe.StringCodePoints(ExpressionRecipe.StringLiteral "a\uD800b\uDC00😀"), functionId "measure", []))
+                (ExpressionRecipe.ListMap(ExpressionRecipe.StringCodePoints(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}😀")), functionId "measure", []))
             create "addLength" [ "total", intType; "item", stringType ] intType
                 (ExpressionRecipe.Int64WrappingAdd(slot 0, ExpressionRecipe.StringLength(slot 1)))
             create "foldCount" [ "text", stringType ] intType

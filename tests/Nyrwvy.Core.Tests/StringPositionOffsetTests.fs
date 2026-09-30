@@ -96,8 +96,8 @@ module StringPositionOffsetTests =
                          else PureRunValue.ListValue(itemType, expected)))
             // Pairs, lone high and low surrogates (a lone high one right before the next chunk's "a"),
             // and a lone high surrogate at the very end. The long texts pass the 256-unit map threshold.
-            let chunk = "ab😀c\uD800d\uDC00😀😀e\uDBFF"
-            let mixed = String.replicate 120 chunk + "\uD83D"
+            let chunk = utf16 "ab😀c{D800}d{DC00}😀😀e{DBFF}"
+            let mixed = String.replicate 120 chunk + utf16 "{D83D}"
             let shortMixed = String.replicate 5 chunk
             let ascii = String.init 2000 (fun index -> string (char (int 'a' + index % 26)))
             let texts = [ "mixed", mixed; "shortMixed", shortMixed; "ascii", ascii ]
@@ -111,14 +111,14 @@ module StringPositionOffsetTests =
                         for stop in [ start; start + 1L; start + 63L; start + 64L; start + 65L; n - 1L; n; n + 3L; 1L ] do
                             ExpressionRecipe.StringEqual(ExpressionRecipe.StringSlice(text value, lit start, lit stop), text (slice cps start stop)),
                             PureRunValue.Bool true ]
-                let needles = [ "😀"; "\uD800d"; "e"; "😀😀"; "\uDC00"; "c"; "\uDE00"; "zz" ]
+                let needles = [ "😀"; utf16 "{D800}d"; "e"; "😀😀"; utf16 "{DC00}"; "c"; utf16 "{DE00}"; "zz" ]
                 table (label + "IndexOf") (optionOf intType)
                     [ for needle in needles do
                         for from in positions do
                             ExpressionRecipe.StringIndexOf(text value, text needle, lit from), PureRunValue.Int64Option(indexOf cps needle from) ]
                 table (label + "LastIndexOf") (optionOf intType)
                     [ for needle in needles -> ExpressionRecipe.StringLastIndexOf(text value, text needle), PureRunValue.Int64Option(lastIndexOf cps needle) ]
-                let sets = [ "ab😀c"; "😀e\uDBFF\uD800d\uDC00"; "abcdefghijklmnopqrstuvwxyz" ]
+                let sets = [ "ab😀c"; utf16 "😀e{DBFF}{D800}d{DC00}"; "abcdefghijklmnopqrstuvwxyz" ]
                 table (label + "Spans") intType
                     [ for set in sets do
                         for position in positions do

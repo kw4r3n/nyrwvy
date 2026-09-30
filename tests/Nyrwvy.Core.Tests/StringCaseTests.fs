@@ -119,8 +119,8 @@ module StringCaseTests =
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             // Python parity: str.lower(), except where Python applies a full or context-sensitive
-            // mapping (marked). Lone surrogates come from literals, since they cannot cross the
-            // runner boundary; Python keeps them as they are too.
+            // mapping (marked). Lone surrogates are built with utf16, since
+            // F# literals turn them into U+FFFD; Python keeps them as they are too.
             let lowerCases =
                 [ "Hello, World!", "hello, world!"
                   "", ""
@@ -136,7 +136,7 @@ module StringCaseTests =
                   "😀ABC", "😀abc"
                   "\U00010400", "\U00010428" // DESERET: a supplementary-plane mapping
                   "日本語ABC", "日本語abc"
-                  "A\uD800B\uDC00C", "a\uD800b\uDC00c"
+                  utf16 "A{D800}B{DC00}C", utf16 "a{D800}b{DC00}c"
                   // Python: "i̇stanbul" (i + U+0307, the full mapping); here the simple mapping U+0069.
                   "İstanbul", "istanbul"
                   // Python: "οδος" (Final_Sigma in context); here every Σ maps to σ.
@@ -154,8 +154,8 @@ module StringCaseTests =
                   "日本語", 9L
                   "😀", 4L
                   "a😀b", 6L
-                  "a\uD800b", 5L
-                  "\uDE00😀", 7L ]
+                  utf16 "a{D800}b", 5L
+                  utf16 "{DE00}😀", 7L ]
             create "utf8Table" (listOf intType)
                 (ExpressionRecipe.ListConstruct(intType, utf8Cases |> List.map (fst >> text >> ExpressionRecipe.StringUtf8ByteCount)))
             let check name (expected: PureRunValue) =
