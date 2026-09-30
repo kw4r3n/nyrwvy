@@ -1,0 +1,174 @@
+namespace Nyrwvy.Core.Tests
+
+open System
+open System.Diagnostics
+open System.IO
+open Nyrwvy.Core
+open Nyrwvy.Tools.AuthoringSession
+open Xunit
+
+/// NyList appends and concatenations write into spare buffer capacity when the list owns the
+/// buffer's used tail, and copy otherwise. Every List value stays immutable.
+module ListAppendTests =
+    let private id<'tag> name = StableId.createForTesting<'tag> ("list-append-" + name)
+    let private stringType = TypeRef.Primitive PrimitiveType.String
+    let private listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
+    let private unwrap label result =
+        match result with
+        | Ok value -> value
+        | Error error -> failwithf "%s: %A" label error
+
+    // Drives the emitted runtime directly: shared buffers are invisible to programs by design.
+    let private driver = """
+using System;
+using System.Threading.Tasks;
+using Nyrwvy.Generated;
+
+static class Runner
+{
+    static string Show(NyList<string> list) => "[" + NyText.Join(list, ",") + "]";
+    static NyList<string> Build(string prefix, int count)
+    {
+        var list = NyList<string>.Empty();
+        for (var i = 0; i < count; i++) list = list.AppendItem(prefix + i);
+        return list;
+    }
+    static void Main()
+    {
+        var b = NyList<string>.Empty().AppendItem("a").AppendItem("b");
+        var x = b.AppendItem("c");
+        var y = b.AppendItem("d");
+        Console.WriteLine(Show(b) + Show(x) + Show(y));
+        var z = x.AppendItem("e");
+        var w = b.AppendItem("f");
+        Console.WriteLine(Show(b) + Show(x) + Show(y) + Show(z) + Show(w));
+        Console.WriteLine(b.Length + " " + b.ItemAt(2).HasValue + " " + b.Fold(0, (n, _) => n + 1) + " " + b.Map(s => s + "!").Length + " " + b.Filter(_ => true).Length + " " + b.All(s => s != "c"));
+        var abc = NyList<string>.Create("a", "b", "c");
+        Console.WriteLine(x.Equals(abc) + " " + abc.Equals(x) + " " + (x.GetHashCode() == abc.GetHashCode()) + " " + x.Equals(y) + " " + b.Equals(x.Slice(0, 2)) + " " + NyEquality.Equal(z.Slice(0, 3), x));
+        var s = x.Slice(0, 2).AppendItem("g");
+        var m = x.Slice(1, 3).AppendItem("h");
+        Console.WriteLine(Show(s) + Show(m) + Show(x));
+        var c1 = b.Concat(NyList<string>.Create("p"));
+        var c2 = b.Concat(NyList<string>.Create("q", "r"));
+        Console.WriteLine(Show(c1) + Show(c2) + Show(b.Concat(NyList<string>.Empty())) + Show(NyList<string>.Empty().Concat(b)));
+        var t = NyList<string>.Empty().AppendItem("a").AppendItem("b");
+        var tt = t.Concat(t);
+        var t2 = t.AppendItem("z");
+        var tt2 = tt.Concat(t);
+        Console.WriteLine(Show(t) + Show(tt) + Show(t2) + Show(tt2) + Show(tt.AppendItem("y")));
+        // Many threads extend one base concurrently; exactly one may take the spare slot, and
+        // every result must still hold the base followed by its own items.
+        var failures = 0;
+        for (var round = 0; round < 200; round++)
+        {
+            var shared = Build("s", 1 + round % 40);
+            var before = Show(shared);
+            var results = new NyList<string>[32];
+            Parallel.For(0, results.Length, i =>
+            {
+                var next = (i % 2 == 0 ? shared.AppendItem("x" + i) : shared.Concat(NyList<string>.Create("x" + i))).AppendItem("y" + i);
+                results[i] = next.Concat(next);
+            });
+            for (var i = 0; i < results.Length; i++)
+            {
+                var half = before.Substring(1, before.Length - 2) + ",x" + i + ",y" + i;
+                if (Show(results[i]) != "[" + half + "," + half + "]") failures++;
+            }
+            if (Show(shared) != before) failures++;
+        }
+        Console.WriteLine("concurrent failures " + failures);
+    }
+}
+"""
+
+    [<Fact>]
+    let ``appends and concatenations keep every list value independent`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-list-append-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        try
+            let execution = Snapshot.empty (id<SnapshotTag> "runtime") |> TypedSemanticIr.project |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
+            let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
+            let assembly = GeneratedBuild.compile root [ "Generated.cs", artifact.Source; "Program.cs", driver ] 30000 |> unwrap "build"
+            let info = ProcessStartInfo("dotnet", RedirectStandardOutput = true)
+            info.ArgumentList.Add(assembly)
+            use child = Process.Start(info)
+            let output = child.StandardOutput.ReadToEnd()
+            child.WaitForExit()
+            Assert.Equal(0, child.ExitCode)
+            let expected =
+                [ "[a,b][a,b,c][a,b,d]"
+                  "[a,b][a,b,c][a,b,d][a,b,c,e][a,b,f]"
+                  "2 False 2 2 2 True"
+                  "True True True False True True"
+                  "[a,b,g][b,c,h][a,b,c]"
+                  "[a,b,p][a,b,q,r][a,b][a,b]"
+                  "[a,b][a,b,a,b][a,b,z][a,b,a,b,a,b][a,b,a,b,y]"
+                  "concurrent failures 0" ]
+            Assert.Equal(String.concat "\n" expected, output.Replace("\r\n", "\n").Trim())
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``text rebuilt one code point at a time by appending is linear under runPure`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-list-append-run-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (id<SnapshotTag> "session")) |> unwrap "serialize")
+            let session = AuthoringSession.openExisting path |> unwrap "open"
+            let findFunction name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
+            let create name parameters resultType body =
+                let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      DisplayName = name
+                      Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
+                      ResultType = resultType
+                      RequiredEffects = []
+                      Body = body }
+                let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
+                session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
+            let slot = ExpressionRecipe.ParameterSlot
+            let text value = ExpressionRecipe.StringLiteral value
+            let append list item = ExpressionRecipe.ListAppendItem(list, item)
+            create "push" [ "acc", listOf stringType; "item", stringType ] (listOf stringType) (append (slot 0) (slot 1))
+            create "rebuild" [ "text", stringType ] stringType
+                (ExpressionRecipe.StringJoin(
+                    ExpressionRecipe.ListFold(ExpressionRecipe.StringCodePoints(slot 0), ExpressionRecipe.ListEmpty stringType, (findFunction "push").Id, []),
+                    text ""))
+            // Arguments are limited to 64K UTF-16 units, so the long text is built in the program.
+            let rebuild = findFunction "rebuild"
+            let sixteen = ExpressionRecipe.StringJoin(ExpressionRecipe.ListConstruct(stringType, List.replicate 16 (slot 0)), text "")
+            create "roundTrip" [ "chunk", stringType ] (TypeRef.Primitive PrimitiveType.Bool)
+                (ExpressionRecipe.StringEqual(ExpressionRecipe.DirectCall(rebuild.Id, [ rebuild.Parameters.Head.Id, sixteen ]), sixteen))
+            // Branches of one base: each must see only its own items.
+            create "branches" [ "base", listOf stringType ] (listOf (listOf stringType))
+                (ExpressionRecipe.ListConstruct(
+                    listOf stringType,
+                    [ append (slot 0) (text "c")
+                      append (slot 0) (text "d")
+                      slot 0
+                      ExpressionRecipe.ListConcat(slot 0, ExpressionRecipe.ListConstruct(stringType, [ text "e" ]))
+                      append (ExpressionRecipe.ListSlice(append (slot 0) (text "f"), ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L)) (text "g") ]))
+            let branches = findFunction "branches"
+            create "fromAppends" [] (listOf (listOf stringType))
+                (ExpressionRecipe.DirectCall(
+                    branches.Id,
+                    [ branches.Parameters.Head.Id, append (append (ExpressionRecipe.ListEmpty stringType) (text "a")) (text "b") ]))
+            let result = PureRun.run session (findFunction "fromAppends").Id [] None |> unwrap "branches"
+            let expected =
+                PureRunValue.ListValue(
+                    listOf stringType,
+                    [ PureRunValue.StringList [ "a"; "b"; "c" ]
+                      PureRunValue.StringList [ "a"; "b"; "d" ]
+                      PureRunValue.StringList [ "a"; "b" ]
+                      PureRunValue.StringList [ "a"; "b"; "e" ]
+                      PureRunValue.StringList [ "a"; "g" ] ])
+            Assert.Equal(expected, result.Actual)
+            // 128K characters exceeded the 5 s limit when every append copied the whole list.
+            // Sixteen copies of a 16,384-code-point chunk: 262,144 appends, 327,680 UTF-16 units.
+            let chunk = String.replicate 4096 "ab😀c"
+            let rebuilt = PureRun.run session (findFunction "roundTrip").Id [ PureRunValue.String chunk ] None |> unwrap "rebuild"
+            Assert.Equal(PureRunValue.Bool true, rebuilt.Actual)
+            session.Close()
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)

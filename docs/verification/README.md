@@ -39,6 +39,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Typed function abort and cleanup](typed-function-abort-20260926.md)
 - [Argument-keyed fake responses](argument-keyed-fakes-20260927.md)
 - [runPure Release build, Roslyn build and early StringSlice](runpure-release-build-20260930.md)
+- [Amortised List append](list-amortised-append-20260930.md)
 
 ## Live agent probes
 
