@@ -116,6 +116,7 @@
     <Compile Include="PureRunInnerNestingTests.fs" />
     <Compile Include="PureRunRecursiveTests.fs" />
     <Compile Include="PureRunProvenanceTests.fs" />
+    <Compile Include="GeneratedBuildTests.fs" />
     <Compile Include="PureRunBindingTests.fs" />
     <Compile Include="PureRunByNameTests.fs" />
     <Compile Include="RecursiveTypeGroupTests.fs" />
