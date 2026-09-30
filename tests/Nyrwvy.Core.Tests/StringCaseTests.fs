@@ -119,8 +119,8 @@ module StringCaseTests =
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             // Python parity: str.lower(), except where Python applies a full or context-sensitive
-            // mapping (marked). Lone surrogates come from literals, since they cannot cross the
-            // runner boundary; Python keeps them as they are too.
+            // mapping (marked). Lone surrogates are built with utf16, since
+            // F# literals turn them into U+FFFD; Python keeps them as they are too.
             let lowerCases =
                 [ "Hello, World!", "hello, world!"
                   "", ""

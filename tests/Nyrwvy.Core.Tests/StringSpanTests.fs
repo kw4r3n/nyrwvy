@@ -140,7 +140,7 @@ module StringSpanTests =
             //   span:     start = clamp(from, 0, len); start + len(v[start:]) - len(v[start:].lstrip(set))
             //   spanBack: e = clamp(end, 0, len); len(v[:e].rstrip(set))
             // Python counts a non-BMP character as one code point, as StringLength does. Lone
-            // surrogates come from literals, since they cannot cross the runner boundary.
+            // surrogates are built with utf16, since F# literals turn them into U+FFFD.
             let cases =
                 [ ("", " ", 0L, 0L), (0L, 0L)
                   ("", "", 3L, 3L), (0L, 0L)

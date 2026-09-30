@@ -146,8 +146,8 @@ module StringSearchTests =
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             let found = PureRunValue.Int64Option
             // Python parity: str.find(sub, start) for 0 <= start <= len, str.rfind, startswith,
-            // endswith and split(sep), with -1 read as None. Lone surrogates come from literals,
-            // since they cannot cross the runner boundary.
+            // endswith and split(sep), with -1 read as None. Lone surrogates are built with utf16,
+            // since F# literals turn them into U+FFFD.
             let indexCases =
                 [ ("hello world", "o", 0L), Some 4L
                   ("hello world", "o", 5L), Some 7L

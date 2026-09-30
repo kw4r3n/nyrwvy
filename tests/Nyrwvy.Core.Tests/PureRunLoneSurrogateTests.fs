@@ -12,15 +12,12 @@ open Xunit
 module PureRunLoneSurrogateTests =
     let private stringType = TypeRef.Primitive PrimitiveType.String
 
-    /// F# string literals cannot hold lone surrogates, so `{D800}` spells one code unit.
-    let private t (text: string) =
-        Text.RegularExpressions.Regex.Replace(text, @"\{([0-9A-F]{4})\}", fun item -> string (char (Convert.ToInt32(item.Groups[1].Value, 16))))
     let private intType = TypeRef.Primitive PrimitiveType.Int64
 
     /// Lone high, lone low, a reversed pair, surrogates at the start and the end, and a mix with
     /// astral characters; the last is well-formed.
     let private texts =
-        [ (t "{D800}"); (t "{DC00}"); (t "{DC00}{D800}"); (t "{DBFF}abc"); (t "abc{DC01}"); (t "😀{D800}😀{DFFF} x,\"\\{D83D}"); (t "a{D83D}{DE00}b") ]
+        [ (utf16 "{D800}"); (utf16 "{DC00}"); (utf16 "{DC00}{D800}"); (utf16 "{DBFF}abc"); (utf16 "abc{DC01}"); (utf16 "😀{D800}😀{DFFF} x,\"\\{D83D}"); (utf16 "a{D83D}{DE00}b") ]
 
     /// The JSON string literal a client writes for `text`: ASCII kept, everything else as `\uXXXX`.
     let private literal (text: string) =
@@ -52,10 +49,10 @@ module PureRunLoneSurrogateTests =
             Assert.IsType<string>(WireJson.runString text) |> ignore
         // Lowercase escapes, as JavaScript's JSON.stringify writes them, read the same.
         use lower = JsonDocument.Parse("\"\\udc00x\\ud83d\"")
-        Assert.Equal(t "{DC00}x{D83D}", WireInput.runText lower.RootElement)
-        Assert.Equal("\"\\uD800\"", WireJson.serialize (WireJson.runString (t "{D800}")))
-        Assert.Equal("\"\\uDC00\\uD800\"", WireJson.serialize (WireJson.runString (t "{DC00}{D800}")))
-        Assert.Equal("\"\\uD83D\\uDE00\\uD800a\\u96EA\\u0022\"", WireJson.serialize (WireJson.runString (t "😀{D800}a雪\"")))
+        Assert.Equal(utf16 "{DC00}x{D83D}", WireInput.runText lower.RootElement)
+        Assert.Equal("\"\\uD800\"", WireJson.serialize (WireJson.runString (utf16 "{D800}")))
+        Assert.Equal("\"\\uDC00\\uD800\"", WireJson.serialize (WireJson.runString (utf16 "{DC00}{D800}")))
+        Assert.Equal("\"\\uD83D\\uDE00\\uD800a\\u96EA\\u0022\"", WireJson.serialize (WireJson.runString (utf16 "😀{D800}a雪\"")))
 
     let private current (session: AuthoringSession) = (session.Status() |> unwrap "status").SnapshotId
 
@@ -106,13 +103,13 @@ module PureRunLoneSurrogateTests =
                 Assert.Equal(PureRunValue.String text, result.Actual)
                 Assert.Equal(Some true, result.Matches)
             // A lone surrogate is a distinct value: a different one does not match.
-            let differs = run echo [ PureRunValue.String (t "{D800}") ] (Some(PureRunValue.String (t "{DC00}")))
+            let differs = run echo [ PureRunValue.String (utf16 "{D800}") ] (Some(PureRunValue.String (utf16 "{DC00}")))
             Assert.Equal(Some false, differs.Matches)
-            Assert.Equal(PureRunValue.String (t "{DC00}"), differs.Mismatch.Value.Expected)
+            Assert.Equal(PureRunValue.String (utf16 "{DC00}"), differs.Mismatch.Value.Expected)
             // Results the program builds: halves join to a pair, a reversed pair stays two lone surrogates.
-            Assert.Equal(PureRunValue.String "😀", (run join [ PureRunValue.String (t "{D83D}"); PureRunValue.String (t "{DE00}") ] None).Actual)
-            Assert.Equal(PureRunValue.String (t "{DE00}{D83D}"), (run join [ PureRunValue.String (t "{DE00}"); PureRunValue.String (t "{D83D}") ] None).Actual)
-            Assert.Equal(PureRunValue.String (t "x{D83D}"), (run join [ PureRunValue.String "x"; PureRunValue.String (t "{D83D}") ] None).Actual)
+            Assert.Equal(PureRunValue.String "😀", (run join [ PureRunValue.String (utf16 "{D83D}"); PureRunValue.String (utf16 "{DE00}") ] None).Actual)
+            Assert.Equal(PureRunValue.String (utf16 "{DE00}{D83D}"), (run join [ PureRunValue.String (utf16 "{DE00}"); PureRunValue.String (utf16 "{D83D}") ] None).Actual)
+            Assert.Equal(PureRunValue.String (utf16 "x{D83D}"), (run join [ PureRunValue.String "x"; PureRunValue.String (utf16 "{D83D}") ] None).Actual)
             // Nested containers: List, Option and Result payloads and Product fields.
             let holderValue (text: string) =
                 PureRunValue.Product(holder.Id,
@@ -151,20 +148,20 @@ module PureRunLoneSurrogateTests =
                 Assert.Equal(PureRunValue.String("=" + text), result.Actual)
                 Assert.Equal<(CapabilityParameterId * PureRunValue) list>([ key, PureRunValue.String text ], result.Calls.Head.Arguments)
             // The high half alone is not the pair: no case matches.
-            match PureRun.run session ask.Id [ PureRunValue.String (t "{D83D}"); keyed ] None with
+            match PureRun.run session ask.Id [ PureRunValue.String (utf16 "{D83D}"); keyed ] None with
             | Error(PureRunError.RuntimeFailure failure) -> Assert.Equal("FakeArgumentsUnmatchedException", failure.ExceptionType)
             | other -> failwithf "A lone half matched: %A" other
-            let throwing = PureRunValue.FakeCapability(dictionary.Id, [ { OperationId = get.Id; Responses = [ PureRunFakeResponse.Throw (t "down{DC00} 😀{D800}") ]; Cases = None } ])
+            let throwing = PureRunValue.FakeCapability(dictionary.Id, [ { OperationId = get.Id; Responses = [ PureRunFakeResponse.Throw (utf16 "down{DC00} 😀{D800}") ]; Cases = None } ])
             match PureRun.run session ask.Id [ PureRunValue.String "k"; throwing ] None with
             | Error(PureRunError.RuntimeFailure failure) ->
                 Assert.Equal("FakeCapabilityException", failure.ExceptionType)
-                Assert.Equal((t "down{DC00} 😀{D800}"), failure.Message)
+                Assert.Equal((utf16 "down{DC00} 😀{D800}"), failure.Message)
             | other -> failwithf "The throwing fake was not reported: %A" other
             // The wire: requests and responses use JSON surrogate escapes.
             let send line =
                 let response = AuthoringProtocol.executeLine session line
                 response, JsonDocument.Parse(response)
-            let text = (t "{DC00}a{D800}")
+            let text = (utf16 "{DC00}a{D800}")
             let request =
                 $"""{{"id":"lone","op":"runPure","functionId":"{StableId.value echo.Id}","arguments":[{{"kind":"string","value":{literal text}}}],"expected":{{"kind":"string","value":{literal text}}}}}"""
             let raw, document = send request
@@ -179,11 +176,11 @@ module PureRunLoneSurrogateTests =
             let raw, document = send listRequest
             use document = document
             Assert.False(document.RootElement.GetProperty("ok").GetBoolean(), raw)
-            Assert.Equal((t "x{DFFF}"), WireInput.runText (document.RootElement.GetProperty("error").GetProperty("message")))
+            Assert.Equal((utf16 "x{DFFF}"), WireInput.runText (document.RootElement.GetProperty("error").GetProperty("message")))
             Assert.Contains("\"message\":\"x\\uDFFF\"", raw)
             let calls = document.RootElement.GetProperty("error").GetProperty("calls")
             let arguments = calls[0].GetProperty("arguments")
             let call = arguments[0].GetProperty("value").GetProperty("value")
-            Assert.Equal((t "{D800}"), WireInput.runText call)
+            Assert.Equal((utf16 "{D800}"), WireInput.runText call)
         finally
             if Directory.Exists root then Directory.Delete(root, true)
