@@ -107,6 +107,8 @@ This preserves signed zero and exact binary64 encodings and respects the semanti
 
 `Int64ToFloat64` emits `(double)value`. .NET converts `long` to `double` with IEEE 754 round to nearest, ties to even, which is the conversion the language subset defines; the backend must not route it through decimal text.
 
+`Float64ToString` calls the emitted `NyText.FromFloat64`, which returns `nan`, `inf`, `-inf`, `0.0` or `-0.0` for those values, and otherwise takes only the sign, digits and decimal exponent from `value.ToString("R", CultureInfo.InvariantCulture)` (the shortest round-trip digits in .NET Core 3.0+) and lays them out as Python `repr` does; .NET's own layout (`1E+16`, `100`, `1E-05`) must not leak. `StringParseFloat64` calls `NyText.ParseFloat64`, which checks the grammar by hand, because `double.Parse` with these styles also accepts `.5` and `5.`, and then calls `double.Parse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent, CultureInfo.InvariantCulture)`: correctly rounded for any digit count, a signed infinity on overflow and a signed zero on underflow, and saturating for an exponent of any length, all without throwing.
+
 ## Control flow
 
 The emitter preserves Execution IR behavior rather than reconstructing high-level source structure or relying on C# surface inference.

@@ -210,6 +210,19 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
     /// range; any other text, including '+', whitespace or an empty String, is None.
     | StringParseInt64 of valueNodeId: GraphNodeId
+    /// Shortest round-trip decimal text of a Float64, exactly like Python repr(float): the fewest
+    /// significant digits that read back as the same binary64, in fixed notation with at least one
+    /// fractional digit ('1.0', '0.0001', '1234567890123456.0') when the decimal exponent is in
+    /// [-4, 16), otherwise in exponent notation with a signed exponent of at least two digits ('1e+16',
+    /// '1.5e-05'). NaN is 'nan', the infinities 'inf' and '-inf', and -0.0 is '-0.0'. Never fails.
+    | Float64ToString of valueNodeId: GraphNodeId
+    /// Some(value) only when the whole String is a JSON number, '-'? ASCII digits with an optional
+    /// fraction '.' digits and an optional exponent [eE][+-]? digits (leading zeros allowed), like
+    /// Python float(text) on that grammar: the correctly rounded (ties to even) nearest Float64 for
+    /// any number of digits, an overflow as a signed infinity and an underflow as a signed zero. Any
+    /// other text, including '+', whitespace, '.5', '5.', 'inf', 'nan' or an empty String, is None.
+    /// Never fails.
+    | StringParseFloat64 of valueNodeId: GraphNodeId
     /// Each code point of the String as a one-code-point String, in order, as a List<String>. A
     /// surrogate pair is one element; an unpaired surrogate code unit is its own one-unit element,
     /// as StringLength counts it, so the list length always equals StringLength and it never fails.
@@ -480,6 +493,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.Float64ToString valueNodeId
+        | SemanticNodeKind.StringParseFloat64 valueNodeId
         | SemanticNodeKind.StringCodePoints valueNodeId
         | SemanticNodeKind.StringToLower valueNodeId
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId
@@ -596,6 +611,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringIsEmpty valueNodeId -> SemanticNodeKind.StringIsEmpty(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToString valueNodeId -> SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
             | SemanticNodeKind.StringParseInt64 valueNodeId -> SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64ToString valueNodeId -> SemanticNodeKind.Float64ToString(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringParseFloat64 valueNodeId -> SemanticNodeKind.StringParseFloat64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToLower valueNodeId -> SemanticNodeKind.StringToLower(mapNodeId valueNodeId)
             | SemanticNodeKind.StringUtf8ByteCount valueNodeId -> SemanticNodeKind.StringUtf8ByteCount(mapNodeId valueNodeId)
@@ -778,6 +795,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringIsEmpty _
         | SemanticNodeKind.Int64ToString _
         | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.Float64ToString _
+        | SemanticNodeKind.StringParseFloat64 _
         | SemanticNodeKind.StringCodePoints _
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringUtf8ByteCount _

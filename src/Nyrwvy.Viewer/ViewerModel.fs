@@ -42,6 +42,8 @@ type ViewerNodeRole =
     | StringIsEmpty
     | Int64ToString
     | StringParseInt64
+    | Float64ToString
+    | StringParseFloat64
     | StringCodePoints
     | StringToLower
     | StringUtf8ByteCount
@@ -221,6 +223,8 @@ module ViewerProjection =
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.Int64ToString _ -> ViewerNodeRole.Int64ToString, []
         | SemanticNodeKind.StringParseInt64 _ -> ViewerNodeRole.StringParseInt64, []
+        | SemanticNodeKind.Float64ToString _ -> ViewerNodeRole.Float64ToString, []
+        | SemanticNodeKind.StringParseFloat64 _ -> ViewerNodeRole.StringParseFloat64, []
         | SemanticNodeKind.StringCodePoints _ -> ViewerNodeRole.StringCodePoints, []
         | SemanticNodeKind.StringToLower _ -> ViewerNodeRole.StringToLower, []
         | SemanticNodeKind.StringUtf8ByteCount _ -> ViewerNodeRole.StringUtf8ByteCount, []

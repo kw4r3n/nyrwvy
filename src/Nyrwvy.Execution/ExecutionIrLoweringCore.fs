@@ -266,6 +266,10 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
+                        | TypedSemanticNodeKind.Float64ToString valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64ToString
+                        | TypedSemanticNodeKind.StringParseFloat64 valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringParseFloat64
                         | TypedSemanticNodeKind.StringLength valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringLength
                         | TypedSemanticNodeKind.StringCodePoints valueNodeId ->
@@ -752,6 +756,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.Int64ToString _
                         | TypedSemanticNodeKind.StringParseInt64 _
+                        | TypedSemanticNodeKind.Float64ToString _
+                        | TypedSemanticNodeKind.StringParseFloat64 _
                         | TypedSemanticNodeKind.StringCodePoints _
                         | TypedSemanticNodeKind.StringToLower _
                         | TypedSemanticNodeKind.StringUtf8ByteCount _

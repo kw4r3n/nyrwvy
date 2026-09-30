@@ -83,6 +83,8 @@ ExpressionRecipe =
   | Float64IsFinite(expr)
   | Float64IsInfinite(expr)
   | Int64ToFloat64(expr)
+  | Float64ToString(expr)
+  | StringParseFloat64(expr)
   | ListEmpty(itemType)
   | ListConstruct(itemType, items)
   | ListLength(list)
@@ -361,6 +363,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## Int64ToFloat64
 
 `Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`. There is no Float64 to Int64 conversion.
+
+## Float64ToString and StringParseFloat64
+
+`Float64ToString(value)` (wire `float64ToString`, Nyason `float64-to-string`) takes a Float64 and produces a String, Python `repr(value)`. `StringParseFloat64(text)` (wire `stringParseFloat64`, Nyason `string-parse-float64`) takes a String and produces `Option<Float64>`, Python `float(text)` on the JSON number grammar with leading zeros, correctly rounded, with a signed infinity on overflow. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-decimal-text.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch` for `Float64ToString` and `StringIntrinsicTypeMismatch` for `StringParseFloat64`.
 
 ## ValueEqual
 

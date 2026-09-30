@@ -110,3 +110,34 @@ The parser appends one character at a time with `StringConcat`, and `ListAppendI
 | 5 | **Python int beyond Int64** | 1 known divergence (`12345678901234567890` as an ID) | None; no consumer needs big integers |
 
 Map was not needed: objects in the relay have a handful of keys. Neither were function groups: the one cycle, `dumps` and `dumpMember`, cost one placeholder transaction, as in probe 8. Keyword binding (`bindArgs` and `badKey`, 69 nodes) and Python's truthiness and `str()` were plain data work. Call arguments are reported in parameter-ID order rather than declaration order (already recorded after probe 3), so the harness compared them by name.
+
+## Follow-up: order 29, Float64 decimal text
+
+Order 29 added `Float64ToString(value): String` (Python `repr`) and `StringParseFloat64(text): Option<Float64>` (Python `float` on the JSON number grammar); see the [decision](../decisions/float64-decimal-text.md). The port was re-authored with them in the project's shared probe files as `author29.py`:
+
+- **Parsing.** A number token with a fraction or an exponent goes to `StringParseFloat64`. The grammar check of `numParts` stays, because Python's `NUMBER_RE` rejects leading zeros. Its exponent is no longer parsed into an Int64, so an exponent of any length is accepted, as in Python.
+- **Printing.** `Json.Float` holds only its value, and `dumps` and `pyStr` print it with `Float64ToString`.
+- **Removed emulation.** `floatJson`, `magnitude`, `pow10`, `reprDigits`, `expText` and `zeros` are gone.
+- **Size.** The port shrank from 91 functions and 2,379 nodes to 85 functions and 2,116 nodes, authored in 194 requests with no retries.
+
+| Run | Before | After |
+| --- | --- | --- |
+| The 228 relay lines | 226/228 (2 known) | 227/228 (1 known: the integer beyond Int64) |
+| 182 new float-heavy lines | not run | 180/182 |
+
+The 182 new lines (`mkcases29.py`) each echo JSON numbers as a request ID:
+
+- the smallest normal and subnormal values;
+- halfway points below and above the smallest subnormal;
+- the largest finite value, and the values just past it that overflow;
+- `2^53 + 1` with and without long fractions;
+- exact binary expansions, plus one with a trailing digit;
+- 300-digit fractions;
+- exponents of 20 digits;
+- 80 `repr`s of random bit patterns;
+- 80 random 16–30 digit decimals with exponents near both ends of the range;
+- one array of 40 of them.
+
+Both misses contain `1` followed by 310 zeros. That is integer text, a Python `int` beyond Int64: the same known divergence, not a Float64 error.
+
+The known divergence for more digits than binary64 holds (`1.00000000000000011`) is gone. A Float64 the program computes, such as a fake's `elapsed_seconds`, now prints without carrying source text.

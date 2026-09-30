@@ -325,6 +325,85 @@ module CSharpBackend =
         writer.Line("text.Length == 1 ? NyOption<long>.Some(text[0])")
         writer.Line(": text.Length == 2 && Width(text, 0) == 2 ? NyOption<long>.Some(char.ConvertToUtf32(text[0], text[1]))")
         writer.Line(": NyOption<long>.None();")
+        // FromFloat64 is Python repr(float). "R" gives the shortest digits that round-trip to the same
+        // binary64 (.NET Core 3.0+); its digits and decimal point position are then laid out as Python
+        // does: exponent notation when the point position decpt (value = 0.d1d2.. x 10^decpt) is <= -4
+        // or > 16, with a signed exponent of at least two digits, otherwise fixed notation with at
+        // least one fractional digit. .NET's own layout differs ("1E+16", "1E-05", "100"), so only its
+        // digits are used.
+        writer.Line("public static string FromFloat64(double value)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (double.IsNaN(value)) return \"nan\";")
+        writer.Line("if (double.IsInfinity(value)) return value > 0.0 ? \"inf\" : \"-inf\";")
+        writer.Line("if (value == 0.0) return double.IsNegative(value) ? \"-0.0\" : \"0.0\";")
+        writer.Line("var shortest = value.ToString(\"R\", System.Globalization.CultureInfo.InvariantCulture);")
+        writer.Line("var negative = shortest[0] == '-';")
+        writer.Line("var mark = shortest.IndexOf('E');")
+        writer.Line("var first = negative ? 1 : 0;")
+        writer.Line("var mantissa = shortest.Substring(first, (mark < 0 ? shortest.Length : mark) - first);")
+        writer.Line("var exponent = mark < 0 ? 0 : int.Parse(shortest.Substring(mark + 1), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture);")
+        writer.Line("var point = mantissa.IndexOf('.');")
+        writer.Line("var digits = point < 0 ? mantissa : mantissa.Remove(point, 1);")
+        writer.Line("var decpt = (point < 0 ? mantissa.Length : point) + exponent;")
+        writer.Line("var lead = 0;")
+        writer.Line("while (digits[lead] == '0') lead++;")
+        writer.Line("digits = digits.Substring(lead).TrimEnd('0');")
+        writer.Line("decpt -= lead;")
+        writer.Line("var builder = new System.Text.StringBuilder(32);")
+        writer.Line("if (negative) builder.Append('-');")
+        writer.Line("if (decpt <= -4 || decpt > 16)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("builder.Append(digits[0]);")
+        writer.Line("if (digits.Length > 1) builder.Append('.').Append(digits, 1, digits.Length - 1);")
+        writer.Line("var power = decpt - 1;")
+        writer.Line("builder.Append(power < 0 ? \"e-\" : \"e+\").Append(System.Math.Abs(power).ToString(\"00\", System.Globalization.CultureInfo.InvariantCulture));")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("else if (decpt <= 0) builder.Append(\"0.\").Append('0', -decpt).Append(digits);")
+        writer.Line("else if (decpt >= digits.Length) builder.Append(digits).Append('0', decpt - digits.Length).Append(\".0\");")
+        writer.Line("else builder.Append(digits, 0, decpt).Append('.').Append(digits, decpt, digits.Length - decpt);")
+        writer.Line("return builder.ToString();")
+        writer.Pop()
+        writer.Line("}")
+        // ParseFloat64 is Python float(text) on the JSON number grammar only; the grammar is checked here
+        // because double.Parse with these styles also accepts ".5", "5." and surrounding forms JSON rejects.
+        // double.Parse is IEEE correctly rounded for any digit count (.NET Core 3.0+), gives a signed
+        // infinity on overflow and a signed zero on underflow, and saturates an exponent of any length.
+        writer.Line("public static NyOption<double> ParseFloat64(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var index = text.Length > 0 && text[0] == '-' ? 1 : 0;")
+        writer.Line("if (!SkipDigits(text, ref index)) return NyOption<double>.None();")
+        writer.Line("if (index < text.Length && text[index] == '.')")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("index++;")
+        writer.Line("if (!SkipDigits(text, ref index)) return NyOption<double>.None();")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("if (index < text.Length && (text[index] == 'e' || text[index] == 'E'))")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("index++;")
+        writer.Line("if (index < text.Length && (text[index] == '+' || text[index] == '-')) index++;")
+        writer.Line("if (!SkipDigits(text, ref index)) return NyOption<double>.None();")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("if (index != text.Length) return NyOption<double>.None();")
+        writer.Line("return NyOption<double>.Some(double.Parse(text, System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowExponent, System.Globalization.CultureInfo.InvariantCulture));")
+        writer.Pop()
+        writer.Line("}")
+        // SkipDigits advances past ASCII digits and reports whether there was at least one.
+        writer.Line("private static bool SkipDigits(string text, ref int index)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var start = index;")
+        writer.Line("while (index < text.Length && text[index] >= '0' && text[index] <= '9') index++;")
+        writer.Line("return index > start;")
+        writer.Pop()
+        writer.Line("}")
         // Join is Python sep.join(list): the items in order with the separator between adjacent ones.
         writer.Line("public static string Join(NyList<string> list, string separator) => string.Join(separator, list.OwnedItems);")
         writer.Line("private static int Find(string text, string value, int offset)")
@@ -1106,6 +1185,10 @@ module CSharpBackend =
             writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringUtf8ByteCount sourceValueId ->
             writer.Line(target + " = NyText.Utf8ByteCount(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.Float64ToString sourceValueId ->
+            writer.Line(target + " = NyText.FromFloat64(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringParseFloat64 sourceValueId ->
+            writer.Line(target + " = NyText.ParseFloat64(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringFromCodePoint sourceValueId ->
             writer.Line(target + " = NyText.FromCodePoint(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringToCodePoint sourceValueId ->
