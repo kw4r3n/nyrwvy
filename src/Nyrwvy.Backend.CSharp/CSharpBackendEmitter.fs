@@ -511,6 +511,15 @@ module CSharpBackend =
         writer.Line("return state;")
         writer.Pop()
         writer.Line("}")
+        // ListEffectFold's Result mode: stops iterating once `proceed` is false (after the first Err).
+        writer.Line("public S FoldWhile<S>(S seed, Func<S, T, S> folder, Func<S, bool> proceed)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var state = seed;")
+        writer.Line("for (var i = 0; i < _items.Length && proceed(state); i++) state = folder(state, _items[i]);")
+        writer.Line("return state;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyList<U> Map<U>(Func<T, U> mapper)")
         writer.Line("{")
         writer.Push()
@@ -1355,11 +1364,12 @@ module CSharpBackend =
             if instruction.Result.Type = valueTypeOf seedValueId then
                 writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
             else
-                // Result accumulator: after the first Err the folder, and so its effects, are not called again.
+                // Result accumulator: after the first Err the folder, and so its effects, are not called
+                // again, and the loop ends there without visiting the remaining items.
                 let state, item = target + "_state", target + "_item"
                 let resultType = formatType instruction.Result.Type
                 let step = renderInvocation parametersOf folderFunctionId context [ state + ".OkValue"; item ]
-                writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + resultType + ".Ok(" + valueName seedValueId + "), (" + state + ", " + item + ") => " + state + ".IsOk ? " + step + " : " + state + ");")
+                writer.Line(target + " = " + valueName sourceListValueId + ".FoldWhile(" + resultType + ".Ok(" + valueName seedValueId + "), (" + state + ", " + item + ") => " + step + ", " + state + " => " + state + ".IsOk);")
         | ExecutionInstructionKind.UseResource(acquireValueId, releaseCapabilityValueId, releaseOperationId, bodyFunctionId, context) ->
             // Release always runs after acquisition succeeded: on Ok and Err exits, and before a host
             // exception from the body propagates. A body Err takes precedence over a release Err.

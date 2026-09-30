@@ -21,7 +21,7 @@ Two pure builtins. Both never fail.
 
 **Generic over the item type.** Like `ListItemAt`, `ListSlice` infers `T` from the `list` operand, which must be some `List<T>`, and produces the same `List<T>`; item types can be any type, including nested lists, options and named types. No item-type argument is written.
 
-**No step and no other helpers.** A step (`xs[::2]`), negative indexing, string repetition and padding (`'  ' * n`, `{:>{w}}`) and early-stop folds, which friction 7 also lists, are out of scope; they can be added by later queue entries if a probe measures them.
+**No step and no other helpers.** A step (`xs[::2]`), negative indexing, string repetition and padding (`'  ' * n`, `{:>{w}}`) and early-stop folds, which friction 7 also lists, are out of scope; they can be added by later queue entries if a probe measures them. Probe 11 measured early-stop folds: a fold that stops at the first `Err` is `ListEffectFold` with a pure folder ([decision](result-fold-short-circuit.md)).
 
 ## Consequences
 

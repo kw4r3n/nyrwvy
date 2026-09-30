@@ -1264,6 +1264,12 @@ module AgentExpressionStructuralWorkflow =
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
                                         if List.isEmpty folder.RequiredEffects then Ok seedType
                                         else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"ListFold folder {callbackName folder} must be pure.")
+                                    | Some current when
+                                        (match TypeParameters.substitute current folder.ResultType with
+                                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> okType = seedType
+                                         | _ -> false) ->
+                                        // Same shape as ListEffectFold's Result mode: point there instead of a pass-through arm.
+                                        Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must return the accumulator type {ty seedType}; the folder has type {callbackSignature folder}. To stop at the first Err, use ListEffectFold with the same seed and folder: it accepts a pure folder returning Result<S, E> and yields Result<S, E>.")
                                     | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
             | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
