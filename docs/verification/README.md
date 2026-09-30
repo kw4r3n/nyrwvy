@@ -53,6 +53,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Expression recipe reference live probe](expression-recipe-reference-live-probe.md)
 - [rrawrlet slice probe 12](rrawrlet-slice-probe12-20261001.md): `condense` material, cache key (SHA-256 in Int64 arithmetic) and citations, 304/304 against Python
 - [rrawrlet slice probe 13](rrawrlet-slice-probe13-20261001.md): `ref_backup` (Git ref snapshots and changes) and `supervisor` (`argparse` command line, a clocked poll and cleanup state machine), 371/371 against Python after 2 port bugs
+- [rrawrlet slice probe 14](rrawrlet-slice-probe14-20261001.md): `repo_map` (tree-sitter outline over a `Host` parse, `os.walk`/`git ls-files`, bytes as latin-1 Strings with a hand-written UTF-8 decoder), 310/310 against Python on the first run
 
 ## Project review and follow-ups
 
