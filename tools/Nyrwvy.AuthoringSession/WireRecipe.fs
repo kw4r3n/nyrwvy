@@ -75,6 +75,8 @@ module internal WireRecipe =
         | "stringIsEmpty" -> unary "string-is-empty recipe" ExpressionRecipe.StringIsEmpty
         | "int64ToString" -> unary "int64-to-string recipe" ExpressionRecipe.Int64ToString
         | "stringParseInt64" -> unary "string-parse-int64 recipe" ExpressionRecipe.StringParseInt64
+        | "float64ToString" -> unary "float64-to-string recipe" ExpressionRecipe.Float64ToString
+        | "stringParseFloat64" -> unary "string-parse-float64 recipe" ExpressionRecipe.StringParseFloat64
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
         | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount

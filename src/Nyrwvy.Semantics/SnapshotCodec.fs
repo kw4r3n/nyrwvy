@@ -398,6 +398,12 @@ module SnapshotCodec =
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64ToString valueNodeId ->
+            writer.WriteString("kind", "float64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringParseFloat64 valueNodeId ->
+            writer.WriteString("kind", "stringParseFloat64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringCodePoints valueNodeId ->
             writer.WriteString("kind", "stringCodePoints")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -1104,6 +1110,12 @@ module SnapshotCodec =
             | "stringParseInt64" ->
                 ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64ToString" ->
+                ensureProperties "Float64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64ToString(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringParseFloat64" ->
+                ensureProperties "StringParseFloat64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringParseFloat64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringCodePoints" ->
                 ensureProperties "StringCodePoints node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringCodePoints(readId<GraphNodeTag> "valueNodeId" element)

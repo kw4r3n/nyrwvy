@@ -37,6 +37,8 @@ module FoundationTests =
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.Float64ToString _
+                | SemanticNodeKind.StringParseFloat64 _
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _

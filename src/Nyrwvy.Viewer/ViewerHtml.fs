@@ -122,6 +122,8 @@ module ViewerHtml =
         | ViewerNodeRole.StringIsEmpty -> "string is empty"
         | ViewerNodeRole.Int64ToString -> "int64 to string"
         | ViewerNodeRole.StringParseInt64 -> "parse int64"
+        | ViewerNodeRole.Float64ToString -> "float64 to string"
+        | ViewerNodeRole.StringParseFloat64 -> "parse float64"
         | ViewerNodeRole.StringCodePoints -> "code points"
         | ViewerNodeRole.StringToLower -> "to lower"
         | ViewerNodeRole.StringUtf8ByteCount -> "utf-8 byte count"

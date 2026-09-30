@@ -170,6 +170,12 @@ module StructuralDiagnosticTextTests =
                 (optionOf I)
                 """{"kind":"stringToCodePoint","value":{"kind":"stringFromCodePoint","value":{"kind":"parameter","name":"text"}}}"""
         Assert.Equal("StringFromCodePoint value operand requires Int64, but the recipe produces String. At body.value (stringFromCodePoint).", codePoint)
+        let _, floatText =
+            reject
+                [ "text", S ]
+                (optionOf """{"kind":"primitive","primitive":"float64"}""")
+                """{"kind":"stringParseFloat64","value":{"kind":"float64ToString","value":{"kind":"parameter","name":"text"}}}"""
+        Assert.Equal("Float64ToString value operand requires Float64, but the recipe produces String. At body.value (float64ToString).", floatText)
         let _, joinSeparator =
             reject
                 [ "xs", listOf S ]

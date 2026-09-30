@@ -517,6 +517,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringIsEmpty"
               "Int64ToString"
               "StringParseInt64"
+              "Float64ToString"
+              "StringParseFloat64"
               "StringCodePoints"
               "StringToLower"
               "StringUtf8ByteCount"

@@ -13,7 +13,7 @@ const categories = {
   literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
   scalar: [
     "boolNot", "boolAnd", "boolOr",
-    "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice", "stringCodePoints",
+    "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "float64ToString", "stringParseFloat64", "stringLength", "stringSlice", "stringCodePoints",
     "stringIndexOf", "stringLastIndexOf", "stringSpan", "stringSpanBack", "stringStartsWith", "stringEndsWith", "stringSplit", "stringSplitLines", "stringJoin", "stringToLower", "stringUtf8ByteCount", "stringFromCodePoint", "stringToCodePoint",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
@@ -64,6 +64,8 @@ const references = {
   stringIsEmpty: unary("stringIsEmpty"),
   int64ToString: { ...unary("int64ToString"), notes: "Int64 to canonical invariant decimal String; '-' only for negative values." },
   stringParseInt64: { ...unary("stringParseInt64"), notes: "String to Option<Int64>: Some only for an optional '-' followed by ASCII digits within range; '+', whitespace, empty text or overflow give None." },
+  float64ToString: { ...unary("float64ToString"), notes: "Float64 to String exactly like Python repr(float): the shortest digits that read back as the same Float64; fixed notation with at least one fractional digit when the decimal exponent is in [-4, 16) (\"1.0\", \"0.0001\", \"0.30000000000000004\", \"1234567890123456.0\"), otherwise exponent notation with a signed two-or-more-digit exponent (\"1e+16\", \"1.5e-05\", \"5e-324\"); \"nan\", \"inf\", \"-inf\", \"-0.0\". Never fails." },
+  stringParseFloat64: { ...unary("stringParseFloat64"), notes: "String to Option<Float64>, like Python float(text) restricted to the JSON number grammar -?digits(.digits)?([eE][+-]?digits)? in ASCII digits (leading zeros allowed): Some correctly rounded nearest Float64 (ties to even) for any digit count; overflow gives Some(+/-infinity) and underflow a signed zero, as json.loads does. '+', whitespace, \".5\", \"5.\", \"inf\", \"nan\", underscores, hex, non-ASCII digits and \"\" give None. Inverse of float64ToString for finite values. Never fails." },
   stringContains: { shape: { kind: "stringContains", value: recipe, substring: recipe } },
   stringEqual: { ...binary("stringEqual"), notes: "Ordinal, case-sensitive exact equality; both operands must be String." },
   stringLessThan: { ...binary("stringLessThan"), notes: "Bool: left sorts strictly before right in ordinal Unicode code-point order (lexicographic; a proper prefix sorts first; case-sensitive, no locale). Characters above U+FFFF sort after every BMP character, as in Python. Combine with stringEqual for tie-breaking keys." },

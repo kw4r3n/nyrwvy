@@ -320,6 +320,12 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64ToString valueNodeId ->
+            writer.WriteString("kind", "float64ToString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringParseFloat64 valueNodeId ->
+            writer.WriteString("kind", "stringParseFloat64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringCodePoints valueNodeId ->
             writer.WriteString("kind", "stringCodePoints")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
