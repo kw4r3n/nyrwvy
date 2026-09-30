@@ -520,6 +520,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringCodePoints"
               "StringToLower"
               "StringUtf8ByteCount"
+              "StringFromCodePoint"
+              "StringToCodePoint"
               "StringLength"
               "StringSlice"
               "StringContains"

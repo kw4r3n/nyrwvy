@@ -125,6 +125,8 @@ module ViewerHtml =
         | ViewerNodeRole.StringCodePoints -> "code points"
         | ViewerNodeRole.StringToLower -> "to lower"
         | ViewerNodeRole.StringUtf8ByteCount -> "utf-8 byte count"
+        | ViewerNodeRole.StringFromCodePoint -> "from code point"
+        | ViewerNodeRole.StringToCodePoint -> "to code point"
         | ViewerNodeRole.StringLength -> "string length"
         | ViewerNodeRole.StringSlice -> "string slice"
         | ViewerNodeRole.StringContains -> "string contains"

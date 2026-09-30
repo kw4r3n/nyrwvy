@@ -259,6 +259,12 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringUtf8ByteCount valueId ->
             [ property "kind" (quote "stringUtf8ByteCount")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringFromCodePoint valueId ->
+            [ property "kind" (quote "stringFromCodePoint")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringToCodePoint valueId ->
+            [ property "kind" (quote "stringToCodePoint")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringLength valueId ->
             [ property "kind" (quote "stringLength")
               property "valueId" (executionValueIdValue valueId) ]

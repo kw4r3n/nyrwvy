@@ -61,6 +61,8 @@ ExpressionRecipe =
   | StringJoin(list, separator)
   | StringToLower(expr)
   | StringUtf8ByteCount(expr)
+  | StringFromCodePoint(expr)
+  | StringToCodePoint(expr)
   | Int64WrappingAdd(left, right)
   | Int64WrappingSubtract(left, right)
   | Int64WrappingMultiply(left, right)
@@ -347,6 +349,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringToLower and StringUtf8ByteCount
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. Both use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+
+## StringFromCodePoint and StringToCodePoint
+
+`StringFromCodePoint(code)` (wire `stringFromCodePoint`, Nyason `string-from-code-point`) takes an Int64 and produces `Option<String>`: the one-code-point String for a code in 0..0x10FFFF, surrogate codes included as an unpaired surrogate code unit, and `None` otherwise. `StringToCodePoint(text)` (wire `stringToCodePoint`, Nyason `string-to-code-point`) takes a String and produces `Option<Int64>`: its code point when it is exactly one code point, and `None` otherwise. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-code-point-conversion.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringJoin and ListSlice
 

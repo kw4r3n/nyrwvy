@@ -164,6 +164,12 @@ module StructuralDiagnosticTextTests =
                 I
                 """{"kind":"stringUtf8ByteCount","value":{"kind":"stringToLower","value":{"kind":"int64Literal","value":6}}}"""
         Assert.Equal("StringToLower value operand requires String, but the recipe produces Int64. At body.value (stringToLower).", lowered)
+        let _, codePoint =
+            reject
+                [ "text", S ]
+                (optionOf I)
+                """{"kind":"stringToCodePoint","value":{"kind":"stringFromCodePoint","value":{"kind":"parameter","name":"text"}}}"""
+        Assert.Equal("StringFromCodePoint value operand requires Int64, but the recipe produces String. At body.value (stringFromCodePoint).", codePoint)
         let _, joinSeparator =
             reject
                 [ "xs", listOf S ]

@@ -14,7 +14,7 @@ const categories = {
   scalar: [
     "boolNot", "boolAnd", "boolOr",
     "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "stringLength", "stringSlice", "stringCodePoints",
-    "stringIndexOf", "stringLastIndexOf", "stringSpan", "stringSpanBack", "stringStartsWith", "stringEndsWith", "stringSplit", "stringSplitLines", "stringJoin", "stringToLower", "stringUtf8ByteCount",
+    "stringIndexOf", "stringLastIndexOf", "stringSpan", "stringSpanBack", "stringStartsWith", "stringEndsWith", "stringSplit", "stringSplitLines", "stringJoin", "stringToLower", "stringUtf8ByteCount", "stringFromCodePoint", "stringToCodePoint",
     "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
     "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
     "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
@@ -84,6 +84,8 @@ const references = {
   stringJoin: { shape: { kind: "stringJoin", list: recipe, separator: recipe }, notes: "String: the List<String> items in order with separator between adjacent items, like Python separator.join(list): [] gives \"\", [\"a\"] gives \"a\", [\"a\", \"\", \"b\"] by \",\" gives \"a,,b\". Inverse of stringSplit. Never fails. Linear time." },
   stringToLower: { ...unary("stringToLower"), notes: "String with each code point lowercased by the Unicode simple (one-to-one) mapping, culture invariant (I to i, Kelvin sign to k); the length in code points never changes and an unpaired surrogate is kept. Like Python str.lower() except \u0130 gives \"i\" (Python \"i\u0307\") and a word-final Sigma gives \u03c3 (Python \u03c2). Not casefold. Never fails." },
   stringUtf8ByteCount: { ...unary("stringUtf8ByteCount"), notes: "Int64 length in bytes of the UTF-8 encoding, like Python len(text.encode(\"utf-8\")): 1-4 bytes per code point; an unpaired surrogate counts 3. Never fails." },
+  stringFromCodePoint: { ...unary("stringFromCodePoint"), notes: "Int64 code to Option<String>, like Python chr(code): Some one-code-point String for 0..0x10FFFF, including a surrogate code 0xD800..0xDFFF (one unpaired surrogate; stringConcat of a high and a low one forms the pair, as when decoding JSON \\uXXXX escapes); None for a negative code or one above 0x10FFFF. Never fails." },
+  stringToCodePoint: { ...unary("stringToCodePoint"), notes: "String to Option<Int64>, like Python ord(text): Some code point when value is exactly one code point as stringLength counts it (a surrogate pair gives its scalar value, an unpaired surrogate its code unit); None for \"\" or longer text. Inverse of stringFromCodePoint. Never fails." },
   stringSlice: { shape: { kind: "stringSlice", value: recipe, start: recipe, end: recipe }, notes: "Code points at Int64 positions [start, end). Both bounds clamp to [0, length]; end <= start gives \"\". Never fails; never splits a surrogate pair." },
   stringConcat: { ...binary("stringConcat"), notes: "Concatenates String operands in left-to-right order without separators or normalization." },
   int64WrappingAdd: binary("int64WrappingAdd"),

@@ -274,6 +274,10 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToLower
                         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringUtf8ByteCount
+                        | TypedSemanticNodeKind.StringFromCodePoint valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringFromCodePoint
+                        | TypedSemanticNodeKind.StringToCodePoint valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToCodePoint
                         | TypedSemanticNodeKind.BoolNot operandNodeId ->
                             lowerUnaryNode node operandNodeId ExecutionInstructionKind.BoolNot
                         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
@@ -751,6 +755,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringCodePoints _
                         | TypedSemanticNodeKind.StringToLower _
                         | TypedSemanticNodeKind.StringUtf8ByteCount _
+                        | TypedSemanticNodeKind.StringFromCodePoint _
+                        | TypedSemanticNodeKind.StringToCodePoint _
                         | TypedSemanticNodeKind.StringLength _
                         | TypedSemanticNodeKind.StringSlice _
                         | TypedSemanticNodeKind.BoolNot _

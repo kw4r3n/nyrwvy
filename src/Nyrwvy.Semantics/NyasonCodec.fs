@@ -472,6 +472,10 @@ module NyasonCodec =
             record "string-to-lower" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             record "string-utf8-byte-count" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringFromCodePoint valueNodeId ->
+            record "string-from-code-point" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringToCodePoint valueNodeId ->
+            record "string-to-code-point" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringLength valueNodeId ->
             record "string-length" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
@@ -881,6 +885,14 @@ module NyasonCodec =
             let fields = recordFields "string-utf8-byte-count" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringUtf8ByteCount(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-from-code-point", _) ->
+            let fields = recordFields "string-from-code-point" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringFromCodePoint(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-to-code-point", _) ->
+            let fields = recordFields "string-to-code-point" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringToCodePoint(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-length", _) ->
             let fields = recordFields "string-length" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

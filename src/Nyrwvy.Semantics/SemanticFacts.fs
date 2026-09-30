@@ -177,8 +177,11 @@ module SemanticFacts =
                     | SemanticNodeKind.StringParseInt64 _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.StringIndexOf _
-                    | SemanticNodeKind.StringLastIndexOf _ ->
+                    | SemanticNodeKind.StringLastIndexOf _
+                    | SemanticNodeKind.StringToCodePoint _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
+                    | SemanticNodeKind.StringFromCodePoint _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.String ]))
                     | SemanticNodeKind.StringCodePoints _
                     | SemanticNodeKind.StringSplitLines _
                     | SemanticNodeKind.StringSplit _ ->
