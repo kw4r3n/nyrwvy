@@ -152,11 +152,11 @@ module ExternalCapabilityBindingTests =
 
 public sealed class FakeProvider : {capabilityName}
 {{
-    public NyResult<{responseName}, string> {lookupName}({requestName} {argName}) =>
+    public NyResult<{responseName}, NyStr> {lookupName}({requestName} {argName}) =>
         {argName}.{keyName} == "yes"
-            ? NyResult<{responseName}, string>.Ok(new {responseName}("found"))
-            : NyResult<{responseName}, string>.Err("missing");
-    public NyResult<{responseName}, string> {fallbackName}() => NyResult<{responseName}, string>.Err("fallback");
+            ? NyResult<{responseName}, NyStr>.Ok(new {responseName}("found"))
+            : NyResult<{responseName}, NyStr>.Err("missing");
+    public NyResult<{responseName}, NyStr> {fallbackName}() => NyResult<{responseName}, NyStr>.Err("fallback");
 }}
 """
             let program =

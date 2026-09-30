@@ -166,7 +166,7 @@ module PureRun =
         | PureRunScalarKind.Int64 -> TypeRef.Primitive PrimitiveType.Int64
 
     let private scalarSourceType = function
-        | PureRunScalarKind.String -> "string"
+        | PureRunScalarKind.String -> "NyStr"
         | PureRunScalarKind.Bool -> "bool"
         | PureRunScalarKind.Int64 -> "long"
 
@@ -202,7 +202,7 @@ module PureRun =
 
     let rec private sourceType = function
         | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
-        | TypeRef.Primitive PrimitiveType.String -> "string"
+        | TypeRef.Primitive PrimitiveType.String -> "NyStr"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"

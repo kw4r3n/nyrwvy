@@ -111,7 +111,7 @@ ListAny
 ListAll
 ```
 
-`ListAppendItem` onto the list the previous append produced is amortised constant time, so a `ListFold` that appends one item per step builds its list in linear time, and `StringJoin` of such a list is a linear text builder. Repeated `StringConcat` copies its left operand each time and stays quadratic. Values are unaffected: appending to an older list, or twice to the same list, gives independent lists.
+`ListAppendItem` onto the list the previous append produced is amortised constant time, so a `ListFold` that appends one item per step builds its list in linear time, and `StringJoin` of such a list is a linear text builder. `StringConcat` onto the String the previous concatenation produced is likewise amortised in the length of its right operand, so a `ListFold` that concatenates one piece per step is also linear. Values are unaffected: appending or concatenating onto an older value, or twice onto the same one, gives independent values.
 
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
 

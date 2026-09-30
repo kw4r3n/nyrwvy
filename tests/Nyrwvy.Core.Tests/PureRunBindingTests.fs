@@ -235,17 +235,17 @@ namespace Example.Hosts;
 
 public sealed class Directory : {capability}
 {{
-    public NyResult<{response}, string> {lookup}({request} {argument}) =>
+    public NyResult<{response}, NyStr> {lookup}({request} {argument}) =>
         {argument}.{key} == "yes"
-            ? NyResult<{response}, string>.Ok(new {response}("found"))
-            : NyResult<{response}, string>.Err("missing");
-    public NyResult<{response}, string> {fallback}() => NyResult<{response}, string>.Err("fallback");
+            ? NyResult<{response}, NyStr>.Ok(new {response}("found"))
+            : NyResult<{response}, NyStr>.Err("missing");
+    public NyResult<{response}, NyStr> {fallback}() => NyResult<{response}, NyStr>.Err("fallback");
 }}
 
 public sealed class Broken : {capability}
 {{
-    public NyResult<{response}, string> {lookup}({request} {argument}) => throw new InvalidOperationException("directory offline");
-    public NyResult<{response}, string> {fallback}() => throw new InvalidOperationException("directory offline");
+    public NyResult<{response}, NyStr> {lookup}({request} {argument}) => throw new InvalidOperationException("directory offline");
+    public NyResult<{response}, NyStr> {fallback}() => throw new InvalidOperationException("directory offline");
 }}
 """
 

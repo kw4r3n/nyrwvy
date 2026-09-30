@@ -262,13 +262,13 @@ module ListFoldTests =
             let digitCall = "NyFunctions." + CSharpBackendNames.functionName digits.Id
             File.WriteAllText(Path.Combine(tempRoot, "Program.cs"),
                 "using System; using Nyrwvy.Generated;\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"a\", \"b\", \"c\"), \"b\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"a\", \"b\"), \"z\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Empty(), \"b\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"ab\"), \"a\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"ab\"), \"abab\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"A\"), \"a\"));\n" +
-                $"Console.WriteLine({call}(NyList<string>.Create(\"\"), \"\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"a\", \"b\", \"c\"), \"b\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"a\", \"b\"), \"z\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Empty(), \"b\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"ab\"), \"a\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"ab\"), \"abab\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"A\"), \"a\"));\n" +
+                $"Console.WriteLine({call}(NyList<NyStr>.Create(\"\"), \"\"));\n" +
                 $"Console.WriteLine({digitCall}(NyList<long>.Create(1L, 2L, 3L)));\n" +
                 $"Console.WriteLine({digitCall}(NyList<long>.Empty()));\n")
             let start args =
@@ -309,12 +309,12 @@ module ListFoldTests =
             File.WriteAllText(Path.Combine(tempRoot, "Generated.cs"), artifact.Source)
             let functionName = "NyFunctions." + CSharpBackendNames.functionName at.Id
             let inputs =
-                [ "NyList<string>.Empty(), 0L"
-                  "NyList<string>.Create(\"first\", \"second\", \"third\"), -1L"
-                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 0L"
-                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 1L"
-                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 2L"
-                  "NyList<string>.Create(\"first\", \"second\", \"third\"), 3L" ]
+                [ "NyList<NyStr>.Empty(), 0L"
+                  "NyList<NyStr>.Create(\"first\", \"second\", \"third\"), -1L"
+                  "NyList<NyStr>.Create(\"first\", \"second\", \"third\"), 0L"
+                  "NyList<NyStr>.Create(\"first\", \"second\", \"third\"), 1L"
+                  "NyList<NyStr>.Create(\"first\", \"second\", \"third\"), 2L"
+                  "NyList<NyStr>.Create(\"first\", \"second\", \"third\"), 3L" ]
             let program =
                 [ "using System; using Nyrwvy.Generated;" ]
                 @ (inputs |> List.map (fun args ->

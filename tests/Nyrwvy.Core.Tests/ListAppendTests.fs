@@ -26,16 +26,16 @@ using Nyrwvy.Generated;
 
 static class Runner
 {
-    static string Show(NyList<string> list) => "[" + NyText.Join(list, ",") + "]";
-    static NyList<string> Build(string prefix, int count)
+    static string Show(NyList<NyStr> list) => "[" + NyText.Join(list, ",") + "]";
+    static NyList<NyStr> Build(string prefix, int count)
     {
-        var list = NyList<string>.Empty();
+        var list = NyList<NyStr>.Empty();
         for (var i = 0; i < count; i++) list = list.AppendItem(prefix + i);
         return list;
     }
     static void Main()
     {
-        var b = NyList<string>.Empty().AppendItem("a").AppendItem("b");
+        var b = NyList<NyStr>.Empty().AppendItem("a").AppendItem("b");
         var x = b.AppendItem("c");
         var y = b.AppendItem("d");
         Console.WriteLine(Show(b) + Show(x) + Show(y));
@@ -43,15 +43,15 @@ static class Runner
         var w = b.AppendItem("f");
         Console.WriteLine(Show(b) + Show(x) + Show(y) + Show(z) + Show(w));
         Console.WriteLine(b.Length + " " + b.ItemAt(2).HasValue + " " + b.Fold(0, (n, _) => n + 1) + " " + b.Map(s => s + "!").Length + " " + b.Filter(_ => true).Length + " " + b.All(s => s != "c"));
-        var abc = NyList<string>.Create("a", "b", "c");
+        var abc = NyList<NyStr>.Create("a", "b", "c");
         Console.WriteLine(x.Equals(abc) + " " + abc.Equals(x) + " " + (x.GetHashCode() == abc.GetHashCode()) + " " + x.Equals(y) + " " + b.Equals(x.Slice(0, 2)) + " " + NyEquality.Equal(z.Slice(0, 3), x));
         var s = x.Slice(0, 2).AppendItem("g");
         var m = x.Slice(1, 3).AppendItem("h");
         Console.WriteLine(Show(s) + Show(m) + Show(x));
-        var c1 = b.Concat(NyList<string>.Create("p"));
-        var c2 = b.Concat(NyList<string>.Create("q", "r"));
-        Console.WriteLine(Show(c1) + Show(c2) + Show(b.Concat(NyList<string>.Empty())) + Show(NyList<string>.Empty().Concat(b)));
-        var t = NyList<string>.Empty().AppendItem("a").AppendItem("b");
+        var c1 = b.Concat(NyList<NyStr>.Create("p"));
+        var c2 = b.Concat(NyList<NyStr>.Create("q", "r"));
+        Console.WriteLine(Show(c1) + Show(c2) + Show(b.Concat(NyList<NyStr>.Empty())) + Show(NyList<NyStr>.Empty().Concat(b)));
+        var t = NyList<NyStr>.Empty().AppendItem("a").AppendItem("b");
         var tt = t.Concat(t);
         var t2 = t.AppendItem("z");
         var tt2 = tt.Concat(t);
@@ -63,10 +63,10 @@ static class Runner
         {
             var shared = Build("s", 1 + round % 40);
             var before = Show(shared);
-            var results = new NyList<string>[32];
+            var results = new NyList<NyStr>[32];
             Parallel.For(0, results.Length, i =>
             {
-                var next = (i % 2 == 0 ? shared.AppendItem("x" + i) : shared.Concat(NyList<string>.Create("x" + i))).AppendItem("y" + i);
+                var next = (i % 2 == 0 ? shared.AppendItem("x" + i) : shared.Concat(NyList<NyStr>.Create("x" + i))).AppendItem("y" + i);
                 results[i] = next.Concat(next);
             });
             for (var i = 0; i < results.Length; i++)

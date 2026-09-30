@@ -58,7 +58,7 @@ module StringCodePointsTests =
         let execution = ExecutionIr.lower typed |> unwrap "lower"
         Assert.Contains("\"stringCodePoints\"", ExecutionIrCodec.serialize execution)
         let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
-        Assert.Contains("NyList<string>.FromOwnedArray(codePoints.ToArray())", artifact.Source)
+        Assert.Contains("NyList<NyStr>.FromOwnedArray(codePoints.ToArray())", artifact.Source)
         // A persisted node over a non-String value is a validation error.
         let parameterId = committed.Functions.Head.Parameters.Head.Id
         let broken =

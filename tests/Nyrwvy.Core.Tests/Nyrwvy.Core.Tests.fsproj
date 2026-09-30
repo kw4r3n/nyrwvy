@@ -72,6 +72,7 @@
     <Compile Include="ListHigherOrderTests.fs" />
     <Compile Include="ListFoldTests.fs" />
     <Compile Include="StringConcatTests.fs" />
+    <Compile Include="StringConcatAmortisedTests.fs" />
     <Compile Include="Int64TextTests.fs" />
     <Compile Include="StringSliceTests.fs" />
     <Compile Include="StringCodePointsTests.fs" />
