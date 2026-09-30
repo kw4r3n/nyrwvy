@@ -28,7 +28,7 @@ module AuthoringProtocol =
     let private pureScalar (item: JsonElement): PureRunScalar =
         ensureFields "Scalar run value" [ "kind"; "value" ] [ "kind"; "value" ] item
         match requiredString "kind" item with
-        | "string" -> PureRunScalar.String(requiredString "value" item)
+        | "string" -> PureRunScalar.String(requiredRunText "value" item)
         | "bool" -> PureRunScalar.Bool(requiredBool "value" item)
         | "int64" -> PureRunScalar.Int64(requiredInt64 "value" item)
         | _ -> fail "Scalar run values must be string, bool or int64."
@@ -152,7 +152,7 @@ module AuthoringProtocol =
                                 delayed response (PureRunFakeResponse.Return(pureValueAt names remaining (depth + 1) (property "value" response)))
                             | "throw" ->
                                 ensureFields "Fake throw" [ "kind"; "message"; "delayMillis" ] [ "kind"; "message" ] response
-                                delayed response (PureRunFakeResponse.Throw(requiredString "message" response))
+                                delayed response (PureRunFakeResponse.Throw(requiredRunText "message" response))
                             | "awaitCancellation" ->
                                 ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
                                 PureRunFakeResponse.AwaitCancellation(pureValueAt names remaining (depth + 1) (property "value" response))
@@ -237,7 +237,7 @@ module AuthoringProtocol =
             let isOk = requiredBool "isOk" item
             let value =
                 match (if isOk then okKind else errorKind) with
-                | PureRunScalarKind.String -> PureRunScalar.String(requiredString "value" item)
+                | PureRunScalarKind.String -> PureRunScalar.String(requiredRunText "value" item)
                 | PureRunScalarKind.Bool -> PureRunScalar.Bool(requiredBool "value" item)
                 | PureRunScalarKind.Int64 -> PureRunScalar.Int64(requiredInt64 "value" item)
             if isOk then PureRunValue.ResultOk(errorKind, value)
@@ -247,7 +247,7 @@ module AuthoringProtocol =
             let fields = [ "kind"; "itemKind"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
             ensureFields "Option run value" fields fields item
             match requiredString "itemKind" item with
-            | "string" -> PureRunValue.StringOption(if hasValue then Some(requiredString "value" item) else None)
+            | "string" -> PureRunValue.StringOption(if hasValue then Some(requiredRunText "value" item) else None)
             | "bool" -> PureRunValue.BoolOption(if hasValue then Some(requiredBool "value" item) else None)
             | "int64" -> PureRunValue.Int64Option(if hasValue then Some(requiredInt64 "value" item) else None)
             | _ -> fail "Option itemKind must be string, bool or int64."
@@ -259,7 +259,7 @@ module AuthoringProtocol =
             | "string" ->
                 PureRunValue.StringList(items |> List.map (fun value ->
                     if value.ValueKind <> JsonValueKind.String then fail "String List items must be strings."
-                    value.GetString()))
+                    runText value))
             | "bool" ->
                 PureRunValue.BoolList(items |> List.map (fun value ->
                     if value.ValueKind <> JsonValueKind.True && value.ValueKind <> JsonValueKind.False then fail "Bool List items must be booleans."
@@ -294,7 +294,7 @@ module AuthoringProtocol =
     let private encodePureScalar value =
         let kind, payload =
             match value with
-            | PureRunScalar.String text -> "string", box text
+            | PureRunScalar.String text -> "string", runString text
             | PureRunScalar.Bool value -> "bool", box value
             | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
         objectValue [ "kind", box kind; "value", payload ]
@@ -357,7 +357,7 @@ module AuthoringProtocol =
                 | PureRunScalarKind.Int64 -> "int64"
             let activeKind, payload =
                 match item with
-                | PureRunScalar.String text -> "string", box text
+                | PureRunScalar.String text -> "string", runString text
                 | PureRunScalar.Bool value -> "bool", box value
                 | PureRunScalar.Int64 number -> "int64", box (number.ToString(Globalization.CultureInfo.InvariantCulture))
             objectValue
@@ -381,7 +381,7 @@ module AuthoringProtocol =
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let rec response delay = function
                 | PureRunFakeResponse.Return value -> objectValue ([ "kind", box "return"; "value", encodePureValue value ] @ delay)
-                | PureRunFakeResponse.Throw message -> objectValue ([ "kind", box "throw"; "message", box message ] @ delay)
+                | PureRunFakeResponse.Throw message -> objectValue ([ "kind", box "throw"; "message", runString message ] @ delay)
                 | PureRunFakeResponse.AwaitCancellation value -> objectValue [ "kind", box "awaitCancellation"; "value", encodePureValue value ]
                 | PureRunFakeResponse.Delayed(millis, inner) ->
                     response [ "delayMillis", box (millis.ToString(Globalization.CultureInfo.InvariantCulture)) ] inner
@@ -427,10 +427,10 @@ module AuthoringProtocol =
                   "value", encodePureValue payload ]
         | PureRunValue.ResultOk(errorKind, item) -> resultValue true errorKind item
         | PureRunValue.ResultErr(okKind, item) -> resultValue false okKind item
-        | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map box)
+        | PureRunValue.StringOption item -> optionValue "string" (item |> Option.map runString)
         | PureRunValue.BoolOption item -> optionValue "bool" (item |> Option.map box)
         | PureRunValue.Int64Option item -> optionValue "int64" (item |> Option.map (fun number -> box (number.ToString(Globalization.CultureInfo.InvariantCulture))))
-        | PureRunValue.StringList items -> listValue "string" (items |> List.map box)
+        | PureRunValue.StringList items -> listValue "string" (items |> List.map runString)
         | PureRunValue.BoolList items -> listValue "bool" (items |> List.map box)
         | PureRunValue.Int64List items -> listValue "int64" (items |> List.map (fun item -> box (item.ToString(Globalization.CultureInfo.InvariantCulture))))
         | PureRunValue.String value -> encodePureScalar (PureRunScalar.String value)
@@ -1056,7 +1056,7 @@ module AuthoringProtocol =
                     failure requestId
                         (objectValue
                             ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
-                               "message", box runtime.Message
+                               "message", runString runtime.Message
                                "functionId", box (StableId.value runtime.FunctionId) ]
                              @ named runNames "function" runtime.FunctionId
                              @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)

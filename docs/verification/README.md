@@ -40,6 +40,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Argument-keyed fake responses](argument-keyed-fakes-20260927.md)
 - [runPure Release build, Roslyn build and early StringSlice](runpure-release-build-20260930.md)
 - [runPure arguments as input and the build cache](runpure-build-cache-20261001.md): repeated calls of one entry reuse the built program (about 75 ms instead of 213 ms per call)
+- [Lone surrogates in runPure String values](runpure-lone-surrogates-20261001.md): any UTF-16 sequence, as JSON `\uD800` escapes in both directions
 - [Amortised List append](list-amortised-append-20260930.md)
 - [Code-point position offsets for String operations](string-position-offsets-20260930.md)
 - [Bits32](bits32-20261001.md): the fixed-width bit domain, and probe 12's SHA-256 re-authored with it (NIST vectors, about 20 times the Int64 port's throughput, 17.5 MB per run)

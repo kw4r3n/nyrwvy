@@ -83,7 +83,6 @@ module PureRunNestedTests =
             reject "matrix" (PureRunValue.ListValue(listType intType, List.replicate 4096 (PureRunValue.Int64List [ 1L ]))) "RunArgumentTooLarge"
             reject "strings" (PureRunValue.ListValue(listType stringType,
                 [ PureRunValue.StringList [ String('x', 32769) ]; PureRunValue.StringList [ String('y', 32769) ] ])) "RunArgumentTooLarge"
-            reject "strings" (PureRunValue.ListValue(listType stringType, [ PureRunValue.StringList [ String([| char 0xD800 |]) ] ])) "RunInvalidString"
             let deep = [ 1 .. PureRun.maxValueLayers ] |> List.fold (fun value _ -> PureRunValue.OptionValue(optionType intType, Some value)) (PureRunValue.Int64Option None)
             reject "matrix" deep "RunArgumentTooLarge"
             let eightOptions = [ 1 .. 8 ] |> List.fold (fun item _ -> optionType item) intType

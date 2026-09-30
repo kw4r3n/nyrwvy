@@ -64,6 +64,39 @@ module internal WireInput =
         if value.ValueKind <> JsonValueKind.String then fail $"Property '{name}' must be a JSON string."
         value.GetString()
 
+    /// Reads a run-value String: any sequence of UTF-16 code units. JSON's `\uD800`-style escapes may
+    /// spell lone surrogates, which `JsonElement.GetString` refuses, so those strings are unescaped here.
+    let runText (value: JsonElement): string =
+        if value.ValueKind <> JsonValueKind.String then fail "A String run value must be a JSON string."
+        try value.GetString()
+        with :? InvalidOperationException ->
+            // The document parser has already validated the escapes; only surrogate pairing failed.
+            let raw = value.GetRawText()
+            let text = Text.StringBuilder(raw.Length)
+            let mutable index = 1
+            while index < raw.Length - 1 do
+                if raw[index] = '\\' then
+                    match raw[index + 1] with
+                    | 'u' ->
+                        text.Append(char (Convert.ToInt32(raw.Substring(index + 2, 4), 16))) |> ignore
+                        index <- index + 6
+                    | escaped ->
+                        text.Append(
+                            match escaped with
+                            | 'b' -> '\b'
+                            | 'f' -> '\012'
+                            | 'n' -> '\n'
+                            | 'r' -> '\r'
+                            | 't' -> '\t'
+                            | other -> other) |> ignore
+                        index <- index + 2
+                else
+                    text.Append(raw[index]) |> ignore
+                    index <- index + 1
+            text.ToString()
+
+    let requiredRunText (name: string) (element: JsonElement): string = runText (property name element)
+
     let taskWaitMode (element: JsonElement): TaskWaitMode =
         match requiredString "mode" element with
         | "any" -> TaskWaitMode.Any

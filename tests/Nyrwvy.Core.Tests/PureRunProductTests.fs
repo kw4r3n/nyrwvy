@@ -93,7 +93,7 @@ module PureRunProductTests =
                 (if fieldId = textId then id<FieldTag> "foreign" else fieldId), value))) "RunProductShapeMismatch"
             reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
                 fieldId, (if fieldId = numberId then PureRunValue.Bool true else value)))) "RunProductShapeMismatch"
-            for text, expected in [ String('x', 65537), "RunArgumentTooLarge"; String([| char 0xD800 |]), "RunInvalidString" ] do
+            for text, expected in [ String('x', 65537), "RunArgumentTooLarge" ] do
                 reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
                     fieldId, (if fieldId = textId then PureRunValue.String text else value)))) expected
             let value = PureRunValue.Product(productId, fields)
