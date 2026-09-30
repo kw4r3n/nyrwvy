@@ -74,6 +74,7 @@
     <Compile Include="Int64TextTests.fs" />
     <Compile Include="StringSliceTests.fs" />
     <Compile Include="StringCodePointsTests.fs" />
+    <Compile Include="ListAppendTests.fs" />
     <Compile Include="StringSearchTests.fs" />
     <Compile Include="StringCaseTests.fs" />
     <Compile Include="StringSpanTests.fs" />
@@ -90,6 +91,7 @@
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
     <Compile Include="ListCallbackContextTests.fs" />
     <Compile Include="ListEffectFoldTests.fs" />
+    <Compile Include="ResultFoldTests.fs" />
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
     <Compile Include="FunctionValueTests.fs" />
