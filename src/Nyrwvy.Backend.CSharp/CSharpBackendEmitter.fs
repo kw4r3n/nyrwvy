@@ -1226,7 +1226,8 @@ module CSharpBackend =
             writer.Push()
             writer.Line("if (position == start) startOffset = index;")
             writer.Line("if (position == end) endOffset = index;")
-            writer.Line("if (index == text.Length) break;")
+            // Both bounds are found once the walk passes them; the rest of the text does not matter.
+            writer.Line("if (index == text.Length || (position >= start && position >= end)) break;")
             writer.Line("index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;")
             writer.Pop()
             writer.Line("}")
