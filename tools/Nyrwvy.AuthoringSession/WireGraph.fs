@@ -104,6 +104,16 @@ module internal WireGraph =
         | SemanticNodeKind.Float64IsFinite value -> unary "float64IsFinite" value
         | SemanticNodeKind.Float64IsInfinite value -> unary "float64IsInfinite" value
         | SemanticNodeKind.Int64ToFloat64 value -> unary "int64ToFloat64" value
+        | SemanticNodeKind.Bits32FromInt64 value -> unary "bits32FromInt64" value
+        | SemanticNodeKind.Bits32ToInt64 value -> unary "bits32ToInt64" value
+        | SemanticNodeKind.Bits32Not value -> unary "bits32Not" value
+        | SemanticNodeKind.Bits32Xor(left, right) -> binary "bits32Xor" left right
+        | SemanticNodeKind.Bits32And(left, right) -> binary "bits32And" left right
+        | SemanticNodeKind.Bits32Or(left, right) -> binary "bits32Or" left right
+        | SemanticNodeKind.Bits32Add(left, right) -> binary "bits32Add" left right
+        | SemanticNodeKind.Bits32RotateRight(value, amount) -> tagged "bits32RotateRight" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
+        | SemanticNodeKind.Bits32ShiftRight(value, amount) -> tagged "bits32ShiftRight" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
+        | SemanticNodeKind.Bits32ShiftLeft(value, amount) -> tagged "bits32ShiftLeft" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
         | SemanticNodeKind.ListEmpty itemType -> tagged "listEmpty" [ "itemType", typeRef itemType ]
         | SemanticNodeKind.ListConstruct(itemType, items) -> tagged "listConstruct" [ "itemType", typeRef itemType; "itemNodeIds", identities items ]
         | SemanticNodeKind.ListLength value -> unary "listLength" value

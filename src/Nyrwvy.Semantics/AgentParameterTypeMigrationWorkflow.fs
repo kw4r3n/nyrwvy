@@ -285,6 +285,9 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
             | ExpressionRecipe.Int64ToFloat64 value -> one ExpressionRecipe.Int64ToFloat64 value
+            | ExpressionRecipe.Bits32FromInt64 value -> one ExpressionRecipe.Bits32FromInt64 value
+            | ExpressionRecipe.Bits32ToInt64 value -> one ExpressionRecipe.Bits32ToInt64 value
+            | ExpressionRecipe.Bits32Not value -> one ExpressionRecipe.Bits32Not value
             | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
@@ -306,6 +309,13 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64WrappingMultiply(left, right) -> two ExpressionRecipe.Int64WrappingMultiply left right
             | ExpressionRecipe.Int64FloorDivide(left, right) -> two ExpressionRecipe.Int64FloorDivide left right
             | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
+            | ExpressionRecipe.Bits32Xor(left, right) -> two ExpressionRecipe.Bits32Xor left right
+            | ExpressionRecipe.Bits32And(left, right) -> two ExpressionRecipe.Bits32And left right
+            | ExpressionRecipe.Bits32Or(left, right) -> two ExpressionRecipe.Bits32Or left right
+            | ExpressionRecipe.Bits32Add(left, right) -> two ExpressionRecipe.Bits32Add left right
+            | ExpressionRecipe.Bits32RotateRight(left, right) -> two ExpressionRecipe.Bits32RotateRight left right
+            | ExpressionRecipe.Bits32ShiftRight(left, right) -> two ExpressionRecipe.Bits32ShiftRight left right
+            | ExpressionRecipe.Bits32ShiftLeft(left, right) -> two ExpressionRecipe.Bits32ShiftLeft left right
             | ExpressionRecipe.Int64Equal(left, right) -> two ExpressionRecipe.Int64Equal left right
             | ExpressionRecipe.Int64LessThan(left, right) -> two ExpressionRecipe.Int64LessThan left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> two ExpressionRecipe.Int64LessThanOrEqual left right

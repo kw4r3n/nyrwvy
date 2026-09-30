@@ -63,6 +63,7 @@ module internal WireSymbolic =
             | "unit" -> TypeRef.Primitive PrimitiveType.Unit
             | "int64" -> TypeRef.Primitive PrimitiveType.Int64
             | "float64" -> TypeRef.Primitive PrimitiveType.Float64
+            | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
             | value -> fail $"Unsupported primitive type '{value}'."
         | "named" ->
             ensureFields "named type" [ "kind"; "name" ] [ "kind"; "name" ] element
@@ -392,6 +393,22 @@ module internal WireSymbolic =
         | "float64IsFinite" -> unary "float64-is-finite recipe" ExpressionRecipe.Float64IsFinite
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
         | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
+        | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
+        | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
+        | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not
+        | "bits32Xor" -> binary "bits32-xor recipe" ExpressionRecipe.Bits32Xor
+        | "bits32And" -> binary "bits32-and recipe" ExpressionRecipe.Bits32And
+        | "bits32Or" -> binary "bits32-or recipe" ExpressionRecipe.Bits32Or
+        | "bits32Add" -> binary "bits32-add recipe" ExpressionRecipe.Bits32Add
+        | "bits32RotateRight" ->
+            ensureFields "bits32-rotate-right recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
+            ExpressionRecipe.Bits32RotateRight(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
+        | "bits32ShiftRight" ->
+            ensureFields "bits32-shift-right recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
+            ExpressionRecipe.Bits32ShiftRight(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
+        | "bits32ShiftLeft" ->
+            ensureFields "bits32-shift-left recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
+            ExpressionRecipe.Bits32ShiftLeft(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef declarations (property "itemType" element))

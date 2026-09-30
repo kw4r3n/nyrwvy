@@ -53,6 +53,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
+        | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
@@ -1450,6 +1451,33 @@ module CSharpBackend =
         | ExecutionInstructionKind.Int64ToFloat64 valueId ->
             // .NET converts long to double with IEEE 754 round to nearest, ties to even.
             writer.Line(target + " = (double)" + valueName valueId + ";")
+        // Bits32 is a C# uint. Every operation is total: conversions keep the low 32 bits or read
+        // them unsigned, Add wraps, rotation takes the amount floor-modulo 32 (amount & 31 in two's
+        // complement), and shifts give the value for amount <= 0 and zero for amount >= 32.
+        | ExecutionInstructionKind.Bits32FromInt64 valueId ->
+            writer.Line(target + " = unchecked((uint)" + valueName valueId + ");")
+        | ExecutionInstructionKind.Bits32ToInt64 valueId ->
+            writer.Line(target + " = (long)" + valueName valueId + ";")
+        | ExecutionInstructionKind.Bits32Not valueId ->
+            writer.Line(target + " = ~" + valueName valueId + ";")
+        | ExecutionInstructionKind.Bits32Xor(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "^" rightValueId false
+        | ExecutionInstructionKind.Bits32And(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "&" rightValueId false
+        | ExecutionInstructionKind.Bits32Or(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "|" rightValueId false
+        | ExecutionInstructionKind.Bits32Add(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "+" rightValueId true
+        | ExecutionInstructionKind.Bits32RotateRight(valueId, amountValueId) ->
+            writer.Line(
+                target + " = System.Numerics.BitOperations.RotateRight(" + valueName valueId + ", (int)(" + valueName amountValueId + " & 31L));"
+            )
+        | ExecutionInstructionKind.Bits32ShiftRight(valueId, amountValueId) ->
+            let amount = valueName amountValueId
+            writer.Line(target + " = " + amount + " <= 0L ? " + valueName valueId + " : " + amount + " >= 32L ? 0u : " + valueName valueId + " >> (int)" + amount + ";")
+        | ExecutionInstructionKind.Bits32ShiftLeft(valueId, amountValueId) ->
+            let amount = valueName amountValueId
+            writer.Line(target + " = " + amount + " <= 0L ? " + valueName valueId + " : " + amount + " >= 32L ? 0u : " + valueName valueId + " << (int)" + amount + ";")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.ListConstruct itemValueIds ->

@@ -16,6 +16,7 @@ module DiagnosticText =
         | TypeRef.Primitive PrimitiveType.Unit -> "Unit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
+        | TypeRef.Primitive PrimitiveType.Bits32 -> "Bits32"
         | TypeRef.Named typeId ->
             match snapshot.Types |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId) with
             | Some typeEntity -> typeEntity.DisplayName

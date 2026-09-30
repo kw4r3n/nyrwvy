@@ -388,6 +388,23 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsInfinite
                         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToFloat64
+                        | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32FromInt64
+                        | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32ToInt64
+                        | TypedSemanticNodeKind.Bits32Not valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32Not
+                        | TypedSemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32Xor(left, right))
+                        | TypedSemanticNodeKind.Bits32And(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32And(left, right))
+                        | TypedSemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32Or(left, right))
+                        | TypedSemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32Add(left, right))
+                        | TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32RotateRight(left, right))
+                        | TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32ShiftRight(left, right))
+                        | TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32ShiftLeft(left, right))
                         | TypedSemanticNodeKind.ListEmpty ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.ListEmpty)
                         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
@@ -800,6 +817,16 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64IsFinite _
                         | TypedSemanticNodeKind.Float64IsInfinite _
                         | TypedSemanticNodeKind.Int64ToFloat64 _
+                        | TypedSemanticNodeKind.Bits32FromInt64 _
+                        | TypedSemanticNodeKind.Bits32ToInt64 _
+                        | TypedSemanticNodeKind.Bits32Xor _
+                        | TypedSemanticNodeKind.Bits32And _
+                        | TypedSemanticNodeKind.Bits32Or _
+                        | TypedSemanticNodeKind.Bits32Not _
+                        | TypedSemanticNodeKind.Bits32Add _
+                        | TypedSemanticNodeKind.Bits32RotateRight _
+                        | TypedSemanticNodeKind.Bits32ShiftRight _
+                        | TypedSemanticNodeKind.Bits32ShiftLeft _
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _

@@ -1,8 +1,9 @@
 # Exact-bit representation experiment
 
-**Status:** Proposed
+**Status:** Proposed; `Bits32` implemented
 
-Nyrwvy does not currently expose first-class exact bit manipulation. This experiment records the preferred direction if a concrete use case eventually requires it.
+This experiment records the preferred direction for exact bit manipulation. One width is implemented: [`Bits32`](../reference/language-subset.md#bits32), for SHA-256, with explicit conversions to and from `Int64` and only the operations that digest needs ([decision](../decisions/bits32-domain.md)). The other widths, reinterpretation of Float64 bits and everything below remain proposed.
+
 
 ## Direction
 

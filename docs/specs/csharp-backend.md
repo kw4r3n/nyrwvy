@@ -40,6 +40,7 @@ Backend representation may vary while preserving the upstream semantic contract.
 - `Unit` -> generated unit support;
 - `Int64` -> 64-bit signed integer representation with operation behavior fixed by semantic node kind;
 - `Float64` -> `double`, with literal construction from exact authoritative bits;
+- `Bits32` -> `uint`;
 - `Option<T>` / `Result<T,E>` -> explicit generated value representations rather than implicit null/exception semantics;
 - products/unions -> generated deterministic .NET types;
 - `List<T>` -> backend-local representation that preserves semantic ordering and the accepted immutable-value contract;
@@ -107,7 +108,10 @@ BitConverter.UInt64BitsToDouble(0x<16 hex digits>UL)
 
 This preserves signed zero and exact binary64 encodings and respects the semantic NaN canonicalization performed upstream.
 
-`Int64ToFloat64` emits `(double)value`. .NET converts `long` to `double` with IEEE 754 round to nearest, ties to even, which is the conversion the language subset defines; the backend must not route it through decimal text.
+`Bits32FromInt64` emits `unchecked((uint)value)` and `Bits32ToInt64` emits `(long)value`, so the low 32 bits are kept and read back unsigned. `Bits32Xor`, `Bits32And`, `Bits32Or` and `Bits32Not` emit `^`, `&`, `|` and `~` on `uint`, and `Bits32Add` emits `unchecked(left + right)`, which wraps modulo 2^32 in a checked context too. `Bits32RotateRight` emits `System.Numerics.BitOperations.RotateRight(value, (int)(amount & 31L))`: `amount & 31` is the amount floor-modulo 32 for every Int64, negative ones included. The shifts emit `amount <= 0L ? value : amount >= 32L ? 0u : value >> (int)amount` (and `<<`), because C# masks a `uint` shift count to its low five bits, which would make a shift by 32 a no-op; the explicit bounds keep the language subset's total meaning.
+
+`Int64ToFloat64` emits `(double)value`.
+ .NET converts `long` to `double` with IEEE 754 round to nearest, ties to even, which is the conversion the language subset defines; the backend must not route it through decimal text.
 
 `Float64ToString` calls the emitted `NyText.FromFloat64`, which returns `nan`, `inf`, `-inf`, `0.0` or `-0.0` for those values, and otherwise takes only the sign, digits and decimal exponent from `value.ToString("R", CultureInfo.InvariantCulture)` (the shortest round-trip digits in .NET Core 3.0+) and lays them out as Python `repr` does; .NET's own layout (`1E+16`, `100`, `1E-05`) must not leak. `StringParseFloat64` calls `NyText.ParseFloat64`, which checks the grammar by hand, because `double.Parse` with these styles also accepts `.5` and `5.`, and then calls `double.Parse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent, CultureInfo.InvariantCulture)`: correctly rounded for any digit count, a signed infinity on overflow and a signed zero on underflow, and saturating for an exponent of any length, all without throwing.
 

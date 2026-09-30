@@ -72,11 +72,21 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32And(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32Or(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32Add(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Float64IsNaN valueNodeId
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId
+        | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId
+        | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId
+        | TypedSemanticNodeKind.Bits32Not valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -192,6 +202,16 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.Int64ToFloat64 _
+            | TypedSemanticNodeKind.Bits32FromInt64 _
+            | TypedSemanticNodeKind.Bits32ToInt64 _
+            | TypedSemanticNodeKind.Bits32Xor _
+            | TypedSemanticNodeKind.Bits32And _
+            | TypedSemanticNodeKind.Bits32Or _
+            | TypedSemanticNodeKind.Bits32Not _
+            | TypedSemanticNodeKind.Bits32Add _
+            | TypedSemanticNodeKind.Bits32RotateRight _
+            | TypedSemanticNodeKind.Bits32ShiftRight _
+            | TypedSemanticNodeKind.Bits32ShiftLeft _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
@@ -337,6 +357,16 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsFinite _
         | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.Int64ToFloat64 _
+        | TypedSemanticNodeKind.Bits32FromInt64 _
+        | TypedSemanticNodeKind.Bits32ToInt64 _
+        | TypedSemanticNodeKind.Bits32Xor _
+        | TypedSemanticNodeKind.Bits32And _
+        | TypedSemanticNodeKind.Bits32Or _
+        | TypedSemanticNodeKind.Bits32Not _
+        | TypedSemanticNodeKind.Bits32Add _
+        | TypedSemanticNodeKind.Bits32RotateRight _
+        | TypedSemanticNodeKind.Bits32ShiftRight _
+        | TypedSemanticNodeKind.Bits32ShiftLeft _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
@@ -457,6 +487,16 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.Int64ToFloat64 _
+            | TypedSemanticNodeKind.Bits32FromInt64 _
+            | TypedSemanticNodeKind.Bits32ToInt64 _
+            | TypedSemanticNodeKind.Bits32Xor _
+            | TypedSemanticNodeKind.Bits32And _
+            | TypedSemanticNodeKind.Bits32Or _
+            | TypedSemanticNodeKind.Bits32Not _
+            | TypedSemanticNodeKind.Bits32Add _
+            | TypedSemanticNodeKind.Bits32RotateRight _
+            | TypedSemanticNodeKind.Bits32ShiftRight _
+            | TypedSemanticNodeKind.Bits32ShiftLeft _
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _

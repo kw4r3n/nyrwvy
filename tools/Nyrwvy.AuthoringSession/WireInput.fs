@@ -126,6 +126,7 @@ module internal WireInput =
             | "unit" -> TypeRef.Primitive PrimitiveType.Unit
             | "int64" -> TypeRef.Primitive PrimitiveType.Int64
             | "float64" -> TypeRef.Primitive PrimitiveType.Float64
+            | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
             | value -> fail $"Unsupported primitive type '{value}'."
         | "named" ->
             ensureFields "named type" [ "kind"; "typeId" ] [ "kind"; "typeId" ] element

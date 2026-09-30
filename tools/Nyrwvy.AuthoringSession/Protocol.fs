@@ -51,6 +51,19 @@ module AuthoringProtocol =
             | _ -> fail "A Float64 value must be a JSON number or one of \"NaN\", \"Infinity\", \"-Infinity\" and \"-0\"."
         | _ -> fail "A Float64 value must be a JSON number or one of \"NaN\", \"Infinity\", \"-Infinity\" and \"-0\"."
 
+    /// Reads a Bits32 run value like an Int64 one: a JSON integer or an exact decimal integer string,
+    /// here the unsigned value 0..4294967295 of the 32 bits. Anything else is rejected, never wrapped.
+    let private bits32Value (value: JsonElement) =
+        let parsed =
+            match value.ValueKind with
+            | JsonValueKind.Number -> value.TryGetUInt32()
+            | JsonValueKind.String ->
+                UInt32.TryParse(value.GetString(), Globalization.NumberStyles.None, Globalization.CultureInfo.InvariantCulture)
+            | _ -> false, 0u
+        match parsed with
+        | true, bits -> bits
+        | false, _ -> fail "A Bits32 value must be an integer from 0 to 4294967295, as a JSON number or an exact decimal string."
+
     /// Wraps a fake response in its optional `delayMillis` of virtual time; absent or 0 means none.
     let private delayed (element: JsonElement) (response: PureRunFakeResponse) =
         match tryProperty "delayMillis" element with
@@ -66,7 +79,7 @@ module AuthoringProtocol =
     let rec private pureValueAt (names: AuthoringDeclarations option) (remaining: int ref) depth (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
-        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "unit" then
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
         let children =
             match kind with
@@ -105,6 +118,9 @@ module AuthoringProtocol =
         | "float64" ->
             ensureFields "Float64 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
             PureRunValue.Float64(float64Value (property "value" item))
+        | "bits32" ->
+            ensureFields "Bits32 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
+            PureRunValue.Bits32(bits32Value (property "value" item))
         | "hostCapability" ->
             let capabilityKey = key "capabilityId" "capability"
             ensureFields "Host capability" [ "kind"; capabilityKey; "implementation"; "supportsConcurrentCalls" ] [ "kind"; capabilityKey; "implementation" ] item
@@ -421,6 +437,7 @@ module AuthoringProtocol =
         | PureRunValue.Bool value -> encodePureScalar (PureRunScalar.Bool value)
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
         | PureRunValue.Float64 bits -> encodeFloat64 bits
+        | PureRunValue.Bits32 bits -> objectValue [ "kind", box "bits32"; "value", box (bits.ToString(Globalization.CultureInfo.InvariantCulture)) ]
 
     let private encodePathStep names step =
         match step with

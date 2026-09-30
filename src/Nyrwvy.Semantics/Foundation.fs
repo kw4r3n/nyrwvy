@@ -11,6 +11,8 @@ type PrimitiveType =
     | Unit
     | Int64
     | Float64
+    /// Exactly 32 bits with no numeric meaning; see `Bits32FromInt64` and `Bits32ToInt64`.
+    | Bits32
 
 /// Authoritative IEEE 754 binary64 literal representation. Construction always
 /// canonicalizes every NaN payload/sign variant to one quiet NaN bit pattern while
@@ -313,6 +315,22 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The Float64 nearest to the Int64: exact for |value| <= 2^53, otherwise IEEE 754 round to nearest,
     /// ties to even (C# `(double)long`, Python `float(int)`). Every Int64 is finite as a Float64. Never fails.
     | Int64ToFloat64 of valueNodeId: GraphNodeId
+    /// The low 32 bits of the Int64's two's complement form (value mod 2^32). Never fails.
+    | Bits32FromInt64 of valueNodeId: GraphNodeId
+    /// The Bits32 read as an unsigned integer, 0..4294967295. Never fails.
+    | Bits32ToInt64 of valueNodeId: GraphNodeId
+    | Bits32Xor of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32And of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32Or of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Bits32Not of valueNodeId: GraphNodeId
+    /// Addition modulo 2^32. Never fails.
+    | Bits32Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Rotation right by the Int64 amount taken floor-modulo 32 (a negative amount rotates left). Never fails.
+    | Bits32RotateRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    /// Logical shift by the Int64 amount: amount <= 0 gives the value unchanged, amount >= 32 gives zero. Never fails.
+    | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    /// Logical shift by the Int64 amount: amount <= 0 gives the value unchanged, amount >= 32 gives zero. Never fails.
+    | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
@@ -530,11 +548,21 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId
+        | SemanticNodeKind.Bits32FromInt64 valueNodeId
+        | SemanticNodeKind.Bits32ToInt64 valueNodeId
+        | SemanticNodeKind.Bits32Not valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -685,6 +713,19 @@ module SemanticNodeShape =
             | SemanticNodeKind.Float64IsFinite valueNodeId -> SemanticNodeKind.Float64IsFinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64IsInfinite valueNodeId -> SemanticNodeKind.Float64IsInfinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToFloat64 valueNodeId -> SemanticNodeKind.Int64ToFloat64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Bits32FromInt64 valueNodeId -> SemanticNodeKind.Bits32FromInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Bits32ToInt64 valueNodeId -> SemanticNodeKind.Bits32ToInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Bits32Not valueNodeId -> SemanticNodeKind.Bits32Not(mapNodeId valueNodeId)
+            | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) -> SemanticNodeKind.Bits32Xor(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId) -> SemanticNodeKind.Bits32And(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) -> SemanticNodeKind.Bits32Or(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) -> SemanticNodeKind.Bits32Add(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Bits32RotateRight(valueNodeId, amountNodeId) ->
+                SemanticNodeKind.Bits32RotateRight(mapNodeId valueNodeId, mapNodeId amountNodeId)
+            | SemanticNodeKind.Bits32ShiftRight(valueNodeId, amountNodeId) ->
+                SemanticNodeKind.Bits32ShiftRight(mapNodeId valueNodeId, mapNodeId amountNodeId)
+            | SemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
+                SemanticNodeKind.Bits32ShiftLeft(mapNodeId valueNodeId, mapNodeId amountNodeId)
             | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
                 SemanticNodeKind.ListConstruct(itemType, List.map mapNodeId itemNodeIds)
             | SemanticNodeKind.ListLength listNodeId -> SemanticNodeKind.ListLength(mapNodeId listNodeId)
@@ -838,6 +879,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsFinite _
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.Bits32FromInt64 _
+        | SemanticNodeKind.Bits32ToInt64 _
+        | SemanticNodeKind.Bits32Xor _
+        | SemanticNodeKind.Bits32And _
+        | SemanticNodeKind.Bits32Or _
+        | SemanticNodeKind.Bits32Not _
+        | SemanticNodeKind.Bits32Add _
+        | SemanticNodeKind.Bits32RotateRight _
+        | SemanticNodeKind.Bits32ShiftRight _
+        | SemanticNodeKind.Bits32ShiftLeft _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
@@ -1068,7 +1119,7 @@ module EquatableTypes =
         let visited = System.Collections.Generic.HashSet<TypeId>()
         let rec visit (path: string list) (typeRef: TypeRef) =
             match typeRef with
-            | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit) -> None
+            | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit | PrimitiveType.Bits32) -> None
             | TypeRef.Primitive PrimitiveType.Float64
             | TypeRef.Function _
             | TypeRef.Capability _

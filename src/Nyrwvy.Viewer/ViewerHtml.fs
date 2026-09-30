@@ -29,6 +29,7 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Unit -> "Unit"
         | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
+        | TypeRef.Primitive PrimitiveType.Bits32 -> "Bits32"
         | TypeRef.Named typeId -> stableText "type:" typeId
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
         | TypeRef.Function(arguments, result) -> "(" + (arguments |> List.map typeRefText |> String.concat ", ") + ") -> " + typeRefText result
@@ -88,6 +89,7 @@ module ViewerHtml =
         | ValueDependencyRole.TaskScope -> "task scope"
         | ValueDependencyRole.Limit -> "limit"
         | ValueDependencyRole.Index -> "index"
+        | ValueDependencyRole.Amount -> "amount"
         | ValueDependencyRole.SliceEnd -> "slice end"
         | ValueDependencyRole.SearchFrom -> "search from"
         | ValueDependencyRole.CharacterSet -> "character set"
@@ -165,6 +167,16 @@ module ViewerHtml =
         | ViewerNodeRole.Float64IsFinite -> "Float64 is finite"
         | ViewerNodeRole.Float64IsInfinite -> "Float64 is infinite"
         | ViewerNodeRole.Int64ToFloat64 -> "int64 to float64"
+        | ViewerNodeRole.Bits32FromInt64 -> "bits32 from int64"
+        | ViewerNodeRole.Bits32ToInt64 -> "bits32 to int64"
+        | ViewerNodeRole.Bits32Xor -> "bits32 xor"
+        | ViewerNodeRole.Bits32And -> "bits32 and"
+        | ViewerNodeRole.Bits32Or -> "bits32 or"
+        | ViewerNodeRole.Bits32Not -> "bits32 not"
+        | ViewerNodeRole.Bits32Add -> "bits32 add"
+        | ViewerNodeRole.Bits32RotateRight -> "bits32 rotate right"
+        | ViewerNodeRole.Bits32ShiftRight -> "bits32 shift right"
+        | ViewerNodeRole.Bits32ShiftLeft -> "bits32 shift left"
         | ViewerNodeRole.ListEmpty -> "List empty"
         | ViewerNodeRole.ListConstruct -> "List construct"
         | ViewerNodeRole.ListLength -> "List length"

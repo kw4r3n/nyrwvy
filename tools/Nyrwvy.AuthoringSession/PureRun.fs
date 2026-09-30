@@ -29,6 +29,8 @@ type PureRunValue =
     /// A Float64 leaf. Its bits are exact; every NaN is the one canonical NaN, so run values compare
     /// Float64 bitwise with all NaNs equal and -0.0 distinct from 0.0. It has no flat container form.
     | Float64 of Float64Bits
+    /// A Bits32 leaf, carried as its unsigned value 0..4294967295. It has no flat container form.
+    | Bits32 of uint32
     | StringList of string list
     | BoolList of bool list
     | Int64List of int64 list
@@ -190,6 +192,7 @@ module PureRun =
         | PureRunValue.Bool _ -> TypeRef.Primitive PrimitiveType.Bool
         | PureRunValue.Int64 _ -> TypeRef.Primitive PrimitiveType.Int64
         | PureRunValue.Float64 _ -> TypeRef.Primitive PrimitiveType.Float64
+        | PureRunValue.Bits32 _ -> TypeRef.Primitive PrimitiveType.Bits32
         | PureRunValue.StringList _ -> listType PrimitiveType.String
         | PureRunValue.BoolList _ -> listType PrimitiveType.Bool
         | PureRunValue.Int64List _ -> listType PrimitiveType.Int64
@@ -203,6 +206,7 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
+        | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.BuiltinGeneric(kind, arguments) ->
             let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Task values are not run values."
@@ -258,6 +262,7 @@ module PureRun =
             let literal = value.ToString(CultureInfo.InvariantCulture)
             $"long.Parse(\"{literal}\", CultureInfo.InvariantCulture)"
         | PureRunValue.Float64 bits -> $"BitConverter.UInt64BitsToDouble(0x{Float64Bits.toHex bits}UL)"
+        | PureRunValue.Bits32 value -> value.ToString(CultureInfo.InvariantCulture) + "u"
 
     /// Compare the supported value structure, never CLR container reference identity.
     /// Generation is bounded by the already validated key, including recursive named types.
@@ -286,7 +291,7 @@ module PureRun =
             match value with
             | PureRunValue.Unit -> $"System.Collections.Generic.EqualityComparer<NyUnit>.Default.Equals({actual}, NyUnit.Value)"
             | PureRunValue.String _ -> $"string.Equals({actual}, {sourceArgument value}, StringComparison.Ordinal)"
-            | PureRunValue.Bool _ | PureRunValue.Int64 _ -> $"({actual} == {sourceArgument value})"
+            | PureRunValue.Bool _ | PureRunValue.Int64 _ | PureRunValue.Bits32 _ -> $"({actual} == {sourceArgument value})"
             // The same bitwise comparison as expected results: any NaN matches NaN, and -0.0 is not 0.0.
             | PureRunValue.Float64 bits when Float64Bits.isNaN bits -> $"double.IsNaN({actual})"
             | PureRunValue.Float64 bits -> $"(BitConverter.DoubleToUInt64Bits({actual}) == 0x{Float64Bits.toHex bits}UL)"
@@ -476,11 +481,12 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Int64 -> true
         | _ -> false
 
-    /// Unit and Float64 are leaves without a flat container form, so their containers use the nested form.
+    /// Unit, Float64 and Bits32 are leaves without a flat container form, so their containers use the nested form.
     let private supportedLeaf itemType =
         supportedScalar itemType
         || itemType = TypeRef.Primitive PrimitiveType.Unit
         || itemType = TypeRef.Primitive PrimitiveType.Float64
+        || itemType = TypeRef.Primitive PrimitiveType.Bits32
 
     let private productFields (types: SemanticType list) typeId =
         types |> List.tryFind (fun item -> item.Id = typeId)
@@ -706,6 +712,10 @@ module PureRun =
                 match Float64Bits.tryParseHex (value.GetString()) with
                 | Ok bits -> Ok(PureRunValue.Float64 bits)
                 | Error _ -> Error(diagnostic "RunInvalidResult" "The result is not Float64 bits.")
+            | TypeRef.Primitive PrimitiveType.Bits32, JsonValueKind.Number ->
+                match value.TryGetUInt32() with
+                | true, bits -> Ok(PureRunValue.Bits32 bits)
+                | false, _ -> Error(diagnostic "RunInvalidResult" "The result is not a Bits32.")
             | TypeRef.Primitive PrimitiveType.String, JsonValueKind.String ->
                 Ok(PureRunValue.String(value.GetString()))
             | TypeRef.Primitive PrimitiveType.Bool, JsonValueKind.True
@@ -798,7 +808,8 @@ module PureRun =
             | PureRunValue.String _
             | PureRunValue.Bool _
             | PureRunValue.Int64 _
-            | PureRunValue.Float64 _ -> remaining >= 0
+            | PureRunValue.Float64 _
+            | PureRunValue.Bits32 _ -> remaining >= 0
             | _ when depth >= maxValueLayers || remaining < 0 -> false
             | PureRunValue.StringList items -> count items.Length
             | PureRunValue.BoolList items -> count items.Length
@@ -905,7 +916,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
             Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item and Result payload types must be supported and match every payload; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
         | Some fn when not (supported 0 fn.ResultType) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
+            Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
         | Some fn when expected |> Option.exists (validProduct declarations.Types >> not) ->

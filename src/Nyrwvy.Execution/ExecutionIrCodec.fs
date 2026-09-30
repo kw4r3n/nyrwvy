@@ -43,6 +43,8 @@ module ExecutionIrCodec =
             objectValue [ property "kind" (quote "primitiveInt64") ]
         | TypeRef.Primitive PrimitiveType.Float64 ->
             objectValue [ property "kind" (quote "primitiveFloat64") ]
+        | TypeRef.Primitive PrimitiveType.Bits32 ->
+            objectValue [ property "kind" (quote "primitiveBits32") ]
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             objectValue
                 [ property "kind" (quote "typeParameter")
@@ -373,6 +375,25 @@ module ExecutionIrCodec =
             writeUnaryInstruction "float64IsInfinite" valueId
         | ExecutionInstructionKind.Int64ToFloat64 valueId ->
             writeUnaryInstruction "int64ToFloat64" valueId
+        | ExecutionInstructionKind.Bits32FromInt64 valueId -> writeUnaryInstruction "bits32FromInt64" valueId
+        | ExecutionInstructionKind.Bits32ToInt64 valueId -> writeUnaryInstruction "bits32ToInt64" valueId
+        | ExecutionInstructionKind.Bits32Not valueId -> writeUnaryInstruction "bits32Not" valueId
+        | ExecutionInstructionKind.Bits32Xor(leftValueId, rightValueId) -> writeBinaryInstruction "bits32Xor" leftValueId rightValueId
+        | ExecutionInstructionKind.Bits32And(leftValueId, rightValueId) -> writeBinaryInstruction "bits32And" leftValueId rightValueId
+        | ExecutionInstructionKind.Bits32Or(leftValueId, rightValueId) -> writeBinaryInstruction "bits32Or" leftValueId rightValueId
+        | ExecutionInstructionKind.Bits32Add(leftValueId, rightValueId) -> writeBinaryInstruction "bits32Add" leftValueId rightValueId
+        | ExecutionInstructionKind.Bits32RotateRight(valueId, amountValueId) ->
+            [ property "kind" (quote "bits32RotateRight")
+              property "valueId" (executionValueIdValue valueId)
+              property "amountValueId" (executionValueIdValue amountValueId) ]
+        | ExecutionInstructionKind.Bits32ShiftRight(valueId, amountValueId) ->
+            [ property "kind" (quote "bits32ShiftRight")
+              property "valueId" (executionValueIdValue valueId)
+              property "amountValueId" (executionValueIdValue amountValueId) ]
+        | ExecutionInstructionKind.Bits32ShiftLeft(valueId, amountValueId) ->
+            [ property "kind" (quote "bits32ShiftLeft")
+              property "valueId" (executionValueIdValue valueId)
+              property "amountValueId" (executionValueIdValue amountValueId) ]
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
         | ExecutionInstructionKind.ListConstruct itemValueIds ->

@@ -19,6 +19,8 @@ type ValueDependencyRole =
     | TaskScope
     | Limit
     | Index
+    /// The Int64 rotation or shift amount of a Bits32 operation.
+    | Amount
     | ListItem of int
     | FunctionValue
     | FunctionArgument of int
@@ -47,6 +49,9 @@ module ValueDependency =
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
         | SemanticNodeKind.Int64ToFloat64 sourceNodeId
+        | SemanticNodeKind.Bits32FromInt64 sourceNodeId
+        | SemanticNodeKind.Bits32ToInt64 sourceNodeId
+        | SemanticNodeKind.Bits32Not sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
         | SemanticNodeKind.Float64ToString sourceNodeId
         | SemanticNodeKind.StringParseFloat64 sourceNodeId
@@ -65,6 +70,11 @@ module ValueDependency =
         | SemanticNodeKind.StringContains(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
+        | SemanticNodeKind.Bits32RotateRight(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Bits32ShiftRight(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Bits32ShiftLeft(sourceNodeId, amountNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Amount amountNodeId ]
         | SemanticNodeKind.StringIndexOf(sourceNodeId, substringNodeId, fromNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId
@@ -115,6 +125,10 @@ module ValueDependency =
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ create ValueDependencyRole.LeftOperand leftNodeId
               create ValueDependencyRole.RightOperand rightNodeId ]

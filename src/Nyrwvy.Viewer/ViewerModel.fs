@@ -85,6 +85,16 @@ type ViewerNodeRole =
     | Float64IsFinite
     | Float64IsInfinite
     | Int64ToFloat64
+    | Bits32FromInt64
+    | Bits32ToInt64
+    | Bits32Xor
+    | Bits32And
+    | Bits32Or
+    | Bits32Not
+    | Bits32Add
+    | Bits32RotateRight
+    | Bits32ShiftRight
+    | Bits32ShiftLeft
     | ListEmpty
     | ListConstruct
     | ListLength
@@ -266,6 +276,16 @@ module ViewerProjection =
         | SemanticNodeKind.Float64IsFinite _ -> ViewerNodeRole.Float64IsFinite, []
         | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
         | SemanticNodeKind.Int64ToFloat64 _ -> ViewerNodeRole.Int64ToFloat64, []
+        | SemanticNodeKind.Bits32FromInt64 _ -> ViewerNodeRole.Bits32FromInt64, []
+        | SemanticNodeKind.Bits32ToInt64 _ -> ViewerNodeRole.Bits32ToInt64, []
+        | SemanticNodeKind.Bits32Xor _ -> ViewerNodeRole.Bits32Xor, []
+        | SemanticNodeKind.Bits32And _ -> ViewerNodeRole.Bits32And, []
+        | SemanticNodeKind.Bits32Or _ -> ViewerNodeRole.Bits32Or, []
+        | SemanticNodeKind.Bits32Not _ -> ViewerNodeRole.Bits32Not, []
+        | SemanticNodeKind.Bits32Add _ -> ViewerNodeRole.Bits32Add, []
+        | SemanticNodeKind.Bits32RotateRight _ -> ViewerNodeRole.Bits32RotateRight, []
+        | SemanticNodeKind.Bits32ShiftRight _ -> ViewerNodeRole.Bits32ShiftRight, []
+        | SemanticNodeKind.Bits32ShiftLeft _ -> ViewerNodeRole.Bits32ShiftLeft, []
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []

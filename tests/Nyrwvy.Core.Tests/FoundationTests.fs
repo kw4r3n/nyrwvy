@@ -83,6 +83,16 @@ module FoundationTests =
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
+                | SemanticNodeKind.Bits32FromInt64 _
+                | SemanticNodeKind.Bits32ToInt64 _
+                | SemanticNodeKind.Bits32Xor _
+                | SemanticNodeKind.Bits32And _
+                | SemanticNodeKind.Bits32Or _
+                | SemanticNodeKind.Bits32Not _
+                | SemanticNodeKind.Bits32Add _
+                | SemanticNodeKind.Bits32RotateRight _
+                | SemanticNodeKind.Bits32ShiftRight _
+                | SemanticNodeKind.Bits32ShiftLeft _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

@@ -859,6 +859,39 @@ module SnapshotValidator =
                             $"Int64ToFloat64 node '{StableId.value node.Id}' requires an Int64 value."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             valueNodeId
+                    | SemanticNodeKind.Bits32FromInt64 valueNodeId ->
+                        requireNodeType
+                            "Bits32OperandTypeMismatch"
+                            $"Bits32FromInt64 node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.Bits32ToInt64 valueNodeId
+                    | SemanticNodeKind.Bits32Not valueNodeId ->
+                        requireNodeType
+                            "Bits32OperandTypeMismatch"
+                            $"Bits32 node '{StableId.value node.Id}' requires a Bits32 operand."
+                            (TypeRef.Primitive PrimitiveType.Bits32)
+                            valueNodeId
+                    | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) ->
+                        requireBinaryOperands
+                            "Bits32OperandTypeMismatch" "Bits32" (TypeRef.Primitive PrimitiveType.Bits32)
+                            node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.Bits32RotateRight(valueNodeId, amountNodeId)
+                    | SemanticNodeKind.Bits32ShiftRight(valueNodeId, amountNodeId)
+                    | SemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
+                        requireNodeType
+                            "Bits32OperandTypeMismatch"
+                            $"Bits32 node '{StableId.value node.Id}' requires a Bits32 value."
+                            (TypeRef.Primitive PrimitiveType.Bits32)
+                            valueNodeId
+                        requireNodeType
+                            "Bits32OperandTypeMismatch"
+                            $"Bits32 node '{StableId.value node.Id}' requires an Int64 amount."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            amountNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
                     | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
@@ -1642,6 +1675,16 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
+                | SemanticNodeKind.Bits32FromInt64 _
+                | SemanticNodeKind.Bits32ToInt64 _
+                | SemanticNodeKind.Bits32Xor _
+                | SemanticNodeKind.Bits32And _
+                | SemanticNodeKind.Bits32Or _
+                | SemanticNodeKind.Bits32Not _
+                | SemanticNodeKind.Bits32Add _
+                | SemanticNodeKind.Bits32RotateRight _
+                | SemanticNodeKind.Bits32ShiftRight _
+                | SemanticNodeKind.Bits32ShiftLeft _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _

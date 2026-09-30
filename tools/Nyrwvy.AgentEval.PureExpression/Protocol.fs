@@ -90,6 +90,7 @@ module private Input =
         | "Unit" -> TypeRef.Primitive PrimitiveType.Unit
         | "Int64" -> TypeRef.Primitive PrimitiveType.Int64
         | "Float64" -> TypeRef.Primitive PrimitiveType.Float64
+        | "Bits32" -> TypeRef.Primitive PrimitiveType.Bits32
         | other -> fail $"Unsupported primitive type '{other}'."
 
     let patternSlot (element: JsonElement): RecipePatternSlot =

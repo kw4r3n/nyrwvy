@@ -23,6 +23,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "primitiveInt64")
         | TypeRef.Primitive PrimitiveType.Float64 ->
             writer.WriteString("kind", "primitiveFloat64")
+        | TypeRef.Primitive PrimitiveType.Bits32 ->
+            writer.WriteString("kind", "primitiveBits32")
         | TypeRef.Function(arguments, result) ->
             writer.WriteString("kind", "function")
             writer.WritePropertyName("parameters")
@@ -440,6 +442,25 @@ module TypedSemanticIrCodec =
             writeUnaryNode writer "float64IsInfinite" valueNodeId
         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
             writeUnaryNode writer "int64ToFloat64" valueNodeId
+        | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
+        | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
+        | TypedSemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId
+        | TypedSemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Xor" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Bits32And(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32And" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Bits32Or(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Or" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Bits32Add(leftNodeId, rightNodeId) -> writeBinaryNode writer "bits32Add" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Bits32RotateRight(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32RotateRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | TypedSemanticNodeKind.Bits32ShiftRight(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32ShiftRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | TypedSemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
+            writer.WriteString("kind", "bits32ShiftLeft")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("amountNodeId", StableId.value amountNodeId)
         | TypedSemanticNodeKind.ListEmpty ->
             writer.WriteString("kind", "listEmpty")
         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->

@@ -41,6 +41,8 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [runPure Release build, Roslyn build and early StringSlice](runpure-release-build-20260930.md)
 - [Amortised List append](list-amortised-append-20260930.md)
 - [Code-point position offsets for String operations](string-position-offsets-20260930.md)
+- [Bits32](bits32-20261001.md): the fixed-width bit domain, and probe 12's SHA-256 re-authored with it (NIST vectors, about 20 times the Int64 port's throughput, 17.5 MB per run)
+
 
 ## Live agent probes
 
