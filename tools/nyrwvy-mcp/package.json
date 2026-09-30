@@ -7,7 +7,7 @@
   "scripts": {
     "setup": "npm ci --prefix ../.. --no-audit --no-fund && dotnet build ../Nyrwvy.AuthoringSession --configuration Release",
     "start": "node --experimental-strip-types server.mjs",
-    "test": "node --experimental-strip-types --test server.test.mjs"
+    "test": "node --experimental-strip-types --test server.test.mjs server.shutdown.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
