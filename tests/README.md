@@ -10,7 +10,7 @@ Run during ordinary development and CI:
 ./scripts/test-fast.fish
 ```
 
-The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project or unrelated solution tools. It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
+The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project. It does compile most of the solution: besides the four `src` projects, `Nyrwvy.Core.Tests` references the tools its protocol and export tests exercise (`Nyrwvy.AuthoringSession`, `Nyrwvy.AgentEval`, `Nyrwvy.AgentEval.Structural`, `Nyrwvy.AgentEval.ListMapStructural`, and `Nyrwvy.ViewerExport`, built but not linked, for the viewer export test), leaving out only `Nyrwvy.EvaluationFixtureExport`. It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
 
 A few broad execution tests remain in their feature files to avoid duplicating fixture/setup code. Mark these methods `[<Fact; Trait("Suite", "Extended")>]`. `fast.runsettings` selects `Suite!=Extended`; `extended.runsettings` selects `Suite=Extended`. Routing never depends on a display name or module-name substring, so renaming a test does not change suite ownership.
 
