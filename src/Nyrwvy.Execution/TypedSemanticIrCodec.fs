@@ -753,16 +753,7 @@ module TypedSemanticIrCodec =
         writer.WriteStartObject()
         let rec has matches (graph: TypedSemanticGraph) =
             graph.Nodes |> List.exists (fun node ->
-                matches node.Kind
-                || match node.Kind with
-                   | TypedSemanticNodeKind.Conditional(_, a, b) -> has matches a || has matches b
-                   | TypedSemanticNodeKind.BoolAnd(_, right)
-                   | TypedSemanticNodeKind.BoolOr(_, right) -> has matches right
-                   | TypedSemanticNodeKind.Bind(_, arm) -> has matches arm.Body
-                   | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.exists (fun arm -> has matches arm.Body)
-                   | TypedSemanticNodeKind.MatchOption(_, arm, other) -> has matches arm.Body || has matches other
-                   | TypedSemanticNodeKind.MatchResult(_, a, b) -> has matches a.Body || has matches b.Body
-                   | _ -> false)
+                matches node.Kind || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (has matches))
         let uses matches = program.Functions |> List.exists (fun fn -> has matches fn.Body)
         let version =
             if uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then schemaVersion

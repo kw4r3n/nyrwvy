@@ -1154,12 +1154,7 @@ module CSharpBackend =
                    block.Instructions
                    |> List.exists (fun instruction ->
                        TaskTypes.mentions instruction.Result.Type
-                       || (match instruction.Kind with
-                           | ExecutionInstructionKind.TaskScope _
-                           | ExecutionInstructionKind.TaskStart _
-                           | ExecutionInstructionKind.TaskWait _
-                           | ExecutionInstructionKind.TaskCancel _ -> true
-                           | _ -> false))))
+                       || ExecutionInstructionKind.uses instruction.Kind |> List.contains ExecutionInstructionUse.TaskRuntime)))
 
     /// Whether the generated source contains NyRuntime and NyVirtualClock, so a runner can install a
     /// virtual clock without inspecting the source text.
@@ -1171,10 +1166,7 @@ module CSharpBackend =
                |> List.exists (fun block ->
                    block.Instructions
                    |> List.exists (fun instruction ->
-                       match instruction.Kind with
-                       | ExecutionInstructionKind.ParallelAll _
-                       | ExecutionInstructionKind.CancellationRequested -> true
-                       | _ -> false)))
+                       ExecutionInstructionKind.uses instruction.Kind |> List.contains ExecutionInstructionUse.ConcurrencyRuntime)))
 
     /// Ambient cancellation for ParallelAll workers and tasks, emitted only for programs that use
     /// concurrency so other generated programs are unchanged. External implementations read the same token.
@@ -1191,7 +1183,10 @@ module CSharpBackend =
         let rec arities = function
             | TypeRef.Function(arguments, result) -> arguments.Length :: List.collect arities (arguments @ [ result ])
             | TypeRef.BuiltinGeneric(_, arguments) -> List.collect arities arguments
-            | _ -> []
+            | TypeRef.Primitive _
+            | TypeRef.Named _
+            | TypeRef.Capability _
+            | TypeRef.TypeParameter _ -> []
         let declaredTypes = program.Types |> List.collect (fun t ->
             match t.Kind with
             | ExecutionTypeKind.Product fields -> fields |> List.map (fun f -> f.Type)
@@ -1302,27 +1297,31 @@ module CSharpBackend =
 
     let private emitProgramImplementations (writer: SourceWriter) (context: CSharpBackendValidation.Context) (program: ExecutionProgram) =
         for instruction in program.Functions |> List.collect ExecutionCallGraph.instructions |> List.sortBy (fun item -> StableId.value item.OriginNodeId) do
-            match instruction.Kind with
-            | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
-                let capability = Map.find capabilityId context.CapabilitiesById
-                let implementationName = CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId
-                writer.Line("internal sealed class " + implementationName + " : " + CSharpBackendNames.capabilityName capabilityId)
-                writer.Line("{")
-                writer.Push()
-                for operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) do
-                    let functionId = implementations |> List.find (fun (id, _) -> id = operation.Id) |> snd
-                    let fn = Map.find functionId context.FunctionsById
-                    let parameters = operation.Parameters |> List.map capabilityParameter |> String.concat ", "
-                    // Declaration order defines the correspondence. Name each target parameter
-                    // explicitly, independently of the operation parameter identities.
-                    let arguments = List.zip fn.Parameters operation.Parameters |> List.map (fun (parameter, supplied) ->
-                        CSharpBackendNames.parameterName parameter.SemanticParameterId + ": " + CSharpBackendNames.capabilityParameterName supplied.Id) |> String.concat ", "
-                    writer.Line("public " + formatType operation.ResultType + " " + CSharpBackendNames.capabilityOperationName operation.Id + "(" + parameters + ") => "
-                                + CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId + "(" + arguments + ");")
-                writer.Pop()
-                writer.Line("}")
-                writer.Line("")
-            | _ -> ()
+            for used in ExecutionInstructionKind.uses instruction.Kind do
+                match used with
+                | ExecutionInstructionUse.CapabilityImplementationClass(capabilityId, implementations) ->
+                    let capability = Map.find capabilityId context.CapabilitiesById
+                    let implementationName = CSharpBackendNames.capabilityImplementationName instruction.OriginNodeId
+                    writer.Line("internal sealed class " + implementationName + " : " + CSharpBackendNames.capabilityName capabilityId)
+                    writer.Line("{")
+                    writer.Push()
+                    for operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) do
+                        let functionId = implementations |> List.find (fun (id, _) -> id = operation.Id) |> snd
+                        let fn = Map.find functionId context.FunctionsById
+                        let parameters = operation.Parameters |> List.map capabilityParameter |> String.concat ", "
+                        // Declaration order defines the correspondence. Name each target parameter
+                        // explicitly, independently of the operation parameter identities.
+                        let arguments = List.zip fn.Parameters operation.Parameters |> List.map (fun (parameter, supplied) ->
+                            CSharpBackendNames.parameterName parameter.SemanticParameterId + ": " + CSharpBackendNames.capabilityParameterName supplied.Id) |> String.concat ", "
+                        writer.Line("public " + formatType operation.ResultType + " " + CSharpBackendNames.capabilityOperationName operation.Id + "(" + parameters + ") => "
+                                    + CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId + "(" + arguments + ");")
+                    writer.Pop()
+                    writer.Line("}")
+                    writer.Line("")
+                | ExecutionInstructionUse.Callback _
+                | ExecutionInstructionUse.CapabilityOperation _
+                | ExecutionInstructionUse.ConcurrencyRuntime
+                | ExecutionInstructionUse.TaskRuntime -> ()
 
     let private valueName (valueId: ExecutionValueId) =
         CSharpBackendNames.executionValueName valueId
@@ -1975,7 +1974,12 @@ module CSharpBackend =
                         block.Id,
                         index,
                         Map.find argument.TargetValueId valueTypes)
-                | _ -> [])
+                | ExecutionTerminator.Abort _
+                | ExecutionTerminator.Return _
+                | ExecutionTerminator.Branch _
+                | ExecutionTerminator.MatchUnion _
+                | ExecutionTerminator.MatchOption _
+                | ExecutionTerminator.MatchResult _ -> [])
 
         for sourceBlockId, index, valueType in jumpTemporaries do
             writer.Line(formatType valueType + " " + CSharpBackendNames.jumpTemporaryName sourceBlockId index + " = default!;")

@@ -154,135 +154,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MatchResult(inputNodeId, _, _) -> [ inputNodeId ]
 
     let rec dependencies (node: TypedSemanticNode): GraphNodeId list =
-        let nestedFree =
-            match node.Kind with
-            | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                graphFreeReferences whenTrue @ graphFreeReferences whenFalse
-            | TypedSemanticNodeKind.BoolAnd(_, right)
-            | TypedSemanticNodeKind.BoolOr(_, right) -> graphFreeReferences right
-            | TypedSemanticNodeKind.MatchUnion(_, arms) ->
-                arms |> List.collect (fun (arm: TypedSemanticUnionArm) -> graphFreeReferences arm.Body)
-            | TypedSemanticNodeKind.Bind(_, body) -> graphFreeReferences body.Body
-            | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                graphFreeReferences someArm.Body @ graphFreeReferences noneBody
-            | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                graphFreeReferences okArm.Body @ graphFreeReferences errArm.Body
-            | TypedSemanticNodeKind.StringConcat _
-            | TypedSemanticNodeKind.StringEqual _
-            | TypedSemanticNodeKind.StringLessThan _
-            | TypedSemanticNodeKind.ValueEqual _
-            | TypedSemanticNodeKind.ParameterReference _
-            | TypedSemanticNodeKind.PatternReference _
-            | TypedSemanticNodeKind.StringLiteral _
-            | TypedSemanticNodeKind.BoolLiteral _
-            | TypedSemanticNodeKind.UnitLiteral
-            | TypedSemanticNodeKind.Int64Literal _
-            | TypedSemanticNodeKind.Float64Literal _
-            | TypedSemanticNodeKind.StringIsEmpty _
-            | TypedSemanticNodeKind.Int64ToString _
-            | TypedSemanticNodeKind.Int64ToHexString _
-            | TypedSemanticNodeKind.StringParseInt64 _
-            | TypedSemanticNodeKind.StringParseInt64Hex _
-            | TypedSemanticNodeKind.Float64ToString _
-            | TypedSemanticNodeKind.StringParseFloat64 _
-            | TypedSemanticNodeKind.StringCodePoints _
-            | TypedSemanticNodeKind.StringToLower _
-            | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
-            | TypedSemanticNodeKind.Float64RoundToInt64 _
-            | TypedSemanticNodeKind.Float64FloorToInt64 _
-            | TypedSemanticNodeKind.Float64Sqrt _
-            | TypedSemanticNodeKind.Float64Abs _
-            | TypedSemanticNodeKind.Float64Negate _
-            | TypedSemanticNodeKind.Float64Floor _
-            | TypedSemanticNodeKind.Float64Ceiling _
-            | TypedSemanticNodeKind.Float64Truncate _
-            | TypedSemanticNodeKind.StringUtf8ByteCount _
-            | TypedSemanticNodeKind.StringFromCodePoint _
-            | TypedSemanticNodeKind.StringToCodePoint _
-            | TypedSemanticNodeKind.StringLength _
-            | TypedSemanticNodeKind.StringSlice _
-            | TypedSemanticNodeKind.BoolNot _
-            | TypedSemanticNodeKind.StringContains _
-            | TypedSemanticNodeKind.StringIndexOf _
-            | TypedSemanticNodeKind.StringSpan _
-            | TypedSemanticNodeKind.StringSpanBack _
-            | TypedSemanticNodeKind.StringLastIndexOf _
-            | TypedSemanticNodeKind.StringStartsWith _
-            | TypedSemanticNodeKind.StringEndsWith _
-            | TypedSemanticNodeKind.StringJoin _
-            | TypedSemanticNodeKind.StringSplit _
-            | TypedSemanticNodeKind.StringSplitLines _
-            | TypedSemanticNodeKind.Int64WrappingAdd _
-            | TypedSemanticNodeKind.Int64WrappingSubtract _
-            | TypedSemanticNodeKind.Int64WrappingMultiply _
-            | TypedSemanticNodeKind.Int64FloorDivide _
-            | TypedSemanticNodeKind.Int64FloorModulo _
-            | TypedSemanticNodeKind.Int64Min _
-            | TypedSemanticNodeKind.Int64Max _
-            | TypedSemanticNodeKind.ListRange _
-            | TypedSemanticNodeKind.StringRepeat _
-            | TypedSemanticNodeKind.Int64Equal _
-            | TypedSemanticNodeKind.Int64LessThan _
-            | TypedSemanticNodeKind.Int64LessThanOrEqual _
-            | TypedSemanticNodeKind.Int64GreaterThan _
-            | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
-            | TypedSemanticNodeKind.Float64Add _
-            | TypedSemanticNodeKind.Float64Subtract _
-            | TypedSemanticNodeKind.Float64Multiply _
-            | TypedSemanticNodeKind.Float64Divide _
-            | TypedSemanticNodeKind.Float64Equal _
-            | TypedSemanticNodeKind.Float64LessThan _
-            | TypedSemanticNodeKind.Float64IsNaN _
-            | TypedSemanticNodeKind.Float64IsFinite _
-            | TypedSemanticNodeKind.Float64IsInfinite _
-            | TypedSemanticNodeKind.Int64ToFloat64 _
-            | TypedSemanticNodeKind.Int64WrappingAbs _
-            | TypedSemanticNodeKind.Bits32FromInt64 _
-            | TypedSemanticNodeKind.Bits32ToInt64 _
-            | TypedSemanticNodeKind.Bits32Xor _
-            | TypedSemanticNodeKind.Bits32And _
-            | TypedSemanticNodeKind.Bits32Or _
-            | TypedSemanticNodeKind.Bits32Not _
-            | TypedSemanticNodeKind.Bits32Add _
-            | TypedSemanticNodeKind.Bits32RotateRight _
-            | TypedSemanticNodeKind.Bits32ShiftRight _
-            | TypedSemanticNodeKind.Bits32ShiftLeft _
-            | TypedSemanticNodeKind.ListEmpty
-            | TypedSemanticNodeKind.ListConstruct _
-            | TypedSemanticNodeKind.ListLength _
-            | TypedSemanticNodeKind.ListReverse _
-            | TypedSemanticNodeKind.ListSlice _
-            | TypedSemanticNodeKind.ListItemAt _
-            | TypedSemanticNodeKind.ListAppendItem _
-            | TypedSemanticNodeKind.ListConcat _
-            | TypedSemanticNodeKind.ListFold _
-            | TypedSemanticNodeKind.ListEffectFold _
-            | TypedSemanticNodeKind.UseResource _
-            | TypedSemanticNodeKind.ParallelAll _
-            | TypedSemanticNodeKind.CancellationRequested
-            | TypedSemanticNodeKind.TaskScope _
-            | TypedSemanticNodeKind.TaskStart _
-            | TypedSemanticNodeKind.TaskWait _
-            | TypedSemanticNodeKind.TaskCancel _
-            | TypedSemanticNodeKind.ListMap _
-            | TypedSemanticNodeKind.ListFilter _
-            | TypedSemanticNodeKind.ListSortBy _
-            | TypedSemanticNodeKind.ListAny _
-            | TypedSemanticNodeKind.ListAll _
-            | TypedSemanticNodeKind.CapabilityConstruct _
-            | TypedSemanticNodeKind.FunctionReference _
-            | TypedSemanticNodeKind.FunctionInvoke _
-            | TypedSemanticNodeKind.DirectCall _
-            | TypedSemanticNodeKind.CapabilityInvoke _
-            | TypedSemanticNodeKind.ProductConstruct _
-            | TypedSemanticNodeKind.FieldAccess _
-            | TypedSemanticNodeKind.ProductUpdate _
-            | TypedSemanticNodeKind.UnionConstruct _
-            | TypedSemanticNodeKind.OptionNone
-            | TypedSemanticNodeKind.OptionSome _
-            | TypedSemanticNodeKind.ResultOk _
-            | TypedSemanticNodeKind.Abort _
-            | TypedSemanticNodeKind.ResultErr _ -> []
+        let nestedFree = TypedSemanticNodeKind.subgraphs node.Kind |> List.collect graphFreeReferences
 
         immediateDependencies node @ nestedFree
         |> List.distinct
@@ -326,17 +198,14 @@ module internal ExecutionIrAnalysis =
             match Map.tryFind functionId functionsById with
             | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
             | None -> false
-        | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-            graphHasEffects functionsById whenTrue || graphHasEffects functionsById whenFalse
-        | TypedSemanticNodeKind.BoolAnd(_, right)
-        | TypedSemanticNodeKind.BoolOr(_, right) -> graphHasEffects functionsById right
-        | TypedSemanticNodeKind.MatchUnion(_, arms) ->
-            arms |> List.exists (fun (arm: TypedSemanticUnionArm) -> graphHasEffects functionsById arm.Body)
-        | TypedSemanticNodeKind.Bind(_, body) -> graphHasEffects functionsById body.Body
-        | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-            graphHasEffects functionsById someArm.Body || graphHasEffects functionsById noneBody
-        | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
-            graphHasEffects functionsById okArm.Body || graphHasEffects functionsById errArm.Body
+        | TypedSemanticNodeKind.Conditional _
+        | TypedSemanticNodeKind.BoolAnd _
+        | TypedSemanticNodeKind.BoolOr _
+        | TypedSemanticNodeKind.MatchUnion _
+        | TypedSemanticNodeKind.Bind _
+        | TypedSemanticNodeKind.MatchOption _
+        | TypedSemanticNodeKind.MatchResult _ ->
+            TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (graphHasEffects functionsById)
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _
         | TypedSemanticNodeKind.FunctionInvoke _
@@ -456,154 +325,12 @@ module internal ExecutionIrAnalysis =
             | Some(first, second) -> Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second))
             | None -> Ok()
 
+        // The first error in evaluation order, as `subgraphs` lists the nested graphs.
         let validateChildren (node: TypedSemanticNode): Result<unit, ExecutionIrError> =
-            match node.Kind with
-            | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) ->
-                match validateEffectOrder functionId functionsById whenTrue,
-                      validateEffectOrder functionId functionsById whenFalse with
-                | Ok (), Ok () -> Ok ()
-                | Error error, _
-                | _, Error error -> Error error
-            | TypedSemanticNodeKind.MatchUnion(_, arms) ->
-                let rec loop remaining =
-                    match remaining with
-                    | [] -> Ok ()
-                    | (arm: TypedSemanticUnionArm) :: rest ->
-                        match validateEffectOrder functionId functionsById arm.Body with
-                        | Error error -> Error error
-                        | Ok () -> loop rest
-                loop arms
-            | TypedSemanticNodeKind.Bind(_, body) -> validateEffectOrder functionId functionsById body.Body
-            | TypedSemanticNodeKind.BoolAnd(_, right)
-            | TypedSemanticNodeKind.BoolOr(_, right) -> validateEffectOrder functionId functionsById right
-            | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) ->
-                match validateEffectOrder functionId functionsById someArm.Body,
-                      validateEffectOrder functionId functionsById noneBody with
-                | Ok (), Ok () -> Ok ()
-                | Error error, _
-                | _, Error error -> Error error
-            | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) ->
-                match validateEffectOrder functionId functionsById okArm.Body,
-                      validateEffectOrder functionId functionsById errArm.Body with
-                | Ok (), Ok () -> Ok ()
-                | Error error, _
-                | _, Error error -> Error error
-            | TypedSemanticNodeKind.StringConcat _
-            | TypedSemanticNodeKind.StringEqual _
-            | TypedSemanticNodeKind.StringLessThan _
-            | TypedSemanticNodeKind.ValueEqual _
-            | TypedSemanticNodeKind.ParameterReference _
-            | TypedSemanticNodeKind.PatternReference _
-            | TypedSemanticNodeKind.StringLiteral _
-            | TypedSemanticNodeKind.BoolLiteral _
-            | TypedSemanticNodeKind.UnitLiteral
-            | TypedSemanticNodeKind.Int64Literal _
-            | TypedSemanticNodeKind.Float64Literal _
-            | TypedSemanticNodeKind.StringIsEmpty _
-            | TypedSemanticNodeKind.Int64ToString _
-            | TypedSemanticNodeKind.Int64ToHexString _
-            | TypedSemanticNodeKind.StringParseInt64 _
-            | TypedSemanticNodeKind.StringParseInt64Hex _
-            | TypedSemanticNodeKind.Float64ToString _
-            | TypedSemanticNodeKind.StringParseFloat64 _
-            | TypedSemanticNodeKind.StringCodePoints _
-            | TypedSemanticNodeKind.StringToLower _
-            | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
-            | TypedSemanticNodeKind.Float64RoundToInt64 _
-            | TypedSemanticNodeKind.Float64FloorToInt64 _
-            | TypedSemanticNodeKind.Float64Sqrt _
-            | TypedSemanticNodeKind.Float64Abs _
-            | TypedSemanticNodeKind.Float64Negate _
-            | TypedSemanticNodeKind.Float64Floor _
-            | TypedSemanticNodeKind.Float64Ceiling _
-            | TypedSemanticNodeKind.Float64Truncate _
-            | TypedSemanticNodeKind.StringUtf8ByteCount _
-            | TypedSemanticNodeKind.StringFromCodePoint _
-            | TypedSemanticNodeKind.StringToCodePoint _
-            | TypedSemanticNodeKind.StringLength _
-            | TypedSemanticNodeKind.StringSlice _
-            | TypedSemanticNodeKind.BoolNot _
-            | TypedSemanticNodeKind.StringContains _
-            | TypedSemanticNodeKind.StringIndexOf _
-            | TypedSemanticNodeKind.StringSpan _
-            | TypedSemanticNodeKind.StringSpanBack _
-            | TypedSemanticNodeKind.StringLastIndexOf _
-            | TypedSemanticNodeKind.StringStartsWith _
-            | TypedSemanticNodeKind.StringEndsWith _
-            | TypedSemanticNodeKind.StringJoin _
-            | TypedSemanticNodeKind.StringSplit _
-            | TypedSemanticNodeKind.StringSplitLines _
-            | TypedSemanticNodeKind.Int64WrappingAdd _
-            | TypedSemanticNodeKind.Int64WrappingSubtract _
-            | TypedSemanticNodeKind.Int64WrappingMultiply _
-            | TypedSemanticNodeKind.Int64FloorDivide _
-            | TypedSemanticNodeKind.Int64FloorModulo _
-            | TypedSemanticNodeKind.Int64Min _
-            | TypedSemanticNodeKind.Int64Max _
-            | TypedSemanticNodeKind.ListRange _
-            | TypedSemanticNodeKind.StringRepeat _
-            | TypedSemanticNodeKind.Int64Equal _
-            | TypedSemanticNodeKind.Int64LessThan _
-            | TypedSemanticNodeKind.Int64LessThanOrEqual _
-            | TypedSemanticNodeKind.Int64GreaterThan _
-            | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
-            | TypedSemanticNodeKind.Float64Add _
-            | TypedSemanticNodeKind.Float64Subtract _
-            | TypedSemanticNodeKind.Float64Multiply _
-            | TypedSemanticNodeKind.Float64Divide _
-            | TypedSemanticNodeKind.Float64Equal _
-            | TypedSemanticNodeKind.Float64LessThan _
-            | TypedSemanticNodeKind.Float64IsNaN _
-            | TypedSemanticNodeKind.Float64IsFinite _
-            | TypedSemanticNodeKind.Float64IsInfinite _
-            | TypedSemanticNodeKind.Int64ToFloat64 _
-            | TypedSemanticNodeKind.Int64WrappingAbs _
-            | TypedSemanticNodeKind.Bits32FromInt64 _
-            | TypedSemanticNodeKind.Bits32ToInt64 _
-            | TypedSemanticNodeKind.Bits32Xor _
-            | TypedSemanticNodeKind.Bits32And _
-            | TypedSemanticNodeKind.Bits32Or _
-            | TypedSemanticNodeKind.Bits32Not _
-            | TypedSemanticNodeKind.Bits32Add _
-            | TypedSemanticNodeKind.Bits32RotateRight _
-            | TypedSemanticNodeKind.Bits32ShiftRight _
-            | TypedSemanticNodeKind.Bits32ShiftLeft _
-            | TypedSemanticNodeKind.ListEmpty
-            | TypedSemanticNodeKind.ListConstruct _
-            | TypedSemanticNodeKind.ListLength _
-            | TypedSemanticNodeKind.ListReverse _
-            | TypedSemanticNodeKind.ListSlice _
-            | TypedSemanticNodeKind.ListItemAt _
-            | TypedSemanticNodeKind.ListAppendItem _
-            | TypedSemanticNodeKind.ListConcat _
-            | TypedSemanticNodeKind.ListFold _
-            | TypedSemanticNodeKind.ListEffectFold _
-            | TypedSemanticNodeKind.UseResource _
-            | TypedSemanticNodeKind.ParallelAll _
-            | TypedSemanticNodeKind.CancellationRequested
-            | TypedSemanticNodeKind.TaskScope _
-            | TypedSemanticNodeKind.TaskStart _
-            | TypedSemanticNodeKind.TaskWait _
-            | TypedSemanticNodeKind.TaskCancel _
-            | TypedSemanticNodeKind.ListMap _
-            | TypedSemanticNodeKind.ListFilter _
-            | TypedSemanticNodeKind.ListSortBy _
-            | TypedSemanticNodeKind.ListAny _
-            | TypedSemanticNodeKind.ListAll _
-            | TypedSemanticNodeKind.CapabilityConstruct _
-            | TypedSemanticNodeKind.FunctionReference _
-            | TypedSemanticNodeKind.FunctionInvoke _
-            | TypedSemanticNodeKind.DirectCall _
-            | TypedSemanticNodeKind.CapabilityInvoke _
-            | TypedSemanticNodeKind.ProductConstruct _
-            | TypedSemanticNodeKind.FieldAccess _
-            | TypedSemanticNodeKind.ProductUpdate _
-            | TypedSemanticNodeKind.UnionConstruct _
-            | TypedSemanticNodeKind.OptionNone
-            | TypedSemanticNodeKind.OptionSome _
-            | TypedSemanticNodeKind.ResultOk _
-            | TypedSemanticNodeKind.Abort _
-            | TypedSemanticNodeKind.ResultErr _ -> Ok ()
+            TypedSemanticNodeKind.subgraphs node.Kind
+            |> List.fold
+                (fun result child -> result |> Result.bind (fun () -> validateEffectOrder functionId functionsById child))
+                (Ok())
 
         match ordered with
         | Error error -> Error error
