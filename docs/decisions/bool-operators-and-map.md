@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
-- **Roadmap:** [post-M2 immediate execution queue](../plans/post-m2-roadmap.md#immediate-execution-queue), order 5
+- **Roadmap:** [post-M2 immediate execution queue](../plans/post-m2-roadmap.md#queue-from-the-2026-09-25-probe), order 5
 
 This decision settles order 5 of the post-M2 queue: whether Bool and/or/not and a Map deserve dedicated constructs. The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
 
