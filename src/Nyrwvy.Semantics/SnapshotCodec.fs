@@ -90,6 +90,15 @@ module SnapshotCodec =
         | null -> invalidShape $"Property '{name}' must not be null."
         | text -> text
 
+    /// A String literal may hold a lone surrogate, which the writer escapes explicitly and
+    /// `GetString` rejects, so such an escape is decoded from the token's raw text.
+    let private readLiteralString (name: string) (element: JsonElement) =
+        let value = requireProperty name element
+        if value.ValueKind <> JsonValueKind.String then
+            invalidShape $"Property '{name}' must be a string."
+        try value.GetString()
+        with :? InvalidOperationException -> LooseJsonString.decodeRaw (value.GetRawText())
+
     let private readBool (name: string) (element: JsonElement) =
         let value = requireProperty name element
         match value.ValueKind with
@@ -378,7 +387,13 @@ module SnapshotCodec =
             writer.WriteString("patternBindingId", StableId.value bindingId)
         | SemanticNodeKind.StringLiteral value ->
             writer.WriteString("kind", "stringLiteral")
-            writer.WriteString("value", value)
+            // The writer would replace a lone surrogate with U+FFFD; it is escaped explicitly instead.
+            if LooseJsonString.hasLoneSurrogate value then
+                writer.WritePropertyName("value")
+                let encoder = if isNull writer.Options.Encoder then Encodings.Web.JavaScriptEncoder.Default else writer.Options.Encoder
+                writer.WriteRawValue(LooseJsonString.encode encoder value, true)
+            else
+                writer.WriteString("value", value)
         | SemanticNodeKind.BoolLiteral value ->
             writer.WriteString("kind", "boolLiteral")
             writer.WriteBoolean("value", value)
@@ -1169,7 +1184,7 @@ module SnapshotCodec =
                 SemanticNodeKind.PatternReference(readId<PatternBindingTag> "patternBindingId" element)
             | "stringLiteral" ->
                 ensureProperties "String literal node" (set [ "id"; "kind"; "value" ]) (set [ "id"; "kind"; "value" ]) element
-                SemanticNodeKind.StringLiteral(readString "value" element)
+                SemanticNodeKind.StringLiteral(readLiteralString "value" element)
             | "boolLiteral" ->
                 ensureProperties "Bool literal node" (set [ "id"; "kind"; "value" ]) (set [ "id"; "kind"; "value" ]) element
                 SemanticNodeKind.BoolLiteral(readBool "value" element)

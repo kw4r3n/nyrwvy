@@ -133,18 +133,36 @@ module NyasonTests =
         Assert.Equal<NyasonValue>(decoded, NyasonSyntax.render decoded |> NyasonSyntax.parse |> unwrap)
 
     [<Theory>]
-    [<InlineData("\"\\uD83D\"", 3)>]
-    [<InlineData("\"\\uDE00\"", 3)>]
-    [<InlineData("\"\\uD83Dx\"", 3)>]
-    [<InlineData("\"\\uD83D\\u0041\"", 3)>]
-    [<InlineData("\"\\uDE00\\uD83D\"", 3)>]
-    [<InlineData("\"a\\uD83D\"", 4)>]
-    let ``Nyason rejects unpaired surrogate escapes`` (source: string) (position: int) =
-        match NyasonSyntax.parse source with
-        | Error error ->
-            Assert.Equal(position, error.Position)
-            Assert.Contains("Unpaired surrogate", error.Message)
-        | result -> failwithf "Expected an unpaired surrogate error, got %A" result
+    [<InlineData("\"\\uD83D\"", "{D83D}")>]
+    [<InlineData("\"\\uDE00\"", "{DE00}")>]
+    [<InlineData("\"\\uD83Dx\"", "{D83D}x")>]
+    [<InlineData("\"\\uD83D\\u0041\"", "{D83D}A")>]
+    [<InlineData("\"\\uDE00\\uD83D\"", "{DE00}{D83D}")>]
+    [<InlineData("\"a\\uD83D\"", "a{D83D}")>]
+    let ``Nyason keeps an unpaired surrogate escape as its code unit`` (source: string) (expected: string) =
+        let decoded = NyasonSyntax.parse source |> unwrap
+        Assert.Equal<NyasonValue>(NyasonValue.Text(utf16 expected), decoded)
+        Assert.Equal<NyasonValue>(decoded, NyasonSyntax.render decoded |> NyasonSyntax.parse |> unwrap)
+
+    let private loneSurrogateLiteralSnapshot (text: string) =
+        let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate"
+        let literal: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
+              DisplayName = "lone"
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.String
+              RequiredEffects = []
+              Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.StringLiteral text } ]; ResultNodeId = nodeId } }
+        { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-lone-surrogate") with Functions = [ literal ] }
+
+    [<Fact>]
+    let ``Nyason round-trips a lone surrogate in a String literal exactly`` () =
+        let snapshot = loneSurrogateLiteralSnapshot (utf16 "{D800}")
+        let encoded = NyasonCodec.serialize snapshot |> unwrap
+        Assert.Contains("value = \"\\uD800\"", encoded)
+        let decoded = NyasonCodec.deserialize encoded |> unwrap
+        Assert.Equal(snapshot, decoded)
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute decoded)
 
     [<Fact>]
     let ``Nyason rejects raw unpaired surrogates and keeps raw pairs`` () =
@@ -159,7 +177,7 @@ module NyasonTests =
         reject ("\"" + low + "\"") 1
         reject ("\"a" + high + "b\"") 2
         // Escaped and raw halves do not pair with each other.
-        reject ("\"\\uD83D" + low + "\"") 3
+        reject ("\"\\uD83D" + low + "\"") 7
         reject ("\"" + high + "\\uDE00\"") 1
         // Identifiers and atoms carry the same rule.
         reject ("a" + high + " {}") 1
