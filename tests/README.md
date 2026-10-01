@@ -22,10 +22,10 @@ Run for larger related changes and milestone validation:
 ./scripts/test-extended.fish
 ```
 
-`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. It is intentionally not part of routine CI.
+`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. It is intentionally not part of per-push CI; the `Extended` workflow (`.github/workflows/extended.yml`) runs it weekly and on demand.
 
 After changing suite ownership, build the solution in Release and run
-`node scripts/check-test-suite-partition.mjs`. This opt-in discovery-only audit
+`node scripts/check-test-suite-partition.mjs`. This discovery-only audit (also run by the `Extended` workflow)
 checks that fast and extended are disjoint and cover every discovered case,
 including new modules. It does not execute tests or impose historical test-count
 gates. An unclassified extended-project module fails the audit instead of silently

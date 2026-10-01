@@ -17,6 +17,7 @@ jobs:
   foundation:
     name: F# foundation build and fast tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

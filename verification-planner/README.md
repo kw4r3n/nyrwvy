@@ -1,10 +1,10 @@
 # Verification Planner
 
-maintained AuthoringSession で作成した小さな純粋プログラム。semantic authority は `planner.snapshot.json` を開いた session であり、JSON の直接編集・直接読解は行っていません。`runner/Generated.cs` は公開 `emitCSharp` の未編集出力です。
+A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.json`; the JSON was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp`.
 
-## 実行
+## Running
 
-リポジトリルートから（.NET 10 SDK が必要）:
+From the repository root (requires the .NET 10 SDK):
 
 ```sh
 dotnet run --project verification-planner/runner -- Documentation
@@ -13,69 +13,63 @@ dotnet run --project verification-planner/runner -- AuthoringProtocol --agent
 dotnet run --project verification-planner/runner -- EvaluationHarness --environment
 ```
 
-出力は順に `fast tests のみ`、`fast + extended`、`fast + live`、`fast + extended + live`。
+The outputs are, in order, `fast tests only`, `fast + extended`, `fast + live`, and `fast + extended + live`.
 
-領域名: `Documentation`, `Semantics`, `AuthoringProtocol`, `Backend`, `Persistence`, `EvaluationHarness`, `CI`。大文字・小文字を区別せず、カンマで複数指定できます。`--agent`, `--environment`, `--regression` はそれぞれ Bool 入力です。CLI は入出力アダプターにすぎず、判定は生成された Nyrwvy 関数が行います。
+Area names: `Documentation`, `Semantics`, `AuthoringProtocol`, `Backend`, `Persistence`, `EvaluationHarness`, `CI`. Names are case-insensitive, and several can be given separated by commas. `--agent`, `--environment`, and `--regression` are Bool inputs. The CLI is only an input/output adapter; the decision is made by the generated Nyrwvy functions.
 
 ```sh
 dotnet run --project verification-planner/runner -- --test --maintained
 ```
 
-## 型・関数
+## Types and functions
 
-- `ChangeArea`: 上記7ケースの Union。
-- `ChangeRequest`: Product。`areas: List<ChangeArea>`, `agentInteraction: Bool`, `environmentDependent: Bool`, `knownRegression: Bool`。
-- `VerificationLevel`: `FastOnly | FastExtended | FastLive | FastExtendedLive`。
-- `area_requires_extended: ChangeArea -> Bool`: 初期は Semantics / Backend / Persistence。保守変更で EvaluationHarness を追加。
-- `requires_live: ChangeRequest -> Bool`: agentInteraction または environmentDependent。
-- `plan_verification: ChangeRequest -> VerificationLevel`: ListAny で extended を集約し、live と組み合わせる。
-- `verification_label: VerificationLevel -> String`: 4種類の表示文字列。
+- `ChangeArea`: a Union of the seven cases above.
+- `ChangeRequest`: a Product. `areas: List<ChangeArea>`, `agentInteraction: Bool`, `environmentDependent: Bool`, `knownRegression: Bool`.
+- `VerificationLevel`: `FastOnly | FastExtended | FastLive | FastExtendedLive`.
+- `area_requires_extended: ChangeArea -> Bool`: initially Semantics / Backend / Persistence. The maintenance change added EvaluationHarness.
+- `requires_live: ChangeRequest -> Bool`: agentInteraction or environmentDependent.
+- `plan_verification: ChangeRequest -> VerificationLevel`: aggregates extended with ListAny and combines it with live.
+- `verification_label: VerificationLevel -> String`: the four display strings.
 
-fast は常に必要。knownRegression は情報として保持し、検証レベルを増やしません。Documentation / AuthoringProtocol / CI だけでは extended を増やしません。ただし live の明示フラグは領域に関係なく適用します。「documentation のみ」は live フラグも false の通常の文書変更を意味します。空リストは領域由来の extended なし、重複や順序は ListAny の判定に影響しません。
+Fast is always required. knownRegression is kept as information and does not raise the verification level. Documentation, AuthoringProtocol, and CI alone do not add extended. However, an explicit live flag applies regardless of area. "Documentation only" means an ordinary documentation change with the live flags also false. An empty list means no area-derived extended; duplicates and order do not affect the ListAny result.
 
-## AIによる作成・保守
+## Authoring and maintenance by AI
 
-現在の入口は [標準グラフ編集ツール](../docs/specs/agent-graph-tools.md) です。`nyrwvy_open` でこのディレクトリの `planner.snapshot.json` を開き、`nyrwvy_inspect` で型と対象関数を確認し、`nyrwvy_replace` で対象ノードだけを変更します。返された変更前後の構造と receipt を確認してから `nyrwvy_commit` / `nyrwvy_reject` を呼びます。
+The current entry point is the [standard graph editing tools](../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.json` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
 
-新規作成には空の別snapshotと `nyrwvy_create_type` / `nyrwvy_create_function` を使います。アプリ専用の `author.py` は不要になったため削除しました。通常ツールの決定的な契約テストが同じ3型・4関数の作成、1分岐の保守、保存・再開を扱い、初期実験のrequest/responseは `transcript.jsonl` に残しています。これらはauthoring手順の検証であり、新しいLLM評価ではありません。
+For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `nyrwvy_create_function`. The app-specific `author.py` is no longer needed and was deleted. Deterministic contract tests for the standard tools cover creating the same three types and four functions, maintaining one branch, and saving and resuming; the requests and responses of the initial experiment remain in `transcript.jsonl`. These validate the authoring procedure and are not a new LLM evaluation.
 
-## 作業・検証記録（初期実験）
+## Work and verification record (initial experiment)
 
-1. 3型と4関数を simulate → review 確認 → commit。初期実装完成。
-2. 公開 emitCSharp の出力をコンパイルし、7領域の全128部分集合 × 3フラグの全8組合せ = **1,024ケース合格**。
-3. session を一度終了・再起動して declarations を再発見。全 TypeId / VariantId / FieldId / FunctionId / ParameterId と署名の維持を確認。executionReadiness は `ready`、関数数4。
-4. focusFunction で EvaluationHarness の分岐と caller を確認。simulateReplaceTarget でその BoolLiteral false だけを true に変更。review の base/proposed focus と影響を確認して **1回だけ保守 commit**。
-5. 保守変更後も1,024ケース合格、executionReadiness は ready。全宣言・署名の discovery 応答が再起動直後と一致。commit 後の focus が review の proposedFocus と完全一致。
+1. Simulated the three types and four functions, confirmed the review, and committed. The initial implementation was complete.
+2. Compiled the output of the public emitCSharp and ran all 128 subsets of the 7 areas × all 8 combinations of the 3 flags = **1,024 cases, all passing**.
+3. Ended and restarted the session once and rediscovered the declarations. Confirmed that all TypeId / VariantId / FieldId / FunctionId / ParameterId values and signatures were preserved. executionReadiness was `ready` and the function count was 4.
+4. Used focusFunction to check the EvaluationHarness branch and its caller. Used simulateReplaceTarget to change only that BoolLiteral from false to true. After checking the review's base/proposed focus and impact, made **exactly one maintenance commit**.
+5. After the maintenance change, all 1,024 cases still passed and executionReadiness was ready. The discovery responses for all declarations and signatures matched those right after the restart. The focus after the commit matched the review's proposedFocus exactly.
 
-影響先は plan_verification 内の ListAny 1箇所。署名変更も caller 書き換えも不要なので parameter-type migration は使用していません。対象グラフノードを含め IDs の追加・削除はありません。
+The only affected site was the single ListAny in plan_verification. No signature change or caller rewrite was needed, so parameter-type migration was not used. No IDs were added or removed, including the target graph node.
 
-主要な証跡:
+Main evidence:
 
-- `transcript.jsonl`: 全公開 JSONL request / response（review、commit 含む）。
-- `initial-declarations.json`, `restart-declarations.json`, `maintained-declarations.json`: 公開 discovery 応答。
-- `restart-check.json`, `maintenance-check.json`: 比較結果・操作数。
-- `maintenance-focus.json`, `maintenance-review.json`: 対象・caller・変更前後の review。
-- `initial-execution.log`, `maintained-execution.log`: 実行テスト結果。
-- `Initial.generated.cs`: 初期実装の未編集 backend projection。
+- `transcript.jsonl`: all public JSONL requests and responses (including review and commit).
+- `initial-declarations.json`, `restart-declarations.json`, `maintained-declarations.json`: public discovery responses.
+- `restart-check.json`, `maintenance-check.json`: comparison results and operation counts.
+- `maintenance-focus.json`, `maintenance-review.json`: the target, callers, and the before/after review.
+- `initial-execution.log`, `maintained-execution.log`: execution test results.
+- `Initial.generated.cs`: the unedited backend projection of the initial implementation.
 
-## 摩擦・失敗・制約（初期実験）
+## Friction, failures, and constraints (initial experiment)
 
-- semantic request の reject は **0件**、proposal の再試行も **0件**。createType 3回、createFunction 4回、replaceTarget 1回、commit 合計8回。
-- 再起動時に fields / variants の列挙順が ID 順に変わったため、単純な discovery JSON 完全一致チェックが1回失敗。ID で順序を正規化し再確認したところ、変更は列挙順のみ。関数・parameter 配列を並べ替える回避策は使っていません。
-- `--help` は usage を返し exit 2。ブラウザの Node 動的 import で subprocess を確保する試みは1回失敗。いずれも semantic request の拒否ではありません。
-- 宣言 discovery を繰り返す必要があり、この作業では13回。review は nested graph の文字列表現と flattened node 表現が重複し、単一 Bool の変更に対して大きい payload でした。
-- targeted diff の previousTarget には Bool 値そのものが出ないため、baseFocus / proposedFocus の値も確認しました。nested match の branch と対象 ID の対応も文字列表現から確認しました。
-- JSONL のキーが仕様書だけでは十分に分からず、transport parser のみ参照しました。Core 実装・raw snapshot をプログラムの semantic authority にしていません。
-- Bool OR 専用 recipe の代わりに conditional を使用。複数領域は List + ListAny で自然に表現でき、要求を損なう blocker はありません。
-- JSONL の直接実行操作ではなく、公開 emitCSharp → .NET コンパイルという実行境界を使用。初回実装では CLI アダプターが生成 symbol の ID エンコーディングを再実装する必要がありましたが、#177 で emitCSharp の公開 symbol manifest を追加し、verify.py は現在その manifest を使用します。返された symbol が実際の出力に存在することも検査しています。
-- repository 自体の実装は変更していないため、repository 全体の fast / extended テストは実行していません。
+- **0** semantic requests were rejected and **0** proposals were retried. There were 3 createType calls, 4 createFunction calls, 1 replaceTarget call, and 8 commits in total.
+- On restart, the enumeration order of fields / variants changed to ID order, so a simple exact-match check of the discovery JSON failed once. After normalizing the order by ID and checking again, the only difference was the enumeration order. No workaround that reorders function or parameter arrays was used.
+- `--help` returned usage and exit 2. One attempt to obtain a subprocess through a dynamic Node import in the browser failed. Neither was a rejection of a semantic request.
+- Declaration discovery had to be repeated, 13 times in this work. The review duplicated the string representation of the nested graph and the flattened node representation, which made the payload large for a change to a single Bool.
+- The targeted diff's previousTarget does not show the Bool value itself, so the baseFocus / proposedFocus values were also checked. The correspondence between nested match branches and the target ID was also confirmed from the string representation.
+- The JSONL keys were not clear enough from the specification alone, so only the transport parser was consulted. The Core implementation and the raw snapshot were not used as the semantic authority of the program.
+- A conditional was used in place of a dedicated Bool OR recipe. Multiple areas are expressed naturally with List + ListAny, and there is no blocker that undermines the requirement.
+- The execution boundary was the public emitCSharp followed by .NET compilation, not direct execution of JSONL operations. In the first implementation, the CLI adapter had to reimplement the ID encoding of generated symbols; #177 added a public symbol manifest to emitCSharp, and the regeneration script used that manifest. It also checked that the returned symbols actually exist in the output.
+- The repository's own implementation was not changed, so the repository-wide fast / extended tests were not run.
 
-## 実行adapterの再生成
+## Runner adapter
 
-```sh
-python verification-planner/session_client.py start open
-python verification-planner/verify.py maintained
-python verification-planner/session_client.py close
-```
-
-session_client.py は JSONL を中継するだけの作業用 relay（最大30分で終了）。snapshot を解釈しません。この経路は既存実行adapterの再生成用であり、AIによる作成・保守には上記の標準ツールを使用してください。
+The runner adapter (`runner/Generated.cs`, `runner/Program.cs`) is kept as committed evidence. The Python relay and regeneration script that produced it were removed because they depended on the deleted app-specific `author.py`. To change the program, use the standard graph tools described in the "Authoring and maintenance by AI" section.
