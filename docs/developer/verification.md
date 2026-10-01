@@ -23,7 +23,11 @@ The verification entry points require fish 3.4+ and Node 22.6+. CI executes
 installing the locked Node dependencies, rather than repeating its suites.
 It also syntax-checks every tracked `.fish` file and runs the offline
 `scripts/tests/m2-listmap-evaluation-summary.test.fish` contract. The
-`test-extended.fish` wrapper remains opt-in. Exploratory/live runner and preflight
+`test-extended.fish` wrapper stays out of per-push CI; the separate
+[`extended.yml`](../../.github/workflows/extended.yml) workflow runs it weekly and
+on demand (`workflow_dispatch`) after a Release solution build, together with the
+suite partition audit. The CI job has a 20-minute timeout, so a hung transport
+test cannot hold a runner for the default six hours. Exploratory/live runner and preflight
 scripts, freeze-ref materialization, and historical evaluation helpers are
 syntax-checked only; discovering a `.fish` file does not authorize executing a
 model, changing Git refs, or running frozen workloads in routine CI.
