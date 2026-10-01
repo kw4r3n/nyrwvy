@@ -88,6 +88,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringCodePoints of valueNodeId: GraphNodeId
     | StringToLower of valueNodeId: GraphNodeId
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
+    | Float64RoundToInt64 of valueNodeId: GraphNodeId
+    | Float64FloorToInt64 of valueNodeId: GraphNodeId
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
     | StringFromCodePoint of valueNodeId: GraphNodeId
     | StringToCodePoint of valueNodeId: GraphNodeId
@@ -317,6 +319,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringToLower valueNodeId)
                     | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId)
+                    | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId)
+                    | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId)
                     | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId)
                     | SemanticNodeKind.StringFromCodePoint valueNodeId ->

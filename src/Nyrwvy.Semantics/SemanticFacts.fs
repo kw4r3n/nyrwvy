@@ -193,7 +193,9 @@ module SemanticFacts =
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Float64 ]))
                     | SemanticNodeKind.StringIndexOf _
                     | SemanticNodeKind.StringLastIndexOf _
-                    | SemanticNodeKind.StringToCodePoint _ ->
+                    | SemanticNodeKind.StringToCodePoint _
+                    | SemanticNodeKind.Float64RoundToInt64 _
+                    | SemanticNodeKind.Float64FloorToInt64 _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.StringFromCodePoint _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.String ]))

@@ -481,6 +481,10 @@ module NyasonCodec =
             record "string-to-lower" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             record "string-decode-utf8-lossy" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
+            record "float64-round-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
+            record "float64-floor-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             record "string-utf8-byte-count" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -928,6 +932,14 @@ module NyasonCodec =
             let fields = recordFields "string-decode-utf8-lossy" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringDecodeUtf8Lossy(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-round-to-int64", _) ->
+            let fields = recordFields "float64-round-to-int64" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64RoundToInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-floor-to-int64", _) ->
+            let fields = recordFields "float64-floor-to-int64" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64FloorToInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-utf8-byte-count", _) ->
             let fields = recordFields "string-utf8-byte-count" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

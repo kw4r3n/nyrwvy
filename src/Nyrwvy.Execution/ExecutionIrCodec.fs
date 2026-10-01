@@ -267,6 +267,12 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringDecodeUtf8Lossy valueId ->
             [ property "kind" (quote "stringDecodeUtf8Lossy")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64RoundToInt64 valueId ->
+            [ property "kind" (quote "float64RoundToInt64")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64FloorToInt64 valueId ->
+            [ property "kind" (quote "float64FloorToInt64")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringUtf8ByteCount valueId ->
             [ property "kind" (quote "stringUtf8ByteCount")
               property "valueId" (executionValueIdValue valueId) ]

@@ -278,6 +278,10 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToLower
                         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringDecodeUtf8Lossy
+                        | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64RoundToInt64
+                        | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64FloorToInt64
                         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringUtf8ByteCount
                         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -786,6 +790,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringCodePoints _
                         | TypedSemanticNodeKind.StringToLower _
                         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+                        | TypedSemanticNodeKind.Float64RoundToInt64 _
+                        | TypedSemanticNodeKind.Float64FloorToInt64 _
                         | TypedSemanticNodeKind.StringUtf8ByteCount _
                         | TypedSemanticNodeKind.StringFromCodePoint _
                         | TypedSemanticNodeKind.StringToCodePoint _

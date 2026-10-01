@@ -80,6 +80,8 @@ module internal WireRecipe =
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
         | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy
+        | "float64RoundToInt64" -> unary "float64-round-to-int64 recipe" ExpressionRecipe.Float64RoundToInt64
+        | "float64FloorToInt64" -> unary "float64-floor-to-int64 recipe" ExpressionRecipe.Float64FloorToInt64
         | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount
         | "stringFromCodePoint" -> unary "string-from-code-point recipe" ExpressionRecipe.StringFromCodePoint
         | "stringToCodePoint" -> unary "string-to-code-point recipe" ExpressionRecipe.StringToCodePoint

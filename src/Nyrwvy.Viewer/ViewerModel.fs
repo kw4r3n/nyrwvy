@@ -47,6 +47,8 @@ type ViewerNodeRole =
     | StringCodePoints
     | StringToLower
     | StringDecodeUtf8Lossy
+    | Float64RoundToInt64
+    | Float64FloorToInt64
     | StringUtf8ByteCount
     | StringFromCodePoint
     | StringToCodePoint
@@ -240,6 +242,8 @@ module ViewerProjection =
         | SemanticNodeKind.StringCodePoints _ -> ViewerNodeRole.StringCodePoints, []
         | SemanticNodeKind.StringToLower _ -> ViewerNodeRole.StringToLower, []
         | SemanticNodeKind.StringDecodeUtf8Lossy _ -> ViewerNodeRole.StringDecodeUtf8Lossy, []
+        | SemanticNodeKind.Float64RoundToInt64 _ -> ViewerNodeRole.Float64RoundToInt64, []
+        | SemanticNodeKind.Float64FloorToInt64 _ -> ViewerNodeRole.Float64FloorToInt64, []
         | SemanticNodeKind.StringUtf8ByteCount _ -> ViewerNodeRole.StringUtf8ByteCount, []
         | SemanticNodeKind.StringFromCodePoint _ -> ViewerNodeRole.StringFromCodePoint, []
         | SemanticNodeKind.StringToCodePoint _ -> ViewerNodeRole.StringToCodePoint, []

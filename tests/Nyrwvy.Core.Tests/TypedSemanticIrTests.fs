@@ -38,6 +38,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringCodePoints _
                 | TypedSemanticNodeKind.StringToLower _
                 | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+                | TypedSemanticNodeKind.Float64RoundToInt64 _
+                | TypedSemanticNodeKind.Float64FloorToInt64 _
                 | TypedSemanticNodeKind.StringUtf8ByteCount _
                 | TypedSemanticNodeKind.StringFromCodePoint _
                 | TypedSemanticNodeKind.StringToCodePoint _

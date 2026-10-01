@@ -90,6 +90,8 @@ type ExecutionInstructionKind =
     | StringCodePoints of ExecutionValueId
     | StringToLower of ExecutionValueId
     | StringDecodeUtf8Lossy of ExecutionValueId
+    | Float64RoundToInt64 of ExecutionValueId
+    | Float64FloorToInt64 of ExecutionValueId
     | StringUtf8ByteCount of ExecutionValueId
     | StringFromCodePoint of ExecutionValueId
     | StringToCodePoint of ExecutionValueId

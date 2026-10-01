@@ -58,6 +58,8 @@ module ValueDependency =
         | SemanticNodeKind.StringCodePoints sourceNodeId
         | SemanticNodeKind.StringToLower sourceNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
+        | SemanticNodeKind.Float64RoundToInt64 sourceNodeId
+        | SemanticNodeKind.Float64FloorToInt64 sourceNodeId
         | SemanticNodeKind.StringUtf8ByteCount sourceNodeId
         | SemanticNodeKind.StringFromCodePoint sourceNodeId
         | SemanticNodeKind.StringToCodePoint sourceNodeId

@@ -522,6 +522,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "StringCodePoints"
               "StringToLower"
               "StringDecodeUtf8Lossy"
+              "Float64RoundToInt64"
+              "Float64FloorToInt64"
               "StringUtf8ByteCount"
               "StringFromCodePoint"
               "StringToCodePoint"
