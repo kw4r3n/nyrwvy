@@ -45,6 +45,12 @@ module FoundationTests =
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _
+                | SemanticNodeKind.Float64Sqrt _
+                | SemanticNodeKind.Float64Abs _
+                | SemanticNodeKind.Float64Negate _
+                | SemanticNodeKind.Float64Floor _
+                | SemanticNodeKind.Float64Ceiling _
+                | SemanticNodeKind.Float64Truncate _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _
@@ -99,6 +105,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListReverse _
                 | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _

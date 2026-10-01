@@ -64,6 +64,12 @@ module internal WireGraph =
         | SemanticNodeKind.StringDecodeUtf8Lossy value -> unary "stringDecodeUtf8Lossy" value
         | SemanticNodeKind.Float64RoundToInt64 value -> unary "float64RoundToInt64" value
         | SemanticNodeKind.Float64FloorToInt64 value -> unary "float64FloorToInt64" value
+        | SemanticNodeKind.Float64Sqrt value -> unary "float64Sqrt" value
+        | SemanticNodeKind.Float64Abs value -> unary "float64Abs" value
+        | SemanticNodeKind.Float64Negate value -> unary "float64Negate" value
+        | SemanticNodeKind.Float64Floor value -> unary "float64Floor" value
+        | SemanticNodeKind.Float64Ceiling value -> unary "float64Ceiling" value
+        | SemanticNodeKind.Float64Truncate value -> unary "float64Truncate" value
         | SemanticNodeKind.StringUtf8ByteCount value -> unary "stringUtf8ByteCount" value
         | SemanticNodeKind.StringFromCodePoint value -> unary "stringFromCodePoint" value
         | SemanticNodeKind.StringToCodePoint value -> unary "stringToCodePoint" value
@@ -120,6 +126,7 @@ module internal WireGraph =
         | SemanticNodeKind.ListEmpty itemType -> tagged "listEmpty" [ "itemType", typeRef itemType ]
         | SemanticNodeKind.ListConstruct(itemType, items) -> tagged "listConstruct" [ "itemType", typeRef itemType; "itemNodeIds", identities items ]
         | SemanticNodeKind.ListLength value -> unary "listLength" value
+        | SemanticNodeKind.ListReverse value -> unary "listReverse" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListItemAt(list, index) -> tagged "listItemAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->

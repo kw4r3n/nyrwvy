@@ -15,7 +15,7 @@ This decision settles order 34 of the post-M2 queue. The [Float64 conversion dec
 
 Both give `None` for NaN, for either infinity, and for a result outside Int64, where Python raises `ValueError` or `OverflowError` or returns an `int` larger than Int64. Every finite result in range is exact, because every binary64 in [-2^63, 2^63) that is an integer is an Int64. They never fail. Wire kinds `float64RoundToInt64` and `float64FloorToInt64`, Nyason `float64-round-to-int64` and `float64-floor-to-int64`, recipe field `value`.
 
-**Not added:** truncation toward zero (Python `int(x)`), ceiling, and decimal rounding `round(x, n)`. Truncation and ceiling follow from floor in a few nodes (`-floor(-x)`), and no consumer needed them. Decimal rounding rounds by the exact decimal value of the binary64 and returns a Float64, a different operation; probe 17's `round(x, 1)` and probe 15's are its only consumers, and its revisit condition below stays open.
+**Not added:** truncation toward zero (Python `int(x)`), ceiling, and decimal rounding `round(x, n)`. Truncation and ceiling follow from floor in a few nodes (`-floor(-x)`), and no consumer needed them. (Order 36 later added `Float64Floor`, `Float64Ceiling` and `Float64Truncate` with a Float64 result; see [standard operations](standard-operations.md).) Decimal rounding rounds by the exact decimal value of the binary64 and returns a Float64, a different operation; probe 17's `round(x, 1)` and probe 15's are its only consumers, and its revisit condition below stays open.
 
 ## Reason
 

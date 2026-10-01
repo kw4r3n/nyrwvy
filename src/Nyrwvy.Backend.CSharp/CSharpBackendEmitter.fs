@@ -702,6 +702,17 @@ module CSharpBackend =
         writer.Line("return new NyList<T>(next);")
         writer.Pop()
         writer.Line("}")
+        // Reverse copies the items into a new store in the opposite order; 0 or 1 items return the list itself.
+        writer.Line("public NyList<T> Reverse()")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (_count < 2) return this;")
+        writer.Line("var next = new T[_count];")
+        writer.Line("Array.Copy(_store.Items, next, _count);")
+        writer.Line("Array.Reverse(next);")
+        writer.Line("return new NyList<T>(next);")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyList<T> AppendItem(T item)")
         writer.Line("{")
         writer.Push()
@@ -1572,6 +1583,20 @@ module CSharpBackend =
         | ExecutionInstructionKind.Int64ToFloat64 valueId ->
             // .NET converts long to double with IEEE 754 round to nearest, ties to even.
             writer.Line(target + " = (double)" + valueName valueId + ";")
+        // IEEE 754 operations with exactly one result each: Sqrt is correctly rounded and Floor,
+        // Ceiling and Truncate are exact, so every backend agrees bit for bit.
+        | ExecutionInstructionKind.Float64Sqrt valueId ->
+            writer.Line(target + " = System.Math.Sqrt(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64Abs valueId ->
+            writer.Line(target + " = System.Math.Abs(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64Negate valueId ->
+            writer.Line(target + " = -" + valueName valueId + ";")
+        | ExecutionInstructionKind.Float64Floor valueId ->
+            writer.Line(target + " = System.Math.Floor(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64Ceiling valueId ->
+            writer.Line(target + " = System.Math.Ceiling(" + valueName valueId + ");")
+        | ExecutionInstructionKind.Float64Truncate valueId ->
+            writer.Line(target + " = System.Math.Truncate(" + valueName valueId + ");")
         // Bits32 is a C# uint. Every operation is total: conversions keep the low 32 bits or read
         // them unsigned, Add wraps, rotation takes the amount floor-modulo 32 (amount & 31 in two's
         // complement), and shifts give the value for amount <= 0 and zero for amount >= 32.
@@ -1605,6 +1630,8 @@ module CSharpBackend =
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Create(" + renderListItems itemValueIds + ");")
         | ExecutionInstructionKind.ListLength listValueId ->
             writer.Line(target + " = " + valueName listValueId + ".Length;")
+        | ExecutionInstructionKind.ListReverse listValueId ->
+            writer.Line(target + " = " + valueName listValueId + ".Reverse();")
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".ItemAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->

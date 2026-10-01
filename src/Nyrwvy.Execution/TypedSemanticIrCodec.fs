@@ -343,6 +343,24 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
             writer.WriteString("kind", "float64FloorToInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Sqrt valueNodeId ->
+            writer.WriteString("kind", "float64Sqrt")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Abs valueNodeId ->
+            writer.WriteString("kind", "float64Abs")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Negate valueNodeId ->
+            writer.WriteString("kind", "float64Negate")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Floor valueNodeId ->
+            writer.WriteString("kind", "float64Floor")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Ceiling valueNodeId ->
+            writer.WriteString("kind", "float64Ceiling")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Float64Truncate valueNodeId ->
+            writer.WriteString("kind", "float64Truncate")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             writer.WriteString("kind", "stringUtf8ByteCount")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -481,6 +499,9 @@ module TypedSemanticIrCodec =
             writer.WriteEndArray()
         | TypedSemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | TypedSemanticNodeKind.ListReverse listNodeId ->
+            writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             writer.WriteString("kind", "listItemAt")

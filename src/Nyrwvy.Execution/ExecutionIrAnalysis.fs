@@ -39,6 +39,12 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId
+        | TypedSemanticNodeKind.Float64Sqrt valueNodeId
+        | TypedSemanticNodeKind.Float64Abs valueNodeId
+        | TypedSemanticNodeKind.Float64Negate valueNodeId
+        | TypedSemanticNodeKind.Float64Floor valueNodeId
+        | TypedSemanticNodeKind.Float64Ceiling valueNodeId
+        | TypedSemanticNodeKind.Float64Truncate valueNodeId
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId
         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId
         | TypedSemanticNodeKind.StringToCodePoint valueNodeId
@@ -93,6 +99,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
         | TypedSemanticNodeKind.ListSortBy(listNodeId, _, context)
@@ -174,6 +181,12 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
             | TypedSemanticNodeKind.Float64RoundToInt64 _
             | TypedSemanticNodeKind.Float64FloorToInt64 _
+            | TypedSemanticNodeKind.Float64Sqrt _
+            | TypedSemanticNodeKind.Float64Abs _
+            | TypedSemanticNodeKind.Float64Negate _
+            | TypedSemanticNodeKind.Float64Floor _
+            | TypedSemanticNodeKind.Float64Ceiling _
+            | TypedSemanticNodeKind.Float64Truncate _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _
@@ -223,6 +236,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListReverse _
             | TypedSemanticNodeKind.ListSlice _
             | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _
@@ -329,6 +343,12 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
         | TypedSemanticNodeKind.Float64RoundToInt64 _
         | TypedSemanticNodeKind.Float64FloorToInt64 _
+        | TypedSemanticNodeKind.Float64Sqrt _
+        | TypedSemanticNodeKind.Float64Abs _
+        | TypedSemanticNodeKind.Float64Negate _
+        | TypedSemanticNodeKind.Float64Floor _
+        | TypedSemanticNodeKind.Float64Ceiling _
+        | TypedSemanticNodeKind.Float64Truncate _
         | TypedSemanticNodeKind.StringUtf8ByteCount _
         | TypedSemanticNodeKind.StringFromCodePoint _
         | TypedSemanticNodeKind.StringToCodePoint _
@@ -382,6 +402,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
+        | TypedSemanticNodeKind.ListReverse _
         | TypedSemanticNodeKind.ListSlice _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.ListAppendItem _
@@ -467,6 +488,12 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
             | TypedSemanticNodeKind.Float64RoundToInt64 _
             | TypedSemanticNodeKind.Float64FloorToInt64 _
+            | TypedSemanticNodeKind.Float64Sqrt _
+            | TypedSemanticNodeKind.Float64Abs _
+            | TypedSemanticNodeKind.Float64Negate _
+            | TypedSemanticNodeKind.Float64Floor _
+            | TypedSemanticNodeKind.Float64Ceiling _
+            | TypedSemanticNodeKind.Float64Truncate _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _
@@ -516,6 +543,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.ListEmpty
             | TypedSemanticNodeKind.ListConstruct _
             | TypedSemanticNodeKind.ListLength _
+            | TypedSemanticNodeKind.ListReverse _
             | TypedSemanticNodeKind.ListSlice _
             | TypedSemanticNodeKind.ListItemAt _
             | TypedSemanticNodeKind.ListAppendItem _

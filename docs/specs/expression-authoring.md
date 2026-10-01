@@ -88,11 +88,14 @@ ExpressionRecipe =
   | Bits32Xor(left, right) | Bits32And(left, right) | Bits32Or(left, right) | Bits32Add(left, right)
   | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
   | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
+  | Float64Sqrt(expr) | Float64Abs(expr) | Float64Negate(expr)
+  | Float64Floor(expr) | Float64Ceiling(expr) | Float64Truncate(expr)
   | Float64ToString(expr)
   | StringParseFloat64(expr)
   | ListEmpty(itemType)
   | ListConstruct(itemType, items)
   | ListLength(list)
+  | ListReverse(list)
   | ListItemAt(list, index)
   | ListSlice(list, start, end)
   | ListAppendItem(list, item)
@@ -381,6 +384,14 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## Float64RoundToInt64 and Float64FloorToInt64
 
 `Float64RoundToInt64(value)` (wire `float64RoundToInt64`, Nyason `float64-round-to-int64`) and `Float64FloorToInt64(value)` (wire `float64FloorToInt64`, Nyason `float64-floor-to-int64`) take a Float64 and produce `Option<Int64>`: Python `round(value)` (ties to even) and `math.floor(value)`, `None` for NaN, the infinities and results outside Int64. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-to-int64.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+
+## Float64 unary operations
+
+`Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` (wire `float64Sqrt`, `float64Abs`, `float64Negate`, `float64Floor`, `float64Ceiling`, `float64Truncate`; Nyason `float64-sqrt`, `float64-abs`, `float64-negate`, `float64-floor`, `float64-ceiling`, `float64-truncate`) take a Float64 in the wire field `value` and produce a Float64. They are the IEEE 754 operations described in the [language subset](../reference/language-subset.md#float64) and never fail. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+
+## ListReverse
+
+`ListReverse(list)` (wire `listReverse` with the field `value`, Nyason `list-reverse`) takes any `List<T>` and produces the same `List<T>` with its items in reverse order. It never fails. A source that is not a List reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `ListReverseInputTypeMismatch`.
 
 ## Bits32
 

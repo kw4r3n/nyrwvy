@@ -60,6 +60,12 @@ module ValueDependency =
         | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
         | SemanticNodeKind.Float64RoundToInt64 sourceNodeId
         | SemanticNodeKind.Float64FloorToInt64 sourceNodeId
+        | SemanticNodeKind.Float64Sqrt sourceNodeId
+        | SemanticNodeKind.Float64Abs sourceNodeId
+        | SemanticNodeKind.Float64Negate sourceNodeId
+        | SemanticNodeKind.Float64Floor sourceNodeId
+        | SemanticNodeKind.Float64Ceiling sourceNodeId
+        | SemanticNodeKind.Float64Truncate sourceNodeId
         | SemanticNodeKind.StringUtf8ByteCount sourceNodeId
         | SemanticNodeKind.StringFromCodePoint sourceNodeId
         | SemanticNodeKind.StringToCodePoint sourceNodeId
@@ -143,6 +149,7 @@ module ValueDependency =
             itemNodeIds
             |> List.mapi (fun index nodeId -> create (ValueDependencyRole.ListItem index) nodeId)
         | SemanticNodeKind.ListLength sourceNodeId
+        | SemanticNodeKind.ListReverse sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)

@@ -105,6 +105,8 @@ For any proposed next feature, record:
 
 Do not create infrastructure because it is a conventional next layer. Do not turn a successful bounded experiment into a broad superiority claim. Prefer one measured repair over a generic framework whose consumers have not appeared.
 
+**Exception for standard operations with no choice to make** (owner decision, 2026-10-01). An operation that ordinary programs commonly need may be added without an observed cost when its meaning is fixed completely by an external standard (IEEE 754) or an obvious definition, so there is nothing for a consumer to decide, and its implementation is small. Waiting for a probe would only mean hand-written versions in the meantime. Item 2 above is then the expected hand-written cost rather than an observed one. Anything with a choice to make (a size limit, a difference from Python, the edge values such as `Int64.MinValue`) still waits for an observed consumer or an owner choice. See the [decision](../decisions/standard-operations.md).
+
 ## M6 — Measured scale and collaboration
 
 M6 remains intentionally conditional. Choose at most one workstream when a real pressure appears.
@@ -320,6 +322,15 @@ After probe 20 the owner chose its one candidate that met the decision rule. Tra
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
 | 34 | **Done: Float64 to Int64 with Python's rounding** | Probe 20 rounded to an EDO step and to seconds, and floored inside `exp2`, by hand (3 functions, 95 nodes, a 62-step binary search over `Int64ToFloat64`); probe 15 built milliseconds from Float64 seconds by hand | `Float64RoundToInt64` (Python `round(x)`, ties to even) and `Float64FloorToInt64` (`math.floor(x)`), both `Float64 -> Option<Int64>` with `None` for NaN, the infinities and results outside Int64. Probe 20 re-authored with them is 1,068 nodes instead of 1,153 and matches the same 3,400/3,400 cases; [decision](../decisions/float64-to-int64.md). |
+
+### Queue from the 2026-10-01 standard-operations review
+
+A review of the builtin surface against ordinary language libraries ([decision](../decisions/standard-operations.md)) found operations missing that programs commonly need. The owner chose to add those whose meaning has no choice to make, under the exception in the selection rule above. `ListRange`, `StringRepeat`, hexadecimal formatting and parsing, `StringToUpper` and Int64 `Abs`/`Min`/`Max` each have a choice to make and stay candidates; `ListRange` and hexadecimal text already have observed hand-written cost (probes 5, 7 and 12, and probes 9 to 12 and 16 to 18).
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 35 | **Done: reversing a List** | Probe 16 reversed a list with a fold of `ListConcat([item], acc)`, which copies the accumulator each step (O(n²)); probe 11 rewrote `reversed(lines[1:])` with a `break` as a forward fold (2 functions, 67 nodes). The only other route, `ListSortBy` with an always-true callback, hides the intent | `ListReverse(list)`: `List<T> -> List<T>`, Python `list(reversed(list))`, linear, never fails |
+| 36 | **Done: Float64 sign and integral operations, and square root** | Probe 20 wrote `fabs` and `fmax` by hand. Square root and floor, ceiling and truncation as Float64 are ordinary numeric needs with one IEEE 754 result each | `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling`, `Float64Truncate`, all `Float64 -> Float64`, never fail |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

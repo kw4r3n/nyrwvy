@@ -241,6 +241,23 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
     /// Python math.floor(value) as Option<Int64>, with None in the same cases as Float64RoundToInt64.
     | Float64FloorToInt64 of valueNodeId: GraphNodeId
+    /// IEEE 754 square root, correctly rounded. A negative value (but not -0.0) gives NaN, where Python
+    /// math.sqrt raises; -0.0 gives -0.0. Never fails.
+    | Float64Sqrt of valueNodeId: GraphNodeId
+    /// The value with its sign bit cleared, as Python abs(value) or math.fabs: -0.0 gives 0.0, NaN stays NaN.
+    /// Never fails.
+    | Float64Abs of valueNodeId: GraphNodeId
+    /// The value with its sign bit flipped, as Python -value: 0.0 gives -0.0. Never fails.
+    | Float64Negate of valueNodeId: GraphNodeId
+    /// Python math.floor(value) as a Float64 (the largest integral value not above it): -0.5 gives -0.0;
+    /// NaN, the infinities and the zeros are returned unchanged. Never fails.
+    | Float64Floor of valueNodeId: GraphNodeId
+    /// Python math.ceil(value) as a Float64 (the smallest integral value not below it): -0.5 gives -0.0;
+    /// NaN, the infinities and the zeros are returned unchanged. Never fails.
+    | Float64Ceiling of valueNodeId: GraphNodeId
+    /// Python math.trunc(value) as a Float64 (rounded toward zero): -1.5 gives -1.0, -0.5 gives -0.0; NaN,
+    /// the infinities and the zeros are returned unchanged. Never fails.
+    | Float64Truncate of valueNodeId: GraphNodeId
     /// Number of bytes in the UTF-8 encoding of the String, as an Int64; an unpaired surrogate
     /// counts as 3 bytes (its U+FFFD replacement, as WTF-8 also does). Never fails.
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
@@ -343,6 +360,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
+    /// The items of the List<T> in reverse order, as Python list(reversed(list)). Never fails.
+    | ListReverse of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
@@ -531,6 +550,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId
+        | SemanticNodeKind.Float64Sqrt valueNodeId
+        | SemanticNodeKind.Float64Abs valueNodeId
+        | SemanticNodeKind.Float64Negate valueNodeId
+        | SemanticNodeKind.Float64Floor valueNodeId
+        | SemanticNodeKind.Float64Ceiling valueNodeId
+        | SemanticNodeKind.Float64Truncate valueNodeId
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId
         | SemanticNodeKind.StringFromCodePoint valueNodeId
         | SemanticNodeKind.StringToCodePoint valueNodeId
@@ -582,6 +607,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
         | SemanticNodeKind.ListSortBy(listNodeId, _, context)
@@ -664,6 +690,12 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId -> SemanticNodeKind.StringDecodeUtf8Lossy(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64RoundToInt64 valueNodeId -> SemanticNodeKind.Float64RoundToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64FloorToInt64 valueNodeId -> SemanticNodeKind.Float64FloorToInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Sqrt valueNodeId -> SemanticNodeKind.Float64Sqrt(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Abs valueNodeId -> SemanticNodeKind.Float64Abs(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Negate valueNodeId -> SemanticNodeKind.Float64Negate(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Floor valueNodeId -> SemanticNodeKind.Float64Floor(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Ceiling valueNodeId -> SemanticNodeKind.Float64Ceiling(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64Truncate valueNodeId -> SemanticNodeKind.Float64Truncate(mapNodeId valueNodeId)
             | SemanticNodeKind.StringUtf8ByteCount valueNodeId -> SemanticNodeKind.StringUtf8ByteCount(mapNodeId valueNodeId)
             | SemanticNodeKind.StringFromCodePoint valueNodeId -> SemanticNodeKind.StringFromCodePoint(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToCodePoint valueNodeId -> SemanticNodeKind.StringToCodePoint(mapNodeId valueNodeId)
@@ -750,6 +782,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
                 SemanticNodeKind.ListConstruct(itemType, List.map mapNodeId itemNodeIds)
             | SemanticNodeKind.ListLength listNodeId -> SemanticNodeKind.ListLength(mapNodeId listNodeId)
+            | SemanticNodeKind.ListReverse listNodeId -> SemanticNodeKind.ListReverse(mapNodeId listNodeId)
             | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                 SemanticNodeKind.ListAppendItem(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
@@ -866,6 +899,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringDecodeUtf8Lossy _
         | SemanticNodeKind.Float64RoundToInt64 _
         | SemanticNodeKind.Float64FloorToInt64 _
+        | SemanticNodeKind.Float64Sqrt _
+        | SemanticNodeKind.Float64Abs _
+        | SemanticNodeKind.Float64Negate _
+        | SemanticNodeKind.Float64Floor _
+        | SemanticNodeKind.Float64Ceiling _
+        | SemanticNodeKind.Float64Truncate _
         | SemanticNodeKind.StringUtf8ByteCount _
         | SemanticNodeKind.StringFromCodePoint _
         | SemanticNodeKind.StringToCodePoint _
@@ -918,6 +957,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.ListReverse _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListItemAt _
