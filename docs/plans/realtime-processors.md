@@ -57,6 +57,8 @@ Delay lines and wavetables need in-place updates. The [semantic-independence](..
 
 Indexing needs a total rule, because runtime operations do not fail with a typed error (only host failures such as allocation or stack overflow end a run). Options: floor-modulo the index by the buffer length (a ring buffer, which is what delay lines and wavetables do anyway), clamp to the ends, or return `Option<Float64>`. **Owner preference (2026-10-01), provisional until the slice is decided and recorded as a decision: floor-modulo**, for `BufferGet` and `BufferSet` alike, so index `-1` is the last item. It is total, it is what ring buffers do anyway, and it adds no nodes or branches per sample. Its cost is that an index bug reads another position instead of showing up as an error; clamping would hide such a bug too, and `Option` would add a match per sample. Floor-modulo needs a non-zero length, so a buffer's declared length must be at least 1, checked when the host creates the state.
 
+Fractional positions (a wavetable phase, a modulated delay time) reach an index through the accepted conversions ([decision](../decisions/float64-to-int64.md)): `Float64FloorToInt64` gives the lower index for linear interpolation, with `pos - Int64ToFloat64(i)` as the fraction, and `Float64RoundToInt64` gives the nearest index. Both are total and use only types the processor rules above already allow, so they are allowed inside processors; whether the C# lowering of `Option` is allocation-free is checked with the rest of the allocation fact, not assumed here. They return `Option<Int64>`, `None` for NaN, the infinities and values outside Int64, so a processor matches once per conversion and chooses a fallback index (for example 0), which keeps a NaN phase from stopping the block. No processor-specific conversion is needed for the first slice; a variant that skips the `Option` waits for a measured processor that shows the match matters.
+
 ### 2. Numeric domains
 
 **Float64 is enough for a first slice.** Devices usually exchange 32-bit samples, but the host converts at the boundary (`float` to `double` is exact; `double` to `float` rounds once). Many DSP libraries process in double internally. `Float32` becomes worth adding when a measured processor is limited by memory bandwidth or SIMD width, or when output must match a Float32 reference bit for bit.
@@ -132,7 +134,7 @@ Composition logic (probe 20) stays ordinary Nyrwvy code on a non-real-time threa
 ## Recommended first slice
 
 1. A `Processor` declaration over Float64 blocks with a declared `maxBlockSize` and channel counts, numeric `state` and `params` Products, and `Float64Buffer` fields whose lengths are fixed at initialization.
-2. `BufferGet` (floor-modulo index), `BufferSet` (with the use-after-update check) and `BufferLength`.
+2. `BufferGet` (floor-modulo index), `BufferSet` (with the use-after-update check) and `BufferLength`, with `Float64FloorToInt64` and `Float64RoundToInt64` allowed for fractional positions.
 3. `IndexFold`, bounded by `maxBlockSize`, a buffer length or a literal inside processors.
 4. The three derived facts and the five diagnostics above, shown in review.
 5. C# lowering to structs, spans and in-place stores, with `runPure` running a processor over given blocks so it is testable like any function.
