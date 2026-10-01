@@ -1,6 +1,6 @@
 # Real-time-safe processor declarations (design note)
 
-**Status:** Proposed. A design note for [#284](https://github.com/kw4r3n/nyrwvy/issues/284). Nothing here is implemented or accepted; implementation waits for the [evidence trigger](#evidence-trigger) below, per the roadmap's [selection rule](post-m2-roadmap.md#selection-rule-from-here).
+**Status:** Proposed. A design note for [#284](https://github.com/kw4r3n/nyrwvy/issues/284). Nothing here is implemented or accepted. One owner preference (buffer indexing, [below](#1-mutation)) is recorded provisionally and becomes a decision record when the first slice is decided. Implementation waits for the [evidence trigger](#evidence-trigger) below, per the roadmap's [selection rule](post-m2-roadmap.md#selection-rule-from-here).
 
 **Date:** 2026-10-01
 
@@ -45,7 +45,7 @@ This fits Nyrwvy's model better than a source-language rule would. The semantic 
 
 ### 1. Mutation
 
-Delay lines and wavetables need in-place updates. The [semantic-independence](../concepts/semantic-independence.md#observable-behavior-and-backend-freedom) note already fixes the observable rule: building an updated value leaves other holders with the old value, and changing shared state is only possible through a capability operation. A backend may choose copying or structural sharing. The options differ in who can observe the old value.
+Delay lines and wavetables need in-place updates. The [semantic-independence](../concepts/semantic-independence.md#observable-behavior-and-backend-freedom) note proposes the observable rule: building an updated value leaves other holders with the old value, and changing shared state is only possible through a capability operation. A backend may choose copying or structural sharing. The options differ in who can observe the old value.
 
 | Option | Meaning | Review | Cost |
 | --- | --- | --- | --- |
@@ -55,7 +55,9 @@ Delay lines and wavetables need in-place updates. The [semantic-independence](..
 
 **Recommended: A.** It keeps value semantics, keeps real-time safety a derived fact, and needs only a check local to one body. It does not resolve Q-012; it is a bounded rule inside processors.
 
-Indexing needs a total rule, because runtime operations never fail. Options: floor-modulo the index by the buffer length (a ring buffer, which is what delay lines and wavetables do anyway), clamp to the ends, or return `Option<Float64>`. **Owner choice (2026-10-01): floor-modulo**, for `BufferGet` and `BufferSet` alike, so index `-1` is the last item. It is total, it is what ring buffers do anyway, and it adds no nodes or branches per sample. Its cost is that an index bug reads another position instead of showing up as an error; clamping would hide such a bug too, and `Option` would add a match per sample. Floor-modulo needs a non-zero length, so a buffer's declared length must be at least 1, checked when the host creates the state.
+Indexing needs a total rule, because runtime operations do not fail with a typed error (only host failures such as allocation or stack overflow end a run). Options: floor-modulo the index by the buffer length (a ring buffer, which is what delay lines and wavetables do anyway), clamp to the ends, or return `Option<Float64>`. **Owner preference (2026-10-01), provisional until the slice is decided and recorded as a decision: floor-modulo**, for `BufferGet` and `BufferSet` alike, so index `-1` is the last item. It is total, it is what ring buffers do anyway, and it adds no nodes or branches per sample. Its cost is that an index bug reads another position instead of showing up as an error; clamping would hide such a bug too, and `Option` would add a match per sample. Floor-modulo needs a non-zero length, so a buffer's declared length must be at least 1, checked when the host creates the state.
+
+Fractional positions (a wavetable phase, a modulated delay time) reach an index through the accepted conversions ([decision](../decisions/float64-to-int64.md)): `Float64FloorToInt64` gives the lower index for linear interpolation, with `pos - Int64ToFloat64(i)` as the fraction, and `Float64RoundToInt64` gives the nearest index. Both are total and use only types the processor rules above already allow, so they are allowed inside processors; whether the C# lowering of `Option` is allocation-free is checked with the rest of the allocation fact, not assumed here. They return `Option<Int64>`, `None` for NaN, the infinities and values outside Int64, so a processor matches once per conversion and chooses a fallback index (for example 0), which keeps a NaN phase from stopping the block. No processor-specific conversion is needed for the first slice; a variant that skips the `Option` waits for a measured processor that shows the match matters.
 
 ### 2. Numeric domains
 
@@ -81,7 +83,7 @@ A processor needs a loop over the samples of a block and over the taps of a filt
 
 - probe 15's **tail self-call as a loop**: unbounded iteration in ordinary code, for an event loop;
 - probe 13's **missing `while`**, written as `ListEffectFold` over a bound list;
-- the **`ListRange` candidate** (probes 5, 7, 12), waiting for a choice about huge ranges.
+- probes 5, 7 and 12's counted loop, now `ListFold` over `ListRange` (order 37, done), which builds the whole list first.
 
 An index fold, `IndexFold(count, seed, step)` that calls a pure `step(state, index)` for `index` in `0 .. count - 1`, would serve all of them without building a list. Outside processors `count` is any Int64 (`<= 0` returns the seed), and it is a total, bounded loop that the C# backend emits as a `for` loop. Inside processors `count` must be derived from `maxBlockSize`, a buffer length or a literal, so the validator can bound the work.
 
@@ -132,7 +134,7 @@ Composition logic (probe 20) stays ordinary Nyrwvy code on a non-real-time threa
 ## Recommended first slice
 
 1. A `Processor` declaration over Float64 blocks with a declared `maxBlockSize` and channel counts, numeric `state` and `params` Products, and `Float64Buffer` fields whose lengths are fixed at initialization.
-2. `BufferGet` (floor-modulo index), `BufferSet` (with the use-after-update check) and `BufferLength`.
+2. `BufferGet` (floor-modulo index), `BufferSet` (with the use-after-update check) and `BufferLength`, with `Float64FloorToInt64` and `Float64RoundToInt64` allowed for fractional positions.
 3. `IndexFold`, bounded by `maxBlockSize`, a buffer length or a literal inside processors.
 4. The three derived facts and the five diagnostics above, shown in review.
 5. C# lowering to structs, spans and in-place stores, with `runPure` running a processor over given blocks so it is testable like any function.

@@ -1,72 +1,74 @@
-# 汎用プログラミングと言語・ツール機能の実装計画
+# General-purpose programming: language and tool implementation plan
 
-- **Status:** Current
-- **Updated:** 2026-09-26
-- **対象:** 汎用的な言語機能、外部連携の契約、semantic graphの作成・保守ツール
+**Status:** Completed (2026-09-25) for the G1-G4/T1-T3 completion criteria. The follow-up work order of 2026-09-26 below is also complete.
 
-## 目的と境界
+**Updated:** 2026-09-26
 
-Nyrwvyは、永続的な型付きsemantic graphをプログラム本体とし、ソーステキストを直接編集せずにプログラムを構築・変更する層である。生成コードは投影であり、意味論の決定権を持たない。
+**Scope:** General-purpose language features, external-integration contracts, and tools for creating and maintaining the semantic graph
 
-rrawrletは不足を発見する題材であり、製品固有のLeader、Member、attempt、Applyなどをコアへ追加する計画ではない。外部ライブラリを利用してよいが、アプリの判断・制御全体をhost関数へ移すことで言語上の不足を隠さない。非同期処理や実行制御も汎用機能によって表現する。
+## Purpose and boundaries
 
-この文書は現在の到達点と次の作業を扱う。計画開始時点の制限、当時のPR状態、段階ごとの実装記録と調査根拠は[履歴](../../docs-archive/2026-09-general-purpose-programming/roadmap.md)へ分離した。履歴にある「未実装」は現在の残件ではない。
+Nyrwvy is the layer whose program is a persistent typed semantic graph, and which builds and changes programs without editing source text directly. Generated code is a projection and has no authority over semantics.
 
-## 現在の対応状況
+rrawrlet is a subject for discovering gaps; this plan does not add product-specific concepts such as Leader, Member, attempt or Apply to the core. External libraries may be used, but language gaps must not be hidden by moving the application's decisions and control as a whole into host functions. Asynchronous processing and execution control are also expressed through general-purpose features.
 
-「完了」は各項目の限定された完了条件を満たすという意味であり、汎用言語としての全機能を備えたという意味ではない。正確な契約は[language subset](../reference/language-subset.md)とリンク先の仕様を参照する。
+This document covers the current state and the next work. The limits at the start of the plan, the PR states of that time, the per-stage implementation records and the investigation evidence were moved to the [history](../../docs-archive/2026-09-general-purpose-programming/roadmap.md). Something marked "not implemented" in the history is not a current remaining item.
 
-| ID | 到達点 | 現在の対応 | 残る境界 |
+## Current coverage
+
+"Complete" means that each item's bounded completion criteria are met, not that every feature of a general-purpose language exists. For exact contracts, see the [language subset](../reference/language-subset.md) and the linked specifications.
+
+| ID | Goal | Current coverage | Remaining boundary |
 | --- | --- | --- | --- |
-| G1 | 集計・実行時キー検索を通常authoringから実行 | `ListFold`、文脈付きcallback、先頭一致検索・要素取得の合成、文字列等値・結合・Int64変換、Pythonと同じ床除算・剰余の`Int64FloorDivide`/`Int64FloorModulo`（除数0でも失敗しない）、code point単位の`StringLength`と範囲を丸める`StringSlice`、範囲外で`None`を返す`ListItemAt`、等値比較可能な型（Float64・関数・taskを含まない型）の構造的等値`ValueEqual`、code point順の文字列順序`StringLessThan`、純粋な比較callbackによる安定ソート`ListSortBy`、`BoolNot`と右辺を必要時のみ評価する`BoolAnd`/`BoolOr`。`ListEffectFold`は順序付き効果と最初のErrでの停止に対応。 | 純粋なfold自体の早期停止、Map/Set（[保留の判断](../decisions/bool-operators-and-map.md)、[再検討後も保留](../decisions/task-fields-list-indexing-and-map.md)、[`ValueEqual`追加後も保留](../decisions/value-equality-and-map.md)）や追加文字列操作は具体的要求に応じて選ぶ。 |
-| G2 | 本体を複製しない文脈・型・述語の再利用 | 関数型パラメーター、明示的な文脈引数、[純粋・captureなしの関数値](../specs/pure-function-values.md)。 | 一般closure、型パラメーター付きProduct/Union、制約付き型パラメーター、効果付き関数値。 |
-| G3 | 別モジュールの外部実装と型付き値・失敗の接続 | 明示的なC# `ExternalImplementation`、共通runnerの`hostSources`/`hostCapability`、複合値・`Result`・host例外の診断。[純粋なプログラム内実装](../specs/program-capability-implementations.md)。 | 状態・効果を持つプログラム内Capability実装。`FailureType`はC# backendで明示的に非対応。 |
-| G4 | 構造化された並行処理と後始末 | `UseResource`、`ParallelAll`、協調的キャンセル、全workerの終了待ち、[並行Capability共有契約](../specs/parallel-capability-sharing.md)、[task scope](../decisions/concurrency-control.md)内のtask開始・待機（Any/All）・個別キャンセル（第1段階）、宣言型のfieldへの`Task<T>`保持（`TaskScope`は不可、Capability境界と`runPure`の値には推移的に不可）と、`runPure`の仮想時計による決定的な待機時間制限（第2段階）。 | 宣言された並行安全性（Q-010）は必要が示された場合のみ再検討。独自scheduler、所有権・借用は未導入。 |
-| T1 | reviewを伴う宣言変更・削除 | Product field追加・削除・型移行、引数/戻り値型移行、field付きvariant追加、不要関数・型・Effect・Capability/Operationの削除。 | Capability signature移行、Union variant field型移行、自動書き換え、汎用migration DSL。 |
-| T2 | 複数・多段依存の再現と明示的更新 | 内容保持sidecar、同一内容の同一IDのみ共有、ダイヤモンド依存、更新previewとreview済みfingerprintに束縛した適用。 | 更新と局所migrationの同時公開、registry、オンライン配布、semantic merge。 |
-| T3 | 共通の実行・テスト・診断経路 | `runPure`による型付き入出力・期待値・fake/host Capability実行、semantic ID付き診断、通常ツール/MCP。Float64の入出力（最短往復表現のJSON数値と`"NaN"`/`"Infinity"`/`"-Infinity"`/`"-0"`、NaN同士を等しいとするビット単位の一致判定）と`Int64ToFloat64`変換は[probe 3の要求で追加](../decisions/float64-conversion-and-run-values.md)。 | 宣言済み`failureType`を持つoperationは引き続き非対応。Float64からInt64への変換と10進丸めは具体的要求まで保留。新しい意味論に必要な入出力・診断を個別に追加する。完全なdebuggerは前提にしない。 |
+| G1 | Aggregation and runtime keyed lookup through ordinary authoring | `ListFold`, callbacks with context, composition of first-match search and item access, String equality, concatenation and Int64 conversion, `Int64FloorDivide`/`Int64FloorModulo` with the same floor division and modulo as Python (they do not fail even for a divisor of 0), `StringLength` counted in code points and a range-clamping `StringSlice`, `ListItemAt` returning `None` out of range, structural equality `ValueEqual` for equatable types (types that contain no Float64, functions or tasks), code-point String ordering `StringLessThan`, stable sorting with a pure comparison callback `ListSortBy`, and `BoolNot` and `BoolAnd`/`BoolOr`, which evaluate the right operand only when needed. `ListEffectFold` supports ordered effects and stopping at the first Err. | Early exit from a pure fold itself, Map/Set ([deferred](../decisions/bool-operators-and-map.md), [still deferred after revisiting](../decisions/task-fields-list-indexing-and-map.md), [still deferred after adding `ValueEqual`](../decisions/value-equality-and-map.md)) and further String operations are chosen according to concrete requirements. |
+| G2 | Reuse of context, types and predicates without duplicating bodies | Function-typed parameters, explicit context arguments, [pure capture-free function values](../specs/pure-function-values.md). | General closures, Product/Union with type parameters, constrained type parameters, effectful function values. |
+| G3 | Connecting external implementations in another module with typed values and failures | Explicit C# `ExternalImplementation`, the shared runner's `hostSources`/`hostCapability`, diagnostics for composite values, `Result` and host exceptions. [Pure in-program implementations](../specs/program-capability-implementations.md). | In-program Capability implementations with state or effects. `FailureType` is explicitly unsupported by the C# backend. |
+| G4 | Structured concurrency and cleanup | `UseResource`, `ParallelAll`, cooperative cancellation, waiting for every worker to finish, the [parallel Capability sharing contract](../specs/parallel-capability-sharing.md), starting tasks, waiting (Any/All) and cancelling individual tasks within a [task scope](../decisions/concurrency-control.md) (phase 1), holding `Task<T>` in fields of declared types (not `TaskScope`, and transitively not across a Capability boundary or in `runPure` values), and deterministic wait time limits on `runPure`'s virtual clock (phase 2). | Declared concurrency safety (Q-010) is revisited only if a need is shown. No custom scheduler, ownership or borrowing has been introduced. |
+| T1 | Declaration changes and deletion with review | Adding and deleting Product fields and migrating their types, migrating argument/return types, adding variants with fields, deleting unused functions, types, Effects and Capabilities/Operations. | Capability signature migration, Union variant field type migration, automatic rewriting, a general-purpose migration DSL. |
+| T2 | Reproducing multiple and multi-level dependencies and updating them explicitly | Content-retaining sidecars, sharing the same ID only for identical content, diamond dependencies, update previews and application bound to a reviewed fingerprint. | Publishing an update together with a local migration, a registry, online distribution, semantic merge. |
+| T3 | A shared path for running, testing and diagnostics | Typed input/output, expected values and fake/host Capability execution through `runPure`, diagnostics with semantic IDs, ordinary tools/MCP. Float64 input/output (JSON numbers in shortest round-trip form and `"NaN"`/`"Infinity"`/`"-Infinity"`/`"-0"`, bitwise matching that treats every NaN as equal) and the `Int64ToFloat64` conversion were [added at probe 3's request](../decisions/float64-conversion-and-run-values.md). | Operations with a declared `failureType` remain unsupported. Float64 to Int64 conversion and decimal rounding are deferred until a concrete requirement. Input/output and diagnostics needed by new semantics are added one at a time. A full debugger is not assumed. |
 
-G1-G4/T1-T3の開始時の課題を再実装する段階は終えている。[本文由来のEffect要求](../specs/body-effect-requirements.md)もinspect/reviewで利用できる。派生情報は宣言を自動変更しない。
+The stage of re-implementing the starting problems of G1-G4/T1-T3 is finished. [Effect requirements derived from bodies](../specs/body-effect-requirements.md) are also available in inspect/review. Derived information does not change declarations automatically.
 
-## 次の作業順
+## Next work order
 
-2026-09-26の選択順は次の通り。
+The order chosen on 2026-09-26 is as follows.
 
-| 順序 | 作業 | 最小の範囲と完了条件 |
+| Order | Work | Minimal scope and completion criteria |
 | --- | --- | --- |
-| 1 | 現状と履歴の整理 | 本文を現在の対応表と作業順へ整理し、古い制限・調査・実装記録をarchiveへ保持する。この整理で完了。 |
-| 2 | Nyrwvy内でCapability実装を選択（実装済み） | 各operationを既存の純粋・captureなしの関数へ対応付け、Capability値を作って渡す。同じ利用側関数へ2実装を渡して結果を切り替え、通常authoring・review・保存/再オープン・共通runnerを通す。operation不足・型不一致・不純な実装を公開前に拒否する。[実行・検証記録](../verification/program-capability-implementations-20260926.md)。 |
-| 3 | abortの意味論を仕様化・実装（完了） | [型付き関数abort](../specs/typed-function-abort.md)は`Result<T,E>`関数のローカルな早期終了を定義する。解放・失敗優先順位・並行workerのキャンセルと終了待ちを明記した。[実装・検証も完了](../verification/typed-function-abort-20260926.md)。通常authoring、保存・再オープン、C#実行、解放と並行workerの失敗契約を確認した。 |
+| 1 | Organize the current state and the history | Reorganize the body into the current coverage table and the work order, and keep old limits, investigations and implementation records in the archive. Completed by this reorganization. |
+| 2 | Choose Capability implementations inside Nyrwvy (implemented) | Map each operation to an existing pure, capture-free function, create a Capability value and pass it. Pass two implementations to the same consuming function to switch the result, and go through ordinary authoring, review, save/reopen and the shared runner. Reject missing operations, type mismatches and impure implementations before publication. [Execution and verification record](../verification/program-capability-implementations-20260926.md). |
+| 3 | Specify and implement abort semantics (complete) | [Typed function abort](../specs/typed-function-abort.md) defines local early exit from a `Result<T,E>` function. It states release, failure precedence, and cancellation of and waiting for concurrent workers. [Implementation and verification are also complete](../verification/typed-function-abort-20260926.md). Ordinary authoring, save and reopen, C# execution, and the failure contract for release and concurrent workers were confirmed. |
 
-Capability実装は呼び出し側の既存Effect契約を自動で狭めない。実装が新たな効果を導入する一般形、状態・capture、継続を再開するhandlerはこの最初の段階に含めない。[Semantic independence](../concepts/semantic-independence.md)全体を採用したという意味でもない。
+A Capability implementation does not automatically narrow the caller's existing Effect contract. The general form in which an implementation introduces new effects, state and capture, and handlers that resume a continuation are not part of this first stage. Nor does it mean that [Semantic independence](../concepts/semantic-independence.md) has been adopted as a whole.
 
-rrawrlet sliceの調査結果に基づく実装キューは[post-M2 roadmap](post-m2-roadmap.md#immediate-execution-queue)で管理する。
+The implementation queue based on the rrawrlet slice findings is maintained in the [post-M2 roadmap](post-m2-roadmap.md#language-and-tool-implementation-record).
 
-当該3作業とabort実装は完了。[通常ツールだけで構築する実用例](../../examples/function-abort/README.md)も追加した。次の機能拡張はこの経路で実際の処理を構築し、不足が確認されたものから選ぶ。
+These three work items and the abort implementation are complete. A [practical example built only with the ordinary tools](../../examples/function-abort/README.md) was also added. The next feature extensions are chosen by building real processing through this path and picking what is confirmed to be missing.
 
-## 各作業で維持する条件
+## Conditions every work item maintains
 
-- 対象処理、現在の制限、最小変更、意味論・identity・reviewの不変条件、完了条件を明示する。
-- 既存機能やライブラリで表現できるかを確認し、コアノードや共通基盤を必要以上に増やさない。
-- 作成・inspect・変更の経路を共有ツール層/MCPから利用可能にする。機能ごとのtop-levelツール追加は必須ではない。
-- 新規IDはシステムが割り当て、既存IDを保持する。未修正参照・型不正を公開しない。
-- 作業開始時に対象ブランチと関連PRを確認し、完了済み・準備済みの仕事を重複させない。
+- State the target processing, the current limit, the minimal change, the invariants of semantics, identity and review, and the completion criteria.
+- Check whether existing features or libraries can express it, and do not add more core nodes or shared infrastructure than needed.
+- Make the create, inspect and change paths available from the shared tool layer/MCP. Adding a top-level tool per feature is not required.
+- The system assigns new IDs, and existing IDs are preserved. Do not publish unrepaired references or type errors.
+- At the start of a work item, check the target branch and related PRs, and do not duplicate completed or prepared work.
 
-## 検証と完了判断
+## Verification and completion judgment
 
-実装した範囲で「authoring → 型・効果の検証 → review/commit → 保存・再オープン → lowering/backend → 実行結果・診断」を通す。保存形式やprotocolの変更には互換性・schema versionの扱いを明記する。
+Within the implemented scope, go through "authoring → type and effect validation → review/commit → save and reopen → lowering/backend → execution results and diagnostics". For changes to the storage format or protocol, state how compatibility and the schema version are handled.
 
-[Verification philosophy](../developer/verification.md)に従い、fastには重要な契約とregression、extendedには代表的な生成・実行確認を置く。既存のlive authoring成功記録は再利用し、同じモデル評価を反復しない。実環境でしか確認できない境界を変更した場合だけ、その検証を追加する。
+Following the [Verification philosophy](../developer/verification.md), put important contracts and regressions in fast, and representative generation and execution checks in extended. Reuse existing live authoring success records and do not repeat the same model evaluation. Add a verification of a boundary that can only be confirmed in a real environment only when that boundary changes.
 
-## 条件付き・対象外の仕事
+## Conditional and out-of-scope work
 
-所有権、runtime state identity、独自scheduler、per-declaration hash、ストレージ変更、semantic mergeは具体的な要求や測定を起点に再検討する。ビルド時間の構造変更も[post-M2の条件](post-m2-roadmap.md#selection-rule-from-here)に従い、機能追加の前提にしない。
+Ownership, runtime state identity, a custom scheduler, per-declaration hashes, storage changes and semantic merge are reconsidered starting from a concrete requirement or measurement. Structural changes for build time also follow the [post-M2 conditions](post-m2-roadmap.md#selection-rule-from-here) and are not a prerequisite for adding features.
 
-Codex/OpenCode/Git等の具体的アダプター、rrawrletのUI・運用ポリシー・実行データ永続化はアプリまたはライブラリの仕事である。
+Concrete adapters such as Codex/OpenCode/Git, and rrawrlet's UI, operating policy and execution data persistence are the work of the application or libraries.
 
-## 参照
+## References
 
 - [Vision](../concepts/vision.md) / [Architecture](../developer/architecture.md)
-- [Expression authoring](../specs/expression-authoring.md) / [AuthoringSessionと依存管理](../specs/agent-authoring-session.md)
+- [Expression authoring](../specs/expression-authoring.md) / [AuthoringSession and dependency management](../specs/agent-authoring-session.md)
 - [C# backend](../specs/csharp-backend.md) / [Failure policy](../specs/failure-obligation-policy.md)
-- [Open questions](../decisions/open-questions.md) / [計画と実装の履歴](../../docs-archive/2026-09-general-purpose-programming/roadmap.md)
+- [Open questions](../decisions/open-questions.md) / [History of the plan and implementation](../../docs-archive/2026-09-general-purpose-programming/roadmap.md)

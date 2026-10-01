@@ -108,24 +108,9 @@ module NyasonSyntax =
                     | 'r' -> builder.Append('\r') |> ignore
                     | 't' -> builder.Append('\t') |> ignore
                     | 'u' ->
-                        // A surrogate is only meaningful as a pair, escaped together: a lone one
-                        // would decode to a string no encoder can write back, so it is a parse error.
-                        let escapeStart = index
-                        let unit = this.ParseUnicodeEscape()
-
-                        if Char.IsHighSurrogate unit then
-                            if index + 1 < text.Length && text[index] = '\\' && text[index + 1] = 'u' then
-                                index <- index + 2
-                                let low = this.ParseUnicodeEscape()
-                                if not (Char.IsLowSurrogate low) then
-                                    this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
-                                builder.Append(unit).Append(low) |> ignore
-                            else
-                                this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
-                        elif Char.IsLowSurrogate unit then
-                            this.FailAt(escapeStart, "Unpaired surrogate escape in string literal.")
-                        else
-                            builder.Append(unit) |> ignore
+                        // Each escape is one UTF-16 code unit: a high and a low surrogate escape in
+                        // sequence form a pair, and a lone one is kept, as a String may hold it.
+                        builder.Append(this.ParseUnicodeEscape()) |> ignore
                     | _ -> this.Fail($"Unsupported string escape '\\{escaped}'.")
                 | '\r'
                 | '\n' -> this.Fail("String literals cannot contain raw line breaks.")
@@ -263,6 +248,9 @@ module NyasonSyntax =
     let rec private writeValue (builder: StringBuilder) indent value =
         match value with
         | NyasonValue.Atom atom -> builder.Append(atom) |> ignore
+        | NyasonValue.Text text when LooseJsonString.hasLoneSurrogate text ->
+            // The serializer would replace a lone surrogate with U+FFFD; it is escaped explicitly instead.
+            builder.Append(LooseJsonString.encode Encodings.Web.JavaScriptEncoder.Default text) |> ignore
         | NyasonValue.Text text -> builder.Append(JsonSerializer.Serialize(text)) |> ignore
         | NyasonValue.Boolean value -> builder.Append(if value then "true" else "false") |> ignore
         | NyasonValue.List [] -> builder.Append("[]") |> ignore

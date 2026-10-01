@@ -13,6 +13,8 @@ This directory defines the first controlled Milestone 2 structural-editing corpu
 - Deterministic fixture source: `tests/Nyrwvy.Core.Tests/M2StructuralEvaluationCorpus.fs`
 - Fixture exporter: `tools/Nyrwvy.EvaluationFixtureExport`
 
+These paths describe the corpus as frozen. It replays only from its freeze tags (`eval/m2-agent-corpus-v1-20260830` for the corpus, `eval/m2-structural-condition-v1.1-20260830` for the operator; see [evaluation freeze tags](../../docs/operations/evaluation-freeze-tags.md)): the fixture source no longer exists on main, so the bridge there refuses to start.
+
 The corpus becomes active only when issue #50 records the exact locally verified SHA of the dedicated freeze branch. Once that SHA is recorded, prompts, task classes, fixture bindings, harness perturbations, and oracles in v1 are immutable. Any semantic change requires a new corpus version.
 
 ## Authority boundary

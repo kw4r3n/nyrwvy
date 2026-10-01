@@ -33,7 +33,7 @@ Two pure builtins. Both never fail.
 
 ## Reason
 
-**Python's semantics, because the consumer is Python.** Every probe compares the port with the real Python program. `repr` is also the shortest-round-trip text that JavaScript and .NET print, apart from the layout, so it is the least surprising form. Python chose that layout for its own `str`, and `json.dumps` prints it.
+**Shortest round-trip digits, the text every backend can print.** The shortest text that reads back as the same binary64 is what JavaScript, .NET and Python all print, apart from the layout, so it is the least surprising form and does not depend on a backend's formatting choices. Of the layouts, Python's `repr` (also what `json.dumps` prints) has a fixed rule for when to switch to exponent form, which makes it a complete specification. That the probes compare ports with Python programs made this choice easy to check; it is not the reason for it.
 
 **Only the JSON grammar.** Python `float()` also accepts whitespace, `_` separators, `inf`/`nan`/`infinity` in any case, `+`, `.5` and `5.`. A program that needs any of those can test for it with the String builtins before converting. Accepting them would make every caller that parses one grammar reject the others itself. The one extension, leading zeros, keeps `StringParseFloat64` accepting every text `StringParseInt64` accepts.
 

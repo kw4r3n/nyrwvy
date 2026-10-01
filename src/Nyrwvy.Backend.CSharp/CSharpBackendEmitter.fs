@@ -224,6 +224,7 @@ module CSharpBackend =
         writer.Line("return NyOption<long>.None();")
         writer.Pop()
         writer.Line("}")
+        writer.Line("public static bool Contains(string text, string value) => Find(text, value, 0) >= 0;")
         writer.Line("public static bool StartsWith(string text, string prefix) => text.StartsWith(prefix, StringComparison.Ordinal) && IsBoundary(text, prefix.Length);")
         writer.Line("public static bool EndsWith(string text, string suffix) => text.EndsWith(suffix, StringComparison.Ordinal) && IsBoundary(text, text.Length - suffix.Length);")
         writer.Line("public static NyList<NyStr> Split(string text, string separator)")
@@ -1513,7 +1514,7 @@ module CSharpBackend =
             writer.Pop()
             writer.Line("}")
         | ExecutionInstructionKind.StringContains(sourceValueId, substringId) ->
-            writer.Line(target + " = ((string)" + valueName sourceValueId + ").Contains(" + valueName substringId + ", StringComparison.Ordinal);")
+            writer.Line(target + " = NyText.Contains(" + valueName sourceValueId + ", " + valueName substringId + ");")
         | ExecutionInstructionKind.StringIndexOf(sourceValueId, substringId, fromId) ->
             writer.Line(target + " = NyText.IndexOf(" + valueName sourceValueId + ", " + valueName substringId + ", " + valueName fromId + ");")
         | ExecutionInstructionKind.StringSpan(sourceValueId, setId, fromId) ->

@@ -52,6 +52,16 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Codex CLI MCP maintenance probe, Run 1](codex-cli-mcp-maintenance-probe.md) — host approval blocker
 - [Codex CLI MCP maintenance probe, Run 2](codex-cli-mcp-maintenance-probe-run-2.md) — qualified maintenance success
 - [Expression recipe reference live probe](expression-recipe-reference-live-probe.md)
+- [rrawrlet slice re-probe](rrawrlet-slice-reprobe-20260928.md): the 2026-09-25 slice re-run after orders 1-5, by name only; data processing matches Python and the leader skeleton passes its scenarios
+- [rrawrlet slice probe 3](rrawrlet-slice-probe3-20260928.md): the rebuilt slice without the workarounds orders 6-10 removed, plus `usage_stats`'s aggregation core, matching Python
+- [rrawrlet slice probe 4](rrawrlet-slice-probe4-20260929.md): `review.parse_findings` and the pure core of `repo_map`, 23/23 against Python; per-character recursion overflowed at about 7.7K characters
+- [rrawrlet slice probe 5](rrawrlet-slice-probe5-20260930.md): probe 4's slice re-authored with orders 17-22, 24/24 against Python with no depth workaround
+- [rrawrlet slice probe 6](rrawrlet-slice-probe6-20260930.md): `LeaderGuard`'s snapshot read path with state threaded through an effectful fold, 16/16 request sequences against Python
+- [rrawrlet slice probe 7](rrawrlet-slice-probe7-20260929.md): the OpenCode event observer over untyped JSON, 35/35 against Python; recursive types by name were the blocker (order 26)
+- [rrawrlet slice probe 8](rrawrlet-slice-probe8-20260929.md): secret redaction over decoded JSON and the `diagnostics.py` helpers, 113/113 against Python
+- [rrawrlet slice probe 9](rrawrlet-slice-probe9-20260930.md): the Team tool relay (`json.loads`, JSON-RPC, `Team.dispatch`, `json.dumps`), 226/228 against Python after order 28's code-point conversion
+- [rrawrlet slice probe 10](rrawrlet-slice-probe10-20260930.md): `opencode_config.py`'s configuration and model catalog code, 317/320 against Python on the first run; one quadratic scan restructured as a fold
+- [rrawrlet slice probe 11](rrawrlet-slice-probe11-20260930.md): `snapshot.py`'s transcript reduction and `model_health.py`, 301/304 against Python; nothing blocked or queued
 - [rrawrlet slice probe 12](rrawrlet-slice-probe12-20261001.md): `condense` material, cache key (SHA-256 in Int64 arithmetic) and citations, 304/304 against Python
 - [rrawrlet slice probe 13](rrawrlet-slice-probe13-20261001.md): `ref_backup` (Git ref snapshots and changes) and `supervisor` (`argparse` command line, a clocked poll and cleanup state machine), 371/371 against Python after 2 port bugs
 - [rrawrlet slice probe 14](rrawrlet-slice-probe14-20261001.md): `repo_map` (tree-sitter outline over a `Host` parse, `os.walk`/`git ls-files`, bytes as latin-1 Strings with a hand-written UTF-8 decoder), 310/310 against Python on the first run

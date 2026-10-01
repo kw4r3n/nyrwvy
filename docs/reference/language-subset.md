@@ -68,7 +68,7 @@ Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
 
 `Int64Min(left, right)` and `Int64Max(left, right)` yield the smaller and the larger operand, Python `min` and `max` of two values. `Int64WrappingAbs(value)` yields the absolute value with two's-complement wrapping, so `Int64.MinValue` gives `Int64.MinValue`, where Python `abs` gives `2^63`; this is the same wrapping as `Int64.MinValue / -1` below. All three never fail ([decision](../decisions/standard-operation-choices.md)).
 
-`Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like every runtime operation of this subset (compare `StringSlice` clamping), they never fail: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
+`Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like the other runtime operations of this subset (compare `StringSlice` clamping), they never fail with an error; only host failures such as an allocation too large for `ListRange` or `StringRepeat`, or recursion too deep, end a run: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
 
 Checked arithmetic, implicit conversion, and a broader numeric tower are not part of this contract.
 
@@ -80,7 +80,7 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringCodePoints(text)` returns a `List<String>` holding each code point of `text` as a one-code-point `String`, in order. It counts code points as `StringLength` and `StringSlice` do: a valid surrogate pair is one item, and an unpaired surrogate code unit is its own one-unit item, so the list length always equals `StringLength(text)` and concatenating the items gives back `text`. It runs in linear time and never fails; the empty String gives the empty list. Iterate text with `ListFold` (or `ListMap`, `ListFilter`, `ListAny`) over `StringCodePoints` rather than with self-recursion that slices one character per call, which overflows the stack at a few thousand characters.
 
-`StringIndexOf(text, substring, from)` yields `Option<Int64>`: the code-point position of the first ordinal occurrence of `substring` that starts at or after `from`, or `None`. `from` is clamped to `[0, StringLength(text)]` like a `StringSlice` bound (negative is 0, not counted from the end), and an empty substring is found at the clamped `from`. `StringLastIndexOf(text, substring)` yields the position of the last occurrence, with an empty substring found at `StringLength(text)`. `StringStartsWith(text, prefix)` and `StringEndsWith(text, suffix)` yield Bool; an empty prefix or suffix always matches. `StringSplit(text, separator)` yields the `List<String>` of pieces between non-overlapping occurrences of `separator`, left to right, keeping empty pieces (`"a,,b"` gives `["a", "", "b"]` and `""` gives `[""]`); an empty separator yields `[text]`. All five compare ordinally without culture, case folding or normalization, count positions as `StringLength` does, accept a match only when it starts and ends on a code-point boundary (so no match splits a surrogate pair), and never fail. Apart from the clamped `from` and the empty separator they agree with Python's `str.find`, `rfind`, `startswith`, `endswith` and `split(sep)` ([decision](../decisions/string-search-and-affixes.md)).
+`StringIndexOf(text, substring, from)` yields `Option<Int64>`: the code-point position of the first ordinal occurrence of `substring` that starts at or after `from`, or `None`. `from` is clamped to `[0, StringLength(text)]` like a `StringSlice` bound (negative is 0, not counted from the end), and an empty substring is found at the clamped `from`. `StringLastIndexOf(text, substring)` yields the position of the last occurrence, with an empty substring found at `StringLength(text)`. `StringStartsWith(text, prefix)` and `StringEndsWith(text, suffix)` yield Bool; an empty prefix or suffix always matches. `StringSplit(text, separator)` yields the `List<String>` of pieces between non-overlapping occurrences of `separator`, left to right, keeping empty pieces (`"a,,b"` gives `["a", "", "b"]` and `""` gives `[""]`); an empty separator yields `[text]`. `StringContains(text, substring)` is true exactly when `StringIndexOf(text, substring, 0)` is `Some`. All six compare ordinally without culture, case folding or normalization, count positions as `StringLength` does, accept a match only when it starts and ends on a code-point boundary (so no match splits a surrogate pair), and never fail. Apart from the clamped `from` and the empty separator they agree with Python's `str.find`, `rfind`, `startswith`, `endswith` and `split(sep)` ([decision](../decisions/string-search-and-affixes.md)).
 
 `StringSpan(text, set, from)` yields the `Int64` code-point position of the first code point at or after `from` that is not a member of `set`, or `StringLength(text)` when there is none; `StringSpanBack(text, set, end)` yields the least position `p <= end` such that every code point in `[p, end)` is a member. A member is any code point of the String `set`, counted as `StringLength` counts (a surrogate pair is one code point, an unpaired surrogate its own). `from` and `end` are clamped to `[0, StringLength(text)]` like `StringSlice` bounds, and an empty set yields the clamped bound. They are Python's `lstrip(set)` and `rstrip(set)` as positions, so `text.strip(set)` is `StringSlice(text, StringSpan(text, set, 0), StringSpanBack(text, set, StringLength(text)))`. Both run in linear time and never fail ([decision](../decisions/string-spans.md)).
 
@@ -94,7 +94,7 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringJoin(list, separator)` takes a `List<String>` and a String and yields the items in order with `separator` between adjacent items, Python `separator.join(list)`: an empty list gives `""`, a one-item list gives that item, and `StringJoin(StringSplit(t, s), s) = t` for every non-empty `s`. The items and separator are concatenated as `StringConcat` does. `ListSlice(list, start, end)` takes a `List<T>` for any item type and two Int64 bounds and yields the `List<T>` of the items at positions `[start, end)`, clamped exactly like `StringSlice`: both bounds are clamped to `[0, ListLength(list)]`, a negative bound is 0 and is not counted from the end (unlike Python `list[start:end]`), and `end <= start` gives the empty list. Both never fail ([decision](../decisions/string-join-and-list-slice.md)). `ListReverse(list)` yields the items of a `List<T>` in reverse order as a `List<T>` of the same type, Python `list(reversed(list))`; it runs in linear time and never fails ([decision](../decisions/standard-operations.md)).
 
-`ListRange(start, end)` yields the `List<Int64>` `start, start + 1, …, end - 1`, Python `list(range(start, end))`; `end <= start` gives the empty list. `StringRepeat(text, count)` yields `text` repeated `count` times, Python `text * count`; `count <= 0` or an empty `text` gives `""`. Both run in time linear in the result. A result too large to allocate (more items than an array can hold, or memory exhausted) is a host failure that stops the run, as it already is for a chain of `ListConcat` or `StringConcat` that doubles its value; neither returns `Option`, because the real limit is memory, not a fixed size ([decision](../decisions/standard-operation-choices.md)). A `ListFold` or `ListEffectFold` over `ListRange(0, n)` is a counted loop, and `ListEffectFold`'s early stop makes it a bounded while loop.
+`ListRange(start, end)` yields the `List<Int64>` `start, start + 1, …, end - 1`, Python `list(range(start, end))`; `end <= start` gives the empty list. `StringRepeat(text, count)` yields `text` repeated `count` times, Python `text * count`; `count <= 0` or an empty `text` gives `""`. The result is the UTF-16 units of `text` repeated, so a text ending in a high surrogate and starting with a low surrogate forms a pair at each seam, as `StringConcat` of the same pieces does (`StringLength` of `"\uDE00x\uD83D"` repeated twice is 5, where Python's code-point strings give 6). Both run in time linear in the result. A result too large to allocate (more items than an array can hold, or memory exhausted) is a host failure that stops the run, as it already is for a chain of `ListConcat` or `StringConcat` that doubles its value; neither returns `Option`, because the real limit is memory, not a fixed size ([decision](../decisions/standard-operation-choices.md)). A `ListFold` or `ListEffectFold` over `ListRange(0, n)` is a counted loop, and `ListEffectFold`'s early stop makes it a bounded while loop.
 
 `Int64ToHexString(value)` formats an Int64 as lowercase hexadecimal with the fewest digits, Python `format(value, "x")`: a leading `-` only for negative values (`-255` is `"-ff"`, `Int64.MinValue` is `"-8000000000000000"`), no `0x` prefix and no padding (pad with `StringRepeat`). `StringParseInt64Hex(text)` yields `Option<Int64>`: `Some` only when the whole String is an optional `-` followed by one or more ASCII hexadecimal digits of either case and the value fits Int64. Leading zeros and `-0` are accepted; `0x`, `+`, whitespace, `_`, non-ASCII digits, empty text and overflow yield `None`, where Python `int(text, 16)` accepts the first four. It is as strict as `StringParseInt64` and never fails, and `StringParseInt64Hex(Int64ToHexString(v))` is `Some(v)` for every Int64.
 
@@ -126,7 +126,7 @@ ListAll
 
 `ListAppendItem` onto the list the previous append produced is amortised constant time, so a `ListFold` that appends one item per step builds its list in linear time, and `StringJoin` of such a list is a linear text builder. `StringConcat` onto the String the previous concatenation produced is likewise amortised in the length of its right operand, so a `ListFold` that concatenates one piece per step is also linear. Values are unaffected: appending or concatenating onto an older value, or twice onto the same one, gives independent values.
 
-Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Generic lambdas/closures are not part of the current subset.
+Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Purity here is the same transitive rule as for [function values](#pure-function-values): a callback has no required effects and neither it nor any function it reaches invokes a capability, uses a resource, starts, waits for or cancels a task, runs `ParallelAll`, or reads `CancellationRequested`. Generic lambdas/closures are not part of the current subset.
 
 `ListEffectFold(source, seed, folder, context)` is the exception with an explicit contract: its folder may use effects the enclosing function declares, and runs once per item, left to right. It is also the fold that stops early. When the folder returns `Result<S, E>` for seed `S` (pure or effectful), the node yields `Result<S, E>` and calls the folder for no item after the first `Err`. With a pure folder no effect is needed, so Python code that raises inside a loop is one folder returning `Result`, with no `Result` accumulator and no pass-through `Err` arm ([decision](../decisions/result-fold-short-circuit.md)).
 
@@ -234,6 +234,7 @@ The current recipe covers primitive scalar expressions, the implemented pure-cal
 
 ```text
 Parameter(ParameterId)
+ParameterSlot(index)
 PatternReference(RecipePatternReference)
 StringLiteral
 BoolLiteral
@@ -272,6 +273,8 @@ Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
 Float64IsNaN / IsFinite / IsInfinite
 Int64ToFloat64
+Float64ToString
+StringParseFloat64
 Float64RoundToInt64 / FloorToInt64
 Float64Sqrt / Abs / Negate
 Float64Floor / Ceiling / Truncate
@@ -288,6 +291,14 @@ ListReverse
 ListAppendItem
 ListConcat
 ListFold
+ListEffectFold
+ParallelAll
+CancellationRequested
+TaskScope
+TaskStart
+TaskWait
+TaskCancel
+UseResource
 ListMap
 ListFilter
 ListSortBy
@@ -301,6 +312,7 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
+Abort
 CapabilityConstruct
 FunctionReference
 FunctionInvoke

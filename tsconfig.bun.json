@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.adapters.json",
   "compilerOptions": {
     "types": ["node", "bun-types/test"]
   },
