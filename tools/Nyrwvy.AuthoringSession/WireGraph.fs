@@ -62,6 +62,8 @@ module internal WireGraph =
         | SemanticNodeKind.StringCodePoints value -> unary "stringCodePoints" value
         | SemanticNodeKind.StringToLower value -> unary "stringToLower" value
         | SemanticNodeKind.StringDecodeUtf8Lossy value -> unary "stringDecodeUtf8Lossy" value
+        | SemanticNodeKind.Float64RoundToInt64 value -> unary "float64RoundToInt64" value
+        | SemanticNodeKind.Float64FloorToInt64 value -> unary "float64FloorToInt64" value
         | SemanticNodeKind.StringUtf8ByteCount value -> unary "stringUtf8ByteCount" value
         | SemanticNodeKind.StringFromCodePoint value -> unary "stringFromCodePoint" value
         | SemanticNodeKind.StringToCodePoint value -> unary "stringToCodePoint" value

@@ -692,6 +692,18 @@ module SnapshotValidator =
                             $"StringDecodeUtf8Lossy node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64RoundToInt64 node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64FloorToInt64 node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
                     | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1685,6 +1697,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
+                | SemanticNodeKind.Float64RoundToInt64 _
+                | SemanticNodeKind.Float64FloorToInt64 _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _

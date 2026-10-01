@@ -236,6 +236,11 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
     /// point above U+00FF reads as the invalid byte 0xFF. Never fails.
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
+    /// Python round(value) as Option<Int64>: the nearest integer, ties to even. None for NaN, an
+    /// infinity, or a result outside Int64 (where Python would give a larger int). Never fails.
+    | Float64RoundToInt64 of valueNodeId: GraphNodeId
+    /// Python math.floor(value) as Option<Int64>, with None in the same cases as Float64RoundToInt64.
+    | Float64FloorToInt64 of valueNodeId: GraphNodeId
     /// Number of bytes in the UTF-8 encoding of the String, as an Int64; an unpaired surrogate
     /// counts as 3 bytes (its U+FFFD replacement, as WTF-8 also does). Never fails.
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
@@ -524,6 +529,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringCodePoints valueNodeId
         | SemanticNodeKind.StringToLower valueNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
+        | SemanticNodeKind.Float64RoundToInt64 valueNodeId
+        | SemanticNodeKind.Float64FloorToInt64 valueNodeId
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId
         | SemanticNodeKind.StringFromCodePoint valueNodeId
         | SemanticNodeKind.StringToCodePoint valueNodeId
@@ -655,6 +662,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToLower valueNodeId -> SemanticNodeKind.StringToLower(mapNodeId valueNodeId)
             | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId -> SemanticNodeKind.StringDecodeUtf8Lossy(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64RoundToInt64 valueNodeId -> SemanticNodeKind.Float64RoundToInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Float64FloorToInt64 valueNodeId -> SemanticNodeKind.Float64FloorToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringUtf8ByteCount valueNodeId -> SemanticNodeKind.StringUtf8ByteCount(mapNodeId valueNodeId)
             | SemanticNodeKind.StringFromCodePoint valueNodeId -> SemanticNodeKind.StringFromCodePoint(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToCodePoint valueNodeId -> SemanticNodeKind.StringToCodePoint(mapNodeId valueNodeId)
@@ -855,6 +864,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringCodePoints _
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.Float64RoundToInt64 _
+        | SemanticNodeKind.Float64FloorToInt64 _
         | SemanticNodeKind.StringUtf8ByteCount _
         | SemanticNodeKind.StringFromCodePoint _
         | SemanticNodeKind.StringToCodePoint _

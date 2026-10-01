@@ -277,6 +277,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringCodePoints value -> one ExpressionRecipe.StringCodePoints value
             | ExpressionRecipe.StringToLower value -> one ExpressionRecipe.StringToLower value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> one ExpressionRecipe.StringDecodeUtf8Lossy value
+            | ExpressionRecipe.Float64RoundToInt64 value -> one ExpressionRecipe.Float64RoundToInt64 value
+            | ExpressionRecipe.Float64FloorToInt64 value -> one ExpressionRecipe.Float64FloorToInt64 value
             | ExpressionRecipe.StringUtf8ByteCount value -> one ExpressionRecipe.StringUtf8ByteCount value
             | ExpressionRecipe.StringFromCodePoint value -> one ExpressionRecipe.StringFromCodePoint value
             | ExpressionRecipe.StringToCodePoint value -> one ExpressionRecipe.StringToCodePoint value

@@ -31,6 +31,8 @@ type ExpressionRecipe =
     | StringCodePoints of ExpressionRecipe
     | StringToLower of ExpressionRecipe
     | StringDecodeUtf8Lossy of ExpressionRecipe
+    | Float64RoundToInt64 of ExpressionRecipe
+    | Float64FloorToInt64 of ExpressionRecipe
     | StringUtf8ByteCount of ExpressionRecipe
     | StringFromCodePoint of ExpressionRecipe
     | StringToCodePoint of ExpressionRecipe
@@ -187,6 +189,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringCodePoints value -> ExpressionRecipe.StringCodePoints(go value)
         | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
+        | ExpressionRecipe.Float64RoundToInt64 value -> ExpressionRecipe.Float64RoundToInt64(go value)
+        | ExpressionRecipe.Float64FloorToInt64 value -> ExpressionRecipe.Float64FloorToInt64(go value)
         | ExpressionRecipe.StringUtf8ByteCount value -> ExpressionRecipe.StringUtf8ByteCount(go value)
         | ExpressionRecipe.StringFromCodePoint value -> ExpressionRecipe.StringFromCodePoint(go value)
         | ExpressionRecipe.StringToCodePoint value -> ExpressionRecipe.StringToCodePoint(go value)
@@ -398,6 +402,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints child
         | ExpressionRecipe.StringToLower child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
+        | ExpressionRecipe.Float64RoundToInt64 child
+        | ExpressionRecipe.Float64FloorToInt64 child
         | ExpressionRecipe.StringUtf8ByteCount child
         | ExpressionRecipe.StringFromCodePoint child
         | ExpressionRecipe.StringToCodePoint child
@@ -1083,6 +1089,10 @@ module AgentExpressionStructuralWorkflow =
                 unary "StringCodePoints" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value
             | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary "StringDecodeUtf8Lossy" stringType stringType value
+            | ExpressionRecipe.Float64RoundToInt64 value ->
+                unary "Float64RoundToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+            | ExpressionRecipe.Float64FloorToInt64 value ->
+                unary "Float64FloorToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
             | ExpressionRecipe.StringFromCodePoint value ->
                 unary "StringFromCodePoint" int64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])) value
@@ -1994,6 +2004,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
         | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
+        | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
+        | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
         | ExpressionRecipe.StringUtf8ByteCount value -> unary SemanticNodeKind.StringUtf8ByteCount value
         | ExpressionRecipe.StringFromCodePoint value -> unary SemanticNodeKind.StringFromCodePoint value
         | ExpressionRecipe.StringToCodePoint value -> unary SemanticNodeKind.StringToCodePoint value

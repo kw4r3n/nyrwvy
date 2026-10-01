@@ -60,7 +60,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [rrawrlet slice probe 17](rrawrlet-slice-probe17-20261001.md): `verify` (`shlex.split`/`join`, check-spec validation, registered checks, `_run_check`'s `try`/`except`/`finally` over a `Host`, views of corrupted records), 1,094/1,094 against Python on the first run; no blocker
 - [rrawrlet slice probe 18](rrawrlet-slice-probe18-20261001.md): the rest of `review` (`parse_findings` without a regex engine, `git_diff` with a lossy UTF-8 decode, `collect_diff`, `review`'s validation and record over a `Host`), 828/828 against Python; probe 5's three divergences now match; no blocker
 - [rrawrlet slice probe 19](rrawrlet-slice-probe19-20261001.md): `web_live_requests` with `_read_json`'s body step (strict UTF-8 from the lossy builtin, `json.loads` with big integers, field checks, `to_args` as one `ProductUpdate`), 2,762/2,775 against Python on the first run (8 surrogate-pair divergences, 5 cases beyond `runPure` limits); no blocker
-- [Music-logic probe 20](music-logic-probe20-20261001.md): #283's just-intonation module (exact ratios at the Int64 edge, prime vectors, degree, voicing, cents and 41-EDO steps, `exp2`, compromise score, `NoteSink` progression), 3,400/3,400 against Python; no blocker; Float64 to Int64 rounding meets the issue's decision rule
+- [Music-logic probe 20](music-logic-probe20-20261001.md): #283's just-intonation module (exact ratios at the Int64 edge, prime vectors, degree, voicing, cents and 41-EDO steps, `exp2`, compromise score, `NoteSink` progression), 3,400/3,400 against Python; no blocker; Float64 to Int64 rounding met the issue's decision rule and became order 34
 
 ## Project review and follow-ups
 

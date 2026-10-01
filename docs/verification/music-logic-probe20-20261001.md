@@ -1,6 +1,6 @@
 # Music-logic probe 20 — 2026-10-01
 
-**Status:** Complete. Issue #283's just-intonation module was authored by name from a fresh snapshot: exact ratios, prime-exponent vectors over 2 to 13, the degree (親等) and the simple-interval rule, chords with a voicing rule, frequencies, cents with the nearest n-EDO step (41-EDO steps, minutes and seconds), the frequency of an EDO step, the total compromise score (総合妥協度) and a chord progression emitted through a `NoteSink` capability. The port matched a Python reference (`fractions`, `math`) on **3,400/3,400 cases**, including all 385 `NoteSink` calls in order. The only difference on the first full run was a bug in the reference, not in the port. **Nothing is blocked.** One candidate meets the issue's decision rule: converting a Float64 to an Int64 with Python's rounding, needed here for the step index and observed before in probe 15.
+**Status:** Complete. Issue #283's just-intonation module was authored by name from a fresh snapshot: exact ratios, prime-exponent vectors over 2 to 13, the degree (親等) and the simple-interval rule, chords with a voicing rule, frequencies, cents with the nearest n-EDO step (41-EDO steps, minutes and seconds), the frequency of an EDO step, the total compromise score (総合妥協度) and a chord progression emitted through a `NoteSink` capability. The port matched a Python reference (`fractions`, `math`) on **3,400/3,400 cases**, including all 385 `NoteSink` calls in order. The only difference on the first full run was a bug in the reference, not in the port. **Nothing is blocked.** One candidate meets the issue's decision rule: converting a Float64 to an Int64 with Python's rounding, needed here for the step index and observed before in probe 15. The owner queued it, and it is now order 34 (see [After order 34](#after-order-34)).
 
 This is the first probe outside rrawrlet's Python tooling. The numeric pressure is different: exact rational arithmetic at the edge of Int64, logarithms, powers and rounding to a step. `matchUnion`, `ProductUpdate`, Map and tail calls were not needed by the module.
 
@@ -89,7 +89,7 @@ Every recursion is bounded by the bit width (at most about 90 levels), so no cas
 
 | # | Cost | Evidence | Smallest candidate change |
 | --- | --- | --- | --- |
-| 1 | **Float64 to Int64 with rounding** | The step index is `round(cents × n / 1200)`, the seconds are `round(error × 60)`, and `exp2` needs `floor`. Written by hand as a 62-step binary search over `Int64ToFloat64` (`truncPos`), then `floorF` and `roundF` with Python's half-to-even rule: 3 functions, 95 nodes. Probe 15 converted Float64 seconds to milliseconds by hand, and probe 17 rounded with `round(x, 1)` | `Float64ToInt64` with Python's `round` (half to even) and `floor`, failing or returning `None` outside the Int64 range and for NaN or infinities. This meets the [Float64 decision](../decisions/float64-conversion-and-run-values.md)'s revisit condition (an index computed from a Float64) and the issue's rule (costly here, observed in probe 15). It needs the owner's choice |
+| 1 | **Float64 to Int64 with rounding** | The step index is `round(cents × n / 1200)`, the seconds are `round(error × 60)`, and `exp2` needs `floor`. Written by hand as a 62-step binary search over `Int64ToFloat64` (`truncPos`), then `floorF` and `roundF` with Python's half-to-even rule: 3 functions, 95 nodes. Probe 15 converted Float64 seconds to milliseconds by hand, and probe 17 rounded with `round(x, 1)` | `Float64ToInt64` with Python's `round` (half to even) and `floor`, failing or returning `None` outside the Int64 range and for NaN or infinities. This meets the [Float64 decision](../decisions/float64-conversion-and-run-values.md)'s revisit condition (an index computed from a Float64) and the issue's rule (costly here, observed in probe 15). Done as order 34 |
 | 2 | **No transcendental functions** (first observation) | `log2` (halving into [1, 2) and an `atanh` series: 4 functions, 120 nodes) and `exp2` (a Taylor series and powers of 2: 5 functions, 72 nodes). Both agree with libm to within about 1e-15 relative. The inline series hit the recipe depth limit once | None queued. A first observation. Bit-exact results across backends are the open question, and [#284](https://github.com/kw4r3n/nyrwvy/issues/284) asks it for DSP too |
 | 3 | **Exact arithmetic at the Int64 edge** (first observation) | Checked multiply and add (`mulChk`, `addChk`: 59 nodes) because wrapping is the only arithmetic; a gcd over non-positive values because −2^63 has no positive counterpart (`gneg`, `nonPos`, `cancel`: 34 nodes); comparing two ratios without multiplying, by continued fractions (`cmpF`, `cmpR`: 55 nodes) | None. Related to the unbounded-`int` observations of probes 18 and 19, but a different need: overflow detection rather than a bigger integer |
 
@@ -100,12 +100,16 @@ Not needed: a `matchUnion` default arm (the module has no union), `ProductUpdate
 | Candidate | Probes |
 | --- | --- |
 | `matchUnion` default arm (needs a decision) | 7, 10, 17, 18, 19 (5) |
-| Float64 to Int64 and rounding | 15 (milliseconds), 17 (`round(x, 1)`), 20 (step index) |
+| Float64 to Int64 and rounding | 15 (milliseconds), 17 (`round(x, 1)`), 20 (step index); `round` and `floor` done as order 34, decimal rounding still a candidate |
 | Unbounded `int` | 18, 19 (2, small) |
 | Map | 16 strong, 13 weak |
 | Tail self-call as a loop | 15 |
 | Transcendental Float64 functions | 20 |
 | Checked Int64 arithmetic | 20 |
+
+## After order 34
+
+The owner queued the first cost as order 34: [`Float64RoundToInt64` and `Float64FloorToInt64`](../decisions/float64-to-int64.md). `author.py <snapshot> order34` authors the same module with them in place of `truncPos`, `floorF` and `roundF`. Each of `floorF` and `roundF` becomes a 5-node wrapper that unwraps the `Option` (the values here are far inside the Int64 range). The module goes from 1,153 to 1,068 nodes, the rounding group from 95 to 10, and it matches the same 3,400/3,400 cases (`run-order34.txt`, `author_stats_order34.json`).
 
 ## Reproducing
 

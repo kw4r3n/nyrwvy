@@ -114,6 +114,19 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("")
+        // Float64 to Int64 as Python round(x) (ties to even) and math.floor(x). Every double in
+        // [-2^63, 2^63) converts exactly once it is integral; NaN fails both comparisons, so NaN,
+        // the infinities and anything out of range give None instead of throwing.
+        writer.Line("public static class NyNumber")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("public static NyOption<long> RoundToInt64(double value) => ToInt64(System.Math.Round(value, System.MidpointRounding.ToEven));")
+        writer.Line("public static NyOption<long> FloorToInt64(double value) => ToInt64(System.Math.Floor(value));")
+        writer.Line("private static NyOption<long> ToInt64(double integral) =>")
+        writer.Line("integral >= -9223372036854775808.0 && integral < 9223372036854775808.0 ? NyOption<long>.Some((long)integral) : NyOption<long>.None();")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
         // StringLessThan orders by Unicode code point, as StringLength and StringSlice count: a
         // surrogate pair decodes to its scalar value (above every BMP code unit) and an unpaired
         // surrogate code unit stands for itself. Ordinal UTF-16 comparison would put U+10000 and
@@ -1414,6 +1427,10 @@ module CSharpBackend =
             writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringDecodeUtf8Lossy sourceValueId ->
             writer.Line(target + " = NyText.DecodeUtf8Lossy(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.Float64RoundToInt64 sourceValueId ->
+            writer.Line(target + " = NyNumber.RoundToInt64(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.Float64FloorToInt64 sourceValueId ->
+            writer.Line(target + " = NyNumber.FloorToInt64(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringUtf8ByteCount sourceValueId ->
             writer.Line(target + " = NyText.Utf8ByteCount(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64ToString sourceValueId ->

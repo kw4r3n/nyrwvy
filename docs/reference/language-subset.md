@@ -17,7 +17,7 @@ The current primitive value domains are:
 - `Float64`;
 - `Bits32`.
 
-There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; there is no conversion from `Float64` to `Int64`. `Bits32` is not numeric and converts to and from `Int64` only explicitly (see [`Bits32`](#bits32)).
+There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; `Float64RoundToInt64` and `Float64FloorToInt64` convert back as `Option<Int64>`. `Bits32` is not numeric and converts to and from `Int64` only explicitly (see [`Bits32`](#bits32)).
 
 ## Structured values and control
 
@@ -165,11 +165,15 @@ Float64IsNaN
 Float64IsFinite
 Float64IsInfinite
 Int64ToFloat64
+Float64RoundToInt64
+Float64FloorToInt64
 Float64ToString
 StringParseFloat64
 ```
 
-`Int64ToFloat64(value)` returns the Float64 nearest to an Int64. Values with `|value| <= 2^53` convert exactly; larger ones round to nearest, ties to even, as C# `(double)long` and Python `float(int)`: `2^53 + 1` gives `2^53`, and `Int64.MaxValue` gives `2^63`. It never fails. There is no Float64 to Int64 conversion and no decimal rounding; see the [decision](../decisions/float64-conversion-and-run-values.md).
+`Int64ToFloat64(value)` returns the Float64 nearest to an Int64. Values with `|value| <= 2^53` convert exactly; larger ones round to nearest, ties to even, as C# `(double)long` and Python `float(int)`: `2^53 + 1` gives `2^53`, and `Int64.MaxValue` gives `2^63`. It never fails; see the [decision](../decisions/float64-conversion-and-run-values.md).
+
+`Float64RoundToInt64(value)` is Python `round(value)` with no digits, the nearest integer with ties to even (`2.5` gives 2, `-0.5` gives 0), and `Float64FloorToInt64(value)` is Python `math.floor(value)` (`-0.5` gives -1). Both yield `Option<Int64>`: `None` for NaN, either infinity, or a result outside Int64 (Python raises or returns a larger `int` there), and otherwise `Some` of the exact integer. Both never fail. There is no truncation, ceiling or decimal rounding (`round(x, n)`); see the [decision](../decisions/float64-to-int64.md).
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
@@ -245,6 +249,7 @@ Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
 Float64IsNaN / IsFinite / IsInfinite
 Int64ToFloat64
+Float64RoundToInt64 / FloorToInt64
 Bits32FromInt64 / ToInt64
 Bits32Xor / And / Or / Not / Add
 Bits32RotateRight / ShiftRight / ShiftLeft

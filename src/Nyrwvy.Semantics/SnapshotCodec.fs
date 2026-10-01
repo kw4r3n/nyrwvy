@@ -414,6 +414,12 @@ module SnapshotCodec =
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writer.WriteString("kind", "stringDecodeUtf8Lossy")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
+            writer.WriteString("kind", "float64RoundToInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
+            writer.WriteString("kind", "float64FloorToInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             writer.WriteString("kind", "stringUtf8ByteCount")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -1159,6 +1165,12 @@ module SnapshotCodec =
             | "stringDecodeUtf8Lossy" ->
                 ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64RoundToInt64" ->
+                ensureProperties "Float64RoundToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64RoundToInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64FloorToInt64" ->
+                ensureProperties "Float64FloorToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64FloorToInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringUtf8ByteCount" ->
                 ensureProperties "StringUtf8ByteCount node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringUtf8ByteCount(readId<GraphNodeTag> "valueNodeId" element)

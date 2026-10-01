@@ -10,7 +10,7 @@ This decision settles order 13 of the post-M2 queue: how a program gets a Float6
 
 **`Int64ToFloat64(value): Float64`.** It returns the Float64 nearest to the Int64 value. Every value with `|value| <= 2^53` converts exactly. Larger values round to nearest, ties to even, as C# `(double)long`, Java `(double)long` and Python `float(int)` do: `2^53 + 1` gives `2^53`, `2^53 + 3` gives `2^53 + 4`, and `Int64.MaxValue` gives `2^63`. Every Int64 is finite as a Float64, so the conversion never fails. Recipe and wire name `int64ToFloat64`, Nyason `int64-to-float64`. The name follows `Int64ToString`. An operand that is not Int64 reports `PureExpressionOperandTypeMismatch` in recipes and `Int64IntrinsicTypeMismatch` in persisted graphs, as for `Int64ToString`.
 
-**No Float64 to Int64 conversion and no rounding yet.**
+**No Float64 to Int64 conversion and no rounding yet.** (Superseded in part on 2026-10-01: [Float64 to Int64 with Python's rounding](float64-to-int64.md) adds `round(x)` and `math.floor(x)` as `Option<Int64>`. Decimal rounding is still deferred.)
 
 **Float64 run values.** `runPure` and `runPureByName` accept and return Float64 as `{ "kind": "float64", "value": ... }`:
 

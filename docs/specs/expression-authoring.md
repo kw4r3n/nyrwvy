@@ -87,6 +87,7 @@ ExpressionRecipe =
   | Bits32FromInt64(expr) | Bits32ToInt64(expr) | Bits32Not(expr)
   | Bits32Xor(left, right) | Bits32And(left, right) | Bits32Or(left, right) | Bits32Add(left, right)
   | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
+  | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
   | Float64ToString(expr)
   | StringParseFloat64(expr)
   | ListEmpty(itemType)
@@ -375,7 +376,11 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 ## Int64ToFloat64
 
-`Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`. There is no Float64 to Int64 conversion.
+`Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`.
+
+## Float64RoundToInt64 and Float64FloorToInt64
+
+`Float64RoundToInt64(value)` (wire `float64RoundToInt64`, Nyason `float64-round-to-int64`) and `Float64FloorToInt64(value)` (wire `float64FloorToInt64`, Nyason `float64-floor-to-int64`) take a Float64 and produce `Option<Int64>`: Python `round(value)` (ties to even) and `math.floor(value)`, `None` for NaN, the infinities and results outside Int64. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-to-int64.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
 
 ## Bits32
 

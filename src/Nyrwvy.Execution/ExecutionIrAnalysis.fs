@@ -37,6 +37,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
+        | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId
+        | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId
         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId
         | TypedSemanticNodeKind.StringToCodePoint valueNodeId
@@ -170,6 +172,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
             | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+            | TypedSemanticNodeKind.Float64RoundToInt64 _
+            | TypedSemanticNodeKind.Float64FloorToInt64 _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _
@@ -323,6 +327,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringCodePoints _
         | TypedSemanticNodeKind.StringToLower _
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+        | TypedSemanticNodeKind.Float64RoundToInt64 _
+        | TypedSemanticNodeKind.Float64FloorToInt64 _
         | TypedSemanticNodeKind.StringUtf8ByteCount _
         | TypedSemanticNodeKind.StringFromCodePoint _
         | TypedSemanticNodeKind.StringToCodePoint _
@@ -459,6 +465,8 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
             | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+            | TypedSemanticNodeKind.Float64RoundToInt64 _
+            | TypedSemanticNodeKind.Float64FloorToInt64 _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _
