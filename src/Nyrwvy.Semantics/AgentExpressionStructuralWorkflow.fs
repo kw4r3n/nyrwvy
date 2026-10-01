@@ -879,11 +879,11 @@ module AgentExpressionStructuralWorkflow =
                                 "PureExpressionListCallbackResultTypeMismatch"
                                 $"{role} predicate {callbackName callback} must return Bool; it has type {callbackSignature callback}."
                         )
-                    | Some _ when not (List.isEmpty callback.RequiredEffects) ->
+                    | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
                         Error(
                             diagnostic
                                 "PureExpressionListCallbackEffectsNotAllowed"
-                                $"{role} callback function {callbackName callback} must be pure."
+                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
                         )
                     | Some substitution -> Ok(callback, substitution)
 
@@ -923,11 +923,11 @@ module AgentExpressionStructuralWorkflow =
                                 "PureExpressionListCallbackResultTypeMismatch"
                                 $"{role} less-than callback {callbackName callback} must return Bool; it has type {callbackSignature callback}."
                         )
-                    | Some _ when not (List.isEmpty callback.RequiredEffects) ->
+                    | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
                         Error(
                             diagnostic
                                 "PureExpressionListCallbackEffectsNotAllowed"
-                                $"{role} callback function {callbackName callback} must be pure."
+                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
                         )
                     | Some substitution -> Ok(callback, substitution)
 
@@ -1429,8 +1429,8 @@ module AgentExpressionStructuralWorkflow =
                                         |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
                                     match matched with
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
-                                        if List.isEmpty folder.RequiredEffects then Ok seedType
-                                        else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"ListFold folder {callbackName folder} must be pure.")
+                                        if PureFunctions.isPure snapshot folder.Id then Ok seedType
+                                        else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"ListFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
                                     | Some current when
                                         (match TypeParameters.substitute current folder.ResultType with
                                          | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> okType = seedType
