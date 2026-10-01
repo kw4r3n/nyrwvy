@@ -37,6 +37,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringLength _
                 | TypedSemanticNodeKind.StringCodePoints _
                 | TypedSemanticNodeKind.StringToLower _
+                | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
                 | TypedSemanticNodeKind.StringUtf8ByteCount _
                 | TypedSemanticNodeKind.StringFromCodePoint _
                 | TypedSemanticNodeKind.StringToCodePoint _
@@ -116,6 +117,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _
                 | TypedSemanticNodeKind.FieldAccess _
+                | TypedSemanticNodeKind.ProductUpdate _
                 | TypedSemanticNodeKind.UnionConstruct _
                 | TypedSemanticNodeKind.OptionNone
                 | TypedSemanticNodeKind.OptionSome _

@@ -57,6 +57,7 @@ module ValueDependency =
         | SemanticNodeKind.StringParseFloat64 sourceNodeId
         | SemanticNodeKind.StringCodePoints sourceNodeId
         | SemanticNodeKind.StringToLower sourceNodeId
+        | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
         | SemanticNodeKind.StringUtf8ByteCount sourceNodeId
         | SemanticNodeKind.StringFromCodePoint sourceNodeId
         | SemanticNodeKind.StringToCodePoint sourceNodeId
@@ -207,6 +208,12 @@ module ValueDependency =
             |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
             |> List.map (fun field ->
                 create (ValueDependencyRole.FieldValue field.TargetFieldId) field.ValueNodeId)
+        | SemanticNodeKind.ProductUpdate(_, sourceNodeId, fields) ->
+            create ValueDependencyRole.Source sourceNodeId
+            :: (fields
+                |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                |> List.map (fun field ->
+                    create (ValueDependencyRole.FieldValue field.TargetFieldId) field.ValueNodeId))
         | SemanticNodeKind.OptionSome valueNodeId
         | SemanticNodeKind.ResultOk(_, valueNodeId) ->
             [ create ValueDependencyRole.Value valueNodeId ]

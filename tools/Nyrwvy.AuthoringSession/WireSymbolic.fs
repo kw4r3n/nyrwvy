@@ -295,6 +295,7 @@ module internal WireSymbolic =
         | "stringParseFloat64" -> unary "string-parse-float64 recipe" ExpressionRecipe.StringParseFloat64
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
+        | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy
         | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount
         | "stringFromCodePoint" -> unary "string-from-code-point recipe" ExpressionRecipe.StringFromCodePoint
         | "stringToCodePoint" -> unary "string-to-code-point recipe" ExpressionRecipe.StringToCodePoint
@@ -537,6 +538,20 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "source" element),
                 field.Id
             )
+        | "productUpdate" ->
+            ensureFields
+                "product-update recipe"
+                [ "kind"; "type"; "source"; "fields" ]
+                [ "kind"; "type"; "source"; "fields" ]
+                element
+            let owner = resolveType declarations (requiredString "type" element)
+            let fields =
+                array "fields" element
+                |> List.map (fun item ->
+                    ensureFields "product field recipe" [ "field"; "value" ] [ "field"; "value" ] item
+                    let field = productField owner (requiredString "field" item)
+                    field.Id, recipe declarations parameterContext (property "value" item))
+            ExpressionRecipe.ProductUpdate(owner.Id, recipe declarations parameterContext (property "source" element), fields)
         | "unionConstruct" ->
             ensureFields
                 "union-construct recipe"

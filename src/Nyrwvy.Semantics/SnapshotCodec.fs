@@ -411,6 +411,9 @@ module SnapshotCodec =
         | SemanticNodeKind.StringToLower valueNodeId ->
             writer.WriteString("kind", "stringToLower")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
+            writer.WriteString("kind", "stringDecodeUtf8Lossy")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             writer.WriteString("kind", "stringUtf8ByteCount")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -682,6 +685,16 @@ module SnapshotCodec =
             writer.WriteString("kind", "fieldAccess")
             writer.WriteString("sourceNodeId", StableId.value sourceNodeId)
             writer.WriteString("fieldId", StableId.value fieldId)
+        | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+            writer.WriteString("kind", "productUpdate")
+            writer.WriteString("typeId", StableId.value typeId)
+            writer.WriteString("sourceNodeId", StableId.value sourceNodeId)
+            writer.WritePropertyName("fields")
+            writer.WriteStartArray()
+            fields
+            |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+            |> List.iter (writeFieldValue writer)
+            writer.WriteEndArray()
         | SemanticNodeKind.UnionConstruct(variantId, fields) ->
             writer.WriteString("kind", "unionConstruct")
             writer.WriteString("variantId", StableId.value variantId)
@@ -1143,6 +1156,9 @@ module SnapshotCodec =
             | "stringToLower" ->
                 ensureProperties "StringToLower node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringToLower(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringDecodeUtf8Lossy" ->
+                ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)
             | "stringUtf8ByteCount" ->
                 ensureProperties "StringUtf8ByteCount node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringUtf8ByteCount(readId<GraphNodeTag> "valueNodeId" element)
@@ -1457,6 +1473,17 @@ module SnapshotCodec =
             | "fieldAccess" ->
                 ensureProperties "Field access node" (set [ "id"; "kind"; "sourceNodeId"; "fieldId" ]) (set [ "id"; "kind"; "sourceNodeId"; "fieldId" ]) element
                 SemanticNodeKind.FieldAccess(readId<GraphNodeTag> "sourceNodeId" element, readId<FieldTag> "fieldId" element)
+            | "productUpdate" ->
+                ensureProperties
+                    "Product update node"
+                    (set [ "id"; "kind"; "typeId"; "sourceNodeId"; "fields" ])
+                    (set [ "id"; "kind"; "typeId"; "sourceNodeId"; "fields" ])
+                    element
+                SemanticNodeKind.ProductUpdate(
+                    readId<TypeTag> "typeId" element,
+                    readId<GraphNodeTag> "sourceNodeId" element,
+                    readArray "fields" readFieldValue element
+                )
             | "unionConstruct" ->
                 ensureProperties "Union construct node" (set [ "id"; "kind"; "variantId"; "fields" ]) (set [ "id"; "kind"; "variantId"; "fields" ]) element
                 SemanticNodeKind.UnionConstruct(readId<VariantTag> "variantId" element, readArray "fields" readFieldValue element)

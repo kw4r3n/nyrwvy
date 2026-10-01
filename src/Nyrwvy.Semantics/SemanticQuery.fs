@@ -97,6 +97,7 @@ module SemanticQuery =
                     | SemanticNodeKind.StringParseFloat64 _
                     | SemanticNodeKind.StringCodePoints _
                     | SemanticNodeKind.StringToLower _
+                    | SemanticNodeKind.StringDecodeUtf8Lossy _
                     | SemanticNodeKind.StringUtf8ByteCount _
                     | SemanticNodeKind.StringFromCodePoint _
                     | SemanticNodeKind.StringToCodePoint _
@@ -156,6 +157,7 @@ module SemanticQuery =
                     | SemanticNodeKind.CapabilityInvoke _
                     | SemanticNodeKind.ProductConstruct _
                     | SemanticNodeKind.FieldAccess _
+                    | SemanticNodeKind.ProductUpdate _
                     | SemanticNodeKind.UnionConstruct _
                     | SemanticNodeKind.OptionNone _
                     | SemanticNodeKind.OptionSome _

@@ -479,6 +479,8 @@ module NyasonCodec =
             record "string-code-points" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringToLower valueNodeId ->
             record "string-to-lower" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
+            record "string-decode-utf8-lossy" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             record "string-utf8-byte-count" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -735,6 +737,17 @@ module NyasonCodec =
             record
                 "field-access"
                 [ nodeId; "source", encodeId "node" sourceNodeId; "field", encodeId "field" fieldId ]
+        | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+            record
+                "product-update"
+                [ nodeId
+                  "type", encodeId "type" typeId
+                  "source", encodeId "node" sourceNodeId
+                  "fields",
+                  fields
+                  |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                  |> List.map encodeFieldValue
+                  |> list ]
         | SemanticNodeKind.UnionConstruct(variantId, fields) ->
             record
                 "union-construct"
@@ -911,6 +924,10 @@ module NyasonCodec =
             let fields = recordFields "string-to-lower" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringToLower(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-decode-utf8-lossy", _) ->
+            let fields = recordFields "string-decode-utf8-lossy" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringDecodeUtf8Lossy(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-utf8-byte-count", _) ->
             let fields = recordFields "string-utf8-byte-count" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1229,6 +1246,15 @@ module NyasonCodec =
                 SemanticNodeKind.FieldAccess(
                     decodeId<GraphNodeTag> "node" (require "source" fields),
                     decodeId<FieldTag> "field" (require "field" fields)
+                ) }
+        | NyasonValue.Record("product-update", _) ->
+            let fields = recordFields "product-update" [ "id"; "type"; "source"; "fields" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ProductUpdate(
+                    decodeId<TypeTag> "type" (require "type" fields),
+                    decodeId<GraphNodeTag> "node" (require "source" fields),
+                    decodeList decodeFieldValue (require "fields" fields)
                 ) }
         | NyasonValue.Record("union-construct", _) ->
             let fields = recordFields "union-construct" [ "id"; "variant"; "fields" ] [] value

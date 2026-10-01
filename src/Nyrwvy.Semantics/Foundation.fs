@@ -232,6 +232,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Each code point replaced by its Unicode simple (one-to-one) lowercase mapping, culture
     /// invariant; code points without one, including unpaired surrogates, are kept. Never fails.
     | StringToLower of valueNodeId: GraphNodeId
+    /// The text of a String holding one byte per code point (U+0000..U+00FF), decoded as UTF-8 with
+    /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
+    /// point above U+00FF reads as the invalid byte 0xFF. Never fails.
+    | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
     /// Number of bytes in the UTF-8 encoding of the String, as an Int64; an unpaired surrogate
     /// counts as 3 bytes (its U+FFFD replacement, as WTF-8 also does). Never fails.
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
@@ -388,6 +392,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
+    /// A copy of the source product with the bound fields replaced and every other field kept.
+    /// The source produces exactly the named product type; the bindings name distinct fields of it,
+    /// at least one, each with an exact-compatible value. Never fails.
+    | ProductUpdate of TypeId * sourceNodeId: GraphNodeId * FieldValueBinding list
     | UnionConstruct of VariantId * FieldValueBinding list
     | OptionNone of itemType: TypeRef
     | OptionSome of valueNodeId: GraphNodeId
@@ -515,6 +523,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringParseFloat64 valueNodeId
         | SemanticNodeKind.StringCodePoints valueNodeId
         | SemanticNodeKind.StringToLower valueNodeId
+        | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId
         | SemanticNodeKind.StringFromCodePoint valueNodeId
         | SemanticNodeKind.StringToCodePoint valueNodeId
@@ -597,6 +606,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.UnionConstruct(_, fields) ->
             fields |> List.map (fun field -> field.ValueNodeId)
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
+        | SemanticNodeKind.ProductUpdate(_, sourceNodeId, fields) ->
+            sourceNodeId :: (fields |> List.map (fun field -> field.ValueNodeId))
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.Abort errorNodeId
@@ -643,6 +654,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringParseFloat64 valueNodeId -> SemanticNodeKind.StringParseFloat64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToLower valueNodeId -> SemanticNodeKind.StringToLower(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId -> SemanticNodeKind.StringDecodeUtf8Lossy(mapNodeId valueNodeId)
             | SemanticNodeKind.StringUtf8ByteCount valueNodeId -> SemanticNodeKind.StringUtf8ByteCount(mapNodeId valueNodeId)
             | SemanticNodeKind.StringFromCodePoint valueNodeId -> SemanticNodeKind.StringFromCodePoint(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToCodePoint valueNodeId -> SemanticNodeKind.StringToCodePoint(mapNodeId valueNodeId)
@@ -783,6 +795,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.UnionConstruct(variantId, fields) ->
                 SemanticNodeKind.UnionConstruct(variantId, mapFieldValues mapNodeId fields)
             | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) -> SemanticNodeKind.FieldAccess(mapNodeId sourceNodeId, fieldId)
+            | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+                SemanticNodeKind.ProductUpdate(typeId, mapNodeId sourceNodeId, mapFieldValues mapNodeId fields)
             | SemanticNodeKind.OptionSome valueNodeId -> SemanticNodeKind.OptionSome(mapNodeId valueNodeId)
             | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(errorType, mapNodeId valueNodeId)
             | SemanticNodeKind.Abort errorNodeId -> SemanticNodeKind.Abort(mapNodeId errorNodeId)
@@ -840,6 +854,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringParseFloat64 _
         | SemanticNodeKind.StringCodePoints _
         | SemanticNodeKind.StringToLower _
+        | SemanticNodeKind.StringDecodeUtf8Lossy _
         | SemanticNodeKind.StringUtf8ByteCount _
         | SemanticNodeKind.StringFromCodePoint _
         | SemanticNodeKind.StringToCodePoint _
@@ -917,6 +932,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.CapabilityInvoke _
         | SemanticNodeKind.ProductConstruct _
         | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.ProductUpdate _
         | SemanticNodeKind.UnionConstruct _
         | SemanticNodeKind.OptionNone _
         | SemanticNodeKind.OptionSome _

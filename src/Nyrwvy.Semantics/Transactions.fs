@@ -245,6 +245,7 @@ module Transaction =
                 | SemanticNodeKind.StringParseFloat64 _
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
+                | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _
@@ -322,6 +323,7 @@ module Transaction =
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.ProductUpdate _
                 | SemanticNodeKind.UnionConstruct _
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _
@@ -565,6 +567,8 @@ module Transaction =
             let hasAccess = nodes |> List.exists (fun (_, node) ->
                 match node.Kind with
                 | SemanticNodeKind.FieldAccess(_, selectedId) -> selectedId = fieldId
+                | SemanticNodeKind.ProductUpdate(_, _, bindings) ->
+                    bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId)
                 | _ -> false)
             let affected = nodes |> List.choose (fun (fn, node) ->
                 match node.Kind with
@@ -575,7 +579,7 @@ module Transaction =
             if changes.ProductFieldsAdded |> List.exists (fun item -> item.AddedFieldId = fieldId) then
                 Error("ProductFieldCreatedInTransaction", "Remove a newly added field in a separate reviewed change.")
             elif hasAccess then
-                Error("ProductFieldStillReferenced", "Repair all field accesses before removing this field.")
+                Error("ProductFieldStillReferenced", "Repair all field accesses and product updates of this field before removing it.")
             elif affected |> List.exists (fun (fn, _) -> not (List.isEmpty fn.RequiredEffects)) then
                 Error("ProductFieldMayDiscardEffects", "An affected function declares effects; preserve evaluation explicitly before removing its field binding.")
             else
@@ -792,6 +796,7 @@ module Transaction =
                         | SemanticNodeKind.StringParseFloat64 _
                         | SemanticNodeKind.StringCodePoints _
                         | SemanticNodeKind.StringToLower _
+                        | SemanticNodeKind.StringDecodeUtf8Lossy _
                         | SemanticNodeKind.StringUtf8ByteCount _
                         | SemanticNodeKind.StringFromCodePoint _
                         | SemanticNodeKind.StringToCodePoint _
@@ -865,6 +870,7 @@ module Transaction =
                         | SemanticNodeKind.CapabilityInvoke _
                         | SemanticNodeKind.ProductConstruct _
                         | SemanticNodeKind.FieldAccess _
+                        | SemanticNodeKind.ProductUpdate _
                         | SemanticNodeKind.UnionConstruct _
                         | SemanticNodeKind.OptionNone _
                         | SemanticNodeKind.OptionSome _

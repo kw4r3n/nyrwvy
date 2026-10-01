@@ -30,6 +30,7 @@ type ExpressionRecipe =
     | StringParseFloat64 of ExpressionRecipe
     | StringCodePoints of ExpressionRecipe
     | StringToLower of ExpressionRecipe
+    | StringDecodeUtf8Lossy of ExpressionRecipe
     | StringUtf8ByteCount of ExpressionRecipe
     | StringFromCodePoint of ExpressionRecipe
     | StringToCodePoint of ExpressionRecipe
@@ -105,6 +106,7 @@ type ExpressionRecipe =
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ProductConstruct of typeId: TypeId * fields: (FieldId * ExpressionRecipe) list
     | FieldAccess of source: ExpressionRecipe * fieldId: FieldId
+    | ProductUpdate of typeId: TypeId * source: ExpressionRecipe * fields: (FieldId * ExpressionRecipe) list
     | UnionConstruct of variantId: VariantId * fields: (FieldId * ExpressionRecipe) list
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
@@ -184,6 +186,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringParseFloat64 value -> ExpressionRecipe.StringParseFloat64(go value)
         | ExpressionRecipe.StringCodePoints value -> ExpressionRecipe.StringCodePoints(go value)
         | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
+        | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
         | ExpressionRecipe.StringUtf8ByteCount value -> ExpressionRecipe.StringUtf8ByteCount(go value)
         | ExpressionRecipe.StringFromCodePoint value -> ExpressionRecipe.StringFromCodePoint(go value)
         | ExpressionRecipe.StringToCodePoint value -> ExpressionRecipe.StringToCodePoint(go value)
@@ -257,6 +260,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
         | ExpressionRecipe.ProductConstruct(typeId, fields) -> ExpressionRecipe.ProductConstruct(typeId, pairs fields)
         | ExpressionRecipe.FieldAccess(source, fieldId) -> ExpressionRecipe.FieldAccess(go source, fieldId)
+        | ExpressionRecipe.ProductUpdate(typeId, source, fields) -> ExpressionRecipe.ProductUpdate(typeId, go source, pairs fields)
         | ExpressionRecipe.UnionConstruct(variantId, fields) -> ExpressionRecipe.UnionConstruct(variantId, pairs fields)
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
@@ -393,6 +397,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringParseFloat64 child
         | ExpressionRecipe.StringCodePoints child
         | ExpressionRecipe.StringToLower child
+        | ExpressionRecipe.StringDecodeUtf8Lossy child
         | ExpressionRecipe.StringUtf8ByteCount child
         | ExpressionRecipe.StringFromCodePoint child
         | ExpressionRecipe.StringToCodePoint child
@@ -474,6 +479,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | ExpressionRecipe.ProductConstruct(_, fields)
         | ExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
+        | ExpressionRecipe.ProductUpdate(_, source, fields) -> seq { yield source; yield! fields |> Seq.map snd }
         | ExpressionRecipe.CapabilityConstruct _
         | ExpressionRecipe.FunctionReference _ -> Seq.empty
         | ExpressionRecipe.FunctionInvoke(value, arguments) -> seq { yield value; yield! arguments }
@@ -1076,6 +1082,7 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringCodePoints value ->
                 unary "StringCodePoints" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value
             | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
+            | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary "StringDecodeUtf8Lossy" stringType stringType value
             | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
             | ExpressionRecipe.StringFromCodePoint value ->
                 unary "StringFromCodePoint" int64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])) value
@@ -1563,6 +1570,28 @@ module AgentExpressionStructuralWorkflow =
                     | Ok(TypeRef.Named sourceTypeId) when sourceTypeId = ownerTypeId -> Ok field.Type
                     | Ok actual ->
                         Error(diagnostic "PureExpressionFieldAccessTypeMismatch" $"Field access to {StableId.describe field.DisplayName field.Id} requires {DiagnosticText.namedType snapshot ownerTypeId}, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
+            | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
+                match Map.tryFind typeId typesById with
+                | None ->
+                    Error(diagnostic "PureExpressionProductTypeNotFound" $"Product update references unknown type '{StableId.value typeId}'.")
+                | Some { Kind = SemanticTypeKind.Product declaredFields } ->
+                    let declaredIds = declaredFields |> List.map (fun field -> field.Id) |> Set.ofList
+                    match fields |> List.tryFind (fun (fieldId, _) -> not (Set.contains fieldId declaredIds)) with
+                    | _ when List.isEmpty fields ->
+                        Error(diagnostic "PureExpressionEmptyProductUpdate" $"Product update of {DiagnosticText.namedType snapshot typeId} must replace at least one field.")
+                    | Some(fieldId, _) ->
+                        Error(diagnostic "PureExpressionFieldBindingMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} binds field '{StableId.value fieldId}', which that type does not declare.")
+                    | None ->
+                        match infer frames source with
+                        | Error error -> Error error
+                        | Ok(TypeRef.Named sourceTypeId) when sourceTypeId = typeId ->
+                            let boundIds = fields |> List.map fst |> Set.ofList
+                            let updatedFields = declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
+                            validateFieldBindings "ProductUpdate" updatedFields fields |> Result.map (fun () -> TypeRef.Named typeId)
+                        | Ok actual ->
+                            Error(diagnostic "PureExpressionProductUpdateSourceMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} requires a source of that type, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
+                | Some _ ->
+                    Error(diagnostic "PureExpressionProductTargetMismatch" $"Product update target '{StableId.value typeId}' is not a product type.")
             | ExpressionRecipe.UnionConstruct(variantId, fields) ->
                 match Map.tryFind variantId variantsById with
                 | None ->
@@ -1964,6 +1993,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringParseFloat64 value -> unary SemanticNodeKind.StringParseFloat64 value
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
         | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
+        | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
         | ExpressionRecipe.StringUtf8ByteCount value -> unary SemanticNodeKind.StringUtf8ByteCount value
         | ExpressionRecipe.StringFromCodePoint value -> unary SemanticNodeKind.StringFromCodePoint value
         | ExpressionRecipe.StringToCodePoint value -> unary SemanticNodeKind.StringToCodePoint value
@@ -2116,6 +2146,16 @@ module AgentExpressionStructuralWorkflow =
             let sourceNodes, sourceResult = materializeRecipe source
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.FieldAccess(sourceResult, fieldId) } ], nodeId
+        | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
+            let updatedFields =
+                match snapshot.Types |> List.find (fun typeEntity -> typeEntity.Id = typeId) with
+                | { Kind = SemanticTypeKind.Product declaredFields } ->
+                    declaredFields |> List.filter (fun field -> fields |> List.exists (fun (fieldId, _) -> fieldId = field.Id))
+                | _ -> failwith "Product update recipe passed preflight with a non-product type."
+            let sourceNodes, sourceResult = materializeRecipe source
+            let fieldNodes, fieldBindings = materializeFieldBindings updatedFields fields
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ProductUpdate(typeId, sourceResult, fieldBindings) } ], nodeId
         | ExpressionRecipe.UnionConstruct(variantId, fields) ->
             let variant =
                 snapshot.Types

@@ -686,6 +686,12 @@ module SnapshotValidator =
                             $"StringToLower node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringDecodeUtf8Lossy node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1317,6 +1323,48 @@ module SnapshotValidator =
                                     "FieldAccessTypeMismatch"
                                     $"Field-access node '{StableId.value node.Id}' reads a field from the wrong source type."
                             | None -> ()
+                    | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+                        match Map.tryFind typeId typesById with
+                        | Some { Kind = SemanticTypeKind.Product expectedFields } ->
+                            let context = $"Product-update node '{StableId.value node.Id}'"
+
+                            match nodeType sourceNodeId with
+                            | Some(TypeRef.Named sourceTypeId) when sourceTypeId = typeId -> ()
+                            | Some _ ->
+                                add "ProductUpdateSourceTypeMismatch" $"{context} updates a source that is not of its product type."
+                            | None -> ()
+
+                            if List.isEmpty fields then
+                                add "EmptyProductUpdate" $"{context} must replace at least one field."
+
+                            fields
+                            |> List.countBy (fun binding -> binding.TargetFieldId)
+                            |> List.filter (fun (_, count) -> count > 1)
+                            |> List.iter (fun (fieldId, _) ->
+                                add "DuplicateFieldBinding" $"{context} binds field '{StableId.value fieldId}' more than once.")
+
+                            for binding in fields do
+                                match expectedFields |> List.tryFind (fun field -> field.Id = binding.TargetFieldId) with
+                                | None ->
+                                    add
+                                        "FieldBindingMismatch"
+                                        $"{context} binds field '{StableId.value binding.TargetFieldId}', which its product type does not declare."
+                                | Some field ->
+                                    match nodeType binding.ValueNodeId with
+                                    | Some valueType when field.Type <> valueType ->
+                                        add
+                                            "FieldValueTypeMismatch"
+                                            $"{context} binds a value with the wrong type to field {StableId.describe field.DisplayName field.Id}."
+                                    | Some _
+                                    | None -> ()
+                        | Some _ ->
+                            add
+                                "InvalidProductUpdateTarget"
+                                $"Product-update node '{StableId.value node.Id}' targets a non-product type."
+                        | None ->
+                            add
+                                "UnknownProductUpdateType"
+                                $"Product-update node '{StableId.value node.Id}' targets unknown type '{StableId.value typeId}'."
                     | SemanticNodeKind.UnionConstruct(variantId, fields) ->
                         match Map.tryFind variantId variantsById with
                         | None ->
@@ -1636,6 +1684,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringParseFloat64 _
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
+                | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _
@@ -1709,6 +1758,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.ProductUpdate _
                 | SemanticNodeKind.UnionConstruct _
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _

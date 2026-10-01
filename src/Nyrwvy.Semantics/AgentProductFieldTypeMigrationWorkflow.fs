@@ -69,7 +69,7 @@ module AgentProductFieldTypeMigrationWorkflow =
     let private reject code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
-    /// Functions that construct the owning Product or read the field, at any nesting depth.
+    /// Functions that construct the owning Product, read the field or update it, at any nesting depth.
     let private affectedFunctions (snapshot: Snapshot) (typeId: TypeId) (fieldId: FieldId) =
         snapshot.Functions
         |> List.filter (fun fn ->
@@ -78,6 +78,8 @@ module AgentProductFieldTypeMigrationWorkflow =
                 match node.Kind with
                 | SemanticNodeKind.ProductConstruct(constructed, _) -> constructed = typeId
                 | SemanticNodeKind.FieldAccess(_, accessed) -> accessed = fieldId
+                | SemanticNodeKind.ProductUpdate(_, _, bindings) ->
+                    bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId)
                 | _ -> false))
 
     let simulate

@@ -276,6 +276,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringCodePoints
                         | TypedSemanticNodeKind.StringToLower valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToLower
+                        | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringDecodeUtf8Lossy
                         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringUtf8ByteCount
                         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -521,6 +523,12 @@ module ExecutionIr =
                             requireNodeValue environment sourceNodeId
                             |> Result.map (fun sourceValueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.FieldAccess(sourceValueId, fieldId)))
+                        | TypedSemanticNodeKind.ProductUpdate(sourceNodeId, fields) ->
+                            match requireNodeValue environment sourceNodeId, lowerFieldValues fields with
+                            | Ok sourceValueId, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.ProductUpdate(sourceValueId, lowered)))
+                            | Error error, _
+                            | _, Error error -> Error error
                         | TypedSemanticNodeKind.UnionConstruct(variantId, fields) ->
                             lowerFieldValues fields
                             |> Result.map (fun lowered ->
@@ -777,6 +785,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringParseFloat64 _
                         | TypedSemanticNodeKind.StringCodePoints _
                         | TypedSemanticNodeKind.StringToLower _
+                        | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
                         | TypedSemanticNodeKind.StringUtf8ByteCount _
                         | TypedSemanticNodeKind.StringFromCodePoint _
                         | TypedSemanticNodeKind.StringToCodePoint _
@@ -855,6 +864,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.CapabilityInvoke _
                         | TypedSemanticNodeKind.ProductConstruct _
                         | TypedSemanticNodeKind.FieldAccess _
+                        | TypedSemanticNodeKind.ProductUpdate _
                         | TypedSemanticNodeKind.UnionConstruct _
                         | TypedSemanticNodeKind.OptionNone
                         | TypedSemanticNodeKind.OptionSome _

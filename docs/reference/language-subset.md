@@ -83,6 +83,8 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringToLower(text)` replaces each code point of `text` with its Unicode simple (one-to-one) lowercase mapping, culture invariant: `I` becomes `i`, KELVIN SIGN `K` becomes `k`, and code points without a mapping, including an unpaired surrogate, are kept, so the code-point length never changes. It equals Python `text.lower()` except for `İ` (U+0130), which becomes `i` rather than Python's `i̇`, and a word-final `Σ`, which becomes `σ` rather than Python's `ς`. The mappings follow the Unicode data of the .NET runtime. `StringUtf8ByteCount(text)` is the `Int64` length of the UTF-8 encoding of `text`, `len(text.encode("utf-8"))`; an unpaired surrogate counts 3 bytes. Both never fail; see the [decision](../decisions/string-lowercase-and-utf8-length.md).
 
+`StringDecodeUtf8Lossy(bytes)` decodes UTF-8 bytes held one per code point (U+0000..U+00FF, the latin-1 form in which probes carry bytes, so code-point positions are byte offsets) and equals Python `bytes.decode("utf-8", "replace")`: each maximal ill-formed subpart of the input (a byte that cannot start a sequence, an overlong form, an encoded surrogate, a value above U+10FFFF, or a sequence cut short) becomes one U+FFFD. A code point above U+00FF is not a byte and reads as the invalid byte 0xFF, so it becomes one U+FFFD too. It never fails and runs in linear time; see the [decision](../decisions/utf8-decode.md).
+
 `StringFromCodePoint(code)` yields `Option<String>`: for an `Int64` `code` with `0 <= code <= 0x10FFFF`, `Some` String of that one code point, Python `chr(code)`, and `None` for a negative code or one above 0x10FFFF. A surrogate code 0xD800..0xDFFF gives a String of one unpaired surrogate code unit, as Python allows, and `StringConcat` of a high and a low one forms the pair, as when a JSON `\ud83d\ude00` escape is decoded. `StringToCodePoint(text)` yields `Option<Int64>`, Python `ord(text)`: `Some` code point when `text` is exactly one code point as `StringLength` counts it (a surrogate pair gives its scalar value, an unpaired surrogate its code unit), and `None` for the empty String or a longer one. `StringToCodePoint(StringFromCodePoint(n)) = Some n` for every `n` in `0..0x10FFFF`. `runPure` passes Strings with unpaired surrogates as arguments and results unchanged, using JSON `\uD800`-style escapes ([String run values](../specs/agent-authoring-session.md)). Both never fail; see the [decision](../decisions/string-code-point-conversion.md).
 
 `StringJoin(list, separator)` takes a `List<String>` and a String and yields the items in order with `separator` between adjacent items, Python `separator.join(list)`: an empty list gives `""`, a one-item list gives that item, and `StringJoin(StringSplit(t, s), s) = t` for every non-empty `s`. The items and separator are concatenated as `StringConcat` does. `ListSlice(list, start, end)` takes a `List<T>` for any item type and two Int64 bounds and yields the `List<T>` of the items at positions `[start, end)`, clamped exactly like `StringSlice`: both bounds are clamped to `[0, ListLength(list)]`, a negative bound is 0 and is not counted from the end (unlike Python `list[start:end]`), and `end <= start` gives the empty list. Both never fail ([decision](../decisions/string-join-and-list-slice.md)).
@@ -234,6 +236,7 @@ StringSplitLines
 StringJoin
 StringToLower
 StringUtf8ByteCount
+StringDecodeUtf8Lossy
 StringFromCodePoint / ToCodePoint
 Int64WrappingAdd / Subtract / Multiply
 Int64FloorDivide / FloorModulo
@@ -260,6 +263,7 @@ ListAny
 ListAll
 ProductConstruct
 FieldAccess
+ProductUpdate
 UnionConstruct
 OptionNone
 OptionSome
@@ -286,7 +290,7 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` accepts a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
-Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
+Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
 
@@ -321,7 +325,7 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 - resolving a generated missing-argument obligation with an existing compatible value;
 - explicitly adding or removing an existing `EffectId` from a function's `RequiredEffects`;
 - adding a Product field with an explicit existing typed value for **every** affected `ProductConstruct`, including nested branches; the new `FieldId` is allocated by the system while existing type, function and node IDs remain stable;
-- removing a Product field and its constructor bindings when all field accesses have already been repaired; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
+- removing a Product field and its constructor bindings when all field accesses and `ProductUpdate` bindings of it have already been repaired; adding a field needs no plan for a `ProductUpdate`, which keeps it; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
 - deleting an unused function only after all direct calls, function-value references and List callbacks from other functions are gone, and when no obligation targets its body; the function's references to itself (self-recursion) are removed with it and do not count;
 - deleting an unreferenced Product or Union declaration, including its field/variant identities; dependent functions can be removed in the **same** reviewed transaction, but any surviving references (including nested type references) prevent publication;
 - deleting an unreferenced Capability and Effect declaration after consumers have been repaired or removed; one reviewed batch may remove the dependent function, Capability, then Effect in that order, and the diff retains removed operation/parameter identities;
