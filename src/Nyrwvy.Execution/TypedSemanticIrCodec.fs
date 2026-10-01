@@ -594,6 +594,15 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "fieldAccess")
             writer.WriteString("sourceNodeId", StableId.value sourceNodeId)
             writer.WriteString("fieldId", StableId.value fieldId)
+        | TypedSemanticNodeKind.ProductUpdate(sourceNodeId, fields) ->
+            writer.WriteString("kind", "productUpdate")
+            writer.WriteString("sourceNodeId", StableId.value sourceNodeId)
+            writer.WritePropertyName("fields")
+            writer.WriteStartArray()
+            fields
+            |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+            |> List.iter (writeFieldValue writer)
+            writer.WriteEndArray()
         | TypedSemanticNodeKind.UnionConstruct(variantId, fields) ->
             writer.WriteString("kind", "unionConstruct")
             writer.WriteString("variantId", StableId.value variantId)

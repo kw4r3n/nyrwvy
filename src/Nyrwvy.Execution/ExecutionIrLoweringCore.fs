@@ -521,6 +521,12 @@ module ExecutionIr =
                             requireNodeValue environment sourceNodeId
                             |> Result.map (fun sourceValueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.FieldAccess(sourceValueId, fieldId)))
+                        | TypedSemanticNodeKind.ProductUpdate(sourceNodeId, fields) ->
+                            match requireNodeValue environment sourceNodeId, lowerFieldValues fields with
+                            | Ok sourceValueId, Ok lowered ->
+                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.ProductUpdate(sourceValueId, lowered)))
+                            | Error error, _
+                            | _, Error error -> Error error
                         | TypedSemanticNodeKind.UnionConstruct(variantId, fields) ->
                             lowerFieldValues fields
                             |> Result.map (fun lowered ->
@@ -855,6 +861,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.CapabilityInvoke _
                         | TypedSemanticNodeKind.ProductConstruct _
                         | TypedSemanticNodeKind.FieldAccess _
+                        | TypedSemanticNodeKind.ProductUpdate _
                         | TypedSemanticNodeKind.UnionConstruct _
                         | TypedSemanticNodeKind.OptionNone
                         | TypedSemanticNodeKind.OptionSome _

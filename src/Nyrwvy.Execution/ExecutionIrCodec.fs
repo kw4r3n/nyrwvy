@@ -513,6 +513,15 @@ module ExecutionIrCodec =
             [ property "kind" (quote "fieldAccess")
               property "sourceValueId" (executionValueIdValue sourceValueId)
               property "fieldId" (stableIdValue fieldId) ]
+        | ExecutionInstructionKind.ProductUpdate(sourceValueId, fields) ->
+            [ property "kind" (quote "productUpdate")
+              property "sourceValueId" (executionValueIdValue sourceValueId)
+              property
+                  "fields"
+                  (fields
+                   |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                   |> List.map writeFieldValue
+                   |> arrayValue) ]
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
             [ property "kind" (quote "unionConstruct")
               property "variantId" (stableIdValue variantId)

@@ -175,6 +175,8 @@ type ExecutionInstructionKind =
     | CapabilityInvoke of capabilityValueId: ExecutionValueId * CapabilityOperationId * ExecutionCapabilityArgument list
     | ProductConstruct of ExecutionFieldValue list
     | FieldAccess of sourceValueId: ExecutionValueId * FieldId
+    /// A copy of the source product with the bound fields replaced; the result type is the source's.
+    | ProductUpdate of sourceValueId: ExecutionValueId * ExecutionFieldValue list
     | UnionConstruct of VariantId * ExecutionFieldValue list
     | OptionNone
     | OptionSome of ExecutionValueId

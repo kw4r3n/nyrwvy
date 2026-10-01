@@ -537,6 +537,20 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "source" element),
                 field.Id
             )
+        | "productUpdate" ->
+            ensureFields
+                "product-update recipe"
+                [ "kind"; "type"; "source"; "fields" ]
+                [ "kind"; "type"; "source"; "fields" ]
+                element
+            let owner = resolveType declarations (requiredString "type" element)
+            let fields =
+                array "fields" element
+                |> List.map (fun item ->
+                    ensureFields "product field recipe" [ "field"; "value" ] [ "field"; "value" ] item
+                    let field = productField owner (requiredString "field" item)
+                    field.Id, recipe declarations parameterContext (property "value" item))
+            ExpressionRecipe.ProductUpdate(owner.Id, recipe declarations parameterContext (property "source" element), fields)
         | "unionConstruct" ->
             ensureFields
                 "union-construct recipe"

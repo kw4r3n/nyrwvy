@@ -169,6 +169,8 @@ module internal WireGraph =
                     objectValue [ "capabilityParameterId", identity argument.TargetCapabilityParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue ]
         | SemanticNodeKind.ProductConstruct(typeId, values) -> tagged "productConstruct" [ "typeId", identity typeId; "fields", fields values ]
         | SemanticNodeKind.FieldAccess(source, fieldId) -> tagged "fieldAccess" [ "sourceNodeId", identity source; "fieldId", identity fieldId ]
+        | SemanticNodeKind.ProductUpdate(typeId, source, values) ->
+            tagged "productUpdate" [ "typeId", identity typeId; "sourceNodeId", identity source; "fields", fields values ]
         | SemanticNodeKind.UnionConstruct(variantId, values) -> tagged "unionConstruct" [ "variantId", identity variantId; "fields", fields values ]
         | SemanticNodeKind.OptionNone itemType -> tagged "optionNone" [ "itemType", typeRef itemType ]
         | SemanticNodeKind.OptionSome value -> unary "optionSome" value

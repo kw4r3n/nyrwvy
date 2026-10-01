@@ -165,6 +165,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * CapabilityOperationId * TypedSemanticCapabilityArgument list
     | ProductConstruct of TypedSemanticFieldValue list
     | FieldAccess of sourceNodeId: GraphNodeId * FieldId
+    /// The source product with the bound fields replaced, in field-ID order.
+    | ProductUpdate of sourceNodeId: GraphNodeId * TypedSemanticFieldValue list
     | UnionConstruct of VariantId * TypedSemanticFieldValue list
     | OptionNone
     | OptionSome of valueNodeId: GraphNodeId
@@ -471,6 +473,15 @@ module TypedSemanticIr =
                         )
                     | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) ->
                         Ok(TypedSemanticNodeKind.FieldAccess(sourceNodeId, fieldId))
+                    | SemanticNodeKind.ProductUpdate(_, sourceNodeId, fields) ->
+                        Ok(
+                            TypedSemanticNodeKind.ProductUpdate(
+                                sourceNodeId,
+                                fields
+                                |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                                |> List.map projectFieldValue
+                            )
+                        )
                     | SemanticNodeKind.UnionConstruct(variantId, fields) ->
                         Ok(
                             TypedSemanticNodeKind.UnionConstruct(

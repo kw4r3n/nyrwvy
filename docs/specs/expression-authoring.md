@@ -103,6 +103,7 @@ ExpressionRecipe =
   | ListAll(source, predicateFunctionId)
   | ProductConstruct(typeId, fieldBindings)
   | FieldAccess(source, fieldId)
+  | ProductUpdate(typeId, source, fieldBindings)
   | UnionConstruct(variantId, fieldBindings)
   | OptionNone(itemType)
   | OptionSome(value)
@@ -178,7 +179,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 9. List construction/query operands have exact compatible List/item types;
 10. higher-order List callbacks satisfy the applicable pure callback contract (unary for Map/Filter/Any/All, binary for Fold);
 11. `ProductConstruct` names an existing product type and binds every declared field exactly once with an exact-compatible value type;
-12. `FieldAccess` names a product field and its source produces the exact owning named type;
+12. `FieldAccess` names a product field and its source produces the exact owning named type; `ProductUpdate` names an existing product type, its source produces exactly that type, and it binds at least one declared field of that type, each at most once, with an exact-compatible value type;
 13. `UnionConstruct` names an existing variant and binds every variant field exactly once with an exact-compatible value type;
 14. `OptionNone`, `ResultOk`, and `ResultErr` explicit type arguments are valid;
 15. `DirectCall` names an existing function whose required effects are all already declared by the target function;
@@ -324,6 +325,8 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 Preflight requires no duplicate fields, the exact declaration field set, and exact child value types. Caller binding order is ignored after validation. Materialization follows declaration field order, allocates all child node IDs system-side, and constructs the ordinary persistent field bindings.
 
 `FieldAccess` references an existing stable `FieldId`. Only fields owned by product types are accepted, and the source recipe must produce the exact owning `TypeRef.Named` type.
+
+`ProductUpdate(typeId, source, fieldBindings)` is a copy of the source product with the bound fields replaced and every other field kept, like Python's `dataclasses.replace`. Preflight rejects an empty binding list (`PureExpressionEmptyProductUpdate`), a field the type does not declare (`PureExpressionFieldBindingMismatch`), a duplicate field, a wrong value type, and a source that does not produce exactly `TypeRef.Named typeId` (`PureExpressionProductUpdateSourceMismatch`). The source materializes first, then the bound values in declaration field order. Field values may read the source; the source value itself is unchanged. The [decision](../decisions/product-update.md) records why the node exists.
 
 ## Option and Result construction
 

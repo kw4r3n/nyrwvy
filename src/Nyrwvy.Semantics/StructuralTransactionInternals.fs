@@ -136,7 +136,8 @@ module internal StructuralTransactionInternals =
                 fields () |> List.tryFind (fun item -> item.Id = fieldId) |> Option.map (fun item -> item.DisplayName)
             | SemanticNodeKind.UnionConstruct(variantId, _) ->
                 variants () |> List.tryFind (fun item -> item.Id = variantId) |> Option.map (fun item -> item.DisplayName)
-            | SemanticNodeKind.ProductConstruct(typeId, _) ->
+            | SemanticNodeKind.ProductConstruct(typeId, _)
+            | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
                 snapshot.Types |> List.tryFind (fun item -> item.Id = typeId) |> Option.map (fun item -> item.DisplayName)
             | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                 snapshot.Capabilities |> List.collect (fun item -> item.Operations)

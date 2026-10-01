@@ -735,6 +735,17 @@ module NyasonCodec =
             record
                 "field-access"
                 [ nodeId; "source", encodeId "node" sourceNodeId; "field", encodeId "field" fieldId ]
+        | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+            record
+                "product-update"
+                [ nodeId
+                  "type", encodeId "type" typeId
+                  "source", encodeId "node" sourceNodeId
+                  "fields",
+                  fields
+                  |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                  |> List.map encodeFieldValue
+                  |> list ]
         | SemanticNodeKind.UnionConstruct(variantId, fields) ->
             record
                 "union-construct"
@@ -1229,6 +1240,15 @@ module NyasonCodec =
                 SemanticNodeKind.FieldAccess(
                     decodeId<GraphNodeTag> "node" (require "source" fields),
                     decodeId<FieldTag> "field" (require "field" fields)
+                ) }
+        | NyasonValue.Record("product-update", _) ->
+            let fields = recordFields "product-update" [ "id"; "type"; "source"; "fields" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ProductUpdate(
+                    decodeId<TypeTag> "type" (require "type" fields),
+                    decodeId<GraphNodeTag> "node" (require "source" fields),
+                    decodeList decodeFieldValue (require "fields" fields)
                 ) }
         | NyasonValue.Record("union-construct", _) ->
             let fields = recordFields "union-construct" [ "id"; "variant"; "fields" ] [] value

@@ -121,6 +121,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ProductConstruct fields
         | TypedSemanticNodeKind.UnionConstruct(_, fields) -> fields |> List.map (fun field -> field.ValueNodeId)
         | TypedSemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
+        | TypedSemanticNodeKind.ProductUpdate(sourceNodeId, fields) ->
+            sourceNodeId :: (fields |> List.map (fun field -> field.ValueNodeId))
         | TypedSemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ResultOk valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.Abort errorNodeId
@@ -240,6 +242,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _
             | TypedSemanticNodeKind.FieldAccess _
+            | TypedSemanticNodeKind.ProductUpdate _
             | TypedSemanticNodeKind.UnionConstruct _
             | TypedSemanticNodeKind.OptionNone
             | TypedSemanticNodeKind.OptionSome _
@@ -382,6 +385,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.ProductConstruct _
         | TypedSemanticNodeKind.FieldAccess _
+        | TypedSemanticNodeKind.ProductUpdate _
         | TypedSemanticNodeKind.UnionConstruct _
         | TypedSemanticNodeKind.OptionNone
         | TypedSemanticNodeKind.OptionSome _
@@ -525,6 +529,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.CapabilityInvoke _
             | TypedSemanticNodeKind.ProductConstruct _
             | TypedSemanticNodeKind.FieldAccess _
+            | TypedSemanticNodeKind.ProductUpdate _
             | TypedSemanticNodeKind.UnionConstruct _
             | TypedSemanticNodeKind.OptionNone
             | TypedSemanticNodeKind.OptionSome _

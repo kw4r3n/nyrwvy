@@ -593,6 +593,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ListAll"
               "ProductConstruct"
               "FieldAccess"
+              "ProductUpdate"
               "UnionConstruct"
               "OptionNone"
               "OptionSome"

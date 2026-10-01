@@ -367,6 +367,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, fields))
             | ExpressionRecipe.FieldAccess(source, fieldId) -> one (fun source -> ExpressionRecipe.FieldAccess(source, fieldId)) source
+            | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
+                match rewrite source with
+                | Error error -> Error error
+                | Ok source -> rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductUpdate(typeId, source, fields))
             | ExpressionRecipe.UnionConstruct(variantId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, fields))
             | ExpressionRecipe.ResultOk(errorType, value) -> one (fun value -> ExpressionRecipe.ResultOk(errorType, value)) value

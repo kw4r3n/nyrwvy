@@ -292,6 +292,15 @@ No cost limits reach; every scale row is linear. Three recurring costs came back
 
 No cost limits reach, and every scale row is linear. Probe 5's 8,000-colon path, which overflowed, now takes 0.5 s at 16,000 colons, because the path is found with `StringLastIndexOf`. Two recurring costs came back. `matchUnion` needs every arm: 117 restated arms, 276 nodes or 10% of the port, the fourth observation. Probe 14's hand-written `replace` decoder (228 nodes) was needed again for Git's output, the third program after probes 14 and 16 to support the decode-builtin candidate. One cost is new and small: Python's unbounded `int` needed a `Big` variant in `Json`, which added an arm to every `Json` match. Product update, `Float64Round`, Map and tail calls were not needed.
 
+### Queue from the 2026-10-01 owner choice
+
+After probe 18 the queue was empty again. The owner chose the two recurring language candidates that need no change of direction, in this order. The most frequent candidate, a default arm for `matchUnion` (probes 7, 10, 17 and 18), is not queued: it needs a decision first, because [foundational rules](../decisions/foundational.md) forbid wildcard branches that absorb unknown domain cases. Tail calls as loops (probe 15), Map (probe 16), `Float64Round` (probes 15 and 17) and unbounded integers (probe 18) stay candidates.
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 32 | **Done: product update** | Records rebuilt to change one field in probes 7 (8 setters, 134 nodes, 10%), 10 (rebuilding helpers for 3 states), 15 (about 550 nodes, 2 functions over the 256-node limit) and 17 (`shStep` rebuilt its 5-field state in 11 places, about 68 of 183 nodes) | `ProductUpdate(typeId, source, fields)`: a copy with at least one named field replaced and the rest kept, emitted as a C# `with` expression. Probe 17's `shStep` re-authored with it is 131 nodes instead of 183, with the same results on 614 inputs, all equal to Python's `shlex.split`; [decision](../decisions/product-update.md). |
+| 33 | **UTF-8 decode with `replace`** | `bytes.decode("utf-8", "replace")` written by hand in probes 14 (4 functions, 228 nodes, 13%) and 18 (the same 228 nodes); probe 16 needed strict and `surrogateescape` modes (429 nodes) | A decode builtin over a String of one code point per byte, with Python's maximal-subpart rule. |
+
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 
 Preserve these constraints:

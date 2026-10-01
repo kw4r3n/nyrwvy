@@ -115,6 +115,7 @@ Use the existing expression kinds and explicit types. Only references differ fro
 | Function parameter | `{"kind":"parameter","name":"value"}` |
 | Product field access | `{"kind":"fieldAccess","source":<recipe>,"type":"T","field":"fieldName"}` |
 | Product construction | `type`, plus `fields: [{field, value}]` |
+| Product update | `source`, `type`, plus `fields: [{field, value}]` for the replaced fields only |
 | Union construction | `type`, `variant`, plus `fields: [{field, value}]` |
 | Union match | `type`, `input`, plus `arms: [{variant, body}]` |
 | Direct call | `function`, plus `arguments: [{parameter, value}]` |

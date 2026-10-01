@@ -123,6 +123,7 @@ type ViewerNodeRole =
     | CapabilityInvoke
     | ProductConstruct
     | FieldAccess
+    | ProductUpdate
     | UnionConstruct
     | OptionNone
     | OptionSome
@@ -341,6 +342,10 @@ module ViewerProjection =
             ViewerNodeRole.FieldAccess,
             [ { Kind = ViewerRelationKind.AccessesField
                 Target = ViewerTarget.Field fieldId } ]
+        | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
+            ViewerNodeRole.ProductUpdate,
+            [ { Kind = ViewerRelationKind.ConstructsType
+                Target = ViewerTarget.Type typeId } ]
         | SemanticNodeKind.UnionConstruct(variantId, _) ->
             ViewerNodeRole.UnionConstruct,
             [ { Kind = ViewerRelationKind.ConstructsVariant

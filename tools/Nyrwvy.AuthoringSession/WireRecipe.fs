@@ -226,6 +226,9 @@ module internal WireRecipe =
         | "fieldAccess" ->
             ensureFields "field-access recipe" [ "kind"; "source"; "fieldId" ] [ "kind"; "source"; "fieldId" ] element
             ExpressionRecipe.FieldAccess(recipe (property "source" element), id<FieldTag> "fieldId" element)
+        | "productUpdate" ->
+            ensureFields "product-update recipe" [ "kind"; "typeId"; "source"; "fields" ] [ "kind"; "typeId"; "source"; "fields" ] element
+            ExpressionRecipe.ProductUpdate(id<TypeTag> "typeId" element, recipe (property "source" element), fieldValues "fields")
         | "unionConstruct" ->
             ensureFields "union-construct recipe" [ "kind"; "variantId"; "fields" ] [ "kind"; "variantId"; "fields" ] element
             ExpressionRecipe.UnionConstruct(id<VariantTag> "variantId" element, fieldValues "fields")

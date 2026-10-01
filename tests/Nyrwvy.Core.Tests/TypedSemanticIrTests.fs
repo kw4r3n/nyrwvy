@@ -116,6 +116,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.CapabilityInvoke _
                 | TypedSemanticNodeKind.ProductConstruct _
                 | TypedSemanticNodeKind.FieldAccess _
+                | TypedSemanticNodeKind.ProductUpdate _
                 | TypedSemanticNodeKind.UnionConstruct _
                 | TypedSemanticNodeKind.OptionNone
                 | TypedSemanticNodeKind.OptionSome _

@@ -388,6 +388,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
     | ProductConstruct of TypeId * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
+    /// A copy of the source product with the bound fields replaced and every other field kept.
+    /// The source produces exactly the named product type; the bindings name distinct fields of it,
+    /// at least one, each with an exact-compatible value. Never fails.
+    | ProductUpdate of TypeId * sourceNodeId: GraphNodeId * FieldValueBinding list
     | UnionConstruct of VariantId * FieldValueBinding list
     | OptionNone of itemType: TypeRef
     | OptionSome of valueNodeId: GraphNodeId
@@ -597,6 +601,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.UnionConstruct(_, fields) ->
             fields |> List.map (fun field -> field.ValueNodeId)
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
+        | SemanticNodeKind.ProductUpdate(_, sourceNodeId, fields) ->
+            sourceNodeId :: (fields |> List.map (fun field -> field.ValueNodeId))
         | SemanticNodeKind.OptionSome valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ResultOk(_, valueNodeId) -> [ valueNodeId ]
         | SemanticNodeKind.Abort errorNodeId
@@ -783,6 +789,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.UnionConstruct(variantId, fields) ->
                 SemanticNodeKind.UnionConstruct(variantId, mapFieldValues mapNodeId fields)
             | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) -> SemanticNodeKind.FieldAccess(mapNodeId sourceNodeId, fieldId)
+            | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
+                SemanticNodeKind.ProductUpdate(typeId, mapNodeId sourceNodeId, mapFieldValues mapNodeId fields)
             | SemanticNodeKind.OptionSome valueNodeId -> SemanticNodeKind.OptionSome(mapNodeId valueNodeId)
             | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(errorType, mapNodeId valueNodeId)
             | SemanticNodeKind.Abort errorNodeId -> SemanticNodeKind.Abort(mapNodeId errorNodeId)
@@ -917,6 +925,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.CapabilityInvoke _
         | SemanticNodeKind.ProductConstruct _
         | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.ProductUpdate _
         | SemanticNodeKind.UnionConstruct _
         | SemanticNodeKind.OptionNone _
         | SemanticNodeKind.OptionSome _

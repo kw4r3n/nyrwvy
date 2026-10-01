@@ -208,6 +208,7 @@ module ViewerHtml =
         | ViewerNodeRole.CapabilityInvoke -> "capability invoke"
         | ViewerNodeRole.ProductConstruct -> "product construct"
         | ViewerNodeRole.FieldAccess -> "field access"
+        | ViewerNodeRole.ProductUpdate -> "product update"
         | ViewerNodeRole.UnionConstruct -> "union construct"
         | ViewerNodeRole.OptionNone -> "Option.None"
         | ViewerNodeRole.OptionSome -> "Option.Some"

@@ -24,7 +24,7 @@ const categories = {
   ],
   list: ["listEmpty", "listConstruct", "listLength", "listItemAt", "listSlice", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listSortBy", "listAny", "listAll"],
   tasks: ["taskScope", "taskStart", "taskWait", "taskCancel"],
-  structured: ["productConstruct", "fieldAccess", "unionConstruct", "valueEqual"],
+  structured: ["productConstruct", "fieldAccess", "productUpdate", "unionConstruct", "valueEqual"],
   optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
   calls: ["directCall", "functionReference", "functionInvoke", "capabilityConstruct", "capabilityInvoke"],
   control: ["abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult"],
@@ -149,6 +149,10 @@ const references = {
   },
   fieldAccess: {
     shape: { kind: "fieldAccess", source: recipe, type: "<product type display name>", field: "<field display name>" },
+  },
+  productUpdate: {
+    shape: { kind: "productUpdate", source: recipe, type: "<product type display name>", fields: [{ field: "<field display name>", value: recipe }] },
+    notes: "A copy of source (which must have the named product type) with the listed fields replaced and every other field kept, like Python dataclasses.replace. List at least one field, each once; field order is not semantic. Field values may read source, which is unchanged. Never fails.",
   },
   unionConstruct: {
     shape: { kind: "unionConstruct", type: "<union type display name>", variant: "<variant display name>", fields: [{ field: "<field display name>", value: recipe }] },

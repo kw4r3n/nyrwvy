@@ -117,6 +117,7 @@ module FoundationTests =
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
                 | SemanticNodeKind.FieldAccess _
+                | SemanticNodeKind.ProductUpdate _
                 | SemanticNodeKind.UnionConstruct _
                 | SemanticNodeKind.OptionNone _
                 | SemanticNodeKind.OptionSome _

@@ -260,6 +260,7 @@ ListAny
 ListAll
 ProductConstruct
 FieldAccess
+ProductUpdate
 UnionConstruct
 OptionNone
 OptionSome
@@ -286,7 +287,7 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` accepts a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
-Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
+Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
 
@@ -321,7 +322,7 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 - resolving a generated missing-argument obligation with an existing compatible value;
 - explicitly adding or removing an existing `EffectId` from a function's `RequiredEffects`;
 - adding a Product field with an explicit existing typed value for **every** affected `ProductConstruct`, including nested branches; the new `FieldId` is allocated by the system while existing type, function and node IDs remain stable;
-- removing a Product field and its constructor bindings when all field accesses have already been repaired; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
+- removing a Product field and its constructor bindings when all field accesses and `ProductUpdate` bindings of it have already been repaired; adding a field needs no plan for a `ProductUpdate`, which keeps it; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
 - deleting an unused function only after all direct calls, function-value references and List callbacks from other functions are gone, and when no obligation targets its body; the function's references to itself (self-recursion) are removed with it and do not count;
 - deleting an unreferenced Product or Union declaration, including its field/variant identities; dependent functions can be removed in the **same** reviewed transaction, but any surviving references (including nested type references) prevent publication;
 - deleting an unreferenced Capability and Effect declaration after consumers have been repaired or removed; one reviewed batch may remove the dependent function, Capability, then Effect in that order, and the diff retains removed operation/parameter identities;

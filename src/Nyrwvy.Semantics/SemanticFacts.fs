@@ -320,7 +320,8 @@ module SemanticFacts =
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                         Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)
-                    | SemanticNodeKind.ProductConstruct(typeId, _) ->
+                    | SemanticNodeKind.ProductConstruct(typeId, _)
+                    | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
                         Some(TypeRef.Named typeId)
                     | SemanticNodeKind.FieldAccess(_, fieldId) ->
                         Map.tryFind fieldId index.ProductFields

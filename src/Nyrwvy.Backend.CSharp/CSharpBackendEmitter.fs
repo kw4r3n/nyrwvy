@@ -1717,6 +1717,13 @@ module CSharpBackend =
             | _ -> invalidOp "ProductConstruct result does not carry a named product type."
         | ExecutionInstructionKind.FieldAccess(sourceValueId, fieldId) ->
             writer.Line(target + " = " + valueName sourceValueId + "." + CSharpBackendNames.fieldName fieldId + ";")
+        | ExecutionInstructionKind.ProductUpdate(sourceValueId, fields) ->
+            let assignments =
+                fields
+                |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                |> List.map (fun field -> CSharpBackendNames.fieldName field.TargetFieldId + " = " + valueName field.ValueId)
+                |> String.concat ", "
+            writer.Line(target + " = " + valueName sourceValueId + " with { " + assignments + " };")
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
             writer.Line(target + " = new " + CSharpBackendNames.variantName variantId + "(" + renderFieldArguments fields + ");")
         | ExecutionInstructionKind.OptionNone ->
