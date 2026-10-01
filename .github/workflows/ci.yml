@@ -8,7 +8,8 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull request runs are cancelled; every push to main keeps its own run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -73,5 +74,3 @@ jobs:
       - name: Test MCP transport contract
         run: npm --prefix tools/nyrwvy-mcp test
 
-      - name: Report encoding comparison
-        run: cat /tmp/nyrwvy-encoding-comparison.txt
