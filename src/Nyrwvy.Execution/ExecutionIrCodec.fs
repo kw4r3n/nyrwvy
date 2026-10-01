@@ -264,6 +264,9 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.StringToLower valueId ->
             [ property "kind" (quote "stringToLower")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringDecodeUtf8Lossy valueId ->
+            [ property "kind" (quote "stringDecodeUtf8Lossy")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringUtf8ByteCount valueId ->
             [ property "kind" (quote "stringUtf8ByteCount")
               property "valueId" (executionValueIdValue valueId) ]

@@ -61,6 +61,7 @@ ExpressionRecipe =
   | StringJoin(list, separator)
   | StringToLower(expr)
   | StringUtf8ByteCount(expr)
+  | StringDecodeUtf8Lossy(expr)
   | StringFromCodePoint(expr)
   | StringToCodePoint(expr)
   | Int64WrappingAdd(left, right)
@@ -359,6 +360,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringToLower and StringUtf8ByteCount
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. Both use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+
+## StringDecodeUtf8Lossy
+
+`StringDecodeUtf8Lossy(bytes)` (wire `stringDecodeUtf8Lossy`, Nyason `string-decode-utf8-lossy`) takes a String of one byte per code point and produces the String that Python's `bytes.decode("utf-8", "replace")` gives for those bytes. It uses the wire field `value`, runs in linear time and never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/utf8-decode.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringFromCodePoint and StringToCodePoint
 

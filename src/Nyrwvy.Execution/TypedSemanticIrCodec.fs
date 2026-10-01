@@ -334,6 +334,9 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.StringToLower valueNodeId ->
             writer.WriteString("kind", "stringToLower")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
+            writer.WriteString("kind", "stringDecodeUtf8Lossy")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             writer.WriteString("kind", "stringUtf8ByteCount")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)

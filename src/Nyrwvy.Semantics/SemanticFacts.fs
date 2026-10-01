@@ -142,6 +142,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringLiteral _
                     | SemanticNodeKind.StringConcat _
                     | SemanticNodeKind.StringToLower _
+                    | SemanticNodeKind.StringDecodeUtf8Lossy _
                     | SemanticNodeKind.StringJoin _
                     | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)

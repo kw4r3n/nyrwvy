@@ -36,6 +36,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId
+        | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId
         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId
         | TypedSemanticNodeKind.StringToCodePoint valueNodeId
@@ -168,6 +169,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringParseFloat64 _
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
+            | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _
@@ -320,6 +322,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringParseFloat64 _
         | TypedSemanticNodeKind.StringCodePoints _
         | TypedSemanticNodeKind.StringToLower _
+        | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
         | TypedSemanticNodeKind.StringUtf8ByteCount _
         | TypedSemanticNodeKind.StringFromCodePoint _
         | TypedSemanticNodeKind.StringToCodePoint _
@@ -455,6 +458,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.StringParseFloat64 _
             | TypedSemanticNodeKind.StringCodePoints _
             | TypedSemanticNodeKind.StringToLower _
+            | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
             | TypedSemanticNodeKind.StringUtf8ByteCount _
             | TypedSemanticNodeKind.StringFromCodePoint _
             | TypedSemanticNodeKind.StringToCodePoint _

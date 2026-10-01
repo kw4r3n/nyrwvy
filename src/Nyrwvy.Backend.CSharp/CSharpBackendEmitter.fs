@@ -295,6 +295,25 @@ module CSharpBackend =
         writer.Line("}")
         // UTF-8 length; the replacement fallback encodes an unpaired surrogate as U+FFFD, 3 bytes.
         writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
+        // Bytes travel as one code point each (U+0000..U+00FF); a code point above U+00FF is not a byte
+        // and reads as the invalid byte 0xFF. The decoder's replacement fallback writes one U+FFFD per
+        // maximal ill-formed subpart, as Python's bytes.decode("utf-8", "replace") does.
+        writer.Line("public static string DecodeUtf8Lossy(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var bytes = new byte[text.Length];")
+        writer.Line("var count = 0;")
+        writer.Line("for (var index = 0; index < text.Length; index++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var unit = text[index];")
+        writer.Line("if (Width(text, index) == 2) index++;")
+        writer.Line("bytes[count++] = unit <= '\\u00FF' ? (byte)unit : (byte)0xFF;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return System.Text.Encoding.UTF8.GetString(bytes, 0, count);")
+        writer.Pop()
+        writer.Line("}")
         // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
         // char.ConvertFromUtf32 is used only above U+FFFF, since it throws for a surrogate code.
         writer.Line("public static NyOption<NyStr> FromCodePoint(long code) =>")
@@ -1393,6 +1412,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.CodePointLength(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringToLower sourceValueId ->
             writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringDecodeUtf8Lossy sourceValueId ->
+            writer.Line(target + " = NyText.DecodeUtf8Lossy(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringUtf8ByteCount sourceValueId ->
             writer.Line(target + " = NyText.Utf8ByteCount(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64ToString sourceValueId ->

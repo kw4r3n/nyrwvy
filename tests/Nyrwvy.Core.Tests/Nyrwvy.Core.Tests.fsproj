@@ -79,6 +79,7 @@
     <Compile Include="ListAppendTests.fs" />
     <Compile Include="StringSearchTests.fs" />
     <Compile Include="StringCaseTests.fs" />
+    <Compile Include="StringDecodeUtf8Tests.fs" />
     <Compile Include="StringSpanTests.fs" />
     <Compile Include="StringPositionOffsetTests.fs" />
     <Compile Include="StringCodePointConversionTests.fs" />

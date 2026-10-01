@@ -128,6 +128,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringParseFloat64 -> "parse float64"
         | ViewerNodeRole.StringCodePoints -> "code points"
         | ViewerNodeRole.StringToLower -> "to lower"
+        | ViewerNodeRole.StringDecodeUtf8Lossy -> "UTF-8 decode (replace)"
         | ViewerNodeRole.StringUtf8ByteCount -> "utf-8 byte count"
         | ViewerNodeRole.StringFromCodePoint -> "from code point"
         | ViewerNodeRole.StringToCodePoint -> "to code point"

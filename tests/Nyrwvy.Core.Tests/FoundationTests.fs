@@ -42,6 +42,7 @@ module FoundationTests =
                 | SemanticNodeKind.StringLength _
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
+                | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _

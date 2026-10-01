@@ -37,6 +37,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringLength _
                 | TypedSemanticNodeKind.StringCodePoints _
                 | TypedSemanticNodeKind.StringToLower _
+                | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
                 | TypedSemanticNodeKind.StringUtf8ByteCount _
                 | TypedSemanticNodeKind.StringFromCodePoint _
                 | TypedSemanticNodeKind.StringToCodePoint _
