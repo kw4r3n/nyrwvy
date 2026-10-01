@@ -185,6 +185,28 @@ module SnapshotCodecTests =
             | Error(SnapshotCodecError.InvalidShape _) -> ()
             | result -> failwithf "Expected malformed-string InvalidShape, got %A" result
 
+    let private loneSurrogateLiteralSnapshot (text: string) =
+        let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate"
+        let literal: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
+              DisplayName = "lone"
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.String
+              RequiredEffects = []
+              Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.StringLiteral text } ]; ResultNodeId = nodeId } }
+        { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-lone-surrogate") with Functions = [ literal ] }
+
+    [<Fact>]
+    let ``snapshot codec round-trips a lone surrogate in a String literal exactly`` () =
+        let snapshot = loneSurrogateLiteralSnapshot (utf16 "{D800}")
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let encoded = SnapshotCodec.serialize snapshot |> unwrap
+        Assert.Contains("\"value\":\"\\uD800\"", encoded)
+        let decoded = SnapshotCodec.deserialize encoded |> unwrap
+        Assert.Equal(snapshot, decoded)
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute decoded)
+        Assert.NotEqual(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (loneSurrogateLiteralSnapshot "\uFFFD"))
+
     [<Fact>]
     let ``snapshot codec preserves valid surrogate pairs`` () =
         let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-\U0001F600")

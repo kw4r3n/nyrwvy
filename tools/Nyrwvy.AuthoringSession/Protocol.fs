@@ -556,10 +556,17 @@ module AuthoringProtocol =
         { CallerFunctionId = id<FunctionTag> "callerFunctionId" item
           Replacement = recipe (property "replacement" item) }
 
+    /// The `InternalError` message: exception names and messages stay off the wire.
+    let internalErrorMessage = "Unexpected internal failure; this request was not applied and the session is unchanged."
+
     let executeLine (session: AuthoringSession) line =
         use _scope = SnapshotComputationScope.Start()
         let mutable requestId: string = null
         try
+            // A blank line is answered like any other malformed line, so a client that waits
+            // for one reply per line never stalls.
+            if String.IsNullOrWhiteSpace line then
+                WireInput.fail "Empty request line; expected one JSON object."
             use document = parseDocument line
             let root = document.RootElement
             requestId <- requiredString "id" root
@@ -1136,10 +1143,20 @@ module AuthoringProtocol =
                     [ "code", box "SessionError"
                       "message", box error.Message ])
         // Last resort: an unexpected failure answers this request only. Session state is
-        // mutated solely after a successful write, so the session remains usable.
+        // mutated solely after a successful write, so the session remains usable. The wire gets a
+        // stable code and message; the exception detail goes to the operator's stderr only.
         | error ->
+            Console.Error.WriteLine($"InternalError for request '{requestId}': {error.GetType().FullName}: {error.Message}")
             failure
                 requestId
                 (objectValue
                     [ "code", box "InternalError"
-                      "message", box $"{error.GetType().Name}: {error.Message}" ])
+                      "message", box internalErrorMessage ])
+
+    /// Answers each input line with exactly one response line until the input ends.
+    let serve (session: AuthoringSession) (input: IO.TextReader) (output: IO.TextWriter) =
+        let mutable line = input.ReadLine()
+        while not (isNull line) do
+            output.WriteLine(executeLine session line)
+            output.Flush()
+            line <- input.ReadLine()

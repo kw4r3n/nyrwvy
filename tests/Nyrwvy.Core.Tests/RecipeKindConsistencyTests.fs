@@ -78,6 +78,7 @@ module RecipeKindConsistencyTests =
         Assert.False(idForm "noSuchRecipeKind", "The ID-form probe must reject unknown kinds.")
         Assert.False(nameForm "noSuchRecipeKind", "The name-form probe must reject unknown kinds.")
         let idKinds = candidates |> Set.filter idForm
+        let recipeCaseKinds = FSharpType.GetUnionCases(typeof<ExpressionRecipe>, true) |> Seq.map (fun case -> camelCase case.Name) |> Set.ofSeq
         let nameKinds = candidates |> Set.filter nameForm
         let problems =
             [ describe "ID form only (add to WireSymbolic or idOnlyKinds)" (idKinds - nameKinds - idOnlyKinds)
@@ -85,6 +86,28 @@ module RecipeKindConsistencyTests =
               describe "idOnlyKinds entries that the name form now accepts" (Set.intersect idOnlyKinds nameKinds)
               describe "idOnlyKinds entries that the ID form no longer accepts" (idOnlyKinds - idKinds)
               describe "Name form but undocumented in recipe-reference.mjs" (nameKinds - documented)
-              describe "Documented in recipe-reference.mjs but rejected by the name form" (documented - nameKinds) ]
+              describe "Documented in recipe-reference.mjs but rejected by the name form" (documented - nameKinds)
+              describe "ExpressionRecipe cases whose kind the ID form rejects" (recipeCaseKinds - idKinds) ]
+            |> List.choose id
+        Assert.True(List.isEmpty problems, String.Join(Environment.NewLine, problems))
+
+    /// `ExpressionRecipe` cases that build a node of a differently named `SemanticNodeKind` case.
+    /// `Parameter` and the ID-only `ParameterSlot` both become `ParameterReference`, and the ID-only
+    /// `SelfCall` persists as `DirectCall` to the function being authored.
+    let private recipeOnlyCases = Map.ofList [ "Parameter", "ParameterReference"; "ParameterSlot", "ParameterReference"; "SelfCall", "DirectCall" ]
+
+    /// The readers are probed with kind names drawn from the recipe cases, so a recipe case no
+    /// reader accepts, or a node kind with no recipe case, is only caught by comparing the unions.
+    [<Fact>]
+    let ``every ExpressionRecipe case maps to a SemanticNodeKind case and back`` () =
+        let names unionType = FSharpType.GetUnionCases(unionType, true) |> Seq.map (fun case -> case.Name) |> Set.ofSeq
+        let recipes = names typeof<ExpressionRecipe>
+        let nodes = names typeof<SemanticNodeKind>
+        let mapped = recipeOnlyCases |> Map.toSeq |> Seq.map snd |> Set.ofSeq
+        let problems =
+            [ describe "ExpressionRecipe cases with no SemanticNodeKind case (add the node kind or list the rename)" (recipes - nodes - (recipeOnlyCases.Keys |> Set.ofSeq))
+              describe "SemanticNodeKind cases no recipe can build (add a recipe case)" (nodes - recipes - mapped)
+              describe "Listed renames whose recipe case is gone or now matches a node kind" (recipeOnlyCases.Keys |> Set.ofSeq |> Set.filter (fun name -> not (recipes.Contains name) || nodes.Contains name))
+              describe "Listed rename targets that are not SemanticNodeKind cases" (mapped - nodes) ]
             |> List.choose id
         Assert.True(List.isEmpty problems, String.Join(Environment.NewLine, problems))

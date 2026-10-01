@@ -23,7 +23,7 @@ function sources(directory) {
 }
 
 test("adapter configs cover maintained TypeScript and shared/MCP JavaScript without Bun ambient leakage", () => {
-  const adapters = config("tsconfig.json")
+  const adapters = config("tsconfig.adapters.json")
   const bun = config("tsconfig.bun.json")
   const adapterFiles = new Set(adapters.fileNames.map(path => relative(root, path)))
   const bunFiles = new Set(bun.fileNames.map(path => relative(root, path)))
@@ -48,10 +48,13 @@ test("adapter configs cover maintained TypeScript and shared/MCP JavaScript with
   assert.deepEqual(bun.options.types, ["node", "bun-types/test"])
   const resolved = ts.resolveModuleName("@opencode-ai/plugin", join(root, ".opencode/tools/nyrwvy.ts"), adapters.options, ts.sys)
   assert.equal(resolved.resolvedModule.resolvedFileName, join(root, "node_modules/@opencode-ai/plugin/dist/index.d.ts"))
+  // Bun reads tsconfig.json paths at run time, so the declaration pin must stay in the tsc-only config.
+  assert.equal(config("tsconfig.json").options.paths, undefined)
+  assert.ok(bun.options.paths?.["@opencode-ai/plugin"], "the Bun test typecheck keeps the declaration pin")
 })
 
 test("the compiler diagnoses implementation mistakes and schema/handler mismatches in both hosts", { timeout: 60000 }, () => {
-  const parsed = config("tsconfig.json")
+  const parsed = config("tsconfig.adapters.json")
   const replacements = new Map([
     [join(root, "tools/nyrwvy-agent/graph-tools.mjs"), [
       ["snapshot: schema.string()", "snapshot: schema.array(schema.string())"],
