@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck:adapters && npm run typecheck:bun",
-    "typecheck:adapters": "tsc --project tsconfig.json",
+    "typecheck:adapters": "tsc --project tsconfig.adapters.json",
     "typecheck:bun": "tsc --project tsconfig.bun.json",
     "test:adapters": "node --experimental-strip-types --test tools/nyrwvy-agent/*.test.mjs",
     "test:node": "node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs .opencode/tests/nyrwvy-evaluation-transport.test.mjs scripts/tests/*.test.mjs && npm test --workspace tools/nyrwvy-mcp",
