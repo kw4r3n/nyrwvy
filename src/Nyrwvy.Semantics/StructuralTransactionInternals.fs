@@ -94,20 +94,21 @@ module internal StructuralTransactionInternals =
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
         | SemanticNodeKind.Float64Literal bits -> None, None, Some(Float64Bits.toHex bits)
-        | SemanticNodeKind.FunctionReference functionId
-        | SemanticNodeKind.DirectCall(functionId, _)
-        | SemanticNodeKind.ListFold(_, _, functionId, _)
-        | SemanticNodeKind.ListEffectFold(_, _, functionId, _)
-        | SemanticNodeKind.UseResource(_, _, _, functionId, _)
-        | SemanticNodeKind.ParallelAll(_, functionId, _)
-        | SemanticNodeKind.TaskScope(functionId, _)
-        | SemanticNodeKind.TaskStart(_, functionId, _, _)
-        | SemanticNodeKind.ListMap(_, functionId, _)
-        | SemanticNodeKind.ListFilter(_, functionId, _)
-        | SemanticNodeKind.ListSortBy(_, functionId, _)
-        | SemanticNodeKind.ListAny(_, functionId, _)
-        | SemanticNodeKind.ListAll(_, functionId, _) -> None, Some functionId, None
-        | _ -> None, None, None
+        // Every other kind: the one function it names, if any. A capability construction names one
+        // function per operation and shows none here.
+        | _ ->
+            let functionId =
+                SemanticNodeShape.functionReferences node
+                |> List.tryPick (fun reference ->
+                    match reference.Role with
+                    | FunctionReferenceRole.CapabilityImplementation _ -> None
+                    | FunctionReferenceRole.DirectCall
+                    | FunctionReferenceRole.PureListCallback
+                    | FunctionReferenceRole.EffectListCallback
+                    | FunctionReferenceRole.Worker
+                    | FunctionReferenceRole.Body
+                    | FunctionReferenceRole.FunctionValue -> Some reference.FunctionId)
+            None, functionId, None
 
     let summarizeNodes
         (snapshot: Snapshot)

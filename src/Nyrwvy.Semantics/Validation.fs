@@ -320,15 +320,7 @@ module SnapshotValidator =
             let declared = TypeParameters.ofFunction functionEntity |> List.map fst |> Set.ofList
             let bodyTypes =
                 (SemanticFacts.collectPatternBindings functionEntity.Body |> List.map (fun binding -> binding.Type))
-                @ (ValueGraph.collectNodes functionEntity.Body
-                   |> List.collect (fun node ->
-                       match node.Kind with
-                       | SemanticNodeKind.ListEmpty itemType
-                       | SemanticNodeKind.ListConstruct(itemType, _)
-                       | SemanticNodeKind.OptionNone itemType
-                       | SemanticNodeKind.ResultOk(itemType, _)
-                       | SemanticNodeKind.ResultErr(itemType, _) -> [ itemType ]
-                       | _ -> []))
+                @ (ValueGraph.collectNodes functionEntity.Body |> List.collect SemanticNodeShape.payloadTypeRefs)
             for typeRef in functionEntity.ResultType :: bodyTypes do
                 for id, name in TypeParameters.occurring typeRef do
                     if not (Set.contains id declared) then

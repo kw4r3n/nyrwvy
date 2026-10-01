@@ -32,21 +32,11 @@ module EffectRequirements =
             ValueGraph.collectNodes fn.Body |> List.collect (fun node ->
                 let functionSource id = node.Id, EffectRequirementSource.FunctionContract id
                 let operationSource id = node.Id, EffectRequirementSource.CapabilityOperation id
-                match node.Kind with
-                | SemanticNodeKind.DirectCall(id, _)
-                | SemanticNodeKind.ListFold(_, _, id, _)
-                | SemanticNodeKind.ListEffectFold(_, _, id, _)
-                | SemanticNodeKind.ParallelAll(_, id, _)
-                | SemanticNodeKind.TaskScope(id, _)
-                | SemanticNodeKind.TaskStart(_, id, _, _)
-                | SemanticNodeKind.ListMap(_, id, _)
-                | SemanticNodeKind.ListFilter(_, id, _)
-                | SemanticNodeKind.ListSortBy(_, id, _)
-                | SemanticNodeKind.ListAny(_, id, _)
-                | SemanticNodeKind.ListAll(_, id, _) -> [ functionSource id ]
-                | SemanticNodeKind.UseResource(_, _, operationId, bodyId, _) -> [ functionSource bodyId; operationSource operationId ]
-                | SemanticNodeKind.CapabilityInvoke(_, id, _) -> [ operationSource id ]
-                | _ -> [])
+                // A function value or a capability implementation requires nothing where it is named.
+                (SemanticNodeShape.functionReferences node
+                 |> List.filter (fun reference -> FunctionReferenceRole.isInvoked reference.Role)
+                 |> List.map (fun reference -> functionSource reference.FunctionId))
+                @ (SemanticNodeShape.invokedOperations node |> List.map operationSource))
         let requirements = function
             | EffectRequirementSource.FunctionContract id -> Map.tryFind id functions |> Option.map (fun target -> target.RequiredEffects)
             | EffectRequirementSource.CapabilityOperation id -> Map.tryFind id operations |> Option.map (fun op -> [ op.EffectId ])

@@ -26,18 +26,12 @@ module PureFunctions =
                         | SemanticNodeKind.TaskCancel _
                         | SemanticNodeKind.CancellationRequested -> true
                         | _ -> false)
-                    let targets = nodes |> List.collect (fun node ->
-                        match node.Kind with
-                        | SemanticNodeKind.CapabilityConstruct(_, implementations) -> List.map snd implementations
-                        | SemanticNodeKind.FunctionReference target
-                        | SemanticNodeKind.DirectCall(target, _)
-                        | SemanticNodeKind.ListFold(_, _, target, _)
-                        | SemanticNodeKind.ListEffectFold(_, _, target, _)
-                        | SemanticNodeKind.ListMap(_, target, _)
-                        | SemanticNodeKind.ListFilter(_, target, _)
-                        | SemanticNodeKind.ListSortBy(_, target, _)
-                        | SemanticNodeKind.ListAny(_, target, _)
-                        | SemanticNodeKind.ListAll(_, target, _) -> [ target ]
-                        | _ -> [])
+                    // Every named function, in any role. The UseResource and TaskScope bodies and the
+                    // ParallelAll and TaskStart workers were left out of this list before; including
+                    // them changes nothing, because those kinds make `effectful` true and the targets
+                    // are visited only when it is false.
+                    let targets =
+                        nodes
+                        |> List.collect (SemanticNodeShape.functionReferences >> List.map (fun reference -> reference.FunctionId))
                     not effectful && visit (Set.add id seen) (targets @ rest)
         visit Set.empty [ functionId ]

@@ -115,47 +115,12 @@ module SemanticFingerprint =
             DisplayName = None
             Type = normalizeTypeRef binding.Type }
 
+    /// Type-parameter display names live in payload types and pattern bindings; the two shared
+    /// shape functions enumerate both for every node kind.
     let private normalizeNode (node: SemanticNode) =
-        let kind =
-            match node.Kind with
-            | SemanticNodeKind.ListEmpty itemType ->
-                SemanticNodeKind.ListEmpty(normalizeTypeRef itemType)
-            | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
-                SemanticNodeKind.ListConstruct(normalizeTypeRef itemType, itemNodeIds)
-            | SemanticNodeKind.OptionNone itemType ->
-                SemanticNodeKind.OptionNone(normalizeTypeRef itemType)
-            | SemanticNodeKind.ResultOk(errorType, valueNodeId) ->
-                SemanticNodeKind.ResultOk(normalizeTypeRef errorType, valueNodeId)
-            | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
-                SemanticNodeKind.ResultErr(normalizeTypeRef okType, errorNodeId)
-            | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
-                let normalizedArms =
-                    arms
-                    |> List.map (fun arm ->
-                        { arm with
-                            FieldBindings =
-                                arm.FieldBindings
-                                |> List.map (fun fieldBinding ->
-                                    { fieldBinding with
-                                        Binding = normalizePatternBinding fieldBinding.Binding }) })
-                SemanticNodeKind.MatchUnion(inputNodeId, normalizedArms)
-            | SemanticNodeKind.Bind(inputNodeId, body) ->
-                SemanticNodeKind.Bind(inputNodeId, { body with ValueBinding = normalizePatternBinding body.ValueBinding })
-            | SemanticNodeKind.MatchOption(inputNodeId, someArm, noneBody) ->
-                SemanticNodeKind.MatchOption(
-                    inputNodeId,
-                    { someArm with ValueBinding = normalizePatternBinding someArm.ValueBinding },
-                    noneBody
-                )
-            | SemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
-                SemanticNodeKind.MatchResult(
-                    inputNodeId,
-                    { okArm with ValueBinding = normalizePatternBinding okArm.ValueBinding },
-                    { errArm with ErrorBinding = normalizePatternBinding errArm.ErrorBinding }
-                )
-            | _ -> node.Kind
-
-        { node with Kind = kind }
+        node
+        |> SemanticNodeShape.mapPayloadTypeRefs normalizeTypeRef
+        |> SemanticNodeShape.mapNested normalizePatternBinding id
 
     let private normalizeFunction (functionEntity: SemanticFunction) =
         { functionEntity with

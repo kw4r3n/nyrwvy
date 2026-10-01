@@ -27,6 +27,17 @@ module internal GraphOrder =
         if not (all |> List.exists (fun node -> match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false)) then None
         else
             let functionHasEffects id = Map.tryFind id functions |> Option.exists (fun target -> not (List.isEmpty target.RequiredEffects))
+            // Bodies and TaskStart workers belong to kinds that are observable on their own above.
+            // Pure list callbacks are not checked here, as before: validation requires them pure.
+            let carriesCalleeEffects role =
+                match role with
+                | FunctionReferenceRole.DirectCall
+                | FunctionReferenceRole.EffectListCallback
+                | FunctionReferenceRole.Worker
+                | FunctionReferenceRole.Body -> true
+                | FunctionReferenceRole.PureListCallback
+                | FunctionReferenceRole.FunctionValue
+                | FunctionReferenceRole.CapabilityImplementation _ -> false
             let rec observable node =
                 match node.Kind with
                 | SemanticNodeKind.Abort _
@@ -37,10 +48,10 @@ module internal GraphOrder =
                 | SemanticNodeKind.TaskWait _
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.CancellationRequested -> true
-                | SemanticNodeKind.DirectCall(id, _)
-                | SemanticNodeKind.ListEffectFold(_, _, id, _)
-                | SemanticNodeKind.ParallelAll(_, id, _) -> functionHasEffects id
-                | _ -> SemanticNodeShape.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
+                | _ ->
+                    SemanticNodeShape.functionReferences node |> List.exists (fun reference ->
+                        carriesCalleeEffects reference.Role && functionHasEffects reference.FunctionId)
+                    || SemanticNodeShape.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
             let rec check graph =
                 let edges = graph.Nodes |> List.map (fun node -> node.Id, SemanticNodeShape.dependencies node) |> Map.ofList
                 match tryUnorderedPair edges (graph.Nodes |> List.filter observable |> List.map (fun node -> node.Id)) with

@@ -500,6 +500,45 @@ type Snapshot =
       Functions: SemanticFunction list
       Obligations: MissingArgumentObligation list }
 
+/// How a node names a function by identity.
+[<RequireQualifiedAccess>]
+type FunctionReferenceRole =
+    /// DirectCall: called with the node's argument bindings.
+    | DirectCall
+    /// ListFold, ListMap, ListFilter, ListSortBy, ListAny or ListAll: a callback validation requires to be pure.
+    | PureListCallback
+    /// ListEffectFold: a folder that may require effects.
+    | EffectListCallback
+    /// ParallelAll or TaskStart: a worker run as its own concurrent task.
+    | Worker
+    /// UseResource or TaskScope: a body run once by the node.
+    | Body
+    /// FunctionReference: the function as a value; it is not called here.
+    | FunctionValue
+    /// CapabilityConstruct: the implementation of one operation; it is called only through the capability.
+    | CapabilityImplementation of CapabilityOperationId
+
+/// One function a node names, its role, and the parameters the node binds by identity (DirectCall
+/// arguments or a callback context; empty for a function value or a capability implementation).
+type NodeFunctionReference =
+    { FunctionId: FunctionId
+      Role: FunctionReferenceRole
+      Arguments: ArgumentBinding list }
+
+[<RequireQualifiedAccess>]
+module FunctionReferenceRole =
+    /// Whether the node itself runs the function (so the node needs whatever the function requires),
+    /// rather than only handing it on as a value or as a capability implementation.
+    let isInvoked (role: FunctionReferenceRole) =
+        match role with
+        | FunctionReferenceRole.DirectCall
+        | FunctionReferenceRole.PureListCallback
+        | FunctionReferenceRole.EffectListCallback
+        | FunctionReferenceRole.Worker
+        | FunctionReferenceRole.Body -> true
+        | FunctionReferenceRole.FunctionValue
+        | FunctionReferenceRole.CapabilityImplementation _ -> false
+
 /// The role one nested graph plays in the node that owns it.
 [<RequireQualifiedAccess>]
 type NestedGraphRole =
@@ -535,11 +574,12 @@ module NestedBinding =
         | NestedBinding.Value pattern
         | NestedBinding.Error pattern -> pattern
 
-/// The one definition of how a node refers to other nodes and which graphs it owns. Every
-/// structural traversal in the Semantics layer (dependency order, cycle detection, pruning,
-/// cloning, migration, review and viewer projection) derives from these functions, so a new
-/// node kind is described here once. Typing, validation, lowering and serialization keep their
-/// own kind-specific rules. `SemanticNodeShapeTests` checks each case against the union's shape.
+/// The one definition of how a node refers to other nodes, which graphs it owns, which types it
+/// states and which functions and capability operations it names. Every structural traversal in
+/// the Semantics layer (dependency order, cycle detection, pruning, cloning, migration, review and
+/// viewer projection), fingerprint normalization, call-site and effect queries derive from these
+/// functions, so a new node kind is described here once. Typing, validation, lowering and
+/// serialization keep their own kind-specific rules. `SemanticNodeShapeTests` checks each case against the union's shape.
 [<RequireQualifiedAccess>]
 module SemanticNodeShape =
     let private contextValues (context: ArgumentBinding list) =
@@ -1090,6 +1130,304 @@ module SemanticNodeShape =
     /// Folds over the nested scopes of one node, in evaluation order.
     let foldNestedGraphs (folder: 'State -> NestedScope -> 'State) (state: 'State) (node: SemanticNode): 'State =
         nestedScopes node |> List.fold folder state
+
+    /// The one list of the types a node states in its own payload (pattern bindings and nested
+    /// graphs excluded), paired with the node's kind after `mapTypeRef` rewrote each of them.
+    let private typeRefPayload (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): TypeRef list * SemanticNodeKind =
+        match node.Kind with
+        | SemanticNodeKind.ListEmpty itemType -> [ itemType ], SemanticNodeKind.ListEmpty(mapTypeRef itemType)
+        | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
+            [ itemType ], SemanticNodeKind.ListConstruct(mapTypeRef itemType, itemNodeIds)
+        | SemanticNodeKind.OptionNone itemType -> [ itemType ], SemanticNodeKind.OptionNone(mapTypeRef itemType)
+        | SemanticNodeKind.ResultOk(errorType, valueNodeId) ->
+            [ errorType ], SemanticNodeKind.ResultOk(mapTypeRef errorType, valueNodeId)
+        | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
+            [ okType ], SemanticNodeKind.ResultErr(mapTypeRef okType, errorNodeId)
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
+        | SemanticNodeKind.StringIsEmpty _
+        | SemanticNodeKind.Int64ToString _
+        | SemanticNodeKind.Int64ToHexString _
+        | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringParseInt64Hex _
+        | SemanticNodeKind.Float64ToString _
+        | SemanticNodeKind.StringParseFloat64 _
+        | SemanticNodeKind.StringCodePoints _
+        | SemanticNodeKind.StringToLower _
+        | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.Float64RoundToInt64 _
+        | SemanticNodeKind.Float64FloorToInt64 _
+        | SemanticNodeKind.Float64Sqrt _
+        | SemanticNodeKind.Float64Abs _
+        | SemanticNodeKind.Float64Negate _
+        | SemanticNodeKind.Float64Floor _
+        | SemanticNodeKind.Float64Ceiling _
+        | SemanticNodeKind.Float64Truncate _
+        | SemanticNodeKind.StringUtf8ByteCount _
+        | SemanticNodeKind.StringFromCodePoint _
+        | SemanticNodeKind.StringToCodePoint _
+        | SemanticNodeKind.StringLength _
+        | SemanticNodeKind.StringSlice _
+        | SemanticNodeKind.StringContains _
+        | SemanticNodeKind.StringIndexOf _
+        | SemanticNodeKind.StringSpan _
+        | SemanticNodeKind.StringSpanBack _
+        | SemanticNodeKind.StringLastIndexOf _
+        | SemanticNodeKind.StringStartsWith _
+        | SemanticNodeKind.StringEndsWith _
+        | SemanticNodeKind.StringSplit _
+        | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringJoin _
+        | SemanticNodeKind.StringEqual _
+        | SemanticNodeKind.StringLessThan _
+        | SemanticNodeKind.ValueEqual _
+        | SemanticNodeKind.StringConcat _
+        | SemanticNodeKind.Int64WrappingAdd _
+        | SemanticNodeKind.Int64WrappingSubtract _
+        | SemanticNodeKind.Int64WrappingMultiply _
+        | SemanticNodeKind.Int64FloorDivide _
+        | SemanticNodeKind.Int64FloorModulo _
+        | SemanticNodeKind.Int64Min _
+        | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.ListRange _
+        | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Int64Equal _
+        | SemanticNodeKind.Int64LessThan _
+        | SemanticNodeKind.Int64LessThanOrEqual _
+        | SemanticNodeKind.Int64GreaterThan _
+        | SemanticNodeKind.Int64GreaterThanOrEqual _
+        | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Subtract _
+        | SemanticNodeKind.Float64Multiply _
+        | SemanticNodeKind.Float64Divide _
+        | SemanticNodeKind.Float64Equal _
+        | SemanticNodeKind.Float64LessThan _
+        | SemanticNodeKind.Float64IsNaN _
+        | SemanticNodeKind.Float64IsFinite _
+        | SemanticNodeKind.Float64IsInfinite _
+        | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Bits32FromInt64 _
+        | SemanticNodeKind.Bits32ToInt64 _
+        | SemanticNodeKind.Bits32Xor _
+        | SemanticNodeKind.Bits32And _
+        | SemanticNodeKind.Bits32Or _
+        | SemanticNodeKind.Bits32Not _
+        | SemanticNodeKind.Bits32Add _
+        | SemanticNodeKind.Bits32RotateRight _
+        | SemanticNodeKind.Bits32ShiftRight _
+        | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListAppendItem _
+        | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListConcat _
+        | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ParallelAll _
+        | SemanticNodeKind.CancellationRequested
+        | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.TaskScope _
+        | SemanticNodeKind.TaskStart _
+        | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.TaskCancel _
+        | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListAll _
+        | SemanticNodeKind.DirectCall _
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _
+        | SemanticNodeKind.FunctionInvoke _
+        | SemanticNodeKind.CapabilityInvoke _
+        | SemanticNodeKind.ProductConstruct _
+        | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.ProductUpdate _
+        | SemanticNodeKind.UnionConstruct _
+        | SemanticNodeKind.OptionSome _
+        | SemanticNodeKind.Abort _
+        | SemanticNodeKind.BoolNot _
+        | SemanticNodeKind.BoolAnd _
+        | SemanticNodeKind.BoolOr _
+        | SemanticNodeKind.Conditional _
+        | SemanticNodeKind.MatchUnion _
+        | SemanticNodeKind.Bind _
+        | SemanticNodeKind.MatchOption _
+        | SemanticNodeKind.MatchResult _ -> [], node.Kind
+
+    /// The types a node states in its own payload, outside pattern bindings (see `nestedScopes`)
+    /// and nested graphs. Type-parameter checks and fingerprint normalization cover exactly these.
+    let payloadTypeRefs (node: SemanticNode): TypeRef list = typeRefPayload id node |> fst
+
+    /// The same node with every payload type replaced; pattern bindings, nested graphs and value
+    /// references are untouched (`mapNested` rewrites bindings).
+    let mapPayloadTypeRefs (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): SemanticNode =
+        { node with Kind = typeRefPayload mapTypeRef node |> snd }
+
+    /// The one list of the functions a node names and the capability operations it invokes.
+    let private symbolReferences (node: SemanticNode): NodeFunctionReference list * CapabilityOperationId list =
+        let reference role arguments functionId =
+            { FunctionId = functionId; Role = role; Arguments = arguments }
+        match node.Kind with
+        | SemanticNodeKind.DirectCall(functionId, arguments) ->
+            [ reference FunctionReferenceRole.DirectCall arguments functionId ], []
+        | SemanticNodeKind.ListFold(_, _, functionId, context)
+        | SemanticNodeKind.ListMap(_, functionId, context)
+        | SemanticNodeKind.ListFilter(_, functionId, context)
+        | SemanticNodeKind.ListSortBy(_, functionId, context)
+        | SemanticNodeKind.ListAny(_, functionId, context)
+        | SemanticNodeKind.ListAll(_, functionId, context) ->
+            [ reference FunctionReferenceRole.PureListCallback context functionId ], []
+        | SemanticNodeKind.ListEffectFold(_, _, functionId, context) ->
+            [ reference FunctionReferenceRole.EffectListCallback context functionId ], []
+        | SemanticNodeKind.ParallelAll(_, functionId, context)
+        | SemanticNodeKind.TaskStart(_, functionId, context, _) -> [ reference FunctionReferenceRole.Worker context functionId ], []
+        | SemanticNodeKind.TaskScope(functionId, context) -> [ reference FunctionReferenceRole.Body context functionId ], []
+        | SemanticNodeKind.UseResource(_, _, releaseOperationId, functionId, context) ->
+            [ reference FunctionReferenceRole.Body context functionId ], [ releaseOperationId ]
+        | SemanticNodeKind.FunctionReference functionId -> [ reference FunctionReferenceRole.FunctionValue [] functionId ], []
+        | SemanticNodeKind.CapabilityConstruct(_, implementations) ->
+            implementations
+            |> List.map (fun (operationId, functionId) ->
+                reference (FunctionReferenceRole.CapabilityImplementation operationId) [] functionId),
+            []
+        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) -> [], [ operationId ]
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
+        | SemanticNodeKind.StringIsEmpty _
+        | SemanticNodeKind.Int64ToString _
+        | SemanticNodeKind.Int64ToHexString _
+        | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringParseInt64Hex _
+        | SemanticNodeKind.Float64ToString _
+        | SemanticNodeKind.StringParseFloat64 _
+        | SemanticNodeKind.StringCodePoints _
+        | SemanticNodeKind.StringToLower _
+        | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.Float64RoundToInt64 _
+        | SemanticNodeKind.Float64FloorToInt64 _
+        | SemanticNodeKind.Float64Sqrt _
+        | SemanticNodeKind.Float64Abs _
+        | SemanticNodeKind.Float64Negate _
+        | SemanticNodeKind.Float64Floor _
+        | SemanticNodeKind.Float64Ceiling _
+        | SemanticNodeKind.Float64Truncate _
+        | SemanticNodeKind.StringUtf8ByteCount _
+        | SemanticNodeKind.StringFromCodePoint _
+        | SemanticNodeKind.StringToCodePoint _
+        | SemanticNodeKind.StringLength _
+        | SemanticNodeKind.StringSlice _
+        | SemanticNodeKind.StringContains _
+        | SemanticNodeKind.StringIndexOf _
+        | SemanticNodeKind.StringSpan _
+        | SemanticNodeKind.StringSpanBack _
+        | SemanticNodeKind.StringLastIndexOf _
+        | SemanticNodeKind.StringStartsWith _
+        | SemanticNodeKind.StringEndsWith _
+        | SemanticNodeKind.StringSplit _
+        | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringJoin _
+        | SemanticNodeKind.StringEqual _
+        | SemanticNodeKind.StringLessThan _
+        | SemanticNodeKind.ValueEqual _
+        | SemanticNodeKind.StringConcat _
+        | SemanticNodeKind.Int64WrappingAdd _
+        | SemanticNodeKind.Int64WrappingSubtract _
+        | SemanticNodeKind.Int64WrappingMultiply _
+        | SemanticNodeKind.Int64FloorDivide _
+        | SemanticNodeKind.Int64FloorModulo _
+        | SemanticNodeKind.Int64Min _
+        | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.ListRange _
+        | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Int64Equal _
+        | SemanticNodeKind.Int64LessThan _
+        | SemanticNodeKind.Int64LessThanOrEqual _
+        | SemanticNodeKind.Int64GreaterThan _
+        | SemanticNodeKind.Int64GreaterThanOrEqual _
+        | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Subtract _
+        | SemanticNodeKind.Float64Multiply _
+        | SemanticNodeKind.Float64Divide _
+        | SemanticNodeKind.Float64Equal _
+        | SemanticNodeKind.Float64LessThan _
+        | SemanticNodeKind.Float64IsNaN _
+        | SemanticNodeKind.Float64IsFinite _
+        | SemanticNodeKind.Float64IsInfinite _
+        | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Bits32FromInt64 _
+        | SemanticNodeKind.Bits32ToInt64 _
+        | SemanticNodeKind.Bits32Xor _
+        | SemanticNodeKind.Bits32And _
+        | SemanticNodeKind.Bits32Or _
+        | SemanticNodeKind.Bits32Not _
+        | SemanticNodeKind.Bits32Add _
+        | SemanticNodeKind.Bits32RotateRight _
+        | SemanticNodeKind.Bits32ShiftRight _
+        | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.ListConstruct _
+        | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListAppendItem _
+        | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListConcat _
+        | SemanticNodeKind.CancellationRequested
+        | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.TaskCancel _
+        | SemanticNodeKind.FunctionInvoke _
+        | SemanticNodeKind.ProductConstruct _
+        | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.ProductUpdate _
+        | SemanticNodeKind.UnionConstruct _
+        | SemanticNodeKind.OptionNone _
+        | SemanticNodeKind.OptionSome _
+        | SemanticNodeKind.ResultOk _
+        | SemanticNodeKind.Abort _
+        | SemanticNodeKind.ResultErr _
+        | SemanticNodeKind.BoolNot _
+        | SemanticNodeKind.BoolAnd _
+        | SemanticNodeKind.BoolOr _
+        | SemanticNodeKind.Conditional _
+        | SemanticNodeKind.MatchUnion _
+        | SemanticNodeKind.Bind _
+        | SemanticNodeKind.MatchOption _
+        | SemanticNodeKind.MatchResult _ -> [], []
+
+    /// Every function a node names, in payload order, with its role. Nodes inside nested graphs are
+    /// not included; callers walk them with `ValueGraph.collectNodes` or `nestedGraphs`.
+    let functionReferences (node: SemanticNode): NodeFunctionReference list = symbolReferences node |> fst
+
+    /// The capability operations a node itself invokes (CapabilityInvoke and the UseResource
+    /// release). The operations a CapabilityConstruct implements are roles in `functionReferences`.
+    let invokedOperations (node: SemanticNode): CapabilityOperationId list = symbolReferences node |> snd
+
+    /// The target and argument bindings of a DirectCall node; None for every other kind.
+    let tryDirectCall (node: SemanticNode): (FunctionId * ArgumentBinding list) option =
+        functionReferences node
+        |> List.tryPick (fun reference ->
+            match reference.Role with
+            | FunctionReferenceRole.DirectCall -> Some(reference.FunctionId, reference.Arguments)
+            | FunctionReferenceRole.PureListCallback
+            | FunctionReferenceRole.EffectListCallback
+            | FunctionReferenceRole.Worker
+            | FunctionReferenceRole.Body
+            | FunctionReferenceRole.FunctionValue
+            | FunctionReferenceRole.CapabilityImplementation _ -> None)
 
     /// A node depends on its direct value references and on every node its nested graphs
     /// reference from outside themselves, the same edges IR lowering orders by. A nested
