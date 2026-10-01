@@ -25,11 +25,7 @@ module internal CSharpBackendValidation =
             functionEntity.Blocks
             |> List.collect (fun (block: ExecutionBlock) ->
                 block.Instructions
-                |> List.choose (fun (instruction: ExecutionInstruction) ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _)
-                    | ExecutionInstructionKind.UseResource(_, _, operationId, _, _) -> Some operationId
-                    | _ -> None)))
+                |> List.collect (fun (instruction: ExecutionInstruction) -> ExecutionInstructionKind.capabilityOperations instruction.Kind)))
         |> List.distinct
         |> List.sortBy StableId.value
 
@@ -51,11 +47,16 @@ module internal CSharpBackendValidation =
             let workers =
                 program.Functions
                 |> List.collect ExecutionCallGraph.instructions
-                |> List.choose (fun instruction ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.ParallelAll(_, worker, _)
-                    | ExecutionInstructionKind.TaskStart(_, worker, _, _) -> Some worker
-                    | _ -> None)
+                |> List.collect (fun instruction -> ExecutionInstructionKind.callbackTargets instruction.Kind)
+                |> List.choose (fun (role, functionId) ->
+                    match role with
+                    | ExecutionCallbackRole.Worker -> Some functionId
+                    | ExecutionCallbackRole.DirectCall
+                    | ExecutionCallbackRole.PureListCallback
+                    | ExecutionCallbackRole.EffectListCallback
+                    | ExecutionCallbackRole.Body
+                    | ExecutionCallbackRole.FunctionValue
+                    | ExecutionCallbackRole.CapabilityImplementation _ -> None)
                 |> ExecutionCallGraph.reachable program
             program.Functions
             |> List.filter (fun fn -> Set.contains fn.SemanticFunctionId workers)
@@ -64,13 +65,11 @@ module internal CSharpBackendValidation =
                 ExecutionCallGraph.instructions fn
                 |> List.sortBy (fun instruction -> StableId.value instruction.OriginNodeId)
                 |> List.tryPick (fun instruction ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _)
-                    | ExecutionInstructionKind.UseResource(_, _, operationId, _, _) ->
+                    ExecutionInstructionKind.capabilityOperations instruction.Kind
+                    |> List.tryPick (fun operationId ->
                         let capabilityId, _ = Map.find operationId operationsById
                         if Set.contains capabilityId profile.ConcurrentCapabilityIds then None
-                        else Some(CSharpBackendError.ConcurrentCapabilityBindingRequired(fn.SemanticFunctionId, instruction.OriginNodeId, capabilityId, operationId))
-                    | _ -> None))
+                        else Some(CSharpBackendError.ConcurrentCapabilityBindingRequired(fn.SemanticFunctionId, instruction.OriginNodeId, capabilityId, operationId)))))
 
     let private isSystemConsoleWriteLineCompatible (operation: ExecutionCapabilityOperation) =
         match operation.Parameters, operation.ResultType, operation.FailureType with

@@ -263,17 +263,13 @@ module ExecutionIr =
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.Int64ToString valueId))
                         | TypedSemanticNodeKind.Int64ToHexString valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.Int64ToHexString valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToHexString
                         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
                         | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64Hex valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringParseInt64Hex
                         | TypedSemanticNodeKind.Float64ToString valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64ToString
                         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId ->
@@ -452,9 +448,7 @@ module ExecutionIr =
                             |> Result.map (fun listValueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.ListLength listValueId))
                         | TypedSemanticNodeKind.ListReverse listNodeId ->
-                            requireNodeValue environment listNodeId
-                            |> Result.map (fun listValueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.ListReverse listValueId))
+                            lowerUnaryNode node listNodeId ExecutionInstructionKind.ListReverse
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                             lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
                                 ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))
@@ -809,121 +803,9 @@ module ExecutionIr =
                             lowerOptionMatch node inputNodeId someArm noneBody
                         | TypedSemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
                             lowerResultMatch node inputNodeId okArm errArm
-                        | TypedSemanticNodeKind.ParameterReference _
-                        | TypedSemanticNodeKind.PatternReference _
-                        | TypedSemanticNodeKind.StringLiteral _
-                        | TypedSemanticNodeKind.BoolLiteral _
-                        | TypedSemanticNodeKind.UnitLiteral
-                        | TypedSemanticNodeKind.Int64Literal _
-                        | TypedSemanticNodeKind.Float64Literal _
-                        | TypedSemanticNodeKind.StringIsEmpty _
-                        | TypedSemanticNodeKind.Int64ToString _
-                        | TypedSemanticNodeKind.Int64ToHexString _
-                        | TypedSemanticNodeKind.StringParseInt64 _
-                        | TypedSemanticNodeKind.StringParseInt64Hex _
-                        | TypedSemanticNodeKind.Float64ToString _
-                        | TypedSemanticNodeKind.StringParseFloat64 _
-                        | TypedSemanticNodeKind.StringCodePoints _
-                        | TypedSemanticNodeKind.StringToLower _
-                        | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
-                        | TypedSemanticNodeKind.Float64RoundToInt64 _
-                        | TypedSemanticNodeKind.Float64FloorToInt64 _
-                        | TypedSemanticNodeKind.Float64Sqrt _
-                        | TypedSemanticNodeKind.Float64Abs _
-                        | TypedSemanticNodeKind.Float64Negate _
-                        | TypedSemanticNodeKind.Float64Floor _
-                        | TypedSemanticNodeKind.Float64Ceiling _
-                        | TypedSemanticNodeKind.Float64Truncate _
-                        | TypedSemanticNodeKind.StringUtf8ByteCount _
-                        | TypedSemanticNodeKind.StringFromCodePoint _
-                        | TypedSemanticNodeKind.StringToCodePoint _
-                        | TypedSemanticNodeKind.StringLength _
-                        | TypedSemanticNodeKind.StringSlice _
-                        | TypedSemanticNodeKind.BoolNot _
-                        | TypedSemanticNodeKind.StringContains _
-                        | TypedSemanticNodeKind.StringIndexOf _
-                        | TypedSemanticNodeKind.StringSpan _
-                        | TypedSemanticNodeKind.StringSpanBack _
-                        | TypedSemanticNodeKind.StringLastIndexOf _
-                        | TypedSemanticNodeKind.StringStartsWith _
-                        | TypedSemanticNodeKind.StringEndsWith _
-                        | TypedSemanticNodeKind.StringJoin _
-                        | TypedSemanticNodeKind.StringSplit _
-                        | TypedSemanticNodeKind.StringSplitLines _
-                        | TypedSemanticNodeKind.StringEqual _
-                        | TypedSemanticNodeKind.StringLessThan _
-                        | TypedSemanticNodeKind.ValueEqual _
-                        | TypedSemanticNodeKind.StringConcat _
-                        | TypedSemanticNodeKind.Int64WrappingAdd _
-                        | TypedSemanticNodeKind.Int64WrappingSubtract _
-                        | TypedSemanticNodeKind.Int64WrappingMultiply _
-                        | TypedSemanticNodeKind.Int64FloorDivide _
-                        | TypedSemanticNodeKind.Int64FloorModulo _
-                        | TypedSemanticNodeKind.Int64Min _
-                        | TypedSemanticNodeKind.Int64Max _
-                        | TypedSemanticNodeKind.ListRange _
-                        | TypedSemanticNodeKind.StringRepeat _
-                        | TypedSemanticNodeKind.Int64Equal _
-                        | TypedSemanticNodeKind.Int64LessThan _
-                        | TypedSemanticNodeKind.Int64LessThanOrEqual _
-                        | TypedSemanticNodeKind.Int64GreaterThan _
-                        | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
-                        | TypedSemanticNodeKind.Float64Add _
-                        | TypedSemanticNodeKind.Float64Subtract _
-                        | TypedSemanticNodeKind.Float64Multiply _
-                        | TypedSemanticNodeKind.Float64Divide _
-                        | TypedSemanticNodeKind.Float64Equal _
-                        | TypedSemanticNodeKind.Float64LessThan _
-                        | TypedSemanticNodeKind.Float64IsNaN _
-                        | TypedSemanticNodeKind.Float64IsFinite _
-                        | TypedSemanticNodeKind.Float64IsInfinite _
-                        | TypedSemanticNodeKind.Int64ToFloat64 _
-                        | TypedSemanticNodeKind.Int64WrappingAbs _
-                        | TypedSemanticNodeKind.Bits32FromInt64 _
-                        | TypedSemanticNodeKind.Bits32ToInt64 _
-                        | TypedSemanticNodeKind.Bits32Xor _
-                        | TypedSemanticNodeKind.Bits32And _
-                        | TypedSemanticNodeKind.Bits32Or _
-                        | TypedSemanticNodeKind.Bits32Not _
-                        | TypedSemanticNodeKind.Bits32Add _
-                        | TypedSemanticNodeKind.Bits32RotateRight _
-                        | TypedSemanticNodeKind.Bits32ShiftRight _
-                        | TypedSemanticNodeKind.Bits32ShiftLeft _
-                        | TypedSemanticNodeKind.ListEmpty
-                        | TypedSemanticNodeKind.ListConstruct _
-                        | TypedSemanticNodeKind.ListLength _
-                        | TypedSemanticNodeKind.ListReverse _
-                        | TypedSemanticNodeKind.ListSlice _
-                        | TypedSemanticNodeKind.ListItemAt _
-                        | TypedSemanticNodeKind.ListAppendItem _
-                        | TypedSemanticNodeKind.ListConcat _
-                        | TypedSemanticNodeKind.ListFold _
-                        | TypedSemanticNodeKind.ListEffectFold _
-                        | TypedSemanticNodeKind.UseResource _
-                        | TypedSemanticNodeKind.ParallelAll _
-                        | TypedSemanticNodeKind.CancellationRequested
-                        | TypedSemanticNodeKind.TaskScope _
-                        | TypedSemanticNodeKind.TaskStart _
-                        | TypedSemanticNodeKind.TaskWait _
-                        | TypedSemanticNodeKind.TaskCancel _
-                        | TypedSemanticNodeKind.ListMap _
-                        | TypedSemanticNodeKind.ListFilter _
-                        | TypedSemanticNodeKind.ListSortBy _
-                        | TypedSemanticNodeKind.ListAny _
-                        | TypedSemanticNodeKind.ListAll _
-                        | TypedSemanticNodeKind.CapabilityConstruct _
-                        | TypedSemanticNodeKind.FunctionReference _
-                        | TypedSemanticNodeKind.FunctionInvoke _
-                        | TypedSemanticNodeKind.DirectCall _
-                        | TypedSemanticNodeKind.CapabilityInvoke _
-                        | TypedSemanticNodeKind.ProductConstruct _
-                        | TypedSemanticNodeKind.FieldAccess _
-                        | TypedSemanticNodeKind.ProductUpdate _
-                        | TypedSemanticNodeKind.UnionConstruct _
-                        | TypedSemanticNodeKind.OptionNone
-                        | TypedSemanticNodeKind.OptionSome _
-                        | TypedSemanticNodeKind.ResultOk _
-                        | TypedSemanticNodeKind.ResultErr _ -> lowerSimpleNode node
+                        // Every other kind is a leaf. `lowerSimpleNode` enumerates every kind and rejects
+                        // the structured ones above, so a new kind is a compile error there, not here.
+                        | _ -> lowerSimpleNode node
 
                 match failure with
                 | Some error -> Error error

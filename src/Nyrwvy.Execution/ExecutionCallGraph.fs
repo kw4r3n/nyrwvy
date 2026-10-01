@@ -6,22 +6,7 @@ module ExecutionCallGraph =
     let instructions (fn: ExecutionFunction) = fn.Blocks |> List.collect (fun block -> block.Instructions)
 
     let targets (instruction: ExecutionInstruction) =
-        match instruction.Kind with
-        | ExecutionInstructionKind.CapabilityConstruct(_, implementations) -> List.map snd implementations
-        | ExecutionInstructionKind.FunctionReference functionId
-        | ExecutionInstructionKind.DirectCall(functionId, _)
-        | ExecutionInstructionKind.ListFold(_, _, functionId, _)
-        | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _)
-        | ExecutionInstructionKind.UseResource(_, _, _, functionId, _)
-        | ExecutionInstructionKind.ParallelAll(_, functionId, _)
-        | ExecutionInstructionKind.TaskScope(functionId, _)
-        | ExecutionInstructionKind.TaskStart(_, functionId, _, _)
-        | ExecutionInstructionKind.ListMap(_, functionId, _)
-        | ExecutionInstructionKind.ListFilter(_, functionId, _)
-        | ExecutionInstructionKind.ListSortBy(_, functionId, _)
-        | ExecutionInstructionKind.ListAny(_, functionId, _)
-        | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ functionId ]
-        | _ -> []
+        ExecutionInstructionKind.callbackTargets instruction.Kind |> List.map snd
 
     let reachable (program: ExecutionProgram) roots =
         let functions = program.Functions |> List.map (fun fn -> fn.SemanticFunctionId, fn) |> Map.ofList

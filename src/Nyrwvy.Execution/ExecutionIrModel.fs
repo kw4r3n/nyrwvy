@@ -204,6 +204,190 @@ type ExecutionInstructionKind =
     | ExtractResultOk of inputValueId: ExecutionValueId
     | ExtractResultErr of inputValueId: ExecutionValueId
 
+/// How an instruction names a function by identity (see `FunctionReferenceRole` in Semantics).
+[<RequireQualifiedAccess>]
+type ExecutionCallbackRole =
+    | DirectCall
+    | PureListCallback
+    | EffectListCallback
+    | Worker
+    | Body
+    | FunctionValue
+    | CapabilityImplementation of CapabilityOperationId
+
+/// What an instruction needs from the program and the generated runtime besides its operand values.
+[<RequireQualifiedAccess>]
+type ExecutionInstructionUse =
+    /// A function the instruction names: called, run as a callback, worker or body, or handed on.
+    | Callback of ExecutionCallbackRole * FunctionId
+    /// A capability operation the instruction invokes, which needs a host binding.
+    | CapabilityOperation of CapabilityOperationId
+    /// A generated implementation class for the capability, one method per implemented operation
+    /// (CapabilityConstruct; the same functions are also listed as `Callback`s).
+    | CapabilityImplementationClass of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
+    /// The ambient cancellation runtime (ParallelAll workers, CancellationRequested).
+    | ConcurrencyRuntime
+    /// The task runtime (TaskScope, TaskStart, TaskWait, TaskCancel).
+    | TaskRuntime
+
+[<RequireQualifiedAccess>]
+module ExecutionInstructionKind =
+    /// The one exhaustive list of what each instruction kind needs beyond its operand values. Call
+    /// reachability, capability binding validation and the runtime the C# backend emits all derive
+    /// from it, so a new kind is classified here once.
+    let uses (kind: ExecutionInstructionKind): ExecutionInstructionUse list =
+        let callback role functionId = ExecutionInstructionUse.Callback(role, functionId)
+        match kind with
+        | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->
+            ExecutionInstructionUse.CapabilityImplementationClass(capabilityId, implementations)
+            :: (implementations
+                |> List.map (fun (operationId, functionId) ->
+                    callback (ExecutionCallbackRole.CapabilityImplementation operationId) functionId))
+        | ExecutionInstructionKind.FunctionReference functionId -> [ callback ExecutionCallbackRole.FunctionValue functionId ]
+        | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback ExecutionCallbackRole.DirectCall functionId ]
+        | ExecutionInstructionKind.ListFold(_, _, functionId, _)
+        | ExecutionInstructionKind.ListMap(_, functionId, _)
+        | ExecutionInstructionKind.ListFilter(_, functionId, _)
+        | ExecutionInstructionKind.ListSortBy(_, functionId, _)
+        | ExecutionInstructionKind.ListAny(_, functionId, _)
+        | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback ExecutionCallbackRole.PureListCallback functionId ]
+        | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _) -> [ callback ExecutionCallbackRole.EffectListCallback functionId ]
+        | ExecutionInstructionKind.ParallelAll(_, functionId, _) ->
+            [ callback ExecutionCallbackRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
+        | ExecutionInstructionKind.CancellationRequested -> [ ExecutionInstructionUse.ConcurrencyRuntime ]
+        | ExecutionInstructionKind.TaskScope(functionId, _) ->
+            [ callback ExecutionCallbackRole.Body functionId; ExecutionInstructionUse.TaskRuntime ]
+        | ExecutionInstructionKind.TaskStart(_, functionId, _, _) ->
+            [ callback ExecutionCallbackRole.Worker functionId; ExecutionInstructionUse.TaskRuntime ]
+        | ExecutionInstructionKind.TaskWait _
+        | ExecutionInstructionKind.TaskCancel _ -> [ ExecutionInstructionUse.TaskRuntime ]
+        | ExecutionInstructionKind.UseResource(_, _, releaseOperationId, functionId, _) ->
+            [ callback ExecutionCallbackRole.Body functionId; ExecutionInstructionUse.CapabilityOperation releaseOperationId ]
+        | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _) -> [ ExecutionInstructionUse.CapabilityOperation operationId ]
+        | ExecutionInstructionKind.ReadParameter _
+        | ExecutionInstructionKind.ReadPatternBinding _
+        | ExecutionInstructionKind.StringLiteral _
+        | ExecutionInstructionKind.BoolLiteral _
+        | ExecutionInstructionKind.UnitLiteral
+        | ExecutionInstructionKind.Int64Literal _
+        | ExecutionInstructionKind.Float64Literal _
+        | ExecutionInstructionKind.StringIsEmpty _
+        | ExecutionInstructionKind.Int64ToString _
+        | ExecutionInstructionKind.Int64ToHexString _
+        | ExecutionInstructionKind.StringParseInt64 _
+        | ExecutionInstructionKind.StringParseInt64Hex _
+        | ExecutionInstructionKind.Float64ToString _
+        | ExecutionInstructionKind.StringParseFloat64 _
+        | ExecutionInstructionKind.StringCodePoints _
+        | ExecutionInstructionKind.StringToLower _
+        | ExecutionInstructionKind.StringDecodeUtf8Lossy _
+        | ExecutionInstructionKind.Float64RoundToInt64 _
+        | ExecutionInstructionKind.Float64FloorToInt64 _
+        | ExecutionInstructionKind.Float64Sqrt _
+        | ExecutionInstructionKind.Float64Abs _
+        | ExecutionInstructionKind.Float64Negate _
+        | ExecutionInstructionKind.Float64Floor _
+        | ExecutionInstructionKind.Float64Ceiling _
+        | ExecutionInstructionKind.Float64Truncate _
+        | ExecutionInstructionKind.StringUtf8ByteCount _
+        | ExecutionInstructionKind.StringFromCodePoint _
+        | ExecutionInstructionKind.StringToCodePoint _
+        | ExecutionInstructionKind.StringLength _
+        | ExecutionInstructionKind.BoolNot _
+        | ExecutionInstructionKind.StringSlice _
+        | ExecutionInstructionKind.StringContains _
+        | ExecutionInstructionKind.StringIndexOf _
+        | ExecutionInstructionKind.StringSpan _
+        | ExecutionInstructionKind.StringSpanBack _
+        | ExecutionInstructionKind.StringLastIndexOf _
+        | ExecutionInstructionKind.StringStartsWith _
+        | ExecutionInstructionKind.StringEndsWith _
+        | ExecutionInstructionKind.StringSplit _
+        | ExecutionInstructionKind.StringSplitLines _
+        | ExecutionInstructionKind.StringJoin _
+        | ExecutionInstructionKind.StringEqual _
+        | ExecutionInstructionKind.StringLessThan _
+        | ExecutionInstructionKind.ValueEqual _
+        | ExecutionInstructionKind.StringConcat _
+        | ExecutionInstructionKind.Int64WrappingAdd _
+        | ExecutionInstructionKind.Int64WrappingSubtract _
+        | ExecutionInstructionKind.Int64WrappingMultiply _
+        | ExecutionInstructionKind.Int64FloorDivide _
+        | ExecutionInstructionKind.Int64FloorModulo _
+        | ExecutionInstructionKind.Int64Min _
+        | ExecutionInstructionKind.Int64Max _
+        | ExecutionInstructionKind.ListRange _
+        | ExecutionInstructionKind.StringRepeat _
+        | ExecutionInstructionKind.Int64Equal _
+        | ExecutionInstructionKind.Int64LessThan _
+        | ExecutionInstructionKind.Int64LessThanOrEqual _
+        | ExecutionInstructionKind.Int64GreaterThan _
+        | ExecutionInstructionKind.Int64GreaterThanOrEqual _
+        | ExecutionInstructionKind.Float64Add _
+        | ExecutionInstructionKind.Float64Subtract _
+        | ExecutionInstructionKind.Float64Multiply _
+        | ExecutionInstructionKind.Float64Divide _
+        | ExecutionInstructionKind.Float64Equal _
+        | ExecutionInstructionKind.Float64LessThan _
+        | ExecutionInstructionKind.Float64IsNaN _
+        | ExecutionInstructionKind.Float64IsFinite _
+        | ExecutionInstructionKind.Float64IsInfinite _
+        | ExecutionInstructionKind.Int64ToFloat64 _
+        | ExecutionInstructionKind.Int64WrappingAbs _
+        | ExecutionInstructionKind.Bits32FromInt64 _
+        | ExecutionInstructionKind.Bits32ToInt64 _
+        | ExecutionInstructionKind.Bits32Not _
+        | ExecutionInstructionKind.Bits32Xor _
+        | ExecutionInstructionKind.Bits32And _
+        | ExecutionInstructionKind.Bits32Or _
+        | ExecutionInstructionKind.Bits32Add _
+        | ExecutionInstructionKind.Bits32RotateRight _
+        | ExecutionInstructionKind.Bits32ShiftRight _
+        | ExecutionInstructionKind.Bits32ShiftLeft _
+        | ExecutionInstructionKind.ListEmpty
+        | ExecutionInstructionKind.ListConstruct _
+        | ExecutionInstructionKind.ListLength _
+        | ExecutionInstructionKind.ListReverse _
+        | ExecutionInstructionKind.ListAppendItem _
+        | ExecutionInstructionKind.ListItemAt _
+        | ExecutionInstructionKind.ListSlice _
+        | ExecutionInstructionKind.ListConcat _
+        | ExecutionInstructionKind.FunctionInvoke _
+        | ExecutionInstructionKind.ProductConstruct _
+        | ExecutionInstructionKind.FieldAccess _
+        | ExecutionInstructionKind.ProductUpdate _
+        | ExecutionInstructionKind.UnionConstruct _
+        | ExecutionInstructionKind.OptionNone
+        | ExecutionInstructionKind.OptionSome _
+        | ExecutionInstructionKind.ResultOk _
+        | ExecutionInstructionKind.ResultErr _
+        | ExecutionInstructionKind.ExtractUnionField _
+        | ExecutionInstructionKind.ExtractOptionSome _
+        | ExecutionInstructionKind.ExtractResultOk _
+        | ExecutionInstructionKind.ExtractResultErr _ -> []
+
+    /// Every function the instruction names, with its role, in payload order.
+    let callbackTargets (kind: ExecutionInstructionKind): (ExecutionCallbackRole * FunctionId) list =
+        uses kind
+        |> List.choose (fun used ->
+            match used with
+            | ExecutionInstructionUse.Callback(role, functionId) -> Some(role, functionId)
+            | ExecutionInstructionUse.CapabilityOperation _
+            | ExecutionInstructionUse.CapabilityImplementationClass _
+            | ExecutionInstructionUse.ConcurrencyRuntime
+            | ExecutionInstructionUse.TaskRuntime -> None)
+
+    /// The capability operations the instruction invokes.
+    let capabilityOperations (kind: ExecutionInstructionKind): CapabilityOperationId list =
+        uses kind
+        |> List.choose (fun used ->
+            match used with
+            | ExecutionInstructionUse.CapabilityOperation operationId -> Some operationId
+            | ExecutionInstructionUse.Callback _
+            | ExecutionInstructionUse.CapabilityImplementationClass _
+            | ExecutionInstructionUse.ConcurrencyRuntime
+            | ExecutionInstructionUse.TaskRuntime -> None)
+
 type ExecutionInstruction =
     { Result: ExecutionValue
       OriginNodeId: GraphNodeId
