@@ -55,7 +55,7 @@ Delay lines and wavetables need in-place updates. The [semantic-independence](..
 
 **Recommended: A.** It keeps value semantics, keeps real-time safety a derived fact, and needs only a check local to one body. It does not resolve Q-012; it is a bounded rule inside processors.
 
-Indexing needs a total rule, because runtime operations never fail. Options: floor-modulo the index by the buffer length (a ring buffer, which is what delay lines and wavetables do anyway), clamp to the ends, or return `Option<Float64>`. **Recommended: floor-modulo**, because it is total, branch-free and the common case needs no extra nodes. This is a choice for the owner.
+Indexing needs a total rule, because runtime operations never fail. Options: floor-modulo the index by the buffer length (a ring buffer, which is what delay lines and wavetables do anyway), clamp to the ends, or return `Option<Float64>`. **Owner choice (2026-10-01): floor-modulo**, for `BufferGet` and `BufferSet` alike, so index `-1` is the last item. It is total, it is what ring buffers do anyway, and it adds no nodes or branches per sample. Its cost is that an index bug reads another position instead of showing up as an error; clamping would hide such a bug too, and `Option` would add a match per sample. Floor-modulo needs a non-zero length, so a buffer's declared length must be at least 1, checked when the host creates the state.
 
 ### 2. Numeric domains
 
