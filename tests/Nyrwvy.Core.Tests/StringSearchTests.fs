@@ -202,7 +202,14 @@ module StringSearchTests =
                   ExpressionRecipe.StringEndsWith(text "x😀", text "😀"), true
                   ExpressionRecipe.StringEndsWith(text "hello", text "LO"), false
                   ExpressionRecipe.StringEndsWith(text "lo", text "hello"), false
-                  ExpressionRecipe.StringEndsWith(text "😀", text (utf16 "{DE00}")), false ]
+                  ExpressionRecipe.StringEndsWith(text "😀", text (utf16 "{DE00}")), false
+                  // StringContains follows the same boundary rule as StringIndexOf.
+                  ExpressionRecipe.StringContains(text "a😀b", text "😀"), true
+                  ExpressionRecipe.StringContains(text "abc", text ""), true
+                  ExpressionRecipe.StringContains(text "", text ""), true
+                  ExpressionRecipe.StringContains(text "😀", text (utf16 "{DE00}")), false
+                  ExpressionRecipe.StringContains(text "😀", text (utf16 "{D83D}")), false
+                  ExpressionRecipe.StringContains(text (utf16 "😀{DE00}"), text (utf16 "{DE00}")), true ]
             create "affixTable" (listOf boolType) (ExpressionRecipe.ListConstruct(boolType, affixCases |> List.map fst))
             let splitCases =
                 [ ("a,b,,c", ","), [ "a"; "b"; ""; "c" ]

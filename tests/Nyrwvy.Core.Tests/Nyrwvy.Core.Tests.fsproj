@@ -109,6 +109,7 @@
     <Compile Include="ValueEqualTests.fs" />
     <Compile Include="CompactSimulateReplyTests.fs" />
     <Compile Include="ListSortByTests.fs" />
+    <Compile Include="ListCallbackPurityTests.fs" />
     <Compile Include="Float64ConversionTests.fs" />
     <Compile Include="Bits32Tests.fs" />
     <Compile Include="ProductUpdateTests.fs" />

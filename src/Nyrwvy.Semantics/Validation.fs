@@ -503,10 +503,10 @@ module SnapshotValidator =
                                     $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
                         | None -> ()
 
-                    if not (List.isEmpty callback.RequiredEffects) then
+                    if not (PureFunctions.isPure snapshot callback.Id) then
                         add
                             "ListCallbackEffectsNotAllowed"
-                            $"Higher-order List node '{StableId.value nodeId}' requires a pure callback with no required effects."
+                            $"Higher-order List node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
 
                     if predicateResultRequired
                        && TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
@@ -558,10 +558,10 @@ module SnapshotValidator =
                                     $"ListSortBy node '{StableId.value nodeId}' callback parameter types must both match the source list item type."
                         | None -> ()
 
-                    if not (List.isEmpty callback.RequiredEffects) then
+                    if not (PureFunctions.isPure snapshot callback.Id) then
                         add
                             "ListCallbackEffectsNotAllowed"
-                            $"ListSortBy node '{StableId.value nodeId}' requires a pure callback with no required effects."
+                            $"ListSortBy node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
 
                     if TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
                         add
@@ -1096,8 +1096,8 @@ module SnapshotValidator =
                                     | None -> add "ListCallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
                                 if TypeParameters.substitute substitution folder.ResultType <> seedType then
                                     add "ListCallbackResultTypeMismatch" "ListFold folder must return the seed type."
-                                if not (List.isEmpty folder.RequiredEffects) then
-                                    add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure."
+                                if not (PureFunctions.isPure snapshot folder.Id) then
+                                    add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
                         | _ -> ()
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
