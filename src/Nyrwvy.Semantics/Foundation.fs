@@ -209,9 +209,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | StringIsEmpty of valueNodeId: GraphNodeId
     /// Canonical invariant decimal text of an Int64, with a leading '-' only for negative values.
     | Int64ToString of valueNodeId: GraphNodeId
+    /// Lowercase hexadecimal text of an Int64 with the fewest digits, as Python format(value, "x"): a leading
+    /// '-' only for negative values ('-ff'), no '0x' prefix, no padding. Never fails.
+    | Int64ToHexString of valueNodeId: GraphNodeId
     /// Some(value) only for an optional '-' followed by one or more ASCII digits within the Int64
     /// range; any other text, including '+', whitespace or an empty String, is None.
     | StringParseInt64 of valueNodeId: GraphNodeId
+    /// Some(value) only for an optional '-' followed by one or more ASCII hexadecimal digits (either case) within
+    /// the Int64 range; '0x', '+', whitespace, '_' or an empty String give None.
+    | StringParseInt64Hex of valueNodeId: GraphNodeId
     /// Shortest round-trip decimal text of a Float64, exactly like Python repr(float): the fewest
     /// significant digits that read back as the same binary64, in fixed notation with at least one
     /// fractional digit ('1.0', '0.0001', '1234567890123456.0') when the decimal exponent is in
@@ -324,6 +330,16 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64FloorDivide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The smaller of two Int64 values, as Python min(left, right). Never fails.
+    | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The larger of two Int64 values, as Python max(left, right). Never fails.
+    | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The List<Int64> start, start + 1, ..., end - 1, as Python list(range(start, end)); empty when
+    /// end <= start. A list too large to allocate is a host failure, as for ListConcat.
+    | ListRange of startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    /// The String repeated count times, as Python text * count; "" when count <= 0. A String too large to
+    /// allocate is a host failure, as for StringConcat.
+    | StringRepeat of textNodeId: GraphNodeId * countNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -341,6 +357,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The Float64 nearest to the Int64: exact for |value| <= 2^53, otherwise IEEE 754 round to nearest,
     /// ties to even (C# `(double)long`, Python `float(int)`). Every Int64 is finite as a Float64. Never fails.
     | Int64ToFloat64 of valueNodeId: GraphNodeId
+    /// The absolute value of an Int64 with two's-complement wrapping, so Int64.MinValue gives itself, as
+    /// Int64FloorDivide wraps Int64.MinValue / -1. Never fails.
+    | Int64WrappingAbs of valueNodeId: GraphNodeId
     /// The low 32 bits of the Int64's two's complement form (value mod 2^32). Never fails.
     | Bits32FromInt64 of valueNodeId: GraphNodeId
     /// The Bits32 read as an unsigned integer, 0..4294967295. Never fails.
@@ -542,7 +561,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.ValueEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.Int64ToString valueNodeId
+        | SemanticNodeKind.Int64ToHexString valueNodeId
         | SemanticNodeKind.StringParseInt64 valueNodeId
+        | SemanticNodeKind.StringParseInt64Hex valueNodeId
         | SemanticNodeKind.Float64ToString valueNodeId
         | SemanticNodeKind.StringParseFloat64 valueNodeId
         | SemanticNodeKind.StringCodePoints valueNodeId
@@ -578,6 +599,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -601,6 +626,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId
+        | SemanticNodeKind.Int64WrappingAbs valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId
@@ -682,7 +708,9 @@ module SemanticNodeShape =
             | SemanticNodeKind.FunctionReference _ -> node.Kind
             | SemanticNodeKind.StringIsEmpty valueNodeId -> SemanticNodeKind.StringIsEmpty(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToString valueNodeId -> SemanticNodeKind.Int64ToString(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64ToHexString valueNodeId -> SemanticNodeKind.Int64ToHexString(mapNodeId valueNodeId)
             | SemanticNodeKind.StringParseInt64 valueNodeId -> SemanticNodeKind.StringParseInt64(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringParseInt64Hex valueNodeId -> SemanticNodeKind.StringParseInt64Hex(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64ToString valueNodeId -> SemanticNodeKind.Float64ToString(mapNodeId valueNodeId)
             | SemanticNodeKind.StringParseFloat64 valueNodeId -> SemanticNodeKind.StringParseFloat64(mapNodeId valueNodeId)
             | SemanticNodeKind.StringCodePoints valueNodeId -> SemanticNodeKind.StringCodePoints(mapNodeId valueNodeId)
@@ -740,6 +768,14 @@ module SemanticNodeShape =
                 SemanticNodeKind.Int64FloorDivide(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64FloorModulo(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64Min(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64Max(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.ListRange(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.ListRange(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.StringRepeat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64Equal(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -766,6 +802,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.Float64IsFinite valueNodeId -> SemanticNodeKind.Float64IsFinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64IsInfinite valueNodeId -> SemanticNodeKind.Float64IsInfinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToFloat64 valueNodeId -> SemanticNodeKind.Int64ToFloat64(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64WrappingAbs valueNodeId -> SemanticNodeKind.Int64WrappingAbs(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32FromInt64 valueNodeId -> SemanticNodeKind.Bits32FromInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32ToInt64 valueNodeId -> SemanticNodeKind.Bits32ToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32Not valueNodeId -> SemanticNodeKind.Bits32Not(mapNodeId valueNodeId)
@@ -891,7 +928,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.StringIsEmpty _
         | SemanticNodeKind.Int64ToString _
+        | SemanticNodeKind.Int64ToHexString _
         | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringParseInt64Hex _
         | SemanticNodeKind.Float64ToString _
         | SemanticNodeKind.StringParseFloat64 _
         | SemanticNodeKind.StringCodePoints _
@@ -929,6 +968,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64WrappingMultiply _
         | SemanticNodeKind.Int64FloorDivide _
         | SemanticNodeKind.Int64FloorModulo _
+        | SemanticNodeKind.Int64Min _
+        | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.ListRange _
+        | SemanticNodeKind.StringRepeat _
         | SemanticNodeKind.Int64Equal _
         | SemanticNodeKind.Int64LessThan _
         | SemanticNodeKind.Int64LessThanOrEqual _
@@ -944,6 +987,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsFinite _
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.Int64WrappingAbs _
         | SemanticNodeKind.Bits32FromInt64 _
         | SemanticNodeKind.Bits32ToInt64 _
         | SemanticNodeKind.Bits32Xor _

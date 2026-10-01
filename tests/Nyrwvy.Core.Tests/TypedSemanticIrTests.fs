@@ -31,7 +31,9 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Float64Literal _
                 | TypedSemanticNodeKind.StringIsEmpty _
                 | TypedSemanticNodeKind.Int64ToString _
+                | TypedSemanticNodeKind.Int64ToHexString _
                 | TypedSemanticNodeKind.StringParseInt64 _
+                | TypedSemanticNodeKind.StringParseInt64Hex _
                 | TypedSemanticNodeKind.Float64ToString _
                 | TypedSemanticNodeKind.StringParseFloat64 _
                 | TypedSemanticNodeKind.StringLength _
@@ -72,6 +74,10 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64WrappingMultiply _
                 | TypedSemanticNodeKind.Int64FloorDivide _
                 | TypedSemanticNodeKind.Int64FloorModulo _
+                | TypedSemanticNodeKind.Int64Min _
+                | TypedSemanticNodeKind.Int64Max _
+                | TypedSemanticNodeKind.ListRange _
+                | TypedSemanticNodeKind.StringRepeat _
                 | TypedSemanticNodeKind.Int64Equal _
                 | TypedSemanticNodeKind.Int64LessThan _
                 | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -87,6 +93,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Float64IsFinite _
                 | TypedSemanticNodeKind.Float64IsInfinite _
                 | TypedSemanticNodeKind.Int64ToFloat64 _
+                | TypedSemanticNodeKind.Int64WrappingAbs _
                 | TypedSemanticNodeKind.Bits32FromInt64 _
                 | TypedSemanticNodeKind.Bits32ToInt64 _
                 | TypedSemanticNodeKind.Bits32Xor _

@@ -271,7 +271,9 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.OptionNone _ -> Ok recipe
             | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
             | ExpressionRecipe.Int64ToString value -> one ExpressionRecipe.Int64ToString value
+            | ExpressionRecipe.Int64ToHexString value -> one ExpressionRecipe.Int64ToHexString value
             | ExpressionRecipe.StringParseInt64 value -> one ExpressionRecipe.StringParseInt64 value
+            | ExpressionRecipe.StringParseInt64Hex value -> one ExpressionRecipe.StringParseInt64Hex value
             | ExpressionRecipe.Float64ToString value -> one ExpressionRecipe.Float64ToString value
             | ExpressionRecipe.StringParseFloat64 value -> one ExpressionRecipe.StringParseFloat64 value
             | ExpressionRecipe.StringCodePoints value -> one ExpressionRecipe.StringCodePoints value
@@ -294,6 +296,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64IsFinite value -> one ExpressionRecipe.Float64IsFinite value
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
             | ExpressionRecipe.Int64ToFloat64 value -> one ExpressionRecipe.Int64ToFloat64 value
+            | ExpressionRecipe.Int64WrappingAbs value -> one ExpressionRecipe.Int64WrappingAbs value
             | ExpressionRecipe.Bits32FromInt64 value -> one ExpressionRecipe.Bits32FromInt64 value
             | ExpressionRecipe.Bits32ToInt64 value -> one ExpressionRecipe.Bits32ToInt64 value
             | ExpressionRecipe.Bits32Not value -> one ExpressionRecipe.Bits32Not value
@@ -319,6 +322,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64WrappingMultiply(left, right) -> two ExpressionRecipe.Int64WrappingMultiply left right
             | ExpressionRecipe.Int64FloorDivide(left, right) -> two ExpressionRecipe.Int64FloorDivide left right
             | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
+            | ExpressionRecipe.Int64Min(left, right) -> two ExpressionRecipe.Int64Min left right
+            | ExpressionRecipe.Int64Max(left, right) -> two ExpressionRecipe.Int64Max left right
+            | ExpressionRecipe.ListRange(left, right) -> two ExpressionRecipe.ListRange left right
+            | ExpressionRecipe.StringRepeat(left, right) -> two ExpressionRecipe.StringRepeat left right
             | ExpressionRecipe.Bits32Xor(left, right) -> two ExpressionRecipe.Bits32Xor left right
             | ExpressionRecipe.Bits32And(left, right) -> two ExpressionRecipe.Bits32And left right
             | ExpressionRecipe.Bits32Or(left, right) -> two ExpressionRecipe.Bits32Or left right

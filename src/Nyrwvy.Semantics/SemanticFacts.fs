@@ -144,8 +144,11 @@ module SemanticFacts =
                     | SemanticNodeKind.StringToLower _
                     | SemanticNodeKind.StringDecodeUtf8Lossy _
                     | SemanticNodeKind.StringJoin _
+                    | SemanticNodeKind.StringRepeat _
                     | SemanticNodeKind.StringSlice _ ->
                         Some(TypeRef.Primitive PrimitiveType.String)
+                    | SemanticNodeKind.ListRange _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     // BoolAnd/BoolOr complete normally even when their right graph aborts,
                     // because the left operand alone can decide the result.
                     | SemanticNodeKind.BoolLiteral _
@@ -161,6 +164,9 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64WrappingMultiply _
                     | SemanticNodeKind.Int64FloorDivide _
                     | SemanticNodeKind.Int64FloorModulo _
+                    | SemanticNodeKind.Int64Min _
+                    | SemanticNodeKind.Int64Max _
+                    | SemanticNodeKind.Int64WrappingAbs _
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.StringUtf8ByteCount _
                     | SemanticNodeKind.StringSpan _
@@ -192,7 +198,10 @@ module SemanticFacts =
                     | SemanticNodeKind.Bits32ShiftLeft _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bits32)
                     | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
+                    | SemanticNodeKind.Int64ToHexString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseInt64 _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
+                    | SemanticNodeKind.StringParseInt64Hex _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.Float64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseFloat64 _ ->

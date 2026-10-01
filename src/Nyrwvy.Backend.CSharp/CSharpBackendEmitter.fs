@@ -1418,6 +1418,15 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceValueId + ".Length == 0;")
         | ExecutionInstructionKind.Int64ToString sourceValueId ->
             writer.Line(target + " = " + valueName sourceValueId + ".ToString(System.Globalization.CultureInfo.InvariantCulture);")
+        | ExecutionInstructionKind.Int64ToHexString sourceValueId ->
+            // Python format(value, "x"): lowercase digits of the magnitude with a leading '-' for negative
+            // values; the unsigned negation also gives Int64.MinValue its magnitude 2^63.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var number = " + valueName sourceValueId + ";")
+            writer.Line(target + " = number < 0L ? \"-\" + unchecked((ulong)(-number)).ToString(\"x\", System.Globalization.CultureInfo.InvariantCulture) : number.ToString(\"x\", System.Globalization.CultureInfo.InvariantCulture);")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.StringParseInt64 sourceValueId ->
             // Only '-'? ASCII digits are accepted; TryParse then enforces the Int64 range.
             writer.Line("{")
@@ -1427,6 +1436,28 @@ module CSharpBackend =
             writer.Line("var digits = text.Length > start;")
             writer.Line("for (var index = start; digits && index < text.Length; index++) digits = text[index] >= '0' && text[index] <= '9';")
             writer.Line(target + " = digits && long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? NyOption<long>.Some(parsed) : NyOption<long>.None();")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.StringParseInt64Hex sourceValueId ->
+            // Only '-'? followed by ASCII hex digits of either case is accepted. The magnitude is accumulated
+            // as ulong, stopping before it could overflow, and must be at most 2^63 - 1, or 2^63 when negative.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("string text = " + valueName sourceValueId + ";")
+            writer.Line("var negative = text.Length > 0 && text[0] == '-';")
+            writer.Line("var start = negative ? 1 : 0;")
+            writer.Line("var digits = text.Length > start;")
+            writer.Line("var magnitude = 0UL;")
+            writer.Line("for (var index = start; digits && index < text.Length; index++)")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var c = text[index];")
+            writer.Line("var digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;")
+            writer.Line("digits = digit >= 0 && magnitude <= (ulong.MaxValue >> 4);")
+            writer.Line("if (digits) magnitude = (magnitude << 4) + (ulong)digit;")
+            writer.Pop()
+            writer.Line("}")
+            writer.Line(target + " = digits && magnitude <= (negative ? 9223372036854775808UL : 9223372036854775807UL) ? NyOption<long>.Some(negative ? unchecked(-(long)magnitude) : (long)magnitude) : NyOption<long>.None();")
             writer.Pop()
             writer.Line("}")
         | ExecutionInstructionKind.BoolNot sourceValueId ->
@@ -1552,6 +1583,41 @@ module CSharpBackend =
             writer.Line("}")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.Int64Min(leftValueId, rightValueId) ->
+            writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
+            writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.ListRange(startValueId, endValueId) ->
+            // Python list(range(start, end)). end - start is taken as unsigned, so the full Int64 span is
+            // counted without overflow; a list longer than an array can hold fails as allocation does.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var first = " + valueName startValueId + ";")
+            writer.Line("var last = " + valueName endValueId + ";")
+            writer.Line("if (last <= first) " + target + " = NyList<long>.Empty();")
+            writer.Line("else")
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var count = unchecked((ulong)(last - first));")
+            writer.Line("if (count > (ulong)Array.MaxLength) throw new OutOfMemoryException();")
+            writer.Line("var items = new long[(int)count];")
+            writer.Line("for (var index = 0; index < items.Length; index++) items[index] = first + index;")
+            writer.Line(target + " = NyList<long>.FromOwnedArray(items);")
+            writer.Pop()
+            writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
+        | ExecutionInstructionKind.StringRepeat(textValueId, countValueId) ->
+            // Python text * count: "" for count <= 0; a result longer than a String can hold fails as allocation does.
+            writer.Line("{")
+            writer.Push()
+            writer.Line("string text = " + valueName textValueId + ";")
+            writer.Line("var count = " + valueName countValueId + ";")
+            writer.Line("if (count <= 0L || text.Length == 0) " + target + " = \"\";")
+            writer.Line("else if (count > int.MaxValue / text.Length) throw new OutOfMemoryException();")
+            writer.Line("else " + target + " = new System.Text.StringBuilder(text.Length * (int)count).Insert(0, text, (int)count).ToString();")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "==" rightValueId false
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
@@ -1583,8 +1649,9 @@ module CSharpBackend =
         | ExecutionInstructionKind.Int64ToFloat64 valueId ->
             // .NET converts long to double with IEEE 754 round to nearest, ties to even.
             writer.Line(target + " = (double)" + valueName valueId + ";")
-        // IEEE 754 operations with exactly one result each: Sqrt is correctly rounded and Floor,
-        // Ceiling and Truncate are exact, so every backend agrees bit for bit.
+        | ExecutionInstructionKind.Int64WrappingAbs valueId ->
+            // Two's-complement negation wraps, so Int64.MinValue stays Int64.MinValue.
+            writer.Line(target + " = " + valueName valueId + " < 0L ? unchecked(-" + valueName valueId + ") : " + valueName valueId + ";")
         | ExecutionInstructionKind.Float64Sqrt valueId ->
             writer.Line(target + " = System.Math.Sqrt(" + valueName valueId + ");")
         | ExecutionInstructionKind.Float64Abs valueId ->

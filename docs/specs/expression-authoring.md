@@ -47,6 +47,8 @@ ExpressionRecipe =
   | StringConcat(left, right)
   | Int64ToString(expr)
   | StringParseInt64(expr)
+  | Int64ToHexString(expr) | StringParseInt64Hex(expr)
+  | StringRepeat(text, count)
   | StringLength(expr)
   | StringSlice(expr, expr, expr)
   | StringCodePoints(expr)
@@ -69,6 +71,7 @@ ExpressionRecipe =
   | Int64WrappingMultiply(left, right)
   | Int64FloorDivide(left, right)
   | Int64FloorModulo(left, right)
+  | Int64Min(left, right) | Int64Max(left, right) | Int64WrappingAbs(expr)
   | Int64Equal(left, right)
   | Int64LessThan(left, right)
   | Int64LessThanOrEqual(left, right)
@@ -96,6 +99,7 @@ ExpressionRecipe =
   | ListConstruct(itemType, items)
   | ListLength(list)
   | ListReverse(list)
+  | ListRange(start, end)
   | ListItemAt(list, index)
   | ListSlice(list, start, end)
   | ListAppendItem(list, item)
@@ -392,6 +396,16 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## ListReverse
 
 `ListReverse(list)` (wire `listReverse` with the field `value`, Nyason `list-reverse`) takes any `List<T>` and produces the same `List<T>` with its items in reverse order. It never fails. A source that is not a List reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `ListReverseInputTypeMismatch`.
+
+## Standard operations with an owner choice
+
+These operations follow the owner's choices recorded in the [decision](../decisions/standard-operation-choices.md); their meaning is in the [language subset](../reference/language-subset.md).
+
+- `ListRange(start, end)` (wire `listRange` with the fields `start` and `end`, Nyason `list-range`) takes two Int64 values and produces `List<Int64>`. `StringRepeat(text, count)` (wire `stringRepeat` with the fields `text` and `count`, Nyason `string-repeat`) takes a String and an Int64 and produces a String. A result too large to allocate is a host failure (`RunRuntimeFailure` with `System.OutOfMemoryException` under `runPure`); neither returns `Option`.
+- `Int64ToHexString` (wire `int64ToHexString`, Nyason `int64-to-hex-string`) takes an Int64 in the field `value` and produces a String; `StringParseInt64Hex` (wire `stringParseInt64Hex`, Nyason `string-parse-int64-hex`) takes a String in the field `value` and produces `Option<Int64>`.
+- `Int64Min` and `Int64Max` (wire `int64Min`, `int64Max` with the fields `left` and `right`; Nyason `int64-min`, `int64-max`) take two Int64 values, and `Int64WrappingAbs` (wire `int64WrappingAbs` with the field `value`, Nyason `int64-wrapping-abs`) takes one; all produce an Int64.
+
+An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min` and `Int64Max`, `Int64IntrinsicTypeMismatch` for `Int64ToHexString` and `Int64WrappingAbs`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
 
 ## Bits32
 

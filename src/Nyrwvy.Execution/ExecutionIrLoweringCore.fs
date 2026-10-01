@@ -262,10 +262,18 @@ module ExecutionIr =
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.Int64ToString valueId))
+                        | TypedSemanticNodeKind.Int64ToHexString valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.Int64ToHexString valueId))
                         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
                             requireNodeValue environment valueNodeId
                             |> Result.map (fun valueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
+                        | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId ->
+                            requireNodeValue environment valueNodeId
+                            |> Result.map (fun valueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64Hex valueId))
                         | TypedSemanticNodeKind.Float64ToString valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64ToString
                         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId ->
@@ -376,6 +384,14 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64FloorDivide(left, right))
                         | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64FloorModulo(left, right))
+                        | TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Min(left, right))
+                        | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Max(left, right))
+                        | TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.ListRange(left, right))
+                        | TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringRepeat(left, right))
                         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Equal(left, right))
                         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -406,6 +422,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64IsInfinite
                         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToFloat64
+                        | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64WrappingAbs
                         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32FromInt64
                         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32ToInt64
                         | TypedSemanticNodeKind.Bits32Not valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32Not
@@ -800,7 +818,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64Literal _
                         | TypedSemanticNodeKind.StringIsEmpty _
                         | TypedSemanticNodeKind.Int64ToString _
+                        | TypedSemanticNodeKind.Int64ToHexString _
                         | TypedSemanticNodeKind.StringParseInt64 _
+                        | TypedSemanticNodeKind.StringParseInt64Hex _
                         | TypedSemanticNodeKind.Float64ToString _
                         | TypedSemanticNodeKind.StringParseFloat64 _
                         | TypedSemanticNodeKind.StringCodePoints _
@@ -839,6 +859,10 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Int64WrappingMultiply _
                         | TypedSemanticNodeKind.Int64FloorDivide _
                         | TypedSemanticNodeKind.Int64FloorModulo _
+                        | TypedSemanticNodeKind.Int64Min _
+                        | TypedSemanticNodeKind.Int64Max _
+                        | TypedSemanticNodeKind.ListRange _
+                        | TypedSemanticNodeKind.StringRepeat _
                         | TypedSemanticNodeKind.Int64Equal _
                         | TypedSemanticNodeKind.Int64LessThan _
                         | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -854,6 +878,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64IsFinite _
                         | TypedSemanticNodeKind.Float64IsInfinite _
                         | TypedSemanticNodeKind.Int64ToFloat64 _
+                        | TypedSemanticNodeKind.Int64WrappingAbs _
                         | TypedSemanticNodeKind.Bits32FromInt64 _
                         | TypedSemanticNodeKind.Bits32ToInt64 _
                         | TypedSemanticNodeKind.Bits32Xor _

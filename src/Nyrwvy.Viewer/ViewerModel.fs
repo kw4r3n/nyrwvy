@@ -41,7 +41,9 @@ type ViewerNodeRole =
     | Float64Literal of Float64Bits
     | StringIsEmpty
     | Int64ToString
+    | Int64ToHexString
     | StringParseInt64
+    | StringParseInt64Hex
     | Float64ToString
     | StringParseFloat64
     | StringCodePoints
@@ -79,6 +81,10 @@ type ViewerNodeRole =
     | Int64WrappingMultiply
     | Int64FloorDivide
     | Int64FloorModulo
+    | Int64Min
+    | Int64Max
+    | ListRange
+    | StringRepeat
     | Int64Equal
     | Int64LessThan
     | Int64LessThanOrEqual
@@ -94,6 +100,7 @@ type ViewerNodeRole =
     | Float64IsFinite
     | Float64IsInfinite
     | Int64ToFloat64
+    | Int64WrappingAbs
     | Bits32FromInt64
     | Bits32ToInt64
     | Bits32Xor
@@ -243,7 +250,9 @@ module ViewerProjection =
         | SemanticNodeKind.Float64Literal bits -> ViewerNodeRole.Float64Literal bits, []
         | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
         | SemanticNodeKind.Int64ToString _ -> ViewerNodeRole.Int64ToString, []
+        | SemanticNodeKind.Int64ToHexString _ -> ViewerNodeRole.Int64ToHexString, []
         | SemanticNodeKind.StringParseInt64 _ -> ViewerNodeRole.StringParseInt64, []
+        | SemanticNodeKind.StringParseInt64Hex _ -> ViewerNodeRole.StringParseInt64Hex, []
         | SemanticNodeKind.Float64ToString _ -> ViewerNodeRole.Float64ToString, []
         | SemanticNodeKind.StringParseFloat64 _ -> ViewerNodeRole.StringParseFloat64, []
         | SemanticNodeKind.StringCodePoints _ -> ViewerNodeRole.StringCodePoints, []
@@ -281,6 +290,10 @@ module ViewerProjection =
         | SemanticNodeKind.Int64WrappingMultiply _ -> ViewerNodeRole.Int64WrappingMultiply, []
         | SemanticNodeKind.Int64FloorDivide _ -> ViewerNodeRole.Int64FloorDivide, []
         | SemanticNodeKind.Int64FloorModulo _ -> ViewerNodeRole.Int64FloorModulo, []
+        | SemanticNodeKind.Int64Min _ -> ViewerNodeRole.Int64Min, []
+        | SemanticNodeKind.Int64Max _ -> ViewerNodeRole.Int64Max, []
+        | SemanticNodeKind.ListRange _ -> ViewerNodeRole.ListRange, []
+        | SemanticNodeKind.StringRepeat _ -> ViewerNodeRole.StringRepeat, []
         | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []
         | SemanticNodeKind.Int64LessThan _ -> ViewerNodeRole.Int64LessThan, []
         | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
@@ -296,6 +309,7 @@ module ViewerProjection =
         | SemanticNodeKind.Float64IsFinite _ -> ViewerNodeRole.Float64IsFinite, []
         | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
         | SemanticNodeKind.Int64ToFloat64 _ -> ViewerNodeRole.Int64ToFloat64, []
+        | SemanticNodeKind.Int64WrappingAbs _ -> ViewerNodeRole.Int64WrappingAbs, []
         | SemanticNodeKind.Bits32FromInt64 _ -> ViewerNodeRole.Bits32FromInt64, []
         | SemanticNodeKind.Bits32ToInt64 _ -> ViewerNodeRole.Bits32ToInt64, []
         | SemanticNodeKind.Bits32Xor _ -> ViewerNodeRole.Bits32Xor, []

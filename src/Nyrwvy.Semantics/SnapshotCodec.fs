@@ -396,8 +396,14 @@ module SnapshotCodec =
         | SemanticNodeKind.Int64ToString valueNodeId ->
             writer.WriteString("kind", "int64ToString")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Int64ToHexString valueNodeId ->
+            writer.WriteString("kind", "int64ToHexString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringParseInt64Hex valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64Hex")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.Float64ToString valueNodeId ->
             writer.WriteString("kind", "float64ToString")
@@ -516,6 +522,18 @@ module SnapshotCodec =
             writeBinaryNode writer "int64FloorDivide" leftNodeId rightNodeId
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64FloorModulo" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64Min" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | SemanticNodeKind.ListRange(startNodeId, endNodeId) ->
+            writer.WriteString("kind", "listRange")
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.StringRepeat(textNodeId, countNodeId) ->
+            writer.WriteString("kind", "stringRepeat")
+            writer.WriteString("textNodeId", StableId.value textNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -546,6 +564,8 @@ module SnapshotCodec =
             writeUnaryNode writer "float64IsInfinite" valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
             writeUnaryNode writer "int64ToFloat64" valueNodeId
+        | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
+            writeUnaryNode writer "int64WrappingAbs" valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId
@@ -1168,9 +1188,15 @@ module SnapshotCodec =
             | "int64ToString" ->
                 ensureProperties "Int64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.Int64ToString(readId<GraphNodeTag> "valueNodeId" element)
+            | "int64ToHexString" ->
+                ensureProperties "Int64ToHexString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Int64ToHexString(readId<GraphNodeTag> "valueNodeId" element)
             | "stringParseInt64" ->
                 ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringParseInt64Hex" ->
+                ensureProperties "StringParseInt64Hex node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringParseInt64Hex(readId<GraphNodeTag> "valueNodeId" element)
             | "float64ToString" ->
                 ensureProperties "Float64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.Float64ToString(readId<GraphNodeTag> "valueNodeId" element)
@@ -1305,6 +1331,24 @@ module SnapshotCodec =
                 readBinaryNode "Int64FloorDivide node" element (fun left right -> SemanticNodeKind.Int64FloorDivide(left, right))
             | "int64FloorModulo" ->
                 readBinaryNode "Int64FloorModulo node" element (fun left right -> SemanticNodeKind.Int64FloorModulo(left, right))
+            | "int64Min" ->
+                readBinaryNode "Int64Min node" element (fun left right -> SemanticNodeKind.Int64Min(left, right))
+            | "int64Max" ->
+                readBinaryNode "Int64Max node" element (fun left right -> SemanticNodeKind.Int64Max(left, right))
+            | "listRange" ->
+                ensureProperties
+                    "ListRange node"
+                    (set [ "id"; "kind"; "startNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "startNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.ListRange(readId<GraphNodeTag> "startNodeId" element, readId<GraphNodeTag> "endNodeId" element)
+            | "stringRepeat" ->
+                ensureProperties
+                    "StringRepeat node"
+                    (set [ "id"; "kind"; "textNodeId"; "countNodeId" ])
+                    (set [ "id"; "kind"; "textNodeId"; "countNodeId" ])
+                    element
+                SemanticNodeKind.StringRepeat(readId<GraphNodeTag> "textNodeId" element, readId<GraphNodeTag> "countNodeId" element)
             | "int64Equal" ->
                 readBinaryNode "Int64Equal node" element (fun left right -> SemanticNodeKind.Int64Equal(left, right))
             | "int64LessThan" ->
@@ -1335,6 +1379,8 @@ module SnapshotCodec =
                 readUnaryNode "Float64IsInfinite node" element SemanticNodeKind.Float64IsInfinite
             | "int64ToFloat64" ->
                 readUnaryNode "Int64ToFloat64 node" element SemanticNodeKind.Int64ToFloat64
+            | "int64WrappingAbs" ->
+                readUnaryNode "Int64WrappingAbs node" element SemanticNodeKind.Int64WrappingAbs
             | "bits32FromInt64" -> readUnaryNode "Bits32FromInt64 node" element SemanticNodeKind.Bits32FromInt64
             | "bits32ToInt64" -> readUnaryNode "Bits32ToInt64 node" element SemanticNodeKind.Bits32ToInt64
             | "bits32Not" -> readUnaryNode "Bits32Not node" element SemanticNodeKind.Bits32Not

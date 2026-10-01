@@ -319,8 +319,14 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.Int64ToString valueNodeId ->
             writer.WriteString("kind", "int64ToString")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.Int64ToHexString valueNodeId ->
+            writer.WriteString("kind", "int64ToHexString")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
             writer.WriteString("kind", "stringParseInt64")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId ->
+            writer.WriteString("kind", "stringParseInt64Hex")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | TypedSemanticNodeKind.Float64ToString valueNodeId ->
             writer.WriteString("kind", "float64ToString")
@@ -439,6 +445,18 @@ module TypedSemanticIrCodec =
             writeBinaryNode writer "int64FloorDivide" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64FloorModulo" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64Min" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.ListRange(startNodeId, endNodeId) ->
+            writer.WriteString("kind", "listRange")
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
+        | TypedSemanticNodeKind.StringRepeat(textNodeId, countNodeId) ->
+            writer.WriteString("kind", "stringRepeat")
+            writer.WriteString("textNodeId", StableId.value textNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -469,6 +487,8 @@ module TypedSemanticIrCodec =
             writeUnaryNode writer "float64IsInfinite" valueNodeId
         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId ->
             writeUnaryNode writer "int64ToFloat64" valueNodeId
+        | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId ->
+            writeUnaryNode writer "int64WrappingAbs" valueNodeId
         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
         | TypedSemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId

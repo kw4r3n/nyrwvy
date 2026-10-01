@@ -249,8 +249,14 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.Int64ToString valueId ->
             [ property "kind" (quote "int64ToString")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Int64ToHexString valueId ->
+            [ property "kind" (quote "int64ToHexString")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringParseInt64 valueId ->
             [ property "kind" (quote "stringParseInt64")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.StringParseInt64Hex valueId ->
+            [ property "kind" (quote "stringParseInt64Hex")
               property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.Float64ToString valueId ->
             [ property "kind" (quote "float64ToString")
@@ -372,6 +378,18 @@ module ExecutionIrCodec =
             writeBinaryInstruction "int64FloorDivide" leftValueId rightValueId
         | ExecutionInstructionKind.Int64FloorModulo(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64FloorModulo" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64Min(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64Min" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64Max" leftValueId rightValueId
+        | ExecutionInstructionKind.ListRange(startValueId, endValueId) ->
+            [ property "kind" (quote "listRange")
+              property "startValueId" (executionValueIdValue startValueId)
+              property "endValueId" (executionValueIdValue endValueId) ]
+        | ExecutionInstructionKind.StringRepeat(textValueId, countValueId) ->
+            [ property "kind" (quote "stringRepeat")
+              property "textValueId" (executionValueIdValue textValueId)
+              property "countValueId" (executionValueIdValue countValueId) ]
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Equal" leftValueId rightValueId
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
@@ -402,6 +420,8 @@ module ExecutionIrCodec =
             writeUnaryInstruction "float64IsInfinite" valueId
         | ExecutionInstructionKind.Int64ToFloat64 valueId ->
             writeUnaryInstruction "int64ToFloat64" valueId
+        | ExecutionInstructionKind.Int64WrappingAbs valueId ->
+            writeUnaryInstruction "int64WrappingAbs" valueId
         | ExecutionInstructionKind.Bits32FromInt64 valueId -> writeUnaryInstruction "bits32FromInt64" valueId
         | ExecutionInstructionKind.Bits32ToInt64 valueId -> writeUnaryInstruction "bits32ToInt64" valueId
         | ExecutionInstructionKind.Bits32Not valueId -> writeUnaryInstruction "bits32Not" valueId

@@ -92,7 +92,9 @@ module SemanticQuery =
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.StringIsEmpty _
                     | SemanticNodeKind.Int64ToString _
+                    | SemanticNodeKind.Int64ToHexString _
                     | SemanticNodeKind.StringParseInt64 _
+                    | SemanticNodeKind.StringParseInt64Hex _
                     | SemanticNodeKind.Float64ToString _
                     | SemanticNodeKind.StringParseFloat64 _
                     | SemanticNodeKind.StringCodePoints _
@@ -130,6 +132,10 @@ module SemanticQuery =
                     | SemanticNodeKind.Int64WrappingMultiply _
                     | SemanticNodeKind.Int64FloorDivide _
                     | SemanticNodeKind.Int64FloorModulo _
+                    | SemanticNodeKind.Int64Min _
+                    | SemanticNodeKind.Int64Max _
+                    | SemanticNodeKind.ListRange _
+                    | SemanticNodeKind.StringRepeat _
                     | SemanticNodeKind.Int64Equal _
                     | SemanticNodeKind.Int64LessThan _
                     | SemanticNodeKind.Int64LessThanOrEqual _
@@ -145,6 +151,7 @@ module SemanticQuery =
                     | SemanticNodeKind.Float64IsFinite _
                     | SemanticNodeKind.Float64IsInfinite _
                     | SemanticNodeKind.Int64ToFloat64 _
+                    | SemanticNodeKind.Int64WrappingAbs _
                     | SemanticNodeKind.Bits32FromInt64 _
                     | SemanticNodeKind.Bits32ToInt64 _
                     | SemanticNodeKind.Bits32Xor _

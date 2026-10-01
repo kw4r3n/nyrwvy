@@ -48,11 +48,14 @@ module ValueDependency =
         match node.Kind with
         | SemanticNodeKind.StringIsEmpty sourceNodeId
         | SemanticNodeKind.Int64ToString sourceNodeId
+        | SemanticNodeKind.Int64ToHexString sourceNodeId
         | SemanticNodeKind.Int64ToFloat64 sourceNodeId
+        | SemanticNodeKind.Int64WrappingAbs sourceNodeId
         | SemanticNodeKind.Bits32FromInt64 sourceNodeId
         | SemanticNodeKind.Bits32ToInt64 sourceNodeId
         | SemanticNodeKind.Bits32Not sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
+        | SemanticNodeKind.StringParseInt64Hex sourceNodeId
         | SemanticNodeKind.Float64ToString sourceNodeId
         | SemanticNodeKind.StringParseFloat64 sourceNodeId
         | SemanticNodeKind.StringCodePoints sourceNodeId
@@ -123,6 +126,10 @@ module ValueDependency =
         | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
+        | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
