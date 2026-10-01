@@ -1,4 +1,4 @@
-# Float64 to Int64 with Python's rounding
+# Float64 to Int64: ties-to-even rounding and floor
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
@@ -19,7 +19,7 @@ Both give `None` for NaN, for either infinity, and for a result outside Int64, w
 
 ## Reason
 
-**The two rules Python programs use.** `round(x)` and `math.floor(x)` are how Python code turns a float into an int: the step index and seconds of probe 20 use `round`, `exp2` and any bucketing use `floor`. Matching Python exactly keeps ports comparable with their reference, as every other builtin does.
+**The two rules the consumers need, with no rounding choice left open.** The step index and seconds of probe 20 round to the nearest integer, and `exp2` and any bucketing need `floor`. Ties to even is IEEE 754's default rounding, the one `Int64ToFloat64` already uses, so both directions between the two number types round the same way. Python's `round(x)` and `math.floor(x)` happen to be the same two rules, which keeps ports easy to check against their reference.
 
 **`Option<Int64>` instead of a partial or saturating result.** A program can always produce NaN or an infinity, and a large finite value has no Int64. Failing would make the conversion an abort point in otherwise total code; saturating would silently give a wrong number. `Option` keeps it total and makes the out-of-range case visible, as `StringParseInt64` already does for text. When a program knows its range, it unwraps with a default.
 

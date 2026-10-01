@@ -187,24 +187,15 @@ system. [Program-defined capability implementations](../specs/program-capability
 now admit stateless, monomorphic pure functions with exact operation signatures.
 They introduce no additional effects and do not remove the invocation's declared
 effect. This derived restriction does not replace assertions about external host
-implementations. Stateful/effectful implementations and other properties remain open.
+implementations. [Structured task scopes](concurrency-control.md) add individually
+started, waited and cancelled tasks, cooperative cancellation through
+`CancellationRequested`, and `TaskWait` time limits with a virtual clock in
+`runPure`; their phase 3 revisits this question. Stateful/effectful implementations
+and other properties remain open.
 
 ### Resolution target
 
 Extend capability contracts feature-by-feature when a new external behavior requires the distinction.
-
----
-
-## Typed abort follow-up
-
-- **Status:** First bounded implementation complete
-- The [typed function-abort contract](../specs/typed-function-abort.md) fixes the
-  first boundary as local early exit from a Result-returning function. The error
-  type comes from that result; cleanup and ParallelAll retain their current
-  failure/termination contracts.
-- Exact persisted/wire forms and lowering are implemented and covered by the
-  [verification gates](../verification/typed-function-abort-20260926.md). Non-local scopes, resumable handlers and implicit propagation
-  through callers are not part of this first slice.
 
 ---
 
@@ -296,3 +287,4 @@ The original pre-M1 question set remains in the [frozen pre-reorganization archi
 - **Q-009 — Typed Semantic IR versus Execution IR:** the two explicit stages are implemented and retained.
 - **Q-011 — current C# representation boundary:** backend mapping is downstream and constrained by semantic contracts; see the [C# backend spec](../specs/csharp-backend.md).
 - **Q-013 — RAST provenance:** no special provenance framework; see [RAST provenance](rast-provenance.md).
+- **Typed abort:** the [typed function-abort contract](../specs/typed-function-abort.md) is local early exit from a Result-returning function, with persisted and wire forms and lowering [verified](../verification/typed-function-abort-20260926.md). Non-local scopes, resumable handlers and implicit propagation through callers remain outside it and would need a new observed need.

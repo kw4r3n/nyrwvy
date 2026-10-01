@@ -86,6 +86,8 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 ## Value equality
 
+`ProductUpdate` emits a C# `with` expression on the source record, `source with { F_a = …, F_b = … }`, assigning the updated fields in stable field-ID order; every operand is already a computed value, so the order is not observable. Kept fields are copied by the record's generated copy, so a reference-held field such as a task handle or a list is shared, not copied.
+
 `ValueEqual` emits `NyEquality.Equal(left, right)`, which calls `EqualityComparer<T>.Default.Equals`. Every value type an equatable Nyrwvy type maps to compares structurally under it: `NyStr` is ordinal (it implements `IEquatable<NyStr>` over its UTF-16 code units, with a matching `GetHashCode`), `long`, `bool` and `NyUnit` compare by value, `NyOption<T>` and `NyResult<TOk, TError>` are record structs whose generated equality compares every field, declared Products and Union variants are sealed records whose generated equality compares the runtime type (so different variants differ) and every field, and `NyList<T>` implements `IEquatable<NyList<T>>` by length and then item by item with the item type's default comparer (with a matching `GetHashCode`). Float64, delegates, task handles and capabilities never reach it, because validation rejects those types.
 
 ## Int64 floor division
