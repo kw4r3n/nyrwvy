@@ -26,7 +26,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 | --- | --- |
 | `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
-| `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot; omit `kind` for a compact index. |
+| `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot: no argument for the categorized index of kind names, `category` for its one-line signatures, `kind` or `kinds` for exact shapes. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
 | `nyrwvy_replace` | Propose a targeted replacement using an inspected node ID; omit the target only for whole-body replacement. |
@@ -103,7 +103,7 @@ Name resolution happens at simulation. Commit still binds the exact simulated pr
 
 ## Named recipe reference guide
 
-`nyrwvy_recipe_reference` is the ordinary AI-facing wire-shape discovery surface. It is read-only, does not open an AuthoringSession, and may be called before `nyrwvy_open`. Omit `kind` for a compact categorized list; pass one listed kind to receive its exact name-resolved shape and concise construction notes. It describes the symbolic ordinary-tool format, not the stable-ID protocol form and not the semantic rules in place of validation.
+`nyrwvy_recipe_reference` is the ordinary AI-facing wire-shape discovery surface. It is read-only, does not open an AuthoringSession, and may be called before `nyrwvy_open`. With no argument it returns the kind names by category (`bool`, `string`, `int64`, `float64`, `bits32`, `list`, `tasks`, `structured`, `optionResult`, `calls`, `control`, `references`, `literals`). `category` returns that category's one-line signatures in wire field names, such as `"float64Sqrt": "(value: Float64) -> Float64"`, which is often enough to write a scalar recipe without reading its shape. `kind` returns one exact name-resolved shape with concise construction notes, and `kinds` returns several in one call (duplicates once each, an unknown kind rejected). Pass at most one of the three. `kinds` takes plain strings checked when read, so the tool schema lists the kind names only once. It describes the symbolic ordinary-tool format, not the stable-ID protocol form and not the semantic rules in place of validation.
 
 `nyrwvy_create_function.body` and `nyrwvy_replace.replacement` remain generic structured objects rather than a large recursive tool schema. Their descriptions point to this reference so models can fetch only the recipe shape they need.
 

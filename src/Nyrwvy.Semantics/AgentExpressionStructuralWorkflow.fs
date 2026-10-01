@@ -33,6 +33,12 @@ type ExpressionRecipe =
     | StringDecodeUtf8Lossy of ExpressionRecipe
     | Float64RoundToInt64 of ExpressionRecipe
     | Float64FloorToInt64 of ExpressionRecipe
+    | Float64Sqrt of ExpressionRecipe
+    | Float64Abs of ExpressionRecipe
+    | Float64Negate of ExpressionRecipe
+    | Float64Floor of ExpressionRecipe
+    | Float64Ceiling of ExpressionRecipe
+    | Float64Truncate of ExpressionRecipe
     | StringUtf8ByteCount of ExpressionRecipe
     | StringFromCodePoint of ExpressionRecipe
     | StringToCodePoint of ExpressionRecipe
@@ -85,6 +91,7 @@ type ExpressionRecipe =
     | ListEmpty of itemType: TypeRef
     | ListConstruct of itemType: TypeRef * items: ExpressionRecipe list
     | ListLength of ExpressionRecipe
+    | ListReverse of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
     | ListItemAt of list: ExpressionRecipe * index: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
@@ -191,6 +198,12 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
         | ExpressionRecipe.Float64RoundToInt64 value -> ExpressionRecipe.Float64RoundToInt64(go value)
         | ExpressionRecipe.Float64FloorToInt64 value -> ExpressionRecipe.Float64FloorToInt64(go value)
+        | ExpressionRecipe.Float64Sqrt value -> ExpressionRecipe.Float64Sqrt(go value)
+        | ExpressionRecipe.Float64Abs value -> ExpressionRecipe.Float64Abs(go value)
+        | ExpressionRecipe.Float64Negate value -> ExpressionRecipe.Float64Negate(go value)
+        | ExpressionRecipe.Float64Floor value -> ExpressionRecipe.Float64Floor(go value)
+        | ExpressionRecipe.Float64Ceiling value -> ExpressionRecipe.Float64Ceiling(go value)
+        | ExpressionRecipe.Float64Truncate value -> ExpressionRecipe.Float64Truncate(go value)
         | ExpressionRecipe.StringUtf8ByteCount value -> ExpressionRecipe.StringUtf8ByteCount(go value)
         | ExpressionRecipe.StringFromCodePoint value -> ExpressionRecipe.StringFromCodePoint(go value)
         | ExpressionRecipe.StringToCodePoint value -> ExpressionRecipe.StringToCodePoint(go value)
@@ -243,6 +256,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
         | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
+        | ExpressionRecipe.ListReverse value -> ExpressionRecipe.ListReverse(go value)
         | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
         | ExpressionRecipe.ListItemAt(list, index) -> ExpressionRecipe.ListItemAt(go list, go index)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -404,6 +418,12 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringDecodeUtf8Lossy child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
+        | ExpressionRecipe.Float64Sqrt child
+        | ExpressionRecipe.Float64Abs child
+        | ExpressionRecipe.Float64Negate child
+        | ExpressionRecipe.Float64Floor child
+        | ExpressionRecipe.Float64Ceiling child
+        | ExpressionRecipe.Float64Truncate child
         | ExpressionRecipe.StringUtf8ByteCount child
         | ExpressionRecipe.StringFromCodePoint child
         | ExpressionRecipe.StringToCodePoint child
@@ -417,6 +437,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Bits32ToInt64 child
         | ExpressionRecipe.Bits32Not child
         | ExpressionRecipe.ListLength child
+        | ExpressionRecipe.ListReverse child
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
         | ExpressionRecipe.ResultOk(_, child)
@@ -1093,6 +1114,18 @@ module AgentExpressionStructuralWorkflow =
                 unary "Float64RoundToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
             | ExpressionRecipe.Float64FloorToInt64 value ->
                 unary "Float64FloorToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+            | ExpressionRecipe.Float64Sqrt value ->
+                unary "Float64Sqrt" float64Type float64Type value
+            | ExpressionRecipe.Float64Abs value ->
+                unary "Float64Abs" float64Type float64Type value
+            | ExpressionRecipe.Float64Negate value ->
+                unary "Float64Negate" float64Type float64Type value
+            | ExpressionRecipe.Float64Floor value ->
+                unary "Float64Floor" float64Type float64Type value
+            | ExpressionRecipe.Float64Ceiling value ->
+                unary "Float64Ceiling" float64Type float64Type value
+            | ExpressionRecipe.Float64Truncate value ->
+                unary "Float64Truncate" float64Type float64Type value
             | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
             | ExpressionRecipe.StringFromCodePoint value ->
                 unary "StringFromCodePoint" int64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])) value
@@ -1273,6 +1306,13 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType actual with
                     | Some _ -> Ok int64Type
                     | None -> Error(listMismatch "ListLength" "value" actual)
+            | ExpressionRecipe.ListReverse list ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok actual ->
+                    match listItemType actual with
+                    | Some _ -> Ok actual
+                    | None -> Error(listMismatch "ListReverse" "value" actual)
             | ExpressionRecipe.ListItemAt(list, index) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -2006,6 +2046,12 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
+        | ExpressionRecipe.Float64Sqrt value -> unary SemanticNodeKind.Float64Sqrt value
+        | ExpressionRecipe.Float64Abs value -> unary SemanticNodeKind.Float64Abs value
+        | ExpressionRecipe.Float64Negate value -> unary SemanticNodeKind.Float64Negate value
+        | ExpressionRecipe.Float64Floor value -> unary SemanticNodeKind.Float64Floor value
+        | ExpressionRecipe.Float64Ceiling value -> unary SemanticNodeKind.Float64Ceiling value
+        | ExpressionRecipe.Float64Truncate value -> unary SemanticNodeKind.Float64Truncate value
         | ExpressionRecipe.StringUtf8ByteCount value -> unary SemanticNodeKind.StringUtf8ByteCount value
         | ExpressionRecipe.StringFromCodePoint value -> unary SemanticNodeKind.StringFromCodePoint value
         | ExpressionRecipe.StringToCodePoint value -> unary SemanticNodeKind.StringToCodePoint value
@@ -2087,6 +2133,7 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             itemNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListConstruct(itemType, itemResults) } ], nodeId
         | ExpressionRecipe.ListLength list -> unary SemanticNodeKind.ListLength list
+        | ExpressionRecipe.ListReverse list -> unary SemanticNodeKind.ListReverse list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
         | ExpressionRecipe.ListItemAt(list, index) -> binary SemanticNodeKind.ListItemAt list index
         | ExpressionRecipe.ListSlice(list, start, stop) ->

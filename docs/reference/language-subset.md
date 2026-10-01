@@ -87,7 +87,7 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringFromCodePoint(code)` yields `Option<String>`: for an `Int64` `code` with `0 <= code <= 0x10FFFF`, `Some` String of that one code point, Python `chr(code)`, and `None` for a negative code or one above 0x10FFFF. A surrogate code 0xD800..0xDFFF gives a String of one unpaired surrogate code unit, as Python allows, and `StringConcat` of a high and a low one forms the pair, as when a JSON `\ud83d\ude00` escape is decoded. `StringToCodePoint(text)` yields `Option<Int64>`, Python `ord(text)`: `Some` code point when `text` is exactly one code point as `StringLength` counts it (a surrogate pair gives its scalar value, an unpaired surrogate its code unit), and `None` for the empty String or a longer one. `StringToCodePoint(StringFromCodePoint(n)) = Some n` for every `n` in `0..0x10FFFF`. `runPure` passes Strings with unpaired surrogates as arguments and results unchanged, using JSON `\uD800`-style escapes ([String run values](../specs/agent-authoring-session.md)). Both never fail; see the [decision](../decisions/string-code-point-conversion.md).
 
-`StringJoin(list, separator)` takes a `List<String>` and a String and yields the items in order with `separator` between adjacent items, Python `separator.join(list)`: an empty list gives `""`, a one-item list gives that item, and `StringJoin(StringSplit(t, s), s) = t` for every non-empty `s`. The items and separator are concatenated as `StringConcat` does. `ListSlice(list, start, end)` takes a `List<T>` for any item type and two Int64 bounds and yields the `List<T>` of the items at positions `[start, end)`, clamped exactly like `StringSlice`: both bounds are clamped to `[0, ListLength(list)]`, a negative bound is 0 and is not counted from the end (unlike Python `list[start:end]`), and `end <= start` gives the empty list. Both never fail ([decision](../decisions/string-join-and-list-slice.md)).
+`StringJoin(list, separator)` takes a `List<String>` and a String and yields the items in order with `separator` between adjacent items, Python `separator.join(list)`: an empty list gives `""`, a one-item list gives that item, and `StringJoin(StringSplit(t, s), s) = t` for every non-empty `s`. The items and separator are concatenated as `StringConcat` does. `ListSlice(list, start, end)` takes a `List<T>` for any item type and two Int64 bounds and yields the `List<T>` of the items at positions `[start, end)`, clamped exactly like `StringSlice`: both bounds are clamped to `[0, ListLength(list)]`, a negative bound is 0 and is not counted from the end (unlike Python `list[start:end]`), and `end <= start` gives the empty list. Both never fail ([decision](../decisions/string-join-and-list-slice.md)). `ListReverse(list)` yields the items of a `List<T>` in reverse order as a `List<T>` of the same type, Python `list(reversed(list))`; it runs in linear time and never fails ([decision](../decisions/standard-operations.md)).
 
 Function type parameters (`TypeRef.TypeParameter`) make a function generic over the types its parameter types mention; see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks) for derivation of type arguments and scope rules. `List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. An authored Product accumulator carrying a runtime key, a found flag, and an `Option<T>` result can implement first-match lookup over `List<TItem>` without introducing an application-specific search node. The folder must preserve the accumulated result after the first match; an absent key or empty source yields `None`. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition does not stop the fold early and can be generalized with function type parameters. `ListItemAt(list, index)` reads one item directly: for `list : List<T>` and `index : Int64` it returns `Some(item)` when `0 <= index < length` and `None` otherwise, never failing; negative indexes do not count from the end, as with `StringSlice` ([decision](../decisions/task-fields-list-indexing-and-map.md)).
 
@@ -99,6 +99,7 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListReverse
 ListAppendItem
 ListConcat
 ListFold
@@ -167,13 +168,21 @@ Float64IsInfinite
 Int64ToFloat64
 Float64RoundToInt64
 Float64FloorToInt64
+Float64Sqrt
+Float64Abs
+Float64Negate
+Float64Floor
+Float64Ceiling
+Float64Truncate
 Float64ToString
 StringParseFloat64
 ```
 
 `Int64ToFloat64(value)` returns the Float64 nearest to an Int64. Values with `|value| <= 2^53` convert exactly; larger ones round to nearest, ties to even, as C# `(double)long` and Python `float(int)`: `2^53 + 1` gives `2^53`, and `Int64.MaxValue` gives `2^63`. It never fails; see the [decision](../decisions/float64-conversion-and-run-values.md).
 
-`Float64RoundToInt64(value)` is Python `round(value)` with no digits, the nearest integer with ties to even (`2.5` gives 2, `-0.5` gives 0), and `Float64FloorToInt64(value)` is Python `math.floor(value)` (`-0.5` gives -1). Both yield `Option<Int64>`: `None` for NaN, either infinity, or a result outside Int64 (Python raises or returns a larger `int` there), and otherwise `Some` of the exact integer. Both never fail. There is no truncation, ceiling or decimal rounding (`round(x, n)`); see the [decision](../decisions/float64-to-int64.md).
+`Float64RoundToInt64(value)` is Python `round(value)` with no digits, the nearest integer with ties to even (`2.5` gives 2, `-0.5` gives 0), and `Float64FloorToInt64(value)` is Python `math.floor(value)` (`-0.5` gives -1). Both yield `Option<Int64>`: `None` for NaN, either infinity, or a result outside Int64 (Python raises or returns a larger `int` there), and otherwise `Some` of the exact integer. Both never fail. There is no decimal rounding (`round(x, n)`); see the [decision](../decisions/float64-to-int64.md).
+
+`Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` take a Float64 and yield a Float64. Each is the IEEE 754 operation, which has exactly one result, so every backend agrees bit for bit. `Float64Sqrt` is the correctly rounded square root; a negative value gives NaN, where Python's `math.sqrt` raises, and `-0.0` gives `-0.0`. `Float64Abs` clears the sign (Python `abs(x)`, so `-0.0` gives `0.0`) and `Float64Negate` flips it (Python `-x`, so `0.0` gives `-0.0`, which subtracting from `0.0` does not). `Float64Floor`, `Float64Ceiling` and `Float64Truncate` round to an integral value toward negative infinity, positive infinity and zero, as Python's `math.floor`, `math.ceil` and `math.trunc` but without leaving Float64: a zero result keeps the sign of the input (`-0.5` gives `-0.0` for ceiling and truncation), and NaN, the infinities and the zeros are returned unchanged. All six never fail ([decision](../decisions/standard-operations.md)).
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
@@ -250,6 +259,8 @@ Float64Equal / LessThan
 Float64IsNaN / IsFinite / IsInfinite
 Int64ToFloat64
 Float64RoundToInt64 / FloorToInt64
+Float64Sqrt / Abs / Negate
+Float64Floor / Ceiling / Truncate
 Bits32FromInt64 / ToInt64
 Bits32Xor / And / Or / Not / Add
 Bits32RotateRight / ShiftRight / ShiftLeft
@@ -258,6 +269,7 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListReverse
 ListAppendItem
 ListConcat
 ListFold

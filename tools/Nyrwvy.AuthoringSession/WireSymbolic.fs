@@ -298,6 +298,12 @@ module internal WireSymbolic =
         | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy
         | "float64RoundToInt64" -> unary "float64-round-to-int64 recipe" ExpressionRecipe.Float64RoundToInt64
         | "float64FloorToInt64" -> unary "float64-floor-to-int64 recipe" ExpressionRecipe.Float64FloorToInt64
+        | "float64Sqrt" -> unary "float64-sqrt recipe" ExpressionRecipe.Float64Sqrt
+        | "float64Abs" -> unary "float64-abs recipe" ExpressionRecipe.Float64Abs
+        | "float64Negate" -> unary "float64-negate recipe" ExpressionRecipe.Float64Negate
+        | "float64Floor" -> unary "float64-floor recipe" ExpressionRecipe.Float64Floor
+        | "float64Ceiling" -> unary "float64-ceiling recipe" ExpressionRecipe.Float64Ceiling
+        | "float64Truncate" -> unary "float64-truncate recipe" ExpressionRecipe.Float64Truncate
         | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount
         | "stringFromCodePoint" -> unary "string-from-code-point recipe" ExpressionRecipe.StringFromCodePoint
         | "stringToCodePoint" -> unary "string-to-code-point recipe" ExpressionRecipe.StringToCodePoint
@@ -422,6 +428,7 @@ module internal WireSymbolic =
                 array "items" element |> List.map (recipe declarations parameterContext)
             )
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
+        | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(

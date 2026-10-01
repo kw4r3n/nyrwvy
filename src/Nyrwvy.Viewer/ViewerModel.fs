@@ -49,6 +49,12 @@ type ViewerNodeRole =
     | StringDecodeUtf8Lossy
     | Float64RoundToInt64
     | Float64FloorToInt64
+    | Float64Sqrt
+    | Float64Abs
+    | Float64Negate
+    | Float64Floor
+    | Float64Ceiling
+    | Float64Truncate
     | StringUtf8ByteCount
     | StringFromCodePoint
     | StringToCodePoint
@@ -101,6 +107,7 @@ type ViewerNodeRole =
     | ListEmpty
     | ListConstruct
     | ListLength
+    | ListReverse
     | ListAppendItem
     | ListItemAt
     | ListSlice
@@ -244,6 +251,12 @@ module ViewerProjection =
         | SemanticNodeKind.StringDecodeUtf8Lossy _ -> ViewerNodeRole.StringDecodeUtf8Lossy, []
         | SemanticNodeKind.Float64RoundToInt64 _ -> ViewerNodeRole.Float64RoundToInt64, []
         | SemanticNodeKind.Float64FloorToInt64 _ -> ViewerNodeRole.Float64FloorToInt64, []
+        | SemanticNodeKind.Float64Sqrt _ -> ViewerNodeRole.Float64Sqrt, []
+        | SemanticNodeKind.Float64Abs _ -> ViewerNodeRole.Float64Abs, []
+        | SemanticNodeKind.Float64Negate _ -> ViewerNodeRole.Float64Negate, []
+        | SemanticNodeKind.Float64Floor _ -> ViewerNodeRole.Float64Floor, []
+        | SemanticNodeKind.Float64Ceiling _ -> ViewerNodeRole.Float64Ceiling, []
+        | SemanticNodeKind.Float64Truncate _ -> ViewerNodeRole.Float64Truncate, []
         | SemanticNodeKind.StringUtf8ByteCount _ -> ViewerNodeRole.StringUtf8ByteCount, []
         | SemanticNodeKind.StringFromCodePoint _ -> ViewerNodeRole.StringFromCodePoint, []
         | SemanticNodeKind.StringToCodePoint _ -> ViewerNodeRole.StringToCodePoint, []
@@ -296,6 +309,7 @@ module ViewerProjection =
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
+        | SemanticNodeKind.ListReverse _ -> ViewerNodeRole.ListReverse, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []

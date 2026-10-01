@@ -420,6 +420,24 @@ module SnapshotCodec =
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
             writer.WriteString("kind", "float64FloorToInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Sqrt valueNodeId ->
+            writer.WriteString("kind", "float64Sqrt")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Abs valueNodeId ->
+            writer.WriteString("kind", "float64Abs")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Negate valueNodeId ->
+            writer.WriteString("kind", "float64Negate")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Floor valueNodeId ->
+            writer.WriteString("kind", "float64Floor")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Ceiling valueNodeId ->
+            writer.WriteString("kind", "float64Ceiling")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.Float64Truncate valueNodeId ->
+            writer.WriteString("kind", "float64Truncate")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             writer.WriteString("kind", "stringUtf8ByteCount")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -562,6 +580,9 @@ module SnapshotCodec =
             writer.WriteEndArray()
         | SemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.ListReverse listNodeId ->
+            writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             writer.WriteString("kind", "listItemAt")
@@ -1171,6 +1192,24 @@ module SnapshotCodec =
             | "float64FloorToInt64" ->
                 ensureProperties "Float64FloorToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.Float64FloorToInt64(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Sqrt" ->
+                ensureProperties "Float64Sqrt node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Sqrt(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Abs" ->
+                ensureProperties "Float64Abs node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Abs(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Negate" ->
+                ensureProperties "Float64Negate node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Negate(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Floor" ->
+                ensureProperties "Float64Floor node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Floor(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Ceiling" ->
+                ensureProperties "Float64Ceiling node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Ceiling(readId<GraphNodeTag> "valueNodeId" element)
+            | "float64Truncate" ->
+                ensureProperties "Float64Truncate node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.Float64Truncate(readId<GraphNodeTag> "valueNodeId" element)
             | "stringUtf8ByteCount" ->
                 ensureProperties "StringUtf8ByteCount node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringUtf8ByteCount(readId<GraphNodeTag> "valueNodeId" element)
@@ -1340,6 +1379,9 @@ module SnapshotCodec =
             | "listLength" ->
                 ensureProperties "ListLength node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
                 SemanticNodeKind.ListLength(readId<GraphNodeTag> "listNodeId" element)
+            | "listReverse" ->
+                ensureProperties "ListReverse node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
+                SemanticNodeKind.ListReverse(readId<GraphNodeTag> "listNodeId" element)
             | "listItemAt" ->
                 ensureProperties
                     "ListItemAt node"

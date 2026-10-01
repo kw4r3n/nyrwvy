@@ -3,14 +3,14 @@ import assert from "node:assert/strict"
 import { tool } from "@opencode-ai/plugin"
 import * as z from "zod/v4"
 import { createGraphTools } from "./graph-tools.mjs"
-import { recipeKinds } from "./recipe-reference.mjs"
+import { recipeCategories, recipeKinds } from "./recipe-reference.mjs"
 import * as openCodeTools from "../../.opencode/tools/nyrwvy.ts"
 
 const context = { sessionID: "schema-contract", worktree: process.cwd() }
 const samples = {
   open: { valid: { mode: "create", snapshot: "workspace.json", dependency: "policy.json" }, invalid: { mode: "create", snapshot: "workspace.json", dependency: 42 } },
   inspect: { valid: { view: "function", function: "Identity" }, invalid: { view: "unknown" } },
-  recipe_reference: { valid: { kind: "conditional" }, invalid: { kind: "__proto__" } },
+  recipe_reference: { valid: { kinds: ["conditional", "matchUnion"] }, invalid: { kinds: [] } },
   create_type: { valid: { displayName: "Item", typeKind: {} }, invalid: { displayName: "Item", typeKind: [] } },
   create_function: {
     valid: { displayName: "Identity", parameters: [{ displayName: "value", type: {} }], resultType: {}, requiredEffects: [], body: {} },
@@ -45,11 +45,27 @@ for (const [host, schema, minor] of [["OpenCode", tool.schema, 1], ["MCP", z, 3]
     assert.ok(result instanceof Promise)
     const index = JSON.parse(await result)
     assert.deepEqual(Object.values(index.categories).flat(), recipeKinds)
+    assert.deepEqual(Object.keys(index.categories), recipeCategories)
     for (const kind of recipeKinds) {
       const entry = JSON.parse(await definitions.recipe_reference.execute({ kind }, context))
       assert.equal(entry.kind, kind)
       assert.ok(entry.shape || entry.shapes)
     }
+    // Every kind has a one-line signature in its category, and several shapes come back in one call.
+    const signed = []
+    for (const category of recipeCategories) {
+      const page = JSON.parse(await definitions.recipe_reference.execute({ category }, context))
+      assert.equal(page.category, category)
+      assert.deepEqual(Object.keys(page.signatures), index.categories[category])
+      for (const signature of Object.values(page.signatures)) assert.match(signature, /^\(.*\) -> \S/)
+      signed.push(...Object.keys(page.signatures))
+    }
+    assert.deepEqual(signed, recipeKinds)
+    const several = JSON.parse(await definitions.recipe_reference.execute({ kinds: ["listReverse", "conditional", "listReverse"] }, context))
+    assert.deepEqual(several.entries.map(item => item.kind), ["listReverse", "conditional"])
+    assert.deepEqual(several.entries[1].shape, { kind: "conditional", condition: "<recipe>", whenTrue: "<recipe>", whenFalse: "<recipe>" })
+    await assert.rejects(definitions.recipe_reference.execute({ kind: "conditional", category: "control" }, context), /at most one/)
+    await assert.rejects(definitions.recipe_reference.execute({ kinds: ["conditional", "noSuchKind"] }, context), /Unknown expression recipe kind 'noSuchKind'/)
     assert.throws(() => definitions.inspect.execute({ view: "status", function: "Identity" }, context), /view=function/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { op: "commit" } }, context), /Pass op separately/)

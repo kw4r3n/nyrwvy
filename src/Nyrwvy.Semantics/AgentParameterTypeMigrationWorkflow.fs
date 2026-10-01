@@ -279,6 +279,12 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> one ExpressionRecipe.StringDecodeUtf8Lossy value
             | ExpressionRecipe.Float64RoundToInt64 value -> one ExpressionRecipe.Float64RoundToInt64 value
             | ExpressionRecipe.Float64FloorToInt64 value -> one ExpressionRecipe.Float64FloorToInt64 value
+            | ExpressionRecipe.Float64Sqrt value -> one ExpressionRecipe.Float64Sqrt value
+            | ExpressionRecipe.Float64Abs value -> one ExpressionRecipe.Float64Abs value
+            | ExpressionRecipe.Float64Negate value -> one ExpressionRecipe.Float64Negate value
+            | ExpressionRecipe.Float64Floor value -> one ExpressionRecipe.Float64Floor value
+            | ExpressionRecipe.Float64Ceiling value -> one ExpressionRecipe.Float64Ceiling value
+            | ExpressionRecipe.Float64Truncate value -> one ExpressionRecipe.Float64Truncate value
             | ExpressionRecipe.StringUtf8ByteCount value -> one ExpressionRecipe.StringUtf8ByteCount value
             | ExpressionRecipe.StringFromCodePoint value -> one ExpressionRecipe.StringFromCodePoint value
             | ExpressionRecipe.StringToCodePoint value -> one ExpressionRecipe.StringToCodePoint value
@@ -292,6 +298,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Bits32ToInt64 value -> one ExpressionRecipe.Bits32ToInt64 value
             | ExpressionRecipe.Bits32Not value -> one ExpressionRecipe.Bits32Not value
             | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
+            | ExpressionRecipe.ListReverse value -> one ExpressionRecipe.ListReverse value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
             | ExpressionRecipe.StringIndexOf(value, substring, from) -> three ExpressionRecipe.StringIndexOf value substring from

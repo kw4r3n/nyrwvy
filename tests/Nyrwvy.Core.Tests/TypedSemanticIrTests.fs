@@ -40,6 +40,12 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
                 | TypedSemanticNodeKind.Float64RoundToInt64 _
                 | TypedSemanticNodeKind.Float64FloorToInt64 _
+                | TypedSemanticNodeKind.Float64Sqrt _
+                | TypedSemanticNodeKind.Float64Abs _
+                | TypedSemanticNodeKind.Float64Negate _
+                | TypedSemanticNodeKind.Float64Floor _
+                | TypedSemanticNodeKind.Float64Ceiling _
+                | TypedSemanticNodeKind.Float64Truncate _
                 | TypedSemanticNodeKind.StringUtf8ByteCount _
                 | TypedSemanticNodeKind.StringFromCodePoint _
                 | TypedSemanticNodeKind.StringToCodePoint _
@@ -94,6 +100,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _
+                | TypedSemanticNodeKind.ListReverse _
                 | TypedSemanticNodeKind.ListSlice _
                 | TypedSemanticNodeKind.ListItemAt _
                 | TypedSemanticNodeKind.ListAppendItem _

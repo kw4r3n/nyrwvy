@@ -55,6 +55,8 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // Recipe discovery is sessionless and covers the wire-shape mistakes observed in the first external consumer.
     const recipeIndex = await call(first, "recipe_reference")
     assert.ok(recipeIndex.categories.control.includes("conditional"))
+    assert.equal((await call(first, "recipe_reference", { category: "float64" })).signatures.float64Sqrt, "(value: Float64) -> Float64")
+    assert.deepEqual((await call(first, "recipe_reference", { kinds: ["fieldAccess", "matchUnion"] })).entries.map(entry => entry.kind), ["fieldAccess", "matchUnion"])
     assert.deepEqual((await call(first, "recipe_reference", { kind: "conditional" })).shape,
       { kind: "conditional", condition: "<recipe>", whenTrue: "<recipe>", whenFalse: "<recipe>" })
     assert.deepEqual((await call(first, "recipe_reference", { kind: "fieldAccess" })).shape,

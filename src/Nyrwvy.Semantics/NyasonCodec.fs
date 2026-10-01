@@ -485,6 +485,18 @@ module NyasonCodec =
             record "float64-round-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
             record "float64-floor-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Sqrt valueNodeId ->
+            record "float64-sqrt" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Abs valueNodeId ->
+            record "float64-abs" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Negate valueNodeId ->
+            record "float64-negate" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Floor valueNodeId ->
+            record "float64-floor" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Ceiling valueNodeId ->
+            record "float64-ceiling" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.Float64Truncate valueNodeId ->
+            record "float64-truncate" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
             record "string-utf8-byte-count" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -634,6 +646,8 @@ module NyasonCodec =
                   "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.ListLength listNodeId ->
             record "list-length" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.ListReverse listNodeId ->
+            record "list-reverse" [ nodeId; "list", encodeId "node" listNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             record
                 "list-item-at"
@@ -940,6 +954,30 @@ module NyasonCodec =
             let fields = recordFields "float64-floor-to-int64" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.Float64FloorToInt64(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-sqrt", _) ->
+            let fields = recordFields "float64-sqrt" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Sqrt(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-abs", _) ->
+            let fields = recordFields "float64-abs" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Abs(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-negate", _) ->
+            let fields = recordFields "float64-negate" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Negate(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-floor", _) ->
+            let fields = recordFields "float64-floor" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Floor(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-ceiling", _) ->
+            let fields = recordFields "float64-ceiling" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Ceiling(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("float64-truncate", _) ->
+            let fields = recordFields "float64-truncate" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.Float64Truncate(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-utf8-byte-count", _) ->
             let fields = recordFields "string-utf8-byte-count" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1108,6 +1146,10 @@ module NyasonCodec =
             let fields = recordFields "list-length" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListLength(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("list-reverse", _) ->
+            let fields = recordFields "list-reverse" [ "id"; "list" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListReverse(decodeId<GraphNodeTag> "node" (require "list" fields)) }
         | NyasonValue.Record("string-join", _) ->
             let fields = recordFields "string-join" [ "id"; "list"; "separator" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

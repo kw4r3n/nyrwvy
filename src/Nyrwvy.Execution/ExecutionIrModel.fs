@@ -92,6 +92,12 @@ type ExecutionInstructionKind =
     | StringDecodeUtf8Lossy of ExecutionValueId
     | Float64RoundToInt64 of ExecutionValueId
     | Float64FloorToInt64 of ExecutionValueId
+    | Float64Sqrt of ExecutionValueId
+    | Float64Abs of ExecutionValueId
+    | Float64Negate of ExecutionValueId
+    | Float64Floor of ExecutionValueId
+    | Float64Ceiling of ExecutionValueId
+    | Float64Truncate of ExecutionValueId
     | StringUtf8ByteCount of ExecutionValueId
     | StringFromCodePoint of ExecutionValueId
     | StringToCodePoint of ExecutionValueId
@@ -150,6 +156,7 @@ type ExecutionInstructionKind =
     | ListEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId
+    | ListReverse of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId

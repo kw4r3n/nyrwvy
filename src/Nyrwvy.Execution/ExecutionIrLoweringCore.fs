@@ -282,6 +282,18 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64RoundToInt64
                         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64FloorToInt64
+                        | TypedSemanticNodeKind.Float64Sqrt valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Sqrt
+                        | TypedSemanticNodeKind.Float64Abs valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Abs
+                        | TypedSemanticNodeKind.Float64Negate valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Negate
+                        | TypedSemanticNodeKind.Float64Floor valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Floor
+                        | TypedSemanticNodeKind.Float64Ceiling valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Ceiling
+                        | TypedSemanticNodeKind.Float64Truncate valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64Truncate
                         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringUtf8ByteCount
                         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -421,6 +433,10 @@ module ExecutionIr =
                             requireNodeValue environment listNodeId
                             |> Result.map (fun listValueId ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.ListLength listValueId))
+                        | TypedSemanticNodeKind.ListReverse listNodeId ->
+                            requireNodeValue environment listNodeId
+                            |> Result.map (fun listValueId ->
+                                addInstruction currentBlock node (ExecutionInstructionKind.ListReverse listValueId))
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                             lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
                                 ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))
@@ -792,6 +808,12 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
                         | TypedSemanticNodeKind.Float64RoundToInt64 _
                         | TypedSemanticNodeKind.Float64FloorToInt64 _
+                        | TypedSemanticNodeKind.Float64Sqrt _
+                        | TypedSemanticNodeKind.Float64Abs _
+                        | TypedSemanticNodeKind.Float64Negate _
+                        | TypedSemanticNodeKind.Float64Floor _
+                        | TypedSemanticNodeKind.Float64Ceiling _
+                        | TypedSemanticNodeKind.Float64Truncate _
                         | TypedSemanticNodeKind.StringUtf8ByteCount _
                         | TypedSemanticNodeKind.StringFromCodePoint _
                         | TypedSemanticNodeKind.StringToCodePoint _
@@ -845,6 +867,7 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListEmpty
                         | TypedSemanticNodeKind.ListConstruct _
                         | TypedSemanticNodeKind.ListLength _
+                        | TypedSemanticNodeKind.ListReverse _
                         | TypedSemanticNodeKind.ListSlice _
                         | TypedSemanticNodeKind.ListItemAt _
                         | TypedSemanticNodeKind.ListAppendItem _

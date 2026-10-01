@@ -172,7 +172,13 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Subtract _
                     | SemanticNodeKind.Float64Multiply _
                     | SemanticNodeKind.Float64Divide _
-                    | SemanticNodeKind.Int64ToFloat64 _ ->
+                    | SemanticNodeKind.Int64ToFloat64 _
+                    | SemanticNodeKind.Float64Sqrt _
+                    | SemanticNodeKind.Float64Abs _
+                    | SemanticNodeKind.Float64Negate _
+                    | SemanticNodeKind.Float64Floor _
+                    | SemanticNodeKind.Float64Ceiling _
+                    | SemanticNodeKind.Float64Truncate _ ->
                         Some(TypeRef.Primitive PrimitiveType.Float64)
                     | SemanticNodeKind.Bits32ToInt64 _ -> Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Bits32FromInt64 _
@@ -234,6 +240,7 @@ module SemanticFacts =
                         | None -> None
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
                     | SemanticNodeKind.ListSlice(listNodeId, _, _)
+                    | SemanticNodeKind.ListReverse listNodeId
                     | SemanticNodeKind.ListFilter(listNodeId, _, _)
                     | SemanticNodeKind.ListSortBy(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with

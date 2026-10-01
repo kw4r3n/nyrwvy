@@ -7,30 +7,159 @@ const typeRef = {
   builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|task|taskScope>", arguments: ["<typeRef>"] },
 }
 
-/** @satisfies {Record<string, (keyof typeof references)[]>} */
+/**
+ * Each category maps its kinds to a one-line signature in wire field names, so the index alone is
+ * enough for most scalar kinds. Generic letters (T, U, S, E, R) stand for any type.
+ * @satisfies {Record<string, Partial<Record<keyof typeof references, string>>>}
+ */
 const categories = {
-  references: ["parameter", "patternReference"],
-  literals: ["stringLiteral", "boolLiteral", "unitLiteral", "int64Literal", "float64Literal"],
-  scalar: [
-    "boolNot", "boolAnd", "boolOr",
-    "stringIsEmpty", "stringContains", "stringEqual", "stringLessThan", "stringConcat", "int64ToString", "stringParseInt64", "float64ToString", "stringParseFloat64", "float64RoundToInt64", "float64FloorToInt64", "stringLength", "stringSlice", "stringCodePoints",
-    "stringIndexOf", "stringLastIndexOf", "stringSpan", "stringSpanBack", "stringStartsWith", "stringEndsWith", "stringSplit", "stringSplitLines", "stringJoin", "stringToLower", "stringUtf8ByteCount", "stringDecodeUtf8Lossy", "stringFromCodePoint", "stringToCodePoint",
-    "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo",
-    "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual",
-    "float64Add", "float64Subtract", "float64Multiply", "float64Divide", "float64Equal", "float64LessThan",
-    "float64IsNaN", "float64IsFinite", "float64IsInfinite", "int64ToFloat64",
-    "bits32FromInt64", "bits32ToInt64", "bits32Xor", "bits32And", "bits32Or", "bits32Not", "bits32Add",
-    "bits32RotateRight", "bits32ShiftRight", "bits32ShiftLeft",
-  ],
-  list: ["listEmpty", "listConstruct", "listLength", "listItemAt", "listSlice", "listAppendItem", "listConcat", "listFold", "listEffectFold", "useResource", "parallelAll", "cancellationRequested", "listMap", "listFilter", "listSortBy", "listAny", "listAll"],
-  tasks: ["taskScope", "taskStart", "taskWait", "taskCancel"],
-  structured: ["productConstruct", "fieldAccess", "productUpdate", "unionConstruct", "valueEqual"],
-  optionResult: ["optionNone", "optionSome", "resultOk", "resultErr"],
-  calls: ["directCall", "functionReference", "functionInvoke", "capabilityConstruct", "capabilityInvoke"],
-  control: ["abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult"],
+  references: {
+    "parameter": "(name) -> the parameter's type",
+    "patternReference": "(scopeDepth, slot: value|error|field) -> the bound value's type",
+  },
+  literals: {
+    "stringLiteral": "(value: JSON string) -> String",
+    "boolLiteral": "(value: JSON boolean) -> Bool",
+    "unitLiteral": "() -> Unit",
+    "int64Literal": "(value: decimal string or JSON integer) -> Int64",
+    "float64Literal": "(bits: 16 hex digits) -> Float64",
+  },
+  bool: {
+    "boolNot": "(value: Bool) -> Bool",
+    "boolAnd": "(left: Bool, right: Bool, evaluated only when left is true) -> Bool",
+    "boolOr": "(left: Bool, right: Bool, evaluated only when left is false) -> Bool",
+  },
+  string: {
+    "stringIsEmpty": "(value: String) -> Bool",
+    "stringContains": "(value: String, substring: String) -> Bool",
+    "stringEqual": "(left: String, right: String) -> Bool",
+    "stringLessThan": "(left: String, right: String) -> Bool  // code-point order",
+    "stringConcat": "(left: String, right: String) -> String",
+    "stringLength": "(value: String) -> Int64  // code points",
+    "stringSlice": "(value: String, start: Int64, end: Int64) -> String  // clamped",
+    "stringCodePoints": "(value: String) -> List<String>",
+    "stringIndexOf": "(value: String, substring: String, from: Int64) -> Option<Int64>  // str.find",
+    "stringLastIndexOf": "(value: String, substring: String) -> Option<Int64>  // str.rfind",
+    "stringSpan": "(value: String, set: String, from: Int64) -> Int64  // lstrip as a position",
+    "stringSpanBack": "(value: String, set: String, end: Int64) -> Int64  // rstrip as a position",
+    "stringStartsWith": "(value: String, prefix: String) -> Bool",
+    "stringEndsWith": "(value: String, suffix: String) -> Bool",
+    "stringSplit": "(value: String, separator: String) -> List<String>  // str.split(sep)",
+    "stringSplitLines": "(value: String, breaks: String) -> List<String>  // str.splitlines",
+    "stringJoin": "(list: List<String>, separator: String) -> String",
+    "stringToLower": "(value: String) -> String",
+    "stringUtf8ByteCount": "(value: String) -> Int64",
+    "stringDecodeUtf8Lossy": "(value: String of bytes U+00-U+FF) -> String  // decode('utf-8', 'replace')",
+    "stringFromCodePoint": "(value: Int64) -> Option<String>  // chr",
+    "stringToCodePoint": "(value: String) -> Option<Int64>  // ord",
+    "int64ToString": "(value: Int64) -> String",
+    "stringParseInt64": "(value: String) -> Option<Int64>",
+    "float64ToString": "(value: Float64) -> String  // repr",
+    "stringParseFloat64": "(value: String) -> Option<Float64>",
+  },
+  int64: {
+    "int64WrappingAdd": "(left: Int64, right: Int64) -> Int64",
+    "int64WrappingSubtract": "(left: Int64, right: Int64) -> Int64",
+    "int64WrappingMultiply": "(left: Int64, right: Int64) -> Int64",
+    "int64FloorDivide": "(left: Int64, right: Int64) -> Int64  // Python //",
+    "int64FloorModulo": "(left: Int64, right: Int64) -> Int64  // Python %",
+    "int64Equal": "(left: Int64, right: Int64) -> Bool",
+    "int64LessThan": "(left: Int64, right: Int64) -> Bool",
+    "int64LessThanOrEqual": "(left: Int64, right: Int64) -> Bool",
+    "int64GreaterThan": "(left: Int64, right: Int64) -> Bool",
+    "int64GreaterThanOrEqual": "(left: Int64, right: Int64) -> Bool",
+    "int64ToFloat64": "(value: Int64) -> Float64",
+  },
+  float64: {
+    "float64Add": "(left: Float64, right: Float64) -> Float64",
+    "float64Subtract": "(left: Float64, right: Float64) -> Float64",
+    "float64Multiply": "(left: Float64, right: Float64) -> Float64",
+    "float64Divide": "(left: Float64, right: Float64) -> Float64",
+    "float64Equal": "(left: Float64, right: Float64) -> Bool",
+    "float64LessThan": "(left: Float64, right: Float64) -> Bool",
+    "float64IsNaN": "(value: Float64) -> Bool",
+    "float64IsFinite": "(value: Float64) -> Bool",
+    "float64IsInfinite": "(value: Float64) -> Bool",
+    "float64Sqrt": "(value: Float64) -> Float64",
+    "float64Abs": "(value: Float64) -> Float64",
+    "float64Negate": "(value: Float64) -> Float64",
+    "float64Floor": "(value: Float64) -> Float64",
+    "float64Ceiling": "(value: Float64) -> Float64",
+    "float64Truncate": "(value: Float64) -> Float64",
+    "float64RoundToInt64": "(value: Float64) -> Option<Int64>  // round(x)",
+    "float64FloorToInt64": "(value: Float64) -> Option<Int64>  // math.floor",
+  },
+  bits32: {
+    "bits32FromInt64": "(value: Int64) -> Bits32",
+    "bits32ToInt64": "(value: Bits32) -> Int64",
+    "bits32Xor": "(left: Bits32, right: Bits32) -> Bits32",
+    "bits32And": "(left: Bits32, right: Bits32) -> Bits32",
+    "bits32Or": "(left: Bits32, right: Bits32) -> Bits32",
+    "bits32Not": "(value: Bits32) -> Bits32",
+    "bits32Add": "(left: Bits32, right: Bits32) -> Bits32",
+    "bits32RotateRight": "(value: Bits32, amount: Int64) -> Bits32",
+    "bits32ShiftRight": "(value: Bits32, amount: Int64) -> Bits32",
+    "bits32ShiftLeft": "(value: Bits32, amount: Int64) -> Bits32",
+  },
+  list: {
+    "listEmpty": "(itemType) -> List<T>",
+    "listConstruct": "(itemType, items: [T]) -> List<T>",
+    "listLength": "(value: List<T>) -> Int64",
+    "listItemAt": "(list: List<T>, index: Int64) -> Option<T>",
+    "listSlice": "(list: List<T>, start: Int64, end: Int64) -> List<T>  // clamped",
+    "listReverse": "(value: List<T>) -> List<T>",
+    "listAppendItem": "(list: List<T>, item: T) -> List<T>",
+    "listConcat": "(left: List<T>, right: List<T>) -> List<T>",
+    "listFold": "(source: List<T>, seed: S, function: (S, T) -> S, context) -> S",
+    "listEffectFold": "(source: List<T>, seed: S, function: (S, T) -> S or Result<S, E>, context) -> S or Result<S, E>",
+    "useResource": "(acquire: Result<R, E>, releaseCapability, capability, releaseOperation, body: R -> Result<T, E>, context) -> Result<T, E>",
+    "parallelAll": "(source: List<T>, worker: T -> Result<U, E>, context) -> Result<List<U>, E>",
+    "cancellationRequested": "() -> Bool",
+    "listMap": "(source: List<T>, function: T -> U, context) -> List<U>",
+    "listFilter": "(source: List<T>, function: T -> Bool, context) -> List<T>",
+    "listSortBy": "(source: List<T>, function: (T, T) -> Bool, context) -> List<T>  // stable",
+    "listAny": "(source: List<T>, function: T -> Bool, context) -> Bool",
+    "listAll": "(source: List<T>, function: T -> Bool, context) -> Bool",
+  },
+  tasks: {
+    "taskScope": "(body: TaskScope -> Result<T, E>, context) -> Result<T, E>",
+    "taskStart": "(scope: TaskScope, worker: T -> Result<U, E>, item: T, context) -> Task<Result<U, E>>",
+    "taskWait": "(tasks: List<Task<T>>, mode: any|all, limit: Option<Int64>) -> List<Option<T>>",
+    "taskCancel": "(task: Task<T>) -> Unit",
+  },
+  structured: {
+    "productConstruct": "(type, fields: [field, value]) -> the product",
+    "fieldAccess": "(source: Product, type, field) -> the field's type",
+    "productUpdate": "(source: Product, type, fields: [field, value]) -> the product",
+    "unionConstruct": "(type, variant, fields: [field, value]) -> the union",
+    "valueEqual": "(left: T, right: T) -> Bool  // T equatable",
+  },
+  optionResult: {
+    "optionNone": "(itemType) -> Option<T>",
+    "optionSome": "(value: T) -> Option<T>",
+    "resultOk": "(errorType, value: T) -> Result<T, E>",
+    "resultErr": "(okType, error: E) -> Result<T, E>",
+  },
+  calls: {
+    "directCall": "(function, arguments: [parameter, value]) -> the function's result type",
+    "functionReference": "(function) -> a function value",
+    "functionInvoke": "(functionValue, arguments: [values in order]) -> its result type",
+    "capabilityConstruct": "(capability, implementations: [operation, function]) -> the capability",
+    "capabilityInvoke": "(capabilityValue, capability, operation, arguments: [parameter, value]) -> the operation's result type",
+  },
+  control: {
+    "abort": "(error: E) -> ends the Result<T, E> function with Err",
+    "conditional": "(condition: Bool, whenTrue: T, whenFalse: T) -> T",
+    "matchUnion": "(type, input: Union, arms: [variant, body: T]) -> T",
+    "bind": "(value: T, body: U) -> U",
+    "matchOption": "(input: Option<T>, someBody: U, noneBody: U) -> U",
+    "matchResult": "(input: Result<T, E>, okBody: U, errBody: U) -> U",
+  },
 }
 
-export const recipeKinds = Object.freeze(Object.values(categories).flat())
+/** @typedef {keyof typeof categories} RecipeCategory */
+export const recipeCategories = /** @type {RecipeCategory[]} */ (Object.freeze(Object.keys(categories)))
+export const recipeKinds = /** @type {(keyof typeof references)[]} */ (Object.freeze(Object.values(categories).flatMap(category => Object.keys(category))))
 
 const recipe = "<recipe>"
 const type = "<typeRef>"
@@ -114,7 +243,13 @@ const references = {
   float64IsNaN: unary("float64IsNaN"),
   float64IsFinite: unary("float64IsFinite"),
   float64IsInfinite: unary("float64IsInfinite"),
-  int64ToFloat64: { ...unary("int64ToFloat64"), notes: "Float64 nearest to the Int64: exact for |value| <= 2^53, otherwise IEEE round to nearest, ties to even (as C# (double)long and Python float(int)). Never fails. There is no Float64 to Int64 conversion." },
+  int64ToFloat64: { ...unary("int64ToFloat64"), notes: "Float64 nearest to the Int64: exact for |value| <= 2^53, otherwise IEEE round to nearest, ties to even (as C# (double)long and Python float(int)). Never fails. float64RoundToInt64 and float64FloorToInt64 convert back." },
+  float64Sqrt: { ...unary("float64Sqrt"), notes: "IEEE 754 square root, correctly rounded: Float64 to Float64. A negative value gives NaN (Python math.sqrt raises instead); -0.0 gives -0.0. Never fails." },
+  float64Abs: { ...unary("float64Abs"), notes: "Float64 with the sign cleared, as Python abs(x): -0.0 gives 0.0. Never fails." },
+  float64Negate: { ...unary("float64Negate"), notes: "Float64 with the sign flipped, as Python -x: 0.0 gives -0.0 (subtracting from 0.0 would give 0.0). Never fails." },
+  float64Floor: { ...unary("float64Floor"), notes: "Largest integral Float64 not above x, as Python math.floor(x) but staying Float64: -0.5 gives -0.0; NaN, infinities and zeros unchanged. For an Int64 use float64FloorToInt64. Never fails." },
+  float64Ceiling: { ...unary("float64Ceiling"), notes: "Smallest integral Float64 not below x, as Python math.ceil(x) but staying Float64: -0.5 gives -0.0; NaN, infinities and zeros unchanged. Never fails." },
+  float64Truncate: { ...unary("float64Truncate"), notes: "x rounded toward zero, as Python math.trunc(x) but staying Float64: -1.5 gives -1.0; NaN, infinities and zeros unchanged. Never fails." },
   bits32FromInt64: { ...unary("bits32FromInt64"), notes: "Bits32 holding the low 32 bits of the Int64 (value mod 2^32; -1 gives all ones). Bits32 has no literal: write constants as bits32FromInt64 of an int64Literal. Never fails." },
   bits32ToInt64: { ...unary("bits32ToInt64"), notes: "The Bits32 read as an unsigned Int64, 0..4294967295. Never fails." },
   bits32Xor: { ...binary("bits32Xor"), notes: "Bitwise exclusive or of two Bits32. Never fails." },
@@ -128,6 +263,7 @@ const references = {
   listEmpty: { shape: { kind: "listEmpty", itemType: type }, typeRef },
   listConstruct: { shape: { kind: "listConstruct", itemType: type, items: [recipe] }, typeRef },
   listLength: unary("listLength"),
+  listReverse: { ...unary("listReverse"), notes: "List<T> (same type) with the items in reverse order, as Python list(reversed(items)). Linear time; never fails." },
   listItemAt: { shape: { kind: "listItemAt", list: recipe, index: recipe }, notes: "Option<T>: Some(item) at a zero-based Int64 index when 0 <= index < length, else None. Negative indexes do not count from the end. Never fails." },
   listSlice: { shape: { kind: "listSlice", list: recipe, start: recipe, end: recipe }, notes: "List<T> (same type as list) of the items at Int64 positions [start, end), like stringSlice: both bounds clamp to [0, length]; negative bounds do not count from the end (unlike Python list[start:end]); end <= start gives the empty list. Never fails." },
   listAppendItem: { shape: { kind: "listAppendItem", list: recipe, item: recipe } },
@@ -210,17 +346,32 @@ const references = {
 
 /** @typedef {keyof typeof references} RecipeKind */
 
-/** @param {RecipeKind} [kind] */
-export function recipeReference(kind) {
-  if (kind === undefined) {
-    return {
-      format: "nameResolvedExpressionRecipe",
-      categories,
-      typeRef,
-      usage: "Pass one listed kind to receive its exact ordinary-tool wire shape. Shapes use display names where ordinary tools resolve semantic identities.",
-    }
-  }
-  const value = references[kind]
+const usage = "Pass category for its kinds' one-line signatures (wire field names and types; often enough to write a scalar recipe), kind for one exact ordinary-tool wire shape with notes, or kinds for several shapes in one call. Shapes use display names where ordinary tools resolve semantic identities."
+
+/** @param {RecipeKind} kind */
+function entry(kind) {
+  const value = Object.hasOwn(references, kind) ? references[kind] : undefined
   if (!value) throw new Error(`Unknown expression recipe kind '${kind}'.`)
-  return { format: "nameResolvedExpressionRecipe", kind, ...value }
+  return { kind, ...value }
+}
+
+/**
+ * Omit every argument for the whole signature index, or pass exactly one of category, kind or kinds.
+ * @param {{ category?: RecipeCategory; kind?: RecipeKind; kinds?: RecipeKind[] }} [query]
+ */
+export function recipeReference(query = {}) {
+  const { category, kind, kinds } = query
+  const given = [category, kind, kinds].filter(value => value !== undefined).length
+  if (given > 1) throw new Error("Pass at most one of category, kind or kinds.")
+  if (kind !== undefined) return { format: "nameResolvedExpressionRecipe", ...entry(kind) }
+  if (kinds !== undefined) {
+    if (kinds.length === 0) throw new Error("kinds must list at least one recipe kind.")
+    return { format: "nameResolvedExpressionRecipe", entries: [...new Set(kinds)].map(entry) }
+  }
+  if (category !== undefined) {
+    if (!Object.hasOwn(categories, category)) throw new Error(`Unknown recipe category '${category}'.`)
+    return { format: "nameResolvedExpressionRecipe", category, signatures: categories[category] }
+  }
+  const names = Object.fromEntries(Object.entries(categories).map(([name, signatures]) => [name, Object.keys(signatures)]))
+  return { format: "nameResolvedExpressionRecipe", categories: names, typeRef, usage }
 }

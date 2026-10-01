@@ -90,6 +90,12 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
     | Float64FloorToInt64 of valueNodeId: GraphNodeId
+    | Float64Sqrt of valueNodeId: GraphNodeId
+    | Float64Abs of valueNodeId: GraphNodeId
+    | Float64Negate of valueNodeId: GraphNodeId
+    | Float64Floor of valueNodeId: GraphNodeId
+    | Float64Ceiling of valueNodeId: GraphNodeId
+    | Float64Truncate of valueNodeId: GraphNodeId
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
     | StringFromCodePoint of valueNodeId: GraphNodeId
     | StringToCodePoint of valueNodeId: GraphNodeId
@@ -142,6 +148,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListEmpty
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
+    | ListReverse of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
@@ -323,6 +330,18 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId)
                     | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId)
+                    | SemanticNodeKind.Float64Sqrt valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Sqrt valueNodeId)
+                    | SemanticNodeKind.Float64Abs valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Abs valueNodeId)
+                    | SemanticNodeKind.Float64Negate valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Negate valueNodeId)
+                    | SemanticNodeKind.Float64Floor valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Floor valueNodeId)
+                    | SemanticNodeKind.Float64Ceiling valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Ceiling valueNodeId)
+                    | SemanticNodeKind.Float64Truncate valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Float64Truncate valueNodeId)
                     | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId)
                     | SemanticNodeKind.StringFromCodePoint valueNodeId ->
@@ -417,6 +436,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListConstruct itemNodeIds)
                     | SemanticNodeKind.ListLength listNodeId ->
                         Ok(TypedSemanticNodeKind.ListLength listNodeId)
+                    | SemanticNodeKind.ListReverse listNodeId ->
+                        Ok(TypedSemanticNodeKind.ListReverse listNodeId)
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->

@@ -704,6 +704,42 @@ module SnapshotValidator =
                             $"Float64FloorToInt64 node '{StableId.value node.Id}' requires a Float64 value."
                             (TypeRef.Primitive PrimitiveType.Float64)
                             valueNodeId
+                    | SemanticNodeKind.Float64Sqrt valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Sqrt node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64Abs valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Abs node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64Negate valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Negate node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64Floor valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Floor node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64Ceiling valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Ceiling node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                    | SemanticNodeKind.Float64Truncate valueNodeId ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Truncate node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
                     | SemanticNodeKind.StringUtf8ByteCount valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -927,6 +963,14 @@ module SnapshotValidator =
                             add
                                 "ListLengthInputTypeMismatch"
                                 $"ListLength node '{StableId.value node.Id}' requires List<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ListReverse listNodeId ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])) -> ()
+                        | Some _ ->
+                            add
+                                "ListReverseInputTypeMismatch"
+                                $"ListReverse node '{StableId.value node.Id}' requires List<T> input."
                         | None -> ()
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                         match nodeType listNodeId with
@@ -1699,6 +1743,12 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _
+                | SemanticNodeKind.Float64Sqrt _
+                | SemanticNodeKind.Float64Abs _
+                | SemanticNodeKind.Float64Negate _
+                | SemanticNodeKind.Float64Floor _
+                | SemanticNodeKind.Float64Ceiling _
+                | SemanticNodeKind.Float64Truncate _
                 | SemanticNodeKind.StringUtf8ByteCount _
                 | SemanticNodeKind.StringFromCodePoint _
                 | SemanticNodeKind.StringToCodePoint _
@@ -1751,6 +1801,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.ListReverse _
                 | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.ListAppendItem _

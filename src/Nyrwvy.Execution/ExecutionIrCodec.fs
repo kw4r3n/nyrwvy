@@ -273,6 +273,24 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.Float64FloorToInt64 valueId ->
             [ property "kind" (quote "float64FloorToInt64")
               property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Sqrt valueId ->
+            [ property "kind" (quote "float64Sqrt")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Abs valueId ->
+            [ property "kind" (quote "float64Abs")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Negate valueId ->
+            [ property "kind" (quote "float64Negate")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Floor valueId ->
+            [ property "kind" (quote "float64Floor")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Ceiling valueId ->
+            [ property "kind" (quote "float64Ceiling")
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.Float64Truncate valueId ->
+            [ property "kind" (quote "float64Truncate")
+              property "valueId" (executionValueIdValue valueId) ]
         | ExecutionInstructionKind.StringUtf8ByteCount valueId ->
             [ property "kind" (quote "stringUtf8ByteCount")
               property "valueId" (executionValueIdValue valueId) ]
@@ -411,6 +429,9 @@ module ExecutionIrCodec =
               property "itemValueIds" (itemValueIds |> List.map executionValueIdValue |> arrayValue) ]
         | ExecutionInstructionKind.ListLength listValueId ->
             [ property "kind" (quote "listLength")
+              property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.ListReverse listValueId ->
+            [ property "kind" (quote "listReverse")
               property "listValueId" (executionValueIdValue listValueId) ]
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             [ property "kind" (quote "listItemAt")
