@@ -58,6 +58,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [rrawrlet slice probe 15](rrawrlet-slice-probe15-20261001.md): `mcp.py` (the MCP server's event loop, 16 tools, live runs, timed waits and close over a `Host` capability), 427/428 against Python after 2 port bugs; the self-recursive loop overflows at 12,000–14,000 turns and a fold form does not
 - [rrawrlet slice probe 16](rrawrlet-slice-probe16-20261001.md): `results` (`apply_result` and `application_status` with `checkout`'s symlink walk, file states and index checks over a `Host`), 518/518 against Python on the first run; without a Map the tree comparison times out at 16,000 files
 - [rrawrlet slice probe 17](rrawrlet-slice-probe17-20261001.md): `verify` (`shlex.split`/`join`, check-spec validation, registered checks, `_run_check`'s `try`/`except`/`finally` over a `Host`, views of corrupted records), 1,094/1,094 against Python on the first run; no blocker
+- [rrawrlet slice probe 18](rrawrlet-slice-probe18-20261001.md): the rest of `review` (`parse_findings` without a regex engine, `git_diff` with a lossy UTF-8 decode, `collect_diff`, `review`'s validation and record over a `Host`), 828/828 against Python; probe 5's three divergences now match; no blocker
 
 ## Project review and follow-ups
 
