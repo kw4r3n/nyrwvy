@@ -82,7 +82,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Float64Literal of Float64Bits
     | StringIsEmpty of valueNodeId: GraphNodeId
     | Int64ToString of valueNodeId: GraphNodeId
+    | Int64ToHexString of valueNodeId: GraphNodeId
     | StringParseInt64 of valueNodeId: GraphNodeId
+    | StringParseInt64Hex of valueNodeId: GraphNodeId
     | Float64ToString of valueNodeId: GraphNodeId
     | StringParseFloat64 of valueNodeId: GraphNodeId
     | StringCodePoints of valueNodeId: GraphNodeId
@@ -120,6 +122,10 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64WrappingMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64FloorDivide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | ListRange of startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    | StringRepeat of textNodeId: GraphNodeId * countNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -135,6 +141,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Float64IsFinite of valueNodeId: GraphNodeId
     | Float64IsInfinite of valueNodeId: GraphNodeId
     | Int64ToFloat64 of valueNodeId: GraphNodeId
+    | Int64WrappingAbs of valueNodeId: GraphNodeId
     | Bits32FromInt64 of valueNodeId: GraphNodeId
     | Bits32ToInt64 of valueNodeId: GraphNodeId
     | Bits32Not of valueNodeId: GraphNodeId
@@ -314,8 +321,12 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringIsEmpty valueNodeId)
                     | SemanticNodeKind.Int64ToString valueNodeId ->
                         Ok(TypedSemanticNodeKind.Int64ToString valueNodeId)
+                    | SemanticNodeKind.Int64ToHexString valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64ToHexString valueNodeId)
                     | SemanticNodeKind.StringParseInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringParseInt64 valueNodeId)
+                    | SemanticNodeKind.StringParseInt64Hex valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringParseInt64Hex valueNodeId)
                     | SemanticNodeKind.Float64ToString valueNodeId ->
                         Ok(TypedSemanticNodeKind.Float64ToString valueNodeId)
                     | SemanticNodeKind.StringParseFloat64 valueNodeId ->
@@ -390,6 +401,14 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.ListRange(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -420,6 +439,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Float64IsInfinite valueNodeId)
                     | SemanticNodeKind.Int64ToFloat64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.Int64ToFloat64 valueNodeId)
+                    | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64WrappingAbs valueNodeId)
                     | SemanticNodeKind.Bits32FromInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32FromInt64 valueNodeId)
                     | SemanticNodeKind.Bits32ToInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32ToInt64 valueNodeId)
                     | SemanticNodeKind.Bits32Not valueNodeId -> Ok(TypedSemanticNodeKind.Bits32Not valueNodeId)

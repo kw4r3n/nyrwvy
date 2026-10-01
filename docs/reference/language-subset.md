@@ -54,6 +54,9 @@ Int64WrappingSubtract
 Int64WrappingMultiply
 Int64FloorDivide
 Int64FloorModulo
+Int64Min
+Int64Max
+Int64WrappingAbs
 Int64Equal
 Int64LessThan
 Int64LessThanOrEqual
@@ -62,6 +65,8 @@ Int64GreaterThanOrEqual
 ```
 
 Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
+
+`Int64Min(left, right)` and `Int64Max(left, right)` yield the smaller and the larger operand, Python `min` and `max` of two values. `Int64WrappingAbs(value)` yields the absolute value with two's-complement wrapping, so `Int64.MinValue` gives `Int64.MinValue`, where Python `abs` gives `2^63`; this is the same wrapping as `Int64.MinValue / -1` below. All three never fail ([decision](../decisions/standard-operation-choices.md)).
 
 `Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like every runtime operation of this subset (compare `StringSlice` clamping), they never fail: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
 
@@ -89,6 +94,10 @@ Checked arithmetic, implicit conversion, and a broader numeric tower are not par
 
 `StringJoin(list, separator)` takes a `List<String>` and a String and yields the items in order with `separator` between adjacent items, Python `separator.join(list)`: an empty list gives `""`, a one-item list gives that item, and `StringJoin(StringSplit(t, s), s) = t` for every non-empty `s`. The items and separator are concatenated as `StringConcat` does. `ListSlice(list, start, end)` takes a `List<T>` for any item type and two Int64 bounds and yields the `List<T>` of the items at positions `[start, end)`, clamped exactly like `StringSlice`: both bounds are clamped to `[0, ListLength(list)]`, a negative bound is 0 and is not counted from the end (unlike Python `list[start:end]`), and `end <= start` gives the empty list. Both never fail ([decision](../decisions/string-join-and-list-slice.md)). `ListReverse(list)` yields the items of a `List<T>` in reverse order as a `List<T>` of the same type, Python `list(reversed(list))`; it runs in linear time and never fails ([decision](../decisions/standard-operations.md)).
 
+`ListRange(start, end)` yields the `List<Int64>` `start, start + 1, …, end - 1`, Python `list(range(start, end))`; `end <= start` gives the empty list. `StringRepeat(text, count)` yields `text` repeated `count` times, Python `text * count`; `count <= 0` or an empty `text` gives `""`. Both run in time linear in the result. A result too large to allocate (more items than an array can hold, or memory exhausted) is a host failure that stops the run, as it already is for a chain of `ListConcat` or `StringConcat` that doubles its value; neither returns `Option`, because the real limit is memory, not a fixed size ([decision](../decisions/standard-operation-choices.md)). A `ListFold` or `ListEffectFold` over `ListRange(0, n)` is a counted loop, and `ListEffectFold`'s early stop makes it a bounded while loop.
+
+`Int64ToHexString(value)` formats an Int64 as lowercase hexadecimal with the fewest digits, Python `format(value, "x")`: a leading `-` only for negative values (`-255` is `"-ff"`, `Int64.MinValue` is `"-8000000000000000"`), no `0x` prefix and no padding (pad with `StringRepeat`). `StringParseInt64Hex(text)` yields `Option<Int64>`: `Some` only when the whole String is an optional `-` followed by one or more ASCII hexadecimal digits of either case and the value fits Int64. Leading zeros and `-0` are accepted; `0x`, `+`, whitespace, `_`, non-ASCII digits, empty text and overflow yield `None`, where Python `int(text, 16)` accepts the first four. It is as strict as `StringParseInt64` and never fails, and `StringParseInt64Hex(Int64ToHexString(v))` is `Some(v)` for every Int64.
+
 Function type parameters (`TypeRef.TypeParameter`) make a function generic over the types its parameter types mention; see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks) for derivation of type arguments and scope rules. `List<T>` is immutable and ordered; element order is semantic state. `ListFold(source, seed, folder)` traverses left to right with a pure existing two-parameter callback `(accumulator: S, item: T) -> S` and returns the seed unchanged for empty input. The seed can carry runtime context such as a search key; this does not imply effectful traversal or closures. An authored Product accumulator carrying a runtime key, a found flag, and an `Option<T>` result can implement first-match lookup over `List<TItem>` without introducing an application-specific search node. The folder must preserve the accumulated result after the first match; an absent key or empty source yields `None`. A pure user-defined `List<String> * Int64 -> Option<String>` function can use `ListFold` with a Product accumulator holding the remaining index and optional value: negative, empty, and out-of-range inputs return `None`. This composition does not stop the fold early and can be generalized with function type parameters. `ListItemAt(list, index)` reads one item directly: for `list : List<T>` and `index : Int64` it returns `Some(item)` when `0 <= index < length` and `None` otherwise, never failing; negative indexes do not count from the end, as with `StringSlice` ([decision](../decisions/task-fields-list-indexing-and-map.md)).
 
 The current collection surface includes:
@@ -99,6 +108,7 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListRange
 ListReverse
 ListAppendItem
 ListConcat
@@ -238,6 +248,9 @@ StringConcat
 ValueEqual
 Int64ToString
 StringParseInt64
+Int64ToHexString
+StringParseInt64Hex
+StringRepeat
 StringLength
 StringSlice
 StringCodePoints
@@ -253,6 +266,7 @@ StringDecodeUtf8Lossy
 StringFromCodePoint / ToCodePoint
 Int64WrappingAdd / Subtract / Multiply
 Int64FloorDivide / FloorModulo
+Int64Min / Max / WrappingAbs
 Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
 Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
@@ -269,6 +283,7 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListRange
 ListReverse
 ListAppendItem
 ListConcat

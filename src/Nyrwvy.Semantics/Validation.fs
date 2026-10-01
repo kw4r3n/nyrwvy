@@ -656,10 +656,22 @@ module SnapshotValidator =
                             $"Int64ToString node '{StableId.value node.Id}' requires an Int64 value."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             valueNodeId
+                    | SemanticNodeKind.Int64ToHexString valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64ToHexString node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
                     | SemanticNodeKind.StringParseInt64 valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
                             $"StringParseInt64 node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                    | SemanticNodeKind.StringParseInt64Hex valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringParseInt64Hex node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
                     | SemanticNodeKind.Float64ToString valueNodeId ->
@@ -780,6 +792,17 @@ module SnapshotValidator =
                             $"StringSlice node '{StableId.value node.Id}' requires an Int64 end."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             endNodeId
+                    | SemanticNodeKind.StringRepeat(textNodeId, countNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringRepeat node '{StableId.value node.Id}' requires a String text."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            textNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringRepeat node '{StableId.value node.Id}' requires an Int64 count."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            countNodeId
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -890,6 +913,9 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -911,6 +937,12 @@ module SnapshotValidator =
                         requireNodeType
                             "Int64IntrinsicTypeMismatch"
                             $"Int64ToFloat64 node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64WrappingAbs node '{StableId.value node.Id}' requires an Int64 value."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             valueNodeId
                     | SemanticNodeKind.Bits32FromInt64 valueNodeId ->
@@ -1735,7 +1767,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64Literal _
                 | SemanticNodeKind.StringIsEmpty _
                 | SemanticNodeKind.Int64ToString _
+                | SemanticNodeKind.Int64ToHexString _
                 | SemanticNodeKind.StringParseInt64 _
+                | SemanticNodeKind.StringParseInt64Hex _
                 | SemanticNodeKind.Float64ToString _
                 | SemanticNodeKind.StringParseFloat64 _
                 | SemanticNodeKind.StringCodePoints _
@@ -1773,6 +1807,10 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64WrappingMultiply _
                 | SemanticNodeKind.Int64FloorDivide _
                 | SemanticNodeKind.Int64FloorModulo _
+                | SemanticNodeKind.Int64Min _
+                | SemanticNodeKind.Int64Max _
+                | SemanticNodeKind.ListRange _
+                | SemanticNodeKind.StringRepeat _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _
@@ -1788,6 +1826,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64IsFinite _
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
+                | SemanticNodeKind.Int64WrappingAbs _
                 | SemanticNodeKind.Bits32FromInt64 _
                 | SemanticNodeKind.Bits32ToInt64 _
                 | SemanticNodeKind.Bits32Xor _

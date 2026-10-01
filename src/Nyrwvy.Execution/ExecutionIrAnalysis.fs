@@ -31,7 +31,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.Int64ToString valueNodeId
+        | TypedSemanticNodeKind.Int64ToHexString valueNodeId
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId
+        | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId
         | TypedSemanticNodeKind.Float64ToString valueNodeId
         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
@@ -70,6 +72,10 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64WrappingMultiply(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64FloorDivide(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -93,6 +99,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsNaN valueNodeId
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId
+        | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId
         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32Not valueNodeId
@@ -173,7 +180,9 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
+            | TypedSemanticNodeKind.Int64ToHexString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringParseInt64Hex _
             | TypedSemanticNodeKind.Float64ToString _
             | TypedSemanticNodeKind.StringParseFloat64 _
             | TypedSemanticNodeKind.StringCodePoints _
@@ -208,6 +217,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64WrappingMultiply _
             | TypedSemanticNodeKind.Int64FloorDivide _
             | TypedSemanticNodeKind.Int64FloorModulo _
+            | TypedSemanticNodeKind.Int64Min _
+            | TypedSemanticNodeKind.Int64Max _
+            | TypedSemanticNodeKind.ListRange _
+            | TypedSemanticNodeKind.StringRepeat _
             | TypedSemanticNodeKind.Int64Equal _
             | TypedSemanticNodeKind.Int64LessThan _
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -223,6 +236,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.Int64ToFloat64 _
+            | TypedSemanticNodeKind.Int64WrappingAbs _
             | TypedSemanticNodeKind.Bits32FromInt64 _
             | TypedSemanticNodeKind.Bits32ToInt64 _
             | TypedSemanticNodeKind.Bits32Xor _
@@ -335,7 +349,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.StringIsEmpty _
         | TypedSemanticNodeKind.Int64ToString _
+        | TypedSemanticNodeKind.Int64ToHexString _
         | TypedSemanticNodeKind.StringParseInt64 _
+        | TypedSemanticNodeKind.StringParseInt64Hex _
         | TypedSemanticNodeKind.Float64ToString _
         | TypedSemanticNodeKind.StringParseFloat64 _
         | TypedSemanticNodeKind.StringCodePoints _
@@ -374,6 +390,10 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64WrappingMultiply _
         | TypedSemanticNodeKind.Int64FloorDivide _
         | TypedSemanticNodeKind.Int64FloorModulo _
+        | TypedSemanticNodeKind.Int64Min _
+        | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.ListRange _
+        | TypedSemanticNodeKind.StringRepeat _
         | TypedSemanticNodeKind.Int64Equal _
         | TypedSemanticNodeKind.Int64LessThan _
         | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -389,6 +409,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsFinite _
         | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.Int64ToFloat64 _
+        | TypedSemanticNodeKind.Int64WrappingAbs _
         | TypedSemanticNodeKind.Bits32FromInt64 _
         | TypedSemanticNodeKind.Bits32ToInt64 _
         | TypedSemanticNodeKind.Bits32Xor _
@@ -480,7 +501,9 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64Literal _
             | TypedSemanticNodeKind.StringIsEmpty _
             | TypedSemanticNodeKind.Int64ToString _
+            | TypedSemanticNodeKind.Int64ToHexString _
             | TypedSemanticNodeKind.StringParseInt64 _
+            | TypedSemanticNodeKind.StringParseInt64Hex _
             | TypedSemanticNodeKind.Float64ToString _
             | TypedSemanticNodeKind.StringParseFloat64 _
             | TypedSemanticNodeKind.StringCodePoints _
@@ -515,6 +538,10 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Int64WrappingMultiply _
             | TypedSemanticNodeKind.Int64FloorDivide _
             | TypedSemanticNodeKind.Int64FloorModulo _
+            | TypedSemanticNodeKind.Int64Min _
+            | TypedSemanticNodeKind.Int64Max _
+            | TypedSemanticNodeKind.ListRange _
+            | TypedSemanticNodeKind.StringRepeat _
             | TypedSemanticNodeKind.Int64Equal _
             | TypedSemanticNodeKind.Int64LessThan _
             | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -530,6 +557,7 @@ module internal ExecutionIrAnalysis =
             | TypedSemanticNodeKind.Float64IsFinite _
             | TypedSemanticNodeKind.Float64IsInfinite _
             | TypedSemanticNodeKind.Int64ToFloat64 _
+            | TypedSemanticNodeKind.Int64WrappingAbs _
             | TypedSemanticNodeKind.Bits32FromInt64 _
             | TypedSemanticNodeKind.Bits32ToInt64 _
             | TypedSemanticNodeKind.Bits32Xor _

@@ -290,7 +290,9 @@ module internal WireSymbolic =
             | Error error -> fail $"Invalid Float64 bits: {error}."
         | "stringIsEmpty" -> unary "string-is-empty recipe" ExpressionRecipe.StringIsEmpty
         | "int64ToString" -> unary "int64-to-string recipe" ExpressionRecipe.Int64ToString
+        | "int64ToHexString" -> unary "int64-to-hex-string recipe" ExpressionRecipe.Int64ToHexString
         | "stringParseInt64" -> unary "string-parse-int64 recipe" ExpressionRecipe.StringParseInt64
+        | "stringParseInt64Hex" -> unary "string-parse-int64-hex recipe" ExpressionRecipe.StringParseInt64Hex
         | "float64ToString" -> unary "float64-to-string recipe" ExpressionRecipe.Float64ToString
         | "stringParseFloat64" -> unary "string-parse-float64 recipe" ExpressionRecipe.StringParseFloat64
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
@@ -387,6 +389,20 @@ module internal WireSymbolic =
         | "int64WrappingMultiply" -> binary "int64-wrapping-multiply recipe" ExpressionRecipe.Int64WrappingMultiply
         | "int64FloorDivide" -> binary "int64-floor-divide recipe" ExpressionRecipe.Int64FloorDivide
         | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
+        | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
+        | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
+        | "listRange" ->
+            ensureFields "list-range recipe" [ "kind"; "start"; "end" ] [ "kind"; "start"; "end" ] element
+            ExpressionRecipe.ListRange(
+                recipe declarations parameterContext (property "start" element),
+                recipe declarations parameterContext (property "end" element)
+            )
+        | "stringRepeat" ->
+            ensureFields "string-repeat recipe" [ "kind"; "text"; "count" ] [ "kind"; "text"; "count" ] element
+            ExpressionRecipe.StringRepeat(
+                recipe declarations parameterContext (property "text" element),
+                recipe declarations parameterContext (property "count" element)
+            )
         | "int64Equal" -> binary "int64-equal recipe" ExpressionRecipe.Int64Equal
         | "int64LessThan" -> binary "int64-less-than recipe" ExpressionRecipe.Int64LessThan
         | "int64LessThanOrEqual" -> binary "int64-less-than-or-equal recipe" ExpressionRecipe.Int64LessThanOrEqual
@@ -402,6 +418,7 @@ module internal WireSymbolic =
         | "float64IsFinite" -> unary "float64-is-finite recipe" ExpressionRecipe.Float64IsFinite
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
         | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
+        | "int64WrappingAbs" -> unary "int64-wrapping-abs recipe" ExpressionRecipe.Int64WrappingAbs
         | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
         | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
         | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not

@@ -29,7 +29,7 @@ The Float64 operations are the IEEE 754 operations `squareRoot`, `abs`, `negate`
 | `StringToUpper` | Python's `upper()` changes length (`ß` to `SS`); a one-to-one mapping would not | None |
 | Int64 `Abs`, `Min`, `Max` | `Abs(Int64.MinValue)` | Probes 15 and 20, 3 to 5 nodes each |
 
-`ListRange` and hexadecimal text already have observed cost, so they need only the owner's choice.
+`ListRange` and hexadecimal text already have observed cost, so they need only the owner's choice. The owner made those choices the same day; see [standard operations with an owner choice](standard-operation-choices.md), which also added `StringRepeat` and Int64 `Min`, `Max` and `WrappingAbs`.
 
 ## Reason
 

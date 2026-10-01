@@ -84,7 +84,9 @@ type ExecutionInstructionKind =
     | Float64Literal of Float64Bits
     | StringIsEmpty of ExecutionValueId
     | Int64ToString of ExecutionValueId
+    | Int64ToHexString of ExecutionValueId
     | StringParseInt64 of ExecutionValueId
+    | StringParseInt64Hex of ExecutionValueId
     | Float64ToString of ExecutionValueId
     | StringParseFloat64 of ExecutionValueId
     | StringCodePoints of ExecutionValueId
@@ -128,6 +130,10 @@ type ExecutionInstructionKind =
     | Int64WrappingMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64FloorDivide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | ListRange of startValueId: ExecutionValueId * endValueId: ExecutionValueId
+    | StringRepeat of textValueId: ExecutionValueId * countValueId: ExecutionValueId
     | Int64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -143,6 +149,7 @@ type ExecutionInstructionKind =
     | Float64IsFinite of valueId: ExecutionValueId
     | Float64IsInfinite of valueId: ExecutionValueId
     | Int64ToFloat64 of valueId: ExecutionValueId
+    | Int64WrappingAbs of valueId: ExecutionValueId
     | Bits32FromInt64 of valueId: ExecutionValueId
     | Bits32ToInt64 of valueId: ExecutionValueId
     | Bits32Not of valueId: ExecutionValueId

@@ -56,7 +56,9 @@ module internal WireGraph =
         | SemanticNodeKind.Float64Literal value -> tagged "float64Literal" [ "bits", box (Float64Bits.toHex value) ]
         | SemanticNodeKind.StringIsEmpty value -> unary "stringIsEmpty" value
         | SemanticNodeKind.Int64ToString value -> unary "int64ToString" value
+        | SemanticNodeKind.Int64ToHexString value -> unary "int64ToHexString" value
         | SemanticNodeKind.StringParseInt64 value -> unary "stringParseInt64" value
+        | SemanticNodeKind.StringParseInt64Hex value -> unary "stringParseInt64Hex" value
         | SemanticNodeKind.Float64ToString value -> unary "float64ToString" value
         | SemanticNodeKind.StringParseFloat64 value -> unary "stringParseFloat64" value
         | SemanticNodeKind.StringCodePoints value -> unary "stringCodePoints" value
@@ -98,6 +100,10 @@ module internal WireGraph =
         | SemanticNodeKind.Int64WrappingMultiply(left, right) -> binary "int64WrappingMultiply" left right
         | SemanticNodeKind.Int64FloorDivide(left, right) -> binary "int64FloorDivide" left right
         | SemanticNodeKind.Int64FloorModulo(left, right) -> binary "int64FloorModulo" left right
+        | SemanticNodeKind.Int64Min(left, right) -> binary "int64Min" left right
+        | SemanticNodeKind.Int64Max(left, right) -> binary "int64Max" left right
+        | SemanticNodeKind.ListRange(start, stop) -> tagged "listRange" [ "startNodeId", identity start; "endNodeId", identity stop ]
+        | SemanticNodeKind.StringRepeat(text, count) -> tagged "stringRepeat" [ "textNodeId", identity text; "countNodeId", identity count ]
         | SemanticNodeKind.Int64Equal(left, right) -> binary "int64Equal" left right
         | SemanticNodeKind.Int64LessThan(left, right) -> binary "int64LessThan" left right
         | SemanticNodeKind.Int64LessThanOrEqual(left, right) -> binary "int64LessThanOrEqual" left right
@@ -113,6 +119,7 @@ module internal WireGraph =
         | SemanticNodeKind.Float64IsFinite value -> unary "float64IsFinite" value
         | SemanticNodeKind.Float64IsInfinite value -> unary "float64IsInfinite" value
         | SemanticNodeKind.Int64ToFloat64 value -> unary "int64ToFloat64" value
+        | SemanticNodeKind.Int64WrappingAbs value -> unary "int64WrappingAbs" value
         | SemanticNodeKind.Bits32FromInt64 value -> unary "bits32FromInt64" value
         | SemanticNodeKind.Bits32ToInt64 value -> unary "bits32ToInt64" value
         | SemanticNodeKind.Bits32Not value -> unary "bits32Not" value
