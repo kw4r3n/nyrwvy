@@ -1,5 +1,5 @@
 import { openAuthoring, requestAuthoring, closeAuthoring } from "./authoring.ts"
-import { recipeKinds, recipeReference } from "./recipe-reference.mjs"
+import { recipeCategories, recipeKinds, recipeReference } from "./recipe-reference.mjs"
 
 /** @typedef {{ _zod: { output: unknown; input: unknown } }} SchemaBase */
 
@@ -25,7 +25,7 @@ import { recipeKinds, recipeReference } from "./recipe-reference.mjs"
  *   unknown(): GraphSchema<S, unknown>,
  *   enum<const Values extends readonly string[]>(values: Values): GraphSchema<S, Values[number]>,
  *   record(key: GraphSchema<S, string>, value: GraphSchema<S, unknown>): GraphSchema<S, Record<string, unknown>>,
- *   array<T>(item: GraphSchema<S, T>): GraphSchema<S, T[]>,
+ *   array<T>(item: GraphSchema<S, T>): GraphSchema<S, T[]> & { min(count: number): GraphSchema<S, T[]> },
  *   object(fields: { displayName: GraphSchema<S, string>; type: GraphSchema<S, Record<string, unknown>> }): GraphSchema<S, { displayName: string; type: Record<string, unknown> }>
  * }} GraphSchemaBuilder
  */
@@ -82,10 +82,10 @@ export function createGraphTools(schema) {
       },
     }),
     recipe_reference: defineTool({
-      description: "Read the maintained name-resolved ExpressionRecipe wire shapes used by create_function and replace. No snapshot or authoring session is required. Omit kind for a compact categorized index.",
-      args: { kind: schema.enum(recipeKinds).optional() },
-      /** @param {{ kind?: import("./recipe-reference.mjs").RecipeKind }} args */
-      execute: async args => JSON.stringify(recipeReference(args.kind)),
+      description: "Read the maintained name-resolved ExpressionRecipe wire shapes used by create_function and replace. No snapshot or authoring session is required. Omit every argument for the categorized index of kind names. Pass category for one-line signatures of its kinds, kind for one exact shape with notes, or kinds to read several shapes in one call; pass at most one of them.",
+      args: { category: schema.enum(recipeCategories).optional(), kind: schema.enum(recipeKinds).optional(), kinds: schema.array(schema.string()).min(1).describe("Several kinds from the index; checked when read, so the kind list is not repeated in this schema.").optional() },
+      /** @param {{ category?: import("./recipe-reference.mjs").RecipeCategory; kind?: import("./recipe-reference.mjs").RecipeKind; kinds?: string[] }} args */
+      execute: async args => JSON.stringify(recipeReference(/** @type {Parameters<typeof recipeReference>[0]} */ (args))),
     }),
     create_type: defineTool({
       description: "Propose a Product or Union declaration. Resolve named type references inside the session; review the result before committing. A field type may name the type itself (a recursive type such as Tree with children: List<Tree>); for types that name each other, use request op simulateCreateTypesByName with types: [{displayName, typeKind}].",

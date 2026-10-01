@@ -40,4 +40,4 @@ Each operation also has costs: about 30 places in the semantic graph, codecs, IR
 ## Revisit when
 
 - An operation in the table above gets its choice made by the owner or by a consumer.
-- The recipe reference becomes hard to search as operations grow. Each added kind enlarges the `kind` enum in the tool definition (1,830 characters for 116 kinds) and the no-argument index (2,647 characters, names only), and is read one kind per call.
+- The recipe reference becomes hard to search as operations grow. The same change split the reference's `scalar` category by domain, added one-line signatures per category and let one call read several kinds; the next steps, if needed, are keyword search over Python names and generating the signatures from the F# types.
