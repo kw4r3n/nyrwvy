@@ -124,7 +124,7 @@ The session may project the committed workspace with `AgentExecution.projectType
 
 ## JSON-lines process protocol
 
-The maintained executable uses one JSON object per input line and emits exactly one JSON object per input line. Blank lines are ignored. The process is started with one selected snapshot path and explicit open/create mode; the path is not repeated in request messages.
+The maintained executable uses one JSON object per input line and emits exactly one JSON object per input line. A blank or whitespace-only line is malformed input and gets a `ProtocolError` reply with a null `id`, like any other line that is not a request object. The process is started with one selected snapshot path and explicit open/create mode; the path is not repeated in request messages.
 
 Every request has:
 
@@ -144,7 +144,7 @@ or:
 {"id":"caller-token","ok":false,"error":{"code":"...","message":"..."}}
 ```
 
-Besides the operation-specific codes below and the session error codes (`SnapshotFileNotFound`, `IoFailure`, `SnapshotCodecFailure`, `WorkspaceValidationFailure`, `ProposalNotFound`, `CommitRejected`, …), the transport uses: `ProtocolError` for malformed or unresolvable input, `UnsupportedOperation` for an unknown `op`, `SessionError` for an operation the session state does not allow, and `InternalError` for any other unexpected failure. `InternalError` answers only that request: its `message` names the exception, the session keeps running, and its state is unchanged (the in-memory workspace and pending proposals are updated only after a successful write). A graph that would nest deeper than the snapshot codec's 1000 JSON levels cannot be persisted or fingerprinted; the simulation or commit reports the snapshot codec error `MaximumDepthExceeded 1000` (for example as `SnapshotCodecFailure`) instead of failing the process.
+Besides the operation-specific codes below and the session error codes (`SnapshotFileNotFound`, `IoFailure`, `SnapshotCodecFailure`, `WorkspaceValidationFailure`, `ProposalNotFound`, `CommitRejected`, …), the transport uses: `ProtocolError` for malformed or unresolvable input, `UnsupportedOperation` for an unknown `op`, `SessionError` for an operation the session state does not allow, and `InternalError` for any other unexpected failure. `InternalError` answers only that request: its `message` is a fixed text that names no exception (the exception type and message go to the process's stderr only), the session keeps running, and its state is unchanged (the in-memory workspace and pending proposals are updated only after a successful write). A graph that would nest deeper than the snapshot codec's 1000 JSON levels cannot be persisted or fingerprinted; the simulation or commit reports the snapshot codec error `MaximumDepthExceeded 1000` (for example as `SnapshotCodecFailure`) instead of failing the process.
 
 Unknown properties that would change request meaning are rejected rather than ignored. Duplicate property names in request objects, including nested recipes and declarations, are rejected as `ProtocolError` rather than resolved by first- or last-value precedence.
 

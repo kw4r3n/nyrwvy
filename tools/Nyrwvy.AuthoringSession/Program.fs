@@ -52,12 +52,5 @@ let main argv =
         | Ok session ->
             use session = session
             session.HostSourcesAllowed <- Array.contains CommandLine.hostSourcesFlag argv
-            let mutable running = true
-            while running do
-                match Console.In.ReadLine() with
-                | null -> running <- false
-                | line when String.IsNullOrWhiteSpace line -> ()
-                | line ->
-                    Console.Out.WriteLine(AuthoringProtocol.executeLine session line)
-                    Console.Out.Flush()
+            AuthoringProtocol.serve session Console.In Console.Out
             0

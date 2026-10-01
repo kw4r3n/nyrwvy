@@ -48,7 +48,10 @@ module AuthoringTypeSessionTests =
             Assert.Equal("commit", failed.RootElement.GetProperty("id").GetString())
             Assert.False(failed.RootElement.GetProperty("ok").GetBoolean())
             Assert.Equal("InternalError", failed.RootElement.GetProperty("error").GetProperty("code").GetString())
-            Assert.Contains("simulated fault", failed.RootElement.GetProperty("error").GetProperty("message").GetString())
+            // The wire carries a stable message, never the exception's type or text.
+            Assert.Equal(AuthoringProtocol.internalErrorMessage, failed.RootElement.GetProperty("error").GetProperty("message").GetString())
+            Assert.DoesNotContain("simulated fault", response)
+            Assert.DoesNotContain("NotSupportedException", response)
             Assert.Equal(persisted, File.ReadAllText path)
             use declarations = AuthoringProtocol.executeLine session """{"id":"decls","op":"declarations"}""" |> requireOk
             Assert.Equal(0, declarations.RootElement.GetProperty("result").GetProperty("types").GetArrayLength())
@@ -233,3 +236,28 @@ module AuthoringTypeSessionTests =
             Assert.Equal("ready", readiness.RootElement.GetProperty("result").GetProperty("kind").GetString())
         finally
             if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``every input line gets exactly one reply, a blank line a ProtocolError`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session =
+                match AuthoringSession.createNew path with
+                | Ok value -> value
+                | Error error -> failwithf "Session creation failed: %A" error
+            let input = String.Join("\n", [ "{\"id\":\"a\",\"op\":\"status\"}"; ""; "   \t"; "{\"id\":\"b\",\"op\":\"status\"}" ]) + "\n"
+            use output = new StringWriter()
+            AuthoringProtocol.serve session (new StringReader(input)) output
+            let replies = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            Assert.Equal(4, replies.Length)
+            for index, expectedId in [ 0, "a"; 3, "b" ] do
+                use reply = requireOk replies[index]
+                Assert.Equal(expectedId, reply.RootElement.GetProperty("id").GetString())
+            for index in [ 1; 2 ] do
+                use reply = JsonDocument.Parse replies[index]
+                Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Equal(JsonValueKind.Null, reply.RootElement.GetProperty("id").ValueKind)
+                Assert.Equal("ProtocolError", reply.RootElement.GetProperty("error").GetProperty("code").GetString())
+        finally
+            Directory.Delete(root, true)
