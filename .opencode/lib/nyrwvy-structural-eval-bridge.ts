@@ -20,6 +20,8 @@ const expectedCorpusRevision = "efce0cac15565941c11c8af8d1a52e7ecafaa5c6"
 const frozenInputCompatibilityRevision = "a2ffb5615d37d44bbd910c4f47c36136c31cdce4"
 const evaluationAgent = "nyrwvy-structural-eval"
 
+// Replay only from the freeze tag eval/m2-structural-condition-v1.1-20260830 (178f382), see
+// docs/operations/evaluation-freeze-tags.md: on main these guarded paths no longer match, so this copy refuses to start.
 export const frozenStructuralInputPaths = [
   "evaluation/m2-agent-corpus-v1",
   "tests/Nyrwvy.Core.Tests/M2StructuralEvaluationCorpus.fs",

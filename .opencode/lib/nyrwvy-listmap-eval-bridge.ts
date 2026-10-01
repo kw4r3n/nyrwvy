@@ -16,6 +16,8 @@ const protocolVersion = "m2-listmap-structural-v1"
 const expectedCorpusRevision = "a2ffb5615d37d44bbd910c4f47c36136c31cdce4"
 const evaluationAgent = "nyrwvy-listmap-eval"
 
+// Replay only from the freeze tag eval/m2-listmap-orchestrator-v1-20260831 (f7d6d07), see
+// docs/operations/evaluation-freeze-tags.md: on main these guarded paths no longer exist, so this copy refuses to start.
 export const frozenListMapInputPaths = [
   "evaluation/m2-listmap-agent-corpus-v1",
   "tests/Nyrwvy.Core.Tests/M2ListMapStructuralEvaluationCorpus.fs",
