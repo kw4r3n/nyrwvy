@@ -228,6 +228,8 @@ Should Nyrwvy remain managed-value oriented, introduce ownership/borrowing seman
 
 Current semantics are managed. No backend-independent zero-cost ownership guarantee is claimed.
 
+The proposed [real-time processor design note](../plans/realtime-processors.md) needs in-place buffer updates only inside processors and recommends a use-after-update check local to one body there, not a core ownership model. It does not resolve this question.
+
 ### Resolution target
 
 Revisit only when a backend or resource-management use case makes ownership semantics necessary.

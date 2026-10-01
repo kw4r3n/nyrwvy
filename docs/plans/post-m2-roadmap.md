@@ -323,6 +323,8 @@ After probe 20 the owner chose its one candidate that met the decision rule. Tra
 | --- | --- | --- | --- |
 | 34 | **Done: Float64 to Int64 with Python's rounding** | Probe 20 rounded to an EDO step and to seconds, and floored inside `exp2`, by hand (3 functions, 95 nodes, a 62-step binary search over `Int64ToFloat64`); probe 15 built milliseconds from Float64 seconds by hand | `Float64RoundToInt64` (Python `round(x)`, ties to even) and `Float64FloorToInt64` (`math.floor(x)`), both `Float64 -> Option<Int64>` with `None` for NaN, the infinities and results outside Int64. Probe 20 re-authored with them is 1,068 nodes instead of 1,153 and matches the same 3,400/3,400 cases; [decision](../decisions/float64-to-int64.md). |
 
+The host side of a music application (#284) has a separate [design note](realtime-processors.md): a restricted `Processor` declaration that the validator proves real-time safe. It is proposed only; implementation waits for the note's evidence trigger.
+
 ### Queue from the 2026-10-01 standard-operations review
 
 A review of the builtin surface against ordinary language libraries ([decision](../decisions/standard-operations.md)) found operations missing that programs commonly need. The owner chose to add those whose meaning has no choice to make, under the exception in the selection rule above. `ListRange`, `StringRepeat`, hexadecimal formatting and parsing, `StringToUpper` and Int64 `Abs`/`Min`/`Max` each have a choice to make and stay candidates; `ListRange` and hexadecimal text already have observed hand-written cost (probes 5, 7 and 12, and probes 9 to 12 and 16 to 18).
