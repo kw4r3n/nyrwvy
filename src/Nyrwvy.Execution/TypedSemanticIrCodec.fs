@@ -63,6 +63,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "list")
             writer.WritePropertyName("itemType")
             writeTypeRef writer itemType
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) ->
+            writer.WriteString("kind", "set")
+            writer.WritePropertyName("itemType")
+            writeTypeRef writer itemType
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             writer.WriteString("kind", "task")
             writer.WritePropertyName("resultType")
@@ -80,6 +84,8 @@ module TypedSemanticIrCodec =
             invalidOp $"Typed Semantic IR contains Map with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"Typed Semantic IR contains List with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+            invalidOp $"Typed Semantic IR contains Set with {arguments.Length} type arguments."
         writer.WriteEndObject()
 
     let private writeField (writer: Utf8JsonWriter) (field: TypedSemanticField) =
@@ -514,6 +520,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("amountNodeId", StableId.value amountNodeId)
         | TypedSemanticNodeKind.ListEmpty ->
             writer.WriteString("kind", "listEmpty")
+        | TypedSemanticNodeKind.SetEmpty ->
+            writer.WriteString("kind", "setEmpty")
         | TypedSemanticNodeKind.MapEmpty ->
             writer.WriteString("kind", "mapEmpty")
         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
@@ -532,9 +540,18 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.MapKeys mapNodeId ->
             writer.WriteString("kind", "mapKeys")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
+        | TypedSemanticNodeKind.SetToList mapNodeId ->
+            writer.WriteString("kind", "setToList")
+            writer.WriteString("setNodeId", StableId.value mapNodeId)
         | TypedSemanticNodeKind.MapSize mapNodeId ->
             writer.WriteString("kind", "mapSize")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
+        | TypedSemanticNodeKind.SetFromList mapNodeId ->
+            writer.WriteString("kind", "setFromList")
+            writer.WriteString("listNodeId", StableId.value mapNodeId)
+        | TypedSemanticNodeKind.SetSize mapNodeId ->
+            writer.WriteString("kind", "setSize")
+            writer.WriteString("setNodeId", StableId.value mapNodeId)
         | TypedSemanticNodeKind.ListReverse listNodeId ->
             writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -546,10 +563,22 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "mapRemove")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
             writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | TypedSemanticNodeKind.SetInsert(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "setInsert")
+            writer.WriteString("setNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.SetRemove(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "setRemove")
+            writer.WriteString("setNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
             writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "setContains")
+            writer.WriteString("setNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)

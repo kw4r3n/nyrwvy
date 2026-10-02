@@ -397,6 +397,8 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Bits32ShiftLeft(left, right))
                         | TypedSemanticNodeKind.ListEmpty ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.ListEmpty)
+                        | TypedSemanticNodeKind.SetEmpty ->
+                            Ok(addInstruction currentBlock node ExecutionInstructionKind.SetEmpty)
                         | TypedSemanticNodeKind.MapEmpty ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.MapEmpty)
                         | TypedSemanticNodeKind.ListConstruct itemNodeIds ->
@@ -409,8 +411,14 @@ module ExecutionIr =
                             lowerUnaryNode node mapNodeId ExecutionInstructionKind.MapValues
                         | TypedSemanticNodeKind.MapKeys mapNodeId ->
                             lowerUnaryNode node mapNodeId ExecutionInstructionKind.MapKeys
+                        | TypedSemanticNodeKind.SetToList mapNodeId ->
+                            lowerUnaryNode node mapNodeId ExecutionInstructionKind.SetToList
                         | TypedSemanticNodeKind.MapSize mapNodeId ->
                             lowerUnaryNode node mapNodeId ExecutionInstructionKind.MapSize
+                        | TypedSemanticNodeKind.SetFromList mapNodeId ->
+                            lowerUnaryNode node mapNodeId ExecutionInstructionKind.SetFromList
+                        | TypedSemanticNodeKind.SetSize mapNodeId ->
+                            lowerUnaryNode node mapNodeId ExecutionInstructionKind.SetSize
                         | TypedSemanticNodeKind.ListReverse listNodeId ->
                             lowerUnaryNode node listNodeId ExecutionInstructionKind.ListReverse
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
@@ -419,9 +427,18 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapRemove(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapRemove(mapValueId, keyValueId))
+                        | TypedSemanticNodeKind.SetInsert(mapNodeId, itemNodeId) ->
+                            lowerBinaryNode node mapNodeId itemNodeId (fun setValueId itemValueId ->
+                                ExecutionInstructionKind.SetInsert(setValueId, itemValueId))
+                        | TypedSemanticNodeKind.SetRemove(mapNodeId, itemNodeId) ->
+                            lowerBinaryNode node mapNodeId itemNodeId (fun setValueId itemValueId ->
+                                ExecutionInstructionKind.SetRemove(setValueId, itemValueId))
                         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId))
+                        | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->
+                            lowerBinaryNode node mapNodeId itemNodeId (fun setValueId itemValueId ->
+                                ExecutionInstructionKind.SetContains(setValueId, itemValueId))
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))

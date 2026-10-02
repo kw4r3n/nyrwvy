@@ -268,6 +268,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64Literal _
             | ExpressionRecipe.Float64Literal _
             | ExpressionRecipe.ListEmpty _
+            | ExpressionRecipe.SetEmpty _
             | ExpressionRecipe.MapEmpty _
             | ExpressionRecipe.OptionNone _ -> Ok recipe
             | ExpressionRecipe.StringIsEmpty value -> one ExpressionRecipe.StringIsEmpty value
@@ -305,7 +306,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListLength value -> one ExpressionRecipe.ListLength value
             | ExpressionRecipe.MapValues value -> one ExpressionRecipe.MapValues value
             | ExpressionRecipe.MapKeys value -> one ExpressionRecipe.MapKeys value
+            | ExpressionRecipe.SetToList value -> one ExpressionRecipe.SetToList value
             | ExpressionRecipe.MapSize value -> one ExpressionRecipe.MapSize value
+            | ExpressionRecipe.SetFromList value -> one ExpressionRecipe.SetFromList value
+            | ExpressionRecipe.SetSize value -> one ExpressionRecipe.SetSize value
             | ExpressionRecipe.ListReverse value -> one ExpressionRecipe.ListReverse value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
@@ -356,7 +360,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListAppendItem(list, item) -> two ExpressionRecipe.ListAppendItem list item
             | ExpressionRecipe.ListItemAt(list, index) -> two ExpressionRecipe.ListItemAt list index
             | ExpressionRecipe.MapRemove(map, key) -> two ExpressionRecipe.MapRemove map key
+            | ExpressionRecipe.SetInsert(map, key) -> two ExpressionRecipe.SetInsert map key
+            | ExpressionRecipe.SetRemove(map, key) -> two ExpressionRecipe.SetRemove map key
             | ExpressionRecipe.MapContainsKey(map, key) -> two ExpressionRecipe.MapContainsKey map key
+            | ExpressionRecipe.SetContains(map, key) -> two ExpressionRecipe.SetContains map key
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
@@ -632,6 +639,7 @@ module internal SignatureMigrationCore =
                                         argument.TargetParameterId })
                     )
                 | SemanticNodeKind.ListEmpty itemType -> SemanticNodeKind.ListEmpty(mapType itemType)
+                | SemanticNodeKind.SetEmpty itemType -> SemanticNodeKind.SetEmpty(mapType itemType)
                 | SemanticNodeKind.MapEmpty(keyType, valueType) -> SemanticNodeKind.MapEmpty(mapType keyType, mapType valueType)
                 | SemanticNodeKind.ListConstruct(itemType, items) -> SemanticNodeKind.ListConstruct(mapType itemType, items)
                 | SemanticNodeKind.OptionNone itemType -> SemanticNodeKind.OptionNone(mapType itemType)

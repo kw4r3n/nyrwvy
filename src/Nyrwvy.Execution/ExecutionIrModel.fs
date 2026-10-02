@@ -166,17 +166,24 @@ type ExecutionInstructionKind =
     | Bits32ShiftRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | Bits32ShiftLeft of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | ListEmpty
+    | SetEmpty
     | MapEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId
     | MapValues of mapValueId: ExecutionValueId
     | MapKeys of mapValueId: ExecutionValueId
+    | SetToList of setValueId: ExecutionValueId
     | MapSize of mapValueId: ExecutionValueId
+    | SetFromList of setValueId: ExecutionValueId
+    | SetSize of setValueId: ExecutionValueId
     | ListReverse of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | MapRemove of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
+    | SetInsert of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | SetRemove of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
+    | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | MapInsert of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * valueValueId: ExecutionValueId
@@ -356,17 +363,24 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Bits32ShiftRight _
         | ExecutionInstructionKind.Bits32ShiftLeft _
         | ExecutionInstructionKind.ListEmpty
+        | ExecutionInstructionKind.SetEmpty
         | ExecutionInstructionKind.MapEmpty
         | ExecutionInstructionKind.ListConstruct _
         | ExecutionInstructionKind.ListLength _
         | ExecutionInstructionKind.MapValues _
         | ExecutionInstructionKind.MapKeys _
+        | ExecutionInstructionKind.SetToList _
         | ExecutionInstructionKind.MapSize _
+        | ExecutionInstructionKind.SetFromList _
+        | ExecutionInstructionKind.SetSize _
         | ExecutionInstructionKind.ListReverse _
         | ExecutionInstructionKind.ListAppendItem _
         | ExecutionInstructionKind.ListItemAt _
         | ExecutionInstructionKind.MapRemove _
+        | ExecutionInstructionKind.SetInsert _
+        | ExecutionInstructionKind.SetRemove _
         | ExecutionInstructionKind.MapContainsKey _
+        | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.ListSlice _
         | ExecutionInstructionKind.MapInsert _

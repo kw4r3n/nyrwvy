@@ -160,18 +160,25 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Bits32ShiftRight _
         | TypedSemanticNodeKind.Bits32ShiftLeft _
         | TypedSemanticNodeKind.ListEmpty
+        | TypedSemanticNodeKind.SetEmpty
         | TypedSemanticNodeKind.MapEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
         | TypedSemanticNodeKind.MapValues _
         | TypedSemanticNodeKind.MapKeys _
+        | TypedSemanticNodeKind.SetToList _
         | TypedSemanticNodeKind.MapSize _
+        | TypedSemanticNodeKind.SetFromList _
+        | TypedSemanticNodeKind.SetSize _
         | TypedSemanticNodeKind.ListReverse _
         | TypedSemanticNodeKind.ListSlice _
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.MapRemove _
+        | TypedSemanticNodeKind.SetInsert _
+        | TypedSemanticNodeKind.SetRemove _
         | TypedSemanticNodeKind.MapContainsKey _
+        | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _

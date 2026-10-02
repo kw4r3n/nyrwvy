@@ -167,7 +167,10 @@ module ValueDependency =
         | SemanticNodeKind.ListLength sourceNodeId
         | SemanticNodeKind.MapValues sourceNodeId
         | SemanticNodeKind.MapKeys sourceNodeId
+        | SemanticNodeKind.SetToList sourceNodeId
         | SemanticNodeKind.MapSize sourceNodeId
+        | SemanticNodeKind.SetFromList sourceNodeId
+        | SemanticNodeKind.SetSize sourceNodeId
         | SemanticNodeKind.ListReverse sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
@@ -211,9 +214,18 @@ module ValueDependency =
         | SemanticNodeKind.MapRemove(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
+        | SemanticNodeKind.SetInsert(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.SetRemove(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
+        | SemanticNodeKind.SetContains(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
@@ -280,6 +292,7 @@ module ValueDependency =
         | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.SetEmpty _
         | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 

@@ -33,6 +33,7 @@ module DiagnosticText =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) -> generic "Result" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) -> generic "Map" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) -> generic "List" arguments
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) -> generic "Set" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) -> generic "Task" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) -> generic "TaskScope" arguments
 

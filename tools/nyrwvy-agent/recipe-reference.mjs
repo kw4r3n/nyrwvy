@@ -4,7 +4,7 @@ const typeRef = {
   capability: { kind: "capability", name: "<capability display name>" },
   function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
   typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
-  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|task|taskScope>", arguments: ["<typeRef>"] },
+  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|set|task|taskScope>", arguments: ["<typeRef>"] },
 }
 
 /**
@@ -144,6 +144,15 @@ const categories = {
     "mapValues": "(value: Map<K, V>) -> List<V>  // insertion order",
     "mapFold": "(map: Map<K, V>, seed: S, function: (S, K, V) -> S, context) -> S",
     "mapFromList": "(source: List<T>, function: T -> K, context) -> Map<K, T>",
+  },
+  set: {
+    "setEmpty": "(itemType) -> Set<T>",
+    "setFromList": "(value: List<T>) -> Set<T>  // first occurrence order",
+    "setInsert": "(set: Set<T>, item: T) -> Set<T>",
+    "setContains": "(set: Set<T>, item: T) -> Bool",
+    "setRemove": "(set: Set<T>, item: T) -> Set<T>",
+    "setSize": "(value: Set<T>) -> Int64",
+    "setToList": "(value: Set<T>) -> List<T>  // insertion order",
   },
   tasks: {
     "taskScope": "(body: TaskScope -> Result<T, E>, context) -> Result<T, E>",
@@ -295,6 +304,13 @@ const references = {
   bits32RotateRight: { shape: { kind: "bits32RotateRight", value: recipe, amount: recipe }, notes: "Rotates the Bits32 value right by the Int64 amount taken floor-modulo 32; a negative amount rotates left. Never fails." },
   bits32ShiftRight: { shape: { kind: "bits32ShiftRight", value: recipe, amount: recipe }, notes: "Logical right shift of the Bits32 value by the Int64 amount (zeros enter); amount <= 0 gives the value unchanged and amount >= 32 gives 0. Never fails." },
   bits32ShiftLeft: { shape: { kind: "bits32ShiftLeft", value: recipe, amount: recipe }, notes: "Left shift of the Bits32 value by the Int64 amount; amount <= 0 gives the value unchanged and amount >= 32 gives 0. Never fails." },
+  setEmpty: { shape: { kind: "setEmpty", itemType: type }, notes: "The empty Set<T>. T must be equatable (as for valueEqual). Sets are immutable values visited in insertion order." },
+  setFromList: { ...unary("setFromList"), notes: "Set<T> of the list items without repeats, in the order of their first occurrence (Python list(dict.fromkeys(items)))." },
+  setInsert: { shape: { kind: "setInsert", set: recipe, item: recipe }, notes: "Set<T> with item added last; unchanged when already present. O(log n)." },
+  setContains: { shape: { kind: "setContains", set: recipe, item: recipe }, notes: "Bool: whether item is present (valueEqual). O(log n)." },
+  setRemove: { shape: { kind: "setRemove", set: recipe, item: recipe }, notes: "Set<T> without item; unchanged when absent. Inserting it again later puts it last." },
+  setSize: unary("setSize"),
+  setToList: { ...unary("setToList"), notes: "List<T> of the items in insertion order." },
   mapEmpty: { shape: { kind: "mapEmpty", keyType: type, valueType: type }, notes: "The empty Map<K, V>. K must be equatable (as for valueEqual: no Float64, functions, tasks, capabilities or maps). Maps are immutable values: mapInsert and mapRemove return a new map." },
   mapInsert: { shape: { kind: "mapInsert", map: recipe, key: recipe, value: recipe }, notes: "Map<K, V> with key set to value. A new key goes last in iteration order; an existing key keeps its position and gets the new value. Keys compare with valueEqual. O(log n). Never fails." },
   mapGet: { shape: { kind: "mapGet", map: recipe, key: recipe }, notes: "Option<V>: the value for key, or None. O(log n). Never fails." },
