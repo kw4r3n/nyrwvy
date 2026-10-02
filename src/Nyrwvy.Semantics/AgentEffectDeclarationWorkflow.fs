@@ -48,13 +48,7 @@ module AgentEffectDeclarationProposal =
 
 [<RequireQualifiedAccess>]
 module AgentEffectDeclarationWorkflow =
-    let private diagnostic code message: TransactionDiagnostic =
-        { Code = code
-          Message = message }
-
-    let private validationDiagnostics (issues: ValidationIssue list) =
-        issues
-        |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
+    open StructuralTransactionInternals
 
     let private validatePreflight
         (snapshot: Snapshot)
@@ -89,55 +83,23 @@ module AgentEffectDeclarationWorkflow =
         (workspace: AgentWorkspace)
         (request: AgentCreateEffectDeclarationRequest)
         : Result<AgentEffectDeclarationProposal, AgentEffectDeclarationWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: rest ->
-            Error(
-                AgentEffectDeclarationWorkflowError.SimulationRejected(
-                    validationDiagnostics (issue :: rest)
-                )
-            )
-        | [] ->
-            match validatePreflight baseSnapshot request with
-            | Error error ->
-                Error(AgentEffectDeclarationWorkflowError.SimulationRejected [ error ])
-            | Ok() ->
-                let createdEffect = materialize request
-                let transactionId = StableIdAllocator.newTransactionId ()
-                let proposedSnapshot =
-                    { baseSnapshot with
-                        Id = StableIdAllocator.newSnapshotId ()
-                        ParentId = Some baseSnapshot.Id
-                        Effects = baseSnapshot.Effects @ [ createdEffect ] }
-
-                match SnapshotValidator.validate proposedSnapshot with
-                | issue :: rest ->
-                    Error(
-                        AgentEffectDeclarationWorkflowError.SimulationRejected(
-                            validationDiagnostics (issue :: rest)
-                        )
-                    )
-                | [] ->
-                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
-                    | Error diagnostics ->
-                        Error(AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics)
-                    | Ok readiness ->
-                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error(AgentEffectDeclarationWorkflowError.FingerprintFailed error)
-                        | Ok receipt ->
-                            let review =
-                                { RequestedChange = request
-                                  Receipt = receipt
-                                  Readiness = readiness
-                                  CreatedEffect = createdEffect }
-
-                            Ok(
-                                AgentEffectDeclarationProposal
-                                    { TransactionId = transactionId
-                                      ProposedSnapshot = proposedSnapshot
-                                      Review = review }
-                            )
+        simulateDeclaration
+            workspace
+            (fun snapshot -> validatePreflight snapshot request)
+            (fun () -> materialize request)
+            (fun created snapshot -> { snapshot with Effects = snapshot.Effects @ [ created ] })
+        |> Result.map (fun candidate ->
+            AgentEffectDeclarationProposal
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = candidate.ProposedSnapshot
+                  Review =
+                    { RequestedChange = request
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      CreatedEffect = candidate.Created } })
+        |> Result.mapError (function
+            | DeclarationSimulationFailure.Rejected diagnostics -> AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics
+            | DeclarationSimulationFailure.FingerprintFailed error -> AgentEffectDeclarationWorkflowError.FingerprintFailed error)
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)

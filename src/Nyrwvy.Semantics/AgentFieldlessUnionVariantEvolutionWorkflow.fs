@@ -55,11 +55,6 @@ module AgentFieldlessUnionVariantEvolutionProposal =
 module AgentFieldlessUnionVariantEvolutionWorkflow =
     open StructuralTransactionInternals
 
-    let private validationDiagnostics (issues: ValidationIssue list) =
-        issues
-        |> List.map (fun issue ->
-            diagnostic ("Validation." + issue.Code) issue.Message)
-
     /// Clones a graph with fresh node and pattern-binding IDs. `outerBindings` are bindings owned
     /// by the enclosing arm (its field bindings); references to them are remapped as well, and the
     /// returned map gives their fresh IDs.
@@ -339,13 +334,17 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
     let simulateWithFields workspace (request: AgentAddFieldlessUnionVariantLikeRequest) (additionalFields: AgentTypeFieldIntent list) =
         simulateLike workspace request true additionalFields
 
+    let private publicationMessages =
+        { StaleBase = "The workspace advanced beyond the reviewed Union-variant evolution proposal."
+          BaseFingerprintFailure = "The base snapshot fingerprint could not be recomputed."
+          ProposedFingerprintFailure = "The proposed snapshot fingerprint could not be recomputed."
+          ResultMismatch = "The proposed Union-variant evolution differs from the reviewed result." }
+
     let private publishWithPolicy
         (workspace: AgentWorkspace)
         (AgentFieldlessUnionVariantEvolutionProposal proposal)
         (policy: CommitPolicy)
         : AgentFieldlessUnionVariantEvolutionCommitResult =
-        let currentSnapshot =
-            AgentWorkspace.snapshotForStructuralEditing workspace
         let receipt = proposal.Review.Receipt
 
         if receipt.TransactionId <> proposal.TransactionId
@@ -354,74 +353,30 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 [ diagnostic
                       "PreviewReceiptRequestMismatch"
                       "The reviewed receipt does not identify this Union-variant evolution proposal." ]
-        elif currentSnapshot.Id <> receipt.BaseSnapshotId then
-            AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                [ diagnostic
-                      "StaleBaseSnapshot"
-                      "The workspace advanced beyond the reviewed Union-variant evolution proposal." ]
         else
-            match SnapshotFingerprint.compute currentSnapshot with
-            | Error _ ->
-                AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                    [ diagnostic
-                          "FingerprintFailure"
-                          "The base snapshot fingerprint could not be recomputed." ]
-            | Ok baseFingerprint when baseFingerprint <> receipt.BaseSnapshotFingerprint ->
-                AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                    [ diagnostic
-                          "PreviewReceiptBaseMismatch"
-                          "The current base content differs from the reviewed base." ]
-            | Ok _ ->
-                match
-                    SnapshotFingerprint.compute proposal.ProposedSnapshot,
-                    SemanticFingerprint.compute proposal.ProposedSnapshot
-                with
-                | Ok proposedFingerprint, Ok semanticFingerprint
-                    when proposedFingerprint = receipt.ProposedSnapshotFingerprint
-                         && semanticFingerprint = receipt.ProposedSemanticFingerprint ->
-                    match proposal.Review.Readiness, policy with
-                    | TransactionReadiness.Incomplete obligationIds,
-                      CommitPolicy.RejectBlockingObligations ->
-                        let rendered =
-                            obligationIds
-                            |> List.map StableId.value
-                            |> String.concat ", "
-                        AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                            [ diagnostic
-                                  "BlockingObligations"
-                                  $"The proposed snapshot has blocking obligations: {rendered}." ]
-                    | _ ->
-                        match
-                            AgentWorkspace.publishValidatedSnapshot
-                                workspace
-                                proposal.ProposedSnapshot
-                        with
-                        | Error diagnostics ->
-                            AgentFieldlessUnionVariantEvolutionCommitResult.Rejected diagnostics
-                        | Ok nextWorkspace ->
-                            AgentFieldlessUnionVariantEvolutionCommitResult.Committed(
-                                nextWorkspace,
-                                { TransactionId = proposal.TransactionId
-                                  BaseSnapshotId = receipt.BaseSnapshotId
-                                  PublishedSnapshotId = proposal.ProposedSnapshot.Id
-                                  UpdatedTypeId = proposal.Review.UpdatedType.Id
-                                  AddedVariantId = proposal.Review.AddedVariant.Id
-                                  RepairedFunctionIds = proposal.Review.RepairedFunctionIds
-                                  RepairedMatchCount = proposal.Review.RepairedMatchCount
-                                  Readiness = proposal.Review.Readiness
-                                  Receipt = receipt }
-                            )
-                | Error _, _
-                | _, Error _ ->
-                    AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                        [ diagnostic
-                              "FingerprintFailure"
-                              "The proposed snapshot fingerprint could not be recomputed." ]
-                | _ ->
-                    AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
-                        [ diagnostic
-                              "PreviewReceiptResultMismatch"
-                              "The proposed Union-variant evolution differs from the reviewed result." ]
+            match
+                publishCandidateWithMessages
+                    publicationMessages
+                    workspace
+                    proposal.ProposedSnapshot
+                    proposal.Review.Readiness
+                    receipt
+                    policy
+            with
+            | Error diagnostics -> AgentFieldlessUnionVariantEvolutionCommitResult.Rejected diagnostics
+            | Ok nextWorkspace ->
+                AgentFieldlessUnionVariantEvolutionCommitResult.Committed(
+                    nextWorkspace,
+                    { TransactionId = proposal.TransactionId
+                      BaseSnapshotId = receipt.BaseSnapshotId
+                      PublishedSnapshotId = proposal.ProposedSnapshot.Id
+                      UpdatedTypeId = proposal.Review.UpdatedType.Id
+                      AddedVariantId = proposal.Review.AddedVariant.Id
+                      RepairedFunctionIds = proposal.Review.RepairedFunctionIds
+                      RepairedMatchCount = proposal.Review.RepairedMatchCount
+                      Readiness = proposal.Review.Readiness
+                      Receipt = receipt }
+                )
 
     let commit workspace proposal =
         publishWithPolicy
