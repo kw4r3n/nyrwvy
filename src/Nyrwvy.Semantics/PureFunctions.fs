@@ -3,8 +3,12 @@ namespace Nyrwvy.Core
 /// Purity of named function references includes ambient behavior, not only nominal EffectIds.
 [<RequireQualifiedAccess>]
 module PureFunctions =
+    let private functionsById =
+        SnapshotComputationScope.Memoize("functionsById", fun (snapshot: Snapshot) ->
+            snapshot.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList)
+
     let isPure (snapshot: Snapshot) functionId =
-        let functions = snapshot.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
+        let functions = functionsById snapshot
         let rec visit seen pending =
             match pending with
             | [] -> true

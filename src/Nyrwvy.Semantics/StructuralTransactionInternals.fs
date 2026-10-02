@@ -116,27 +116,38 @@ module internal StructuralTransactionInternals =
         (nodes: SemanticNode list)
         : StructuralNodeSummary list =
         let nodeTypes = SemanticFacts.nodeTypes snapshot functionEntity
+        // Name tables built at most once per call; the first entry wins, as a linear search would.
+        let namesById entries = entries |> List.distinctBy fst |> Map.ofList
+        let functionNames = lazy (snapshot.Functions |> List.map (fun item -> item.Id, item.DisplayName) |> namesById)
+        let fieldNames =
+            lazy (
+                snapshot.Types
+                |> List.collect (fun item ->
+                    match item.Kind with
+                    | SemanticTypeKind.Product fields -> fields
+                    | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
+                |> List.map (fun item -> item.Id, item.DisplayName)
+                |> namesById)
+        let variantNames =
+            lazy (
+                snapshot.Types
+                |> List.collect (fun item ->
+                    match item.Kind with
+                    | SemanticTypeKind.Union variants -> variants
+                    | SemanticTypeKind.Product _ -> [])
+                |> List.map (fun item -> item.Id, item.DisplayName)
+                |> namesById)
         let functionName id =
             if id = functionEntity.Id then Some functionEntity.DisplayName
-            else snapshot.Functions |> List.tryFind (fun item -> item.Id = id) |> Option.map (fun item -> item.DisplayName)
-        let fields () =
-            snapshot.Types |> List.collect (fun item ->
-                match item.Kind with
-                | SemanticTypeKind.Product fields -> fields
-                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
-        let variants () =
-            snapshot.Types |> List.collect (fun item ->
-                match item.Kind with
-                | SemanticTypeKind.Union variants -> variants
-                | SemanticTypeKind.Product _ -> [])
+            else Map.tryFind id functionNames.Value
         let referenceName (node: SemanticNode) functionId =
             match node.Kind with
             | SemanticNodeKind.ParameterReference parameterId ->
                 functionEntity.Parameters |> List.tryFind (fun item -> item.Id = parameterId) |> Option.map (fun item -> item.DisplayName)
             | SemanticNodeKind.FieldAccess(_, fieldId) ->
-                fields () |> List.tryFind (fun item -> item.Id = fieldId) |> Option.map (fun item -> item.DisplayName)
+                Map.tryFind fieldId fieldNames.Value
             | SemanticNodeKind.UnionConstruct(variantId, _) ->
-                variants () |> List.tryFind (fun item -> item.Id = variantId) |> Option.map (fun item -> item.DisplayName)
+                Map.tryFind variantId variantNames.Value
             | SemanticNodeKind.ProductConstruct(typeId, _)
             | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
                 snapshot.Types |> List.tryFind (fun item -> item.Id = typeId) |> Option.map (fun item -> item.DisplayName)

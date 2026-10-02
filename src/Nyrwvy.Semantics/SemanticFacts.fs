@@ -327,15 +327,7 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         Map.tryFind targetFunctionId index.Functions
-                        |> Option.map (fun target ->
-                            let pairs =
-                                arguments |> List.choose (fun argument ->
-                                    match target.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId), tryNodeType nextVisiting argument.ValueNodeId with
-                                    | Some parameter, Some actual -> Some(parameter.Type, actual)
-                                    | _ -> None)
-                            match TypeParameters.matchAll pairs with
-                            | Some substitution -> TypeParameters.substitute substitution target.ResultType
-                            | None -> target.ResultType)
+                        |> Option.map (fun target -> callbackResult nextVisiting target arguments [])
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                         Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)
