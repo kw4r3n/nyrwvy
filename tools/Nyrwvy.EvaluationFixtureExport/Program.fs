@@ -4,10 +4,23 @@ open System.Text
 open Nyrwvy.Core
 open Nyrwvy.Core.Tests
 
+/// Every exportable fixture by name; the usage text and the unsupported-fixture message list them in this order.
+let private fixtures: (string * (unit -> Snapshot)) list =
+    [ "m0", (fun () -> (MilestoneZeroGraph.create ()).Snapshot)
+      "m1", (fun () -> (MilestoneOneGraph.create ()).Snapshot)
+      M2StructuralEvaluationCorpus.readyFixtureName, (fun () -> (M2StructuralEvaluationCorpus.ready ()).Snapshot)
+      M2StructuralEvaluationCorpus.openProtectedFixtureName, (fun () -> (M2StructuralEvaluationCorpus.openProtected ()).Snapshot)
+      M2StructuralEvaluationCorpus.resolvedProtectedFixtureName, (fun () -> (M2StructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
+      M2ListMapStructuralEvaluationCorpus.readyFixtureName, (fun () -> (M2ListMapStructuralEvaluationCorpus.ready ()).Snapshot)
+      M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName, (fun () -> (M2ListMapStructuralEvaluationCorpus.openProtected ()).Snapshot)
+      M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName, (fun () -> (M2ListMapStructuralEvaluationCorpus.resolvedProtected ()).Snapshot) ]
+
+let private fixtureNames = fixtures |> List.map fst
+
 let private usage =
     $"""Usage:
   dotnet run --project tools/Nyrwvy.EvaluationFixtureExport -- \
-    --fixture <m0|m1|{M2StructuralEvaluationCorpus.readyFixtureName}|{M2StructuralEvaluationCorpus.openProtectedFixtureName}|{M2StructuralEvaluationCorpus.resolvedProtectedFixtureName}|{M2ListMapStructuralEvaluationCorpus.readyFixtureName}|{M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName}|{M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName}> --output <snapshot.json>
+    --fixture <{String.concat "|" fixtureNames}> --output <snapshot.json>
 
 The exported snapshots are produced from the exact fixture source linked into the regression test project.
 """
@@ -39,33 +52,11 @@ let private requiredOption (name: string) (options: Map<string, string>) =
     | None -> Error $"Missing required {name} argument."
 
 let private createSnapshot (fixtureName: string): Result<Snapshot, string> =
-    match fixtureName with
-    | "m0" -> Ok((MilestoneZeroGraph.create ()).Snapshot)
-    | "m1" -> Ok((MilestoneOneGraph.create ()).Snapshot)
-    | value when value = M2StructuralEvaluationCorpus.readyFixtureName ->
-        Ok((M2StructuralEvaluationCorpus.ready ()).Snapshot)
-    | value when value = M2StructuralEvaluationCorpus.openProtectedFixtureName ->
-        Ok((M2StructuralEvaluationCorpus.openProtected ()).Snapshot)
-    | value when value = M2StructuralEvaluationCorpus.resolvedProtectedFixtureName ->
-        Ok((M2StructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
-    | value when value = M2ListMapStructuralEvaluationCorpus.readyFixtureName ->
-        Ok((M2ListMapStructuralEvaluationCorpus.ready ()).Snapshot)
-    | value when value = M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName ->
-        Ok((M2ListMapStructuralEvaluationCorpus.openProtected ()).Snapshot)
-    | value when value = M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName ->
-        Ok((M2ListMapStructuralEvaluationCorpus.resolvedProtected ()).Snapshot)
-    | value ->
-        let expected =
-            [ "m0"
-              "m1"
-              M2StructuralEvaluationCorpus.readyFixtureName
-              M2StructuralEvaluationCorpus.openProtectedFixtureName
-              M2StructuralEvaluationCorpus.resolvedProtectedFixtureName
-              M2ListMapStructuralEvaluationCorpus.readyFixtureName
-              M2ListMapStructuralEvaluationCorpus.openProtectedFixtureName
-              M2ListMapStructuralEvaluationCorpus.resolvedProtectedFixtureName ]
-            |> String.concat ", "
-        Error $"Unsupported fixture '{value}'. Expected one of: {expected}."
+    match fixtures |> List.tryFind (fun (name, _) -> name = fixtureName) with
+    | Some(_, create) -> Ok(create ())
+    | None ->
+        let expected = fixtureNames |> String.concat ", "
+        Error $"Unsupported fixture '{fixtureName}'. Expected one of: {expected}."
 
 let private export (fixtureName: string) (outputPath: string) =
     createSnapshot fixtureName

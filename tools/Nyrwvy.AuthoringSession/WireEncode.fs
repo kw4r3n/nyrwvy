@@ -161,13 +161,7 @@ module internal WireEncode =
                       "oldType", typeRef value.ParameterChange.OldType
                       "newType", typeRef value.ParameterChange.NewType ]
               "affectedCallSites",
-                value.AffectedCallSites
-                |> List.map (fun site ->
-                    objectValue
-                        [ "callerFunctionId", box (StableId.value site.CallerFunctionId)
-                          "callNodeId", box (StableId.value site.CallNodeId)
-                          "calleeFunctionId", box (StableId.value site.CalleeFunctionId) ])
-                |> arrayValue
+                value.AffectedCallSites |> List.map callSite |> arrayValue
               "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
 
     let private resultTypeMigrationDiff (value: AgentResultTypeMigrationDiff) =
@@ -178,13 +172,7 @@ module internal WireEncode =
                       "oldType", typeRef value.ResultChange.OldType
                       "newType", typeRef value.ResultChange.NewType ]
               "affectedCallSites",
-                value.AffectedCallSites
-                |> List.map (fun site ->
-                    objectValue
-                        [ "callerFunctionId", box (StableId.value site.CallerFunctionId)
-                          "callNodeId", box (StableId.value site.CallNodeId)
-                          "calleeFunctionId", box (StableId.value site.CalleeFunctionId) ])
-                |> arrayValue
+                value.AffectedCallSites |> List.map callSite |> arrayValue
               "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
 
     let private productFieldTypeMigrationDiff (value: AgentProductFieldTypeMigrationDiff) =
@@ -196,33 +184,6 @@ module internal WireEncode =
                       "oldType", typeRef value.FieldChange.OldType
                       "newType", typeRef value.FieldChange.NewType ]
               "bodyRewrites", value.BodyRewrites |> List.map bodyDiff |> arrayValue ]
-
-    let private capabilityEntity (value: SemanticCapability) =
-        let operations =
-            value.Operations
-            |> List.map (fun operation ->
-                let parameters =
-                    operation.Parameters
-                    |> List.map (fun parameter ->
-                        objectValue
-                            [ "id", box (StableId.value parameter.Id)
-                              "displayName", box parameter.DisplayName
-                              "type", typeRef parameter.Type ])
-                let failureType =
-                    match operation.FailureType with
-                    | Some item -> typeRef item
-                    | None -> null
-                objectValue
-                    [ "id", box (StableId.value operation.Id)
-                      "displayName", box operation.DisplayName
-                      "parameters", arrayValue parameters
-                      "resultType", typeRef operation.ResultType
-                      "failureType", failureType
-                      "effectId", box (StableId.value operation.EffectId) ])
-        objectValue
-            [ "id", box (StableId.value value.Id)
-              "displayName", box value.DisplayName
-              "operations", arrayValue operations ]
 
     let private functionEffects (items: FunctionEffectSummary list) =
         items |> List.map (fun item ->
@@ -342,8 +303,10 @@ module internal WireEncode =
     /// Default simulate reply: the same review with function bodies reduced to a summary.
     let compactProposal value = proposalWith "compact" WireEncodeCommon.functionSummary WireEncodeCommon.compactFocus value
 
-    let private csharpSymbol id name =
-        objectValue [ "id", box id; "name", box name ]
+    let private csharpSymbols (items: CSharpSymbol<StableId<'Kind>> list) =
+        items
+        |> List.map (fun item -> objectValue [ "id", box (StableId.value item.Id); "name", box item.Name ])
+        |> arrayValue
 
     let csharpArtifact (value: CSharpArtifact) =
         let symbols = value.Symbols
@@ -353,42 +316,15 @@ module internal WireEncode =
                 objectValue
                     [ "namespace", box symbols.Namespace
                       "functionContainer", box symbols.FunctionContainer
-                      "types",
-                        symbols.Types
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "fields",
-                        symbols.Fields
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "variants",
-                        symbols.Variants
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "functions",
-                        symbols.Functions
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "parameters",
-                        symbols.Parameters
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "capabilities",
-                        symbols.Capabilities
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "capabilityOperations",
-                        symbols.CapabilityOperations
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "capabilityParameters",
-                        symbols.CapabilityParameters
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue
-                      "capabilityAdapters",
-                        symbols.CapabilityAdapters
-                        |> List.map (fun item -> csharpSymbol (StableId.value item.Id) item.Name)
-                        |> arrayValue ] ]
+                      "types", csharpSymbols symbols.Types
+                      "fields", csharpSymbols symbols.Fields
+                      "variants", csharpSymbols symbols.Variants
+                      "functions", csharpSymbols symbols.Functions
+                      "parameters", csharpSymbols symbols.Parameters
+                      "capabilities", csharpSymbols symbols.Capabilities
+                      "capabilityOperations", csharpSymbols symbols.CapabilityOperations
+                      "capabilityParameters", csharpSymbols symbols.CapabilityParameters
+                      "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ]
 
     let declarations = WireEncodeCommon.declarations
     let focus = WireEncodeCommon.focus

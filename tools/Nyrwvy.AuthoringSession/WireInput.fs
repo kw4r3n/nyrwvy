@@ -152,21 +152,38 @@ module internal WireInput =
     let id<'Kind> (name: string) (element: JsonElement): StableId<'Kind> =
         stableId<'Kind> name (requiredString name element)
 
+    /// The `primitive` type form, shared by the ID-based and symbolic type parsers.
+    let primitiveType (element: JsonElement): TypeRef =
+        ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
+        match requiredString "primitive" element with
+        | "string" -> TypeRef.Primitive PrimitiveType.String
+        | "bool" -> TypeRef.Primitive PrimitiveType.Bool
+        | "unit" -> TypeRef.Primitive PrimitiveType.Unit
+        | "int64" -> TypeRef.Primitive PrimitiveType.Int64
+        | "float64" -> TypeRef.Primitive PrimitiveType.Float64
+        | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
+        | value -> fail $"Unsupported primitive type '{value}'."
+
+    /// The `builtinGeneric` type form; `argument` parses each type argument in the caller's form.
+    let builtinGenericType (argument: JsonElement -> TypeRef) (element: JsonElement): TypeRef =
+        ensureFields "builtin generic type" [ "kind"; "generic"; "arguments" ] [ "kind"; "generic"; "arguments" ] element
+        let generic =
+            match requiredString "generic" element with
+            | "option" -> BuiltinGenericType.Option
+            | "result" -> BuiltinGenericType.Result
+            | "list" -> BuiltinGenericType.List
+            | "task" -> BuiltinGenericType.Task
+            | "taskScope" -> BuiltinGenericType.TaskScope
+            | value -> fail $"Unsupported builtin generic '{value}'."
+        TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map argument)
+
     let rec typeRef (element: JsonElement): TypeRef =
         match requiredString "kind" element with
         | "function" ->
             ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
             TypeRef.Function(array "parameters" element |> List.map (typeRef), typeRef (property "resultType" element))
         | "primitive" ->
-            ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
-            match requiredString "primitive" element with
-            | "string" -> TypeRef.Primitive PrimitiveType.String
-            | "bool" -> TypeRef.Primitive PrimitiveType.Bool
-            | "unit" -> TypeRef.Primitive PrimitiveType.Unit
-            | "int64" -> TypeRef.Primitive PrimitiveType.Int64
-            | "float64" -> TypeRef.Primitive PrimitiveType.Float64
-            | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
-            | value -> fail $"Unsupported primitive type '{value}'."
+            primitiveType element
         | "named" ->
             ensureFields "named type" [ "kind"; "typeId" ] [ "kind"; "typeId" ] element
             TypeRef.Named(id<TypeTag> "typeId" element)
@@ -183,14 +200,5 @@ module internal WireInput =
             ensureFields "type parameter" [ "kind"; "typeParameterId"; "displayName" ] [ "kind"; "typeParameterId"; "displayName" ] element
             TypeRef.TypeParameter(id<TypeParameterTag> "typeParameterId" element, requiredString "displayName" element)
         | "builtinGeneric" ->
-            ensureFields "builtin generic type" [ "kind"; "generic"; "arguments" ] [ "kind"; "generic"; "arguments" ] element
-            let generic =
-                match requiredString "generic" element with
-                | "option" -> BuiltinGenericType.Option
-                | "result" -> BuiltinGenericType.Result
-                | "list" -> BuiltinGenericType.List
-                | "task" -> BuiltinGenericType.Task
-                | "taskScope" -> BuiltinGenericType.TaskScope
-                | value -> fail $"Unsupported builtin generic '{value}'."
-            TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map typeRef)
+            builtinGenericType typeRef element
         | value -> fail $"Unsupported type kind '{value}'."

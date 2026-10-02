@@ -36,12 +36,11 @@ module internal WireGraph =
     and private kind (value: SemanticNodeKind): obj =
         let unary name operand = tagged name [ "valueNodeId", identity operand ]
         let binary name left right = tagged name [ "leftNodeId", identity left; "rightNodeId", identity right ]
+        let argumentList (bindings: ArgumentBinding list) =
+            bindings |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map (fun argument ->
+                objectValue [ "parameterId", identity argument.TargetParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue
         let context (bindings: ArgumentBinding list) =
-            if List.isEmpty bindings then []
-            else
-                [ "context",
-                  bindings |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map (fun argument ->
-                      objectValue [ "parameterId", identity argument.TargetParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue ]
+            if List.isEmpty bindings then [] else [ "context", argumentList bindings ]
         let traversal name source functionId bindings =
             tagged name ([ "sourceNodeId", identity source; "functionId", identity functionId ] @ context bindings)
         let valueArm (arm: ValueMatchArm) =
@@ -91,10 +90,10 @@ module internal WireGraph =
         | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
         | SemanticNodeKind.StringSplitLines(value, breaks) -> tagged "stringSplitLines" [ "valueNodeId", identity value; "breaksNodeId", identity breaks ]
         | SemanticNodeKind.StringJoin(list, separator) -> tagged "stringJoin" [ "listNodeId", identity list; "separatorNodeId", identity separator ]
-        | SemanticNodeKind.StringEqual(left, right) -> tagged "stringEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
-        | SemanticNodeKind.StringLessThan(left, right) -> tagged "stringLessThan" [ "leftNodeId", identity left; "rightNodeId", identity right ]
-        | SemanticNodeKind.ValueEqual(left, right) -> tagged "valueEqual" [ "leftNodeId", identity left; "rightNodeId", identity right ]
-        | SemanticNodeKind.StringConcat(left, right) -> tagged "stringConcat" [ "leftNodeId", identity left; "rightNodeId", identity right ]
+        | SemanticNodeKind.StringEqual(left, right) -> binary "stringEqual" left right
+        | SemanticNodeKind.StringLessThan(left, right) -> binary "stringLessThan" left right
+        | SemanticNodeKind.ValueEqual(left, right) -> binary "valueEqual" left right
+        | SemanticNodeKind.StringConcat(left, right) -> binary "stringConcat" left right
         | SemanticNodeKind.Int64WrappingAdd(left, right) -> binary "int64WrappingAdd" left right
         | SemanticNodeKind.Int64WrappingSubtract(left, right) -> binary "int64WrappingSubtract" left right
         | SemanticNodeKind.Int64WrappingMultiply(left, right) -> binary "int64WrappingMultiply" left right
@@ -176,8 +175,7 @@ module internal WireGraph =
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             tagged "directCall"
                 [ "functionId", identity functionId
-                  "arguments", arguments |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map (fun argument ->
-                    objectValue [ "parameterId", identity argument.TargetParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue ]
+                  "arguments", argumentList arguments ]
         | SemanticNodeKind.CapabilityInvoke(receiver, operationId, arguments) ->
             tagged "capabilityInvoke"
                 [ "capabilityValueNodeId", identity receiver
