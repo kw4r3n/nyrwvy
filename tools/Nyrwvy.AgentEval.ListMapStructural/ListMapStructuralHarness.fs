@@ -35,48 +35,6 @@ type ListMapStructuralHarnessConfig =
       EnableStalePerturbation: bool
       RunMetadata: ListMapStructuralHarnessRunMetadata }
 
-type private ListMapStructuralHarnessEvent =
-    { Sequence: int
-      Request: string
-      Response: string
-      RequestBytes: int64
-      ResponseBytes: int64 }
-
-module private ListMapHarnessJson =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj = items |> List.toArray |> box
-
-    let optionalString = function
-        | Some value -> box value
-        | None -> null
-
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
-    let utf8Bytes (value: string): int64 = UTF8Encoding(false).GetByteCount(value) |> int64
-
-module private ListMapHarnessArtifacts =
-    let private utf8 = UTF8Encoding(false)
-
-    let writeText (path: string) (mode: FileMode) (value: string) =
-        let bytes = utf8.GetBytes(value)
-        use stream =
-            new FileStream(path, mode, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough)
-        stream.Write(bytes, 0, bytes.Length)
-        stream.Flush(true)
-        ArtifactPermissions.ensureFile path
-
-    let writeAtomically (path: string) (value: string) =
-        let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
-        try
-            writeText temporaryPath FileMode.CreateNew value
-            File.Move(temporaryPath, path, true)
-            ArtifactPermissions.ensureFile path
-        finally
-            if File.Exists temporaryPath then File.Delete temporaryPath
-
 [<Sealed>]
 type ListMapStructuralHarness private
     (config: ListMapStructuralHarnessConfig,
@@ -104,14 +62,13 @@ type ListMapStructuralHarness private
         let detailValue =
             details
             |> List.map (fun (key, value) -> key, box value)
-            |> ListMapHarnessJson.objectValue
-        ListMapHarnessJson.objectValue
+            |> ArtifactJson.objectValue
+        ArtifactJson.objectValue
             [ "sequence", box eventSequence
               "kind", box kind
               "details", detailValue ]
-        |> ListMapHarnessJson.serialize
-        |> fun line -> ListMapHarnessArtifacts.writeText harnessEventPath FileMode.Append (line + "\n")
-        ArtifactPermissions.restrictTree config.ArtifactDirectory
+        |> ArtifactJson.serialize
+        |> fun line -> ArtifactFiles.writeText harnessEventPath FileMode.Append (line + "\n")
 
     let appendDiagnostics (result: JsonElement) =
         match result.TryGetProperty("diagnostics") with
@@ -179,9 +136,10 @@ type ListMapStructuralHarness private
                     && report.EvidenceDurable))
 
     let oracleChecks
-        (workspace: AgentWorkspace)
-        (usage: ListMapStructuralSessionUsage) =
-        let snapshotFingerprint, semanticFingerprint = currentFingerprints workspace
+        (usage: ListMapStructuralSessionUsage)
+        (snapshotFingerprint: SnapshotFingerprint option, semanticFingerprint: SemanticFingerprint option)
+        (zeroChurn: bool)
+        (perturbationPreserved: bool) =
         let expectedDiagnosticObserved =
             match task.ExpectedDiagnostic with
             | None -> true
@@ -195,10 +153,9 @@ type ListMapStructuralHarness private
                 && semanticFingerprint = Some startingSemanticFingerprint
         let perturbationState =
             if task.EnableStalePerturbation then
-                perturbationApplied && harnessPerturbationPreserved workspace
+                perturbationApplied && perturbationPreserved
             else
                 not perturbationApplied
-        let zeroChurn = zeroUnrelatedSemanticChurn workspace
         let durableVerification = verificationPassed ()
         let passed =
             expectedDiagnosticObserved
@@ -222,28 +179,22 @@ type ListMapStructuralHarness private
     member _.PerturbationApplied = perturbationApplied
 
     member _.RecordEvent(request: string, response: string) =
-        let requestSize = ListMapHarnessJson.utf8Bytes request
-        let responseSize = ListMapHarnessJson.utf8Bytes response
-        let event =
-            { Sequence = eventSequence
-              Request = request
-              Response = response
-              RequestBytes = requestSize
-              ResponseBytes = responseSize }
+        let requestSize = ArtifactJson.utf8ByteCount request
+        let responseSize = ArtifactJson.utf8ByteCount response
+        let sequence = eventSequence
         eventSequence <- eventSequence + 1
         requestBytes <- requestBytes + requestSize
         responseBytes <- responseBytes + responseSize
         recordPrivateOutcome request response
 
-        ListMapHarnessJson.objectValue
-            [ "sequence", box event.Sequence
-              "request", box event.Request
-              "response", box event.Response
-              "requestBytes", box event.RequestBytes
-              "responseBytes", box event.ResponseBytes ]
-        |> ListMapHarnessJson.serialize
-        |> fun line -> ListMapHarnessArtifacts.writeText eventPath FileMode.Append (line + "\n")
-        ArtifactPermissions.restrictTree config.ArtifactDirectory
+        ArtifactJson.objectValue
+            [ "sequence", box sequence
+              "request", box request
+              "response", box response
+              "requestBytes", box requestSize
+              "responseBytes", box responseSize ]
+        |> ArtifactJson.serialize
+        |> fun line -> ArtifactFiles.writeText eventPath FileMode.Append (line + "\n")
 
     member _.MaybeApplyStalePerturbation(workspace: AgentWorkspace, targetFunctionId: FunctionId): AgentWorkspace =
         if not config.EnableStalePerturbation
@@ -320,31 +271,32 @@ type ListMapStructuralHarness private
          pendingProposalCount: int)
         : bool =
         try
-            let snapshotFingerprint, semanticFingerprint = currentFingerprints workspace
+            let fingerprints = currentFingerprints workspace
+            let snapshotFingerprint, semanticFingerprint = fingerprints
             let zeroChurn = zeroUnrelatedSemanticChurn workspace
             let perturbationPreserved = harnessPerturbationPreserved workspace
-            let oraclePassed, checks = oracleChecks workspace usage
+            let oraclePassed, checks = oracleChecks usage fingerprints zeroChurn perturbationPreserved
 
             let reports =
                 verificationReports
                 |> List.rev
                 |> List.map (fun report ->
-                    ListMapHarnessJson.objectValue
+                    ArtifactJson.objectValue
                         [ "transactionId", box (StableId.value report.TransactionId)
                           "publishedSnapshotId", box (StableId.value report.PublishedSnapshotId)
                           "status", box (ListMapStructuralVerificationStatus.name report.Status)
                           "evidenceDurable", box report.EvidenceDurable
                           "evidencePath", box report.EvidencePath ])
-                |> ListMapHarnessJson.arrayValue
+                |> ArtifactJson.arrayValue
 
             let diagnostics =
-                observedDiagnosticCodes |> List.map box |> ListMapHarnessJson.arrayValue
+                observedDiagnosticCodes |> List.map box |> ArtifactJson.arrayValue
             let checkObject =
                 checks
                 |> List.map (fun (name, value) -> name, box value)
-                |> ListMapHarnessJson.objectValue
+                |> ArtifactJson.objectValue
 
-            ListMapHarnessJson.objectValue
+            ArtifactJson.objectValue
                 [ "schemaVersion", box 1
                   "taskId", box config.TaskId
                   "fixture", box config.FixtureName
@@ -369,8 +321,8 @@ type ListMapStructuralHarness private
                   "verificationReports", reports
                   "oraclePassed", box oraclePassed
                   "oracleChecks", checkObject ]
-            |> ListMapHarnessJson.serialize
-            |> ListMapHarnessArtifacts.writeAtomically metricsPath
+            |> ArtifactJson.serialize
+            |> ArtifactFiles.writeAtomically metricsPath
 
             let optionalSnapshotFingerprint = function
                 | Some value -> box (SnapshotFingerprint.value value)
@@ -379,7 +331,7 @@ type ListMapStructuralHarness private
                 | Some value -> box (SemanticFingerprint.value value)
                 | None -> null
 
-            ListMapHarnessJson.objectValue
+            ArtifactJson.objectValue
                 [ "schemaVersion", box 1
                   "state", box "terminal"
                   "taskId", box config.TaskId
@@ -394,8 +346,8 @@ type ListMapStructuralHarness private
                   "harnessPerturbationPreserved", box perturbationPreserved
                   "verificationReportCount", box verificationReports.Length
                   "oraclePassed", box oraclePassed ]
-            |> ListMapHarnessJson.serialize
-            |> ListMapHarnessArtifacts.writeAtomically runStatePath
+            |> ArtifactJson.serialize
+            |> ArtifactFiles.writeAtomically runStatePath
 
             ArtifactPermissions.restrictTree config.ArtifactDirectory
             true
@@ -465,10 +417,10 @@ type ListMapStructuralHarness private
                             let runMetadataPath = Path.Combine(fullDirectory, "run-metadata.json")
                             let runStatePath = Path.Combine(fullDirectory, "run-state.json")
                             let harnessEventPath = Path.Combine(fullDirectory, "harness-events.jsonl")
-                            ListMapHarnessArtifacts.writeText eventPath FileMode.Create String.Empty
-                            ListMapHarnessArtifacts.writeText harnessEventPath FileMode.Create String.Empty
+                            ArtifactFiles.writeText eventPath FileMode.Create String.Empty
+                            ArtifactFiles.writeText harnessEventPath FileMode.Create String.Empty
 
-                            ListMapHarnessJson.objectValue
+                            ArtifactJson.objectValue
                                 [ "schemaVersion", box 1
                                   "corpusId", box FrozenM2ListMapCorpus.corpusId
                                   "corpusRevision", box FrozenM2ListMapCorpus.corpusRevision
@@ -478,25 +430,25 @@ type ListMapStructuralHarness private
                                   "startingSnapshotId", box (StableId.value snapshot.Id)
                                   "startingSnapshotFingerprint", box (SnapshotFingerprint.value actualSnapshot)
                                   "startingSemanticFingerprint", box (SemanticFingerprint.value actualSemantic)
-                                  "model", ListMapHarnessJson.optionalString config.RunMetadata.Model
-                                  "providerRuntime", ListMapHarnessJson.optionalString config.RunMetadata.ProviderRuntime
-                                  "reasoningConfig", ListMapHarnessJson.optionalString config.RunMetadata.ReasoningConfig
-                                  "openCodeVersion", ListMapHarnessJson.optionalString config.RunMetadata.OpenCodeVersion
-                                  "promptRevision", ListMapHarnessJson.optionalString config.RunMetadata.PromptRevision
-                                  "toolRevision", ListMapHarnessJson.optionalString config.RunMetadata.ToolRevision
-                                  "repositoryRevision", ListMapHarnessJson.optionalString config.RunMetadata.RepositoryRevision ]
-                            |> ListMapHarnessJson.serialize
-                            |> ListMapHarnessArtifacts.writeAtomically runMetadataPath
+                                  "model", ArtifactJson.optionalString config.RunMetadata.Model
+                                  "providerRuntime", ArtifactJson.optionalString config.RunMetadata.ProviderRuntime
+                                  "reasoningConfig", ArtifactJson.optionalString config.RunMetadata.ReasoningConfig
+                                  "openCodeVersion", ArtifactJson.optionalString config.RunMetadata.OpenCodeVersion
+                                  "promptRevision", ArtifactJson.optionalString config.RunMetadata.PromptRevision
+                                  "toolRevision", ArtifactJson.optionalString config.RunMetadata.ToolRevision
+                                  "repositoryRevision", ArtifactJson.optionalString config.RunMetadata.RepositoryRevision ]
+                            |> ArtifactJson.serialize
+                            |> ArtifactFiles.writeAtomically runMetadataPath
 
-                            ListMapHarnessJson.objectValue
+                            ArtifactJson.objectValue
                                 [ "schemaVersion", box 1
                                   "state", box "inProgress"
                                   "taskId", box config.TaskId
                                   "fixture", box config.FixtureName
                                   "protocolVersion", box ListMapStructuralProtocol.version
                                   "startingSnapshotId", box (StableId.value snapshot.Id) ]
-                            |> ListMapHarnessJson.serialize
-                            |> ListMapHarnessArtifacts.writeAtomically runStatePath
+                            |> ArtifactJson.serialize
+                            |> ArtifactFiles.writeAtomically runStatePath
 
                             ArtifactPermissions.restrictTree fullDirectory
                             Ok(

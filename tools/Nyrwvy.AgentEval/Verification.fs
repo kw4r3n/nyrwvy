@@ -55,102 +55,7 @@ type VerificationReport =
       Error: string option
       EvidenceDurable: bool }
 
-module private VerificationJson =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do
-            value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj =
-        items |> List.toArray |> box
-
-    let optionalString (value: string option): obj =
-        match value with
-        | Some item -> box item
-        | None -> null
-
-    let serialize (value: obj): string =
-        JsonSerializer.Serialize(value)
-
-module private VerificationProcess =
-    type ProcessResult =
-        { ExitCode: int
-          TimedOut: bool
-          StandardOutput: string
-          StandardError: string }
-
-    let private timeoutMilliseconds = 120000
-
-    let run (workingDirectory: string) (arguments: string list): Result<ProcessResult, string> =
-        try
-            let startInfo = ProcessStartInfo("dotnet")
-            startInfo.WorkingDirectory <- workingDirectory
-            startInfo.UseShellExecute <- false
-            startInfo.RedirectStandardOutput <- true
-            startInfo.RedirectStandardError <- true
-            startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
-            startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-
-            for argument in arguments do
-                startInfo.ArgumentList.Add(argument)
-
-            match Process.Start(startInfo) with
-            | null -> Error "Failed to start dotnet process."
-            | childProcess ->
-                use childProcess = childProcess
-                let standardOutputTask = childProcess.StandardOutput.ReadToEndAsync()
-                let standardErrorTask = childProcess.StandardError.ReadToEndAsync()
-                let completed = childProcess.WaitForExit(timeoutMilliseconds)
-                let timedOut = not completed
-
-                if timedOut then
-                    try
-                        childProcess.Kill(true)
-                    with
-                    | _ -> ()
-
-                    childProcess.WaitForExit()
-
-                Ok
-                    { ExitCode = childProcess.ExitCode
-                      TimedOut = timedOut
-                      StandardOutput = standardOutputTask.GetAwaiter().GetResult()
-                      StandardError = standardErrorTask.GetAwaiter().GetResult() }
-        with
-        | _ -> Error "Verification process could not be started or completed."
-
 module private VerificationArtifacts =
-    let private utf8 = UTF8Encoding(false)
-
-    let writeText path (value: string) =
-        let bytes = utf8.GetBytes(value)
-
-        use stream =
-            new FileStream(
-                path,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.Read,
-                4096,
-                FileOptions.WriteThrough
-            )
-
-        stream.Write(bytes, 0, bytes.Length)
-        stream.Flush(true)
-        ArtifactPermissions.ensureFile path
-
-    let writeAtomically path (value: string) =
-        let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
-
-        try
-            writeText temporaryPath value
-            File.Move(temporaryPath, path, true)
-            ArtifactPermissions.ensureFile path
-        finally
-            if File.Exists temporaryPath then
-                File.Delete temporaryPath
-
     let normalizeOutput (value: string) =
         value.Replace("\r\n", "\n")
 
@@ -167,7 +72,7 @@ type private VerificationFixtureSpec =
 
 [<RequireQualifiedAccess>]
 module Verification =
-    open VerificationJson
+    open ArtifactJson
 
     let matchesExpectedOutput expected actual =
         VerificationArtifacts.normalizeOutput expected = VerificationArtifacts.normalizeOutput actual
@@ -406,7 +311,6 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
         let mutable typedSemanticSourceSnapshotId: SnapshotId option = None
         let mutable executionSourceSnapshotId: SnapshotId option = None
         let mutable typedSemanticProgram: TypedSemanticProgram option = None
-        let mutable evidenceDurable = false
 
         let addStage name status error details =
             stages <-
@@ -467,7 +371,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
         try
             ArtifactPermissions.ensureDirectory runDirectory
             ArtifactPermissions.restrictTree runDirectory
-            inProgressValue () |> serialize |> VerificationArtifacts.writeAtomically evidencePath
+            inProgressValue () |> serialize |> ArtifactFiles.writeAtomically evidencePath
             ArtifactPermissions.restrictTree runDirectory
             addStage "artifactPermissions" "passed" None [ "runDirectory", runDirectory ]
 
@@ -512,9 +416,9 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
             if Option.isNone failure then
                 let spec = fixtureSpec fixture
                 fixtureSpecValue <- Some spec
-                VerificationArtifacts.writeText projectPath projectFile
-                VerificationArtifacts.writeText harnessSourcePath spec.HarnessSource
-                VerificationArtifacts.writeText expectedOutputPath spec.ExpectedOutput
+                ArtifactFiles.writeText projectPath FileMode.Create projectFile
+                ArtifactFiles.writeText harnessSourcePath FileMode.Create spec.HarnessSource
+                ArtifactFiles.writeText expectedOutputPath FileMode.Create spec.ExpectedOutput
                 addStage
                     "fixtureHarness"
                     "passed"
@@ -540,7 +444,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                     else
                         try
                             TypedSemanticIrCodec.serialize typed
-                            |> VerificationArtifacts.writeText typedSemanticIrPath
+                            |> ArtifactFiles.writeText typedSemanticIrPath FileMode.Create
                             addStage
                                 "typedSemanticIr"
                                 "passed"
@@ -568,7 +472,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                         else
                             try
                                 ExecutionIrCodec.serialize execution
-                                |> VerificationArtifacts.writeText executionIrPath
+                                |> ArtifactFiles.writeText executionIrPath FileMode.Create
                                 addStage
                                     "executionIr"
                                     "passed"
@@ -586,7 +490,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                                     | Error error -> failStage "csharpEmission" (sprintf "%A" error) []
                                     | Ok artifact ->
                                         try
-                                            VerificationArtifacts.writeText generatedSourcePath artifact.Source
+                                            ArtifactFiles.writeText generatedSourcePath FileMode.Create artifact.Source
                                             addStage
                                                 "csharpEmission"
                                                 "passed"
@@ -596,13 +500,13 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                                          | _ -> failStage "csharpEmission" "C# source evidence could not be persisted." []
 
             if Option.isNone failure then
-                 match VerificationProcess.run runDirectory [ "build"; Path.GetFileName(projectPath); "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ] with
+                 match DotnetProcess.run runDirectory [ "build"; Path.GetFileName(projectPath); "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ] with
                  | Error error -> failStage "compile" error []
                  | Ok result ->
                      try
                          ArtifactPermissions.restrictTree runDirectory
-                         VerificationArtifacts.writeText compileStandardOutputPath result.StandardOutput
-                         VerificationArtifacts.writeText compileStandardErrorPath result.StandardError
+                         ArtifactFiles.writeText compileStandardOutputPath FileMode.Create result.StandardOutput
+                         ArtifactFiles.writeText compileStandardErrorPath FileMode.Create result.StandardError
 
                          let details =
                              [ "exitCode", string result.ExitCode
@@ -623,12 +527,12 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                 match fixtureSpecValue with
                 | None -> failStage "execute" "Fixture harness configuration was not prepared." []
                 | Some spec ->
-                     match VerificationProcess.run runDirectory [ assemblyPath ] with
+                     match DotnetProcess.run runDirectory [ assemblyPath ] with
                      | Error error -> failStage "execute" error []
                      | Ok result ->
                          ArtifactPermissions.restrictTree runDirectory
-                         VerificationArtifacts.writeText executionStandardOutputPath result.StandardOutput
-                         VerificationArtifacts.writeText executionStandardErrorPath result.StandardError
+                         ArtifactFiles.writeText executionStandardOutputPath FileMode.Create result.StandardOutput
+                         ArtifactFiles.writeText executionStandardErrorPath FileMode.Create result.StandardError
                          let actualOutput = VerificationArtifacts.normalizeOutput result.StandardOutput
 
                          let details =
@@ -681,7 +585,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
               EvidencePath = evidencePath
               RunDirectory = runDirectory
               Error = failure
-              EvidenceDurable = evidenceDurable }
+              EvidenceDurable = false }
 
         try
             ArtifactPermissions.restrictTree runDirectory
@@ -692,8 +596,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                 stages
                 artifactPaths
             |> serialize
-            |> VerificationArtifacts.writeAtomically evidencePath
-            evidenceDurable <- true
+            |> ArtifactFiles.writeAtomically evidencePath
             { report with EvidenceDurable = true }
         with
         | _ ->

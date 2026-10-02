@@ -146,23 +146,8 @@ module SessionArtifacts =
     let runStateFileName = "run-state.json"
 
 module private JsonOutput =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do
-            value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj =
-        items |> List.toArray |> box
-
     let strings (items: string list): obj =
-        items |> List.map box |> arrayValue
-
-    let serialize (value: obj): string =
-        JsonSerializer.Serialize(value)
-
-    let utf8ByteCount (value: string): int64 =
-        UTF8Encoding(false).GetByteCount(value) |> int64
+        items |> List.map box |> ArtifactJson.arrayValue
 
 module private JsonInput =
     exception ProtocolInputException of string
@@ -267,6 +252,7 @@ module private JsonInput =
         | :? JsonException as error -> fail $"Invalid JSON: {error.Message}"
 
 module private Encode =
+    open ArtifactJson
     open JsonOutput
 
     let private primitiveName = function
@@ -610,37 +596,9 @@ module private Encode =
 module private ArtifactWriter =
     let private utf8 = UTF8Encoding(false)
 
-    let private writeText path mode (value: string) =
-        let bytes = utf8.GetBytes(value)
-
-        use stream =
-            new FileStream(
-                path,
-                mode,
-                FileAccess.Write,
-                FileShare.Read,
-                4096,
-                FileOptions.WriteThrough
-            )
-
-        stream.Write(bytes, 0, bytes.Length)
-        stream.Flush(true)
-        ArtifactPermissions.ensureFile path
-
-    let private writeAtomically path (value: string) =
-        let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
-
-        try
-            writeText temporaryPath FileMode.CreateNew value
-            File.Move(temporaryPath, path, true)
-            ArtifactPermissions.ensureFile path
-        finally
-            if File.Exists temporaryPath then
-                File.Delete temporaryPath
-
     let eventJson (event: SessionEvent) =
         let value =
-            JsonOutput.objectValue
+            ArtifactJson.objectValue
                 [ "sequence", box event.Sequence
                   "request", box event.Request
                   "response", box event.Response
@@ -649,9 +607,9 @@ module private ArtifactWriter =
                   "contextBytes", box event.ContextBytes
                   "focusContextBytes", box event.FocusContextBytes
                   "focusEntityCount", box event.FocusEntityCount
-                  "harnessReceipts", event.HarnessReceipts |> List.map Encode.harnessReceipt |> JsonOutput.arrayValue ]
+                  "harnessReceipts", event.HarnessReceipts |> List.map Encode.harnessReceipt |> ArtifactJson.arrayValue ]
 
-        JsonOutput.serialize value + "\n"
+        ArtifactJson.serialize value + "\n"
 
     let create
         (directory: string)
@@ -675,16 +633,16 @@ module private ArtifactWriter =
                       RunMetadataPath = Path.Combine(sessionDirectory, SessionArtifacts.runMetadataFileName)
                       RunStatePath = Path.Combine(sessionDirectory, SessionArtifacts.runStateFileName) }
 
-                writeText paths.EventLogPath FileMode.Create String.Empty
+                ArtifactFiles.writeText paths.EventLogPath FileMode.Create String.Empty
 
                 let writer =
                     { Paths = paths
-                      WriteRunMetadata = writeAtomically paths.RunMetadataPath
-                      WriteEvent = fun value -> writeText paths.EventLogPath FileMode.Append value
-                      WriteMetrics = writeAtomically paths.MetricsPath
-                      WriteRunState = writeAtomically paths.RunStatePath }
+                      WriteRunMetadata = ArtifactFiles.writeAtomically paths.RunMetadataPath
+                      WriteEvent = fun value -> ArtifactFiles.writeText paths.EventLogPath FileMode.Append value
+                      WriteMetrics = ArtifactFiles.writeAtomically paths.MetricsPath
+                      WriteRunState = ArtifactFiles.writeAtomically paths.RunStatePath }
 
-                JsonOutput.serialize (Encode.runMetadata runMetadata)
+                ArtifactJson.serialize (Encode.runMetadata runMetadata)
                 |> writer.WriteRunMetadata
 
                 Ok writer
@@ -750,23 +708,24 @@ type Session internal
                 Terminal = terminal
                 FinalizationDurable = terminal }
 
-        JsonOutput.objectValue
+        ArtifactJson.objectValue
             [ "schemaVersion", box 1
               "state", box state
               "artifactPersistence", Encode.artifactStatus terminalStatus ]
 
     let metricsFor includeHarnessData (responseBytesOverride: int64 option) =
-        let value = usageSnapshot ()
+        let value = usage
         let responseBytes = responseBytesOverride |> Option.defaultValue value.ResponseBytes
 
         let harnessData =
             if includeHarnessData then
-                [ "harnessEvents", value.HarnessEvents |> List.map box |> JsonOutput.arrayValue
-                  "harnessReceipts", value.HarnessReceipts |> List.map Encode.harnessReceipt |> JsonOutput.arrayValue ]
+                [ "harnessEvents", List.rev value.HarnessEvents |> List.map box |> ArtifactJson.arrayValue
+                  "harnessReceipts",
+                  List.rev value.HarnessReceipts |> List.map Encode.harnessReceipt |> ArtifactJson.arrayValue ]
             else
                 []
 
-        JsonOutput.objectValue
+        ArtifactJson.objectValue
             ([ "toolCalls", box value.ToolCalls
                "queries", box value.Queries
                "queryCount", box value.QueryCount
@@ -805,7 +764,7 @@ type Session internal
                 HarnessEvents = message :: usage.HarnessEvents }
 
     let harnessFailureResult () =
-        JsonOutput.objectValue
+        ArtifactJson.objectValue
             [ "status", box "harnessFailure"
               "errorKind", box "harness"
               "detail", box "The harness stale-workspace advance failed; the run is invalidated." ]
@@ -843,7 +802,7 @@ type Session internal
         | None -> false
         | Some writer ->
             try
-                JsonOutput.serialize (runStateValue state)
+                ArtifactJson.serialize (runStateValue state)
                 |> writer.WriteRunState
                 true
             with
@@ -879,7 +838,7 @@ type Session internal
 
     let queryResult (focusEntityCount: int option) value =
         let isFocus = focusEntityCount.IsSome
-        let contextBytes = JsonOutput.serialize value |> JsonOutput.utf8ByteCount
+        let contextBytes = ArtifactJson.serialize value |> ArtifactJson.utf8ByteCount
         usage <-
             { usage with
                 ContextBytes = usage.ContextBytes + contextBytes
@@ -895,10 +854,10 @@ type Session internal
                     FocusEntityCount = usage.FocusEntityCount + count }
         | None -> ()
 
-        JsonOutput.objectValue [ "status", box "ok"; "value", value ]
+        ArtifactJson.objectValue [ "status", box "ok"; "value", value ]
 
     let queryError error =
-        JsonOutput.objectValue
+        ArtifactJson.objectValue
             [ "status", box "error"
               "errorKind", box "query"
               "detail", box (sprintf "%A" error) ]
@@ -953,13 +912,13 @@ type Session internal
     let responseWithMetrics body =
         let rec build responseBytes =
             let response =
-                JsonOutput.objectValue
+                ArtifactJson.objectValue
                     (body
                      @ [ "artifactPersistence", Encode.artifactStatus (artifactStatus ());
                            "metrics", metricsFor false (Some responseBytes) ])
-                |> JsonOutput.serialize
+                |> ArtifactJson.serialize
 
-            let nextResponseBytes = usage.ResponseBytes + JsonOutput.utf8ByteCount response
+            let nextResponseBytes = usage.ResponseBytes + ArtifactJson.utf8ByteCount response
 
             if nextResponseBytes = responseBytes then
                 response
@@ -979,8 +938,8 @@ type Session internal
             { Sequence = usage.EventCount
               Request = request
               Response = initialResponse
-              RequestBytes = JsonOutput.utf8ByteCount request
-              ResponseBytes = JsonOutput.utf8ByteCount initialResponse
+              RequestBytes = ArtifactJson.utf8ByteCount request
+              ResponseBytes = ArtifactJson.utf8ByteCount initialResponse
               ContextBytes = contextBytes
               FocusContextBytes = focusContextBytes
               FocusEntityCount = focusEntityCount
@@ -1000,7 +959,7 @@ type Session internal
                     ResponseBytes = usage.ResponseBytes - currentEvent.ResponseBytes }
 
             let response = responseWithMetrics body
-            let responseBytes = JsonOutput.utf8ByteCount response
+            let responseBytes = ArtifactJson.utf8ByteCount response
             let updatedEvent =
                 { currentEvent with
                     Response = response
@@ -1018,14 +977,14 @@ type Session internal
         | Some writer ->
             let metricsWritten =
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                    ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
             if not metricsWritten then
                 tryWriteRunState "inProgress" "run-state" |> ignore
 
             if artifactFailures.Length <> failuresBefore then
                 if not (tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
+                    ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
                     tryWriteRunState "inProgress" "run-state" |> ignore
 
             let response =
@@ -1048,7 +1007,7 @@ type Session internal
                 let failuresBeforeMetricsRetry = artifactFailures.Length
 
                 if not (tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
+                    ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)) then
                     tryWriteRunState "inProgress" "run-state" |> ignore
 
                 if artifactFailures.Length = failuresBeforeMetricsRetry then
@@ -1067,12 +1026,12 @@ type Session internal
             | Ok fingerprint -> box (SemanticFingerprint.value fingerprint)
             | Error error -> box $"error:{error}"
 
-        JsonOutput.objectValue
+        ArtifactJson.objectValue
             [ "status", box "ok"
               "snapshotId", box (StableId.value (AgentWorkspace.currentSnapshotId workspace))
               "snapshotFingerprint", snapshotFingerprint
               "semanticFingerprint", semanticFingerprint
-              "proposalHandles", proposals |> Map.toList |> List.map (fst >> box) |> JsonOutput.arrayValue
+              "proposalHandles", proposals |> Map.toList |> List.map (fst >> box) |> ArtifactJson.arrayValue
               "metrics", agentMetrics () ]
 
     let requireProposal handle =
@@ -1108,6 +1067,37 @@ type Session internal
             body @ [ "verification", Encode.verification report ]
         | None -> body
 
+    let commitWith
+        (commit: AgentWorkspace -> AgentChangeProposal -> AgentCommitResult)
+        (root: JsonElement)
+        =
+        usage <-
+            { usage with
+                CommitAttemptCount = usage.CommitAttemptCount + 1 }
+        let handle = JsonInput.requiredString "proposalHandle" root
+        let proposal = requireProposal handle
+        match commit workspace proposal with
+        | AgentCommitResult.Rejected diagnostics ->
+            recordRejection (fun () ->
+                usage <-
+                    { usage with
+                        RejectedCommitCount = usage.RejectedCommitCount + 1 })
+            ArtifactJson.objectValue
+                [ "status", box "rejected"
+                  "proposalHandle", box handle
+                  "diagnostics", Encode.diagnostics diagnostics ]
+        | AgentCommitResult.Committed(nextWorkspace, publication) ->
+            workspace <- nextWorkspace
+            proposals <- Map.remove handle proposals
+            usage <-
+                { usage with
+                    CommitCount = usage.CommitCount + 1 }
+            [ "status", box "committed"
+              "proposalHandle", box handle
+              "publication", Encode.publication publication ]
+            |> addVerification nextWorkspace publication
+            |> ArtifactJson.objectValue
+
     let executeCommand (root: JsonElement) =
         let command = JsonInput.requiredString "command" root
         match command with
@@ -1131,21 +1121,21 @@ type Session internal
             let functionId =
                 JsonInput.stableId<FunctionTag> "functionId" (JsonInput.requiredString "functionId" root)
             match AgentWorkspace.getCallers workspace functionId with
-            | Ok values -> queryResult None (values |> List.map Encode.callSite |> JsonOutput.arrayValue)
+            | Ok values -> queryResult None (values |> List.map Encode.callSite |> ArtifactJson.arrayValue)
             | Error error -> queryError error
         | "getCallees" ->
             recordQuery ()
             let functionId =
                 JsonInput.stableId<FunctionTag> "functionId" (JsonInput.requiredString "functionId" root)
             match AgentWorkspace.getCallees workspace functionId with
-            | Ok values -> queryResult None (values |> List.map Encode.callSite |> JsonOutput.arrayValue)
+            | Ok values -> queryResult None (values |> List.map Encode.callSite |> ArtifactJson.arrayValue)
             | Error error -> queryError error
         | "getOpenObligations" ->
             recordQuery ()
             let functionId =
                 JsonInput.stableId<FunctionTag> "functionId" (JsonInput.requiredString "functionId" root)
             match AgentWorkspace.getOpenObligations workspace functionId with
-            | Ok values -> queryResult None (values |> List.map Encode.obligation |> JsonOutput.arrayValue)
+            | Ok values -> queryResult None (values |> List.map Encode.obligation |> ArtifactJson.arrayValue)
             | Error error -> queryError error
         | "getDependencies" ->
             recordQuery ()
@@ -1153,7 +1143,7 @@ type Session internal
                 JsonInput.stableId<FunctionTag> "functionId" (JsonInput.requiredString "functionId" root)
             let nodeId = JsonInput.stableId<GraphNodeTag> "nodeId" (JsonInput.requiredString "nodeId" root)
             match AgentWorkspace.getDependencies workspace functionId nodeId with
-            | Ok values -> queryResult None (values |> List.map (StableId.value >> box) |> JsonOutput.arrayValue)
+            | Ok values -> queryResult None (values |> List.map (StableId.value >> box) |> ArtifactJson.arrayValue)
             | Error error -> queryError error
         | "getUses" ->
             recordQuery ()
@@ -1161,7 +1151,7 @@ type Session internal
                 JsonInput.stableId<FunctionTag> "functionId" (JsonInput.requiredString "functionId" root)
             let nodeId = JsonInput.stableId<GraphNodeTag> "nodeId" (JsonInput.requiredString "nodeId" root)
             match AgentWorkspace.getUses workspace functionId nodeId with
-            | Ok values -> queryResult None (values |> List.map (StableId.value >> box) |> JsonOutput.arrayValue)
+            | Ok values -> queryResult None (values |> List.map (StableId.value >> box) |> ArtifactJson.arrayValue)
             | Error error -> queryError error
         | "focusFunction" ->
             recordFocusQuery ()
@@ -1179,7 +1169,7 @@ type Session internal
                     usage <-
                         { usage with
                             RejectedSimulationCount = usage.RejectedSimulationCount + 1 })
-                JsonOutput.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "rejected"
                       "diagnostics", Encode.diagnostics diagnostics ]
             | Error error ->
@@ -1187,7 +1177,7 @@ type Session internal
                     usage <-
                         { usage with
                             RejectedSimulationCount = usage.RejectedSimulationCount + 1 })
-                JsonOutput.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "error"
                       "errorKind", box "workflow"
                       "detail", box (sprintf "%A" error) ]
@@ -1195,7 +1185,7 @@ type Session internal
                 let handle = proposalHandle ()
                 let review = AgentChangeProposal.review proposal
                 let result =
-                    JsonOutput.objectValue
+                    ArtifactJson.objectValue
                         [ "status", box "proposed"
                           "proposalHandle", box handle
                           "transactionId", box (StableId.value (AgentChangeProposal.transactionId proposal))
@@ -1219,60 +1209,12 @@ type Session internal
                 else
                     tryWriteRunState "inProgress" "run-state" |> ignore
                     harnessFailureResult ()
-        | "commit" ->
-            usage <-
-                { usage with
-                    CommitAttemptCount = usage.CommitAttemptCount + 1 }
-            let handle = JsonInput.requiredString "proposalHandle" root
-            let proposal = requireProposal handle
-            match AgentWorkflow.commit workspace proposal with
-            | AgentCommitResult.Rejected diagnostics ->
-                recordRejection (fun () ->
-                    usage <-
-                        { usage with
-                            RejectedCommitCount = usage.RejectedCommitCount + 1 })
-                JsonOutput.objectValue
-                    [ "status", box "rejected"
-                      "proposalHandle", box handle
-                      "diagnostics", Encode.diagnostics diagnostics ]
-            | AgentCommitResult.Committed(nextWorkspace, publication) ->
-                workspace <- nextWorkspace
-                proposals <- Map.remove handle proposals
-                usage <-
-                    { usage with
-                        CommitCount = usage.CommitCount + 1 }
-                [ "status", box "committed"
-                  "proposalHandle", box handle
-                  "publication", Encode.publication publication ]
-                |> addVerification nextWorkspace publication
-                |> JsonOutput.objectValue
+        | "commit" -> commitWith AgentWorkflow.commit root
         | "commitAllowIncomplete" ->
-            usage <-
-                { usage with
-                    CommitAttemptCount = usage.CommitAttemptCount + 1 }
-            let handle = JsonInput.requiredString "proposalHandle" root
-            let proposal = requireProposal handle
-            match AgentWorkflow.commitWithPolicy workspace proposal CommitPolicy.AllowBlockingObligations with
-            | AgentCommitResult.Rejected diagnostics ->
-                recordRejection (fun () ->
-                    usage <-
-                        { usage with
-                            RejectedCommitCount = usage.RejectedCommitCount + 1 })
-                JsonOutput.objectValue
-                    [ "status", box "rejected"
-                      "proposalHandle", box handle
-                      "diagnostics", Encode.diagnostics diagnostics ]
-            | AgentCommitResult.Committed(nextWorkspace, publication) ->
-                workspace <- nextWorkspace
-                proposals <- Map.remove handle proposals
-                usage <-
-                    { usage with
-                        CommitCount = usage.CommitCount + 1 }
-                [ "status", box "committed"
-                  "proposalHandle", box handle
-                  "publication", Encode.publication publication ]
-                |> addVerification nextWorkspace publication
-                |> JsonOutput.objectValue
+            commitWith
+                (fun current proposal ->
+                    AgentWorkflow.commitWithPolicy current proposal CommitPolicy.AllowBlockingObligations)
+                root
         | "reject" ->
             recordRejection (fun () ->
                 usage <-
@@ -1283,13 +1225,13 @@ type Session internal
             let nextWorkspace, receipt = AgentWorkflow.reject workspace proposal
             workspace <- nextWorkspace
             proposals <- Map.remove handle proposals
-            JsonOutput.objectValue
+            ArtifactJson.objectValue
                 [ "status", box "rejectedByAgent"
                   "proposalHandle", box handle
                   "transactionId", box (StableId.value receipt.TransactionId)
                   "retainedSnapshotId", box (StableId.value receipt.RetainedSnapshotId) ]
         | "metrics" ->
-            JsonOutput.objectValue [ "status", box "ok"; "metrics", agentMetrics () ]
+            ArtifactJson.objectValue [ "status", box "ok"; "metrics", agentMetrics () ]
         | value -> raise (JsonInput.ProtocolInputException $"Unsupported command '{value}'.")
 
     do
@@ -1298,7 +1240,7 @@ type Session internal
         | Some writer ->
             let metricsWritten =
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                    ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
             if not metricsWritten then
                 tryWriteRunState "inProgress" "run-state" |> ignore
@@ -1307,7 +1249,7 @@ type Session internal
 
             if not stateWritten then
                 tryArtifactWrite "metrics" (fun () ->
-                    JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                    ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                 |> ignore
 
     member _.Usage: SessionUsage = usageSnapshot ()
@@ -1324,16 +1266,16 @@ type Session internal
 
     member _.ExecuteLine(line: string): string =
         if finalizationAttempted then
-            JsonOutput.objectValue
+            ArtifactJson.objectValue
                 [ "ok", box false
                   "error",
-                    JsonOutput.objectValue
+                    ArtifactJson.objectValue
                         [ "code", box "ProtocolError"
                           "message", box "Session has already been finalized." ] ]
-            |> JsonOutput.serialize
+            |> ArtifactJson.serialize
         else
             let request = if isNull line then String.Empty else line
-            let requestBytes = JsonOutput.utf8ByteCount request
+            let requestBytes = ArtifactJson.utf8ByteCount request
             usage <-
                 { usage with
                     ToolCalls = usage.ToolCalls + 1
@@ -1363,7 +1305,7 @@ type Session internal
                     [ "ok", box false
                       "sequence", box usage.EventCount
                       "error",
-                        JsonOutput.objectValue
+                        ArtifactJson.objectValue
                             [ "code", box "ProtocolError"
                               "message", box message ] ]
 
@@ -1386,7 +1328,7 @@ type Session internal
 
                 if not pendingWritten then
                     tryArtifactWrite "metrics" (fun () ->
-                        JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                        ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                     |> ignore
 
                     let invalidatedTerminalWritten = tryWriteRunState "terminal" "run-state"
@@ -1394,7 +1336,7 @@ type Session internal
                 else
                     let metricsWritten =
                         tryArtifactWrite "metrics" (fun () ->
-                            JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                            ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
                     if metricsWritten then
                         let terminalWritten = tryWriteRunState "terminal" "finalization"
@@ -1402,7 +1344,7 @@ type Session internal
 
                         if not terminalWritten then
                             tryArtifactWrite "metrics" (fun () ->
-                                JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                                ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
                             |> ignore
 
                             let invalidatedTerminalWritten = tryWriteRunState "terminal" "run-state"
@@ -1415,7 +1357,7 @@ type Session internal
                 if finalizationDurable then
                     let metricsWritten =
                         tryArtifactWrite "metrics" (fun () ->
-                            JsonOutput.serialize (artifactMetrics ()) |> writer.WriteMetrics)
+                            ArtifactJson.serialize (artifactMetrics ()) |> writer.WriteMetrics)
 
                     if not metricsWritten then
                         tryWriteRunState "terminal" "run-state" |> ignore
@@ -1509,7 +1451,7 @@ module Session =
             | Error error -> Error(SessionCreationError.ArtifactInitializationFailed error)
             | Ok runMetadata ->
                 try
-                    JsonOutput.serialize (Encode.runMetadata runMetadata)
+                    ArtifactJson.serialize (Encode.runMetadata runMetadata)
                     |> writer.WriteRunMetadata
                     Ok(Session(workspace, config, runMetadata, Some writer))
                 with

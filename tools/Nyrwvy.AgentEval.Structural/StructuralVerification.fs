@@ -34,83 +34,12 @@ type StructuralVerificationReport =
       Error: string option
       EvidenceDurable: bool }
 
-module private StructuralVerificationJson =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do
-            value[key] <- item
-        box value
-
-    let optionalString = function
-        | Some value -> box value
-        | None -> null
-
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
-
 module private StructuralVerificationArtifacts =
-    let private utf8 = UTF8Encoding(false)
-
-    let writeText path (value: string) =
-        let bytes = utf8.GetBytes(value)
-        use stream =
-            new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough)
-        stream.Write(bytes, 0, bytes.Length)
-        stream.Flush(true)
-        ArtifactPermissions.ensureFile path
-
-    let writeAtomically path (value: string) =
-        let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
-        try
-            writeText temporaryPath value
-            File.Move(temporaryPath, path, true)
-            ArtifactPermissions.ensureFile path
-        finally
-            if File.Exists temporaryPath then File.Delete temporaryPath
-
     let normalizeOutput (value: string) = value.Replace("\r\n", "\n").TrimEnd('\n', '\r')
-
-module private StructuralVerificationProcess =
-    type ProcessResult =
-        { ExitCode: int
-          TimedOut: bool
-          StandardOutput: string
-          StandardError: string }
-
-    let private timeoutMilliseconds = 120000
-
-    let run (workingDirectory: string) (arguments: string list): Result<ProcessResult, string> =
-        try
-            let startInfo = ProcessStartInfo("dotnet")
-            startInfo.WorkingDirectory <- workingDirectory
-            startInfo.UseShellExecute <- false
-            startInfo.RedirectStandardOutput <- true
-            startInfo.RedirectStandardError <- true
-            startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] <- "1"
-            startInfo.Environment["DOTNET_NOLOGO"] <- "1"
-            for argument in arguments do startInfo.ArgumentList.Add(argument)
-
-            match Process.Start(startInfo) with
-            | null -> Error "Failed to start dotnet process."
-            | child ->
-                use child = child
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
-                let completed = child.WaitForExit(timeoutMilliseconds)
-                let timedOut = not completed
-                if timedOut then
-                    try child.Kill(true) with _ -> ()
-                    child.WaitForExit()
-                Ok
-                    { ExitCode = child.ExitCode
-                      TimedOut = timedOut
-                      StandardOutput = stdout.GetAwaiter().GetResult()
-                      StandardError = stderr.GetAwaiter().GetResult() }
-        with
-        | _ -> Error "Verification process could not be started or completed."
 
 [<RequireQualifiedAccess>]
 module StructuralVerification =
-    open StructuralVerificationJson
+    open ArtifactJson
 
     let private projectFile =
         """<Project Sdk="Microsoft.NET.Sdk">
@@ -257,7 +186,7 @@ Console.WriteLine(NyFunctions.{callerName}().ToString("R", CultureInfo.Invariant
                     fail "Typed Semantic IR is not sourced from the published snapshot."
                 else
                     typedProgram <- Some typed
-                    TypedSemanticIrCodec.serialize typed |> StructuralVerificationArtifacts.writeText typedPath
+                    TypedSemanticIrCodec.serialize typed |> ArtifactFiles.writeText typedPath FileMode.Create
 
         let mutable executionProgram: ExecutionProgram option = None
         if Option.isNone failure then
@@ -272,7 +201,7 @@ Console.WriteLine(NyFunctions.{callerName}().ToString("R", CultureInfo.Invariant
                         fail "Execution IR is not sourced from the published snapshot."
                     else
                         executionProgram <- Some execution
-                        ExecutionIrCodec.serialize execution |> StructuralVerificationArtifacts.writeText executionPath
+                        ExecutionIrCodec.serialize execution |> ArtifactFiles.writeText executionPath FileMode.Create
 
         if Option.isNone failure then
             match fixture, executionProgram with
@@ -280,28 +209,28 @@ Console.WriteLine(NyFunctions.{callerName}().ToString("R", CultureInfo.Invariant
                 match CSharpBackend.emit execution CSharpBackendProfile.empty with
                 | Error _ -> fail "C# emission failed."
                 | Ok artifact ->
-                    StructuralVerificationArtifacts.writeText projectPath projectFile
-                    StructuralVerificationArtifacts.writeText generatedSourcePath artifact.Source
-                    StructuralVerificationArtifacts.writeText harnessPath (harnessSource fixture)
+                    ArtifactFiles.writeText projectPath FileMode.Create projectFile
+                    ArtifactFiles.writeText generatedSourcePath FileMode.Create artifact.Source
+                    ArtifactFiles.writeText harnessPath FileMode.Create (harnessSource fixture)
             | _ -> fail "Verification fixture or Execution IR was unavailable."
 
         if Option.isNone failure then
-            match StructuralVerificationProcess.run runDirectory [ "build"; Path.GetFileName(projectPath); "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ] with
+            match DotnetProcess.run runDirectory [ "build"; Path.GetFileName(projectPath); "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ] with
             | Error _ -> fail "Generated C# verification build could not be started."
             | Ok result ->
                 compileExitCode <- Some result.ExitCode
-                StructuralVerificationArtifacts.writeText compileStdoutPath result.StandardOutput
-                StructuralVerificationArtifacts.writeText compileStderrPath result.StandardError
+                ArtifactFiles.writeText compileStdoutPath FileMode.Create result.StandardOutput
+                ArtifactFiles.writeText compileStderrPath FileMode.Create result.StandardError
                 if result.TimedOut then fail "Generated C# verification build timed out."
                 elif result.ExitCode <> 0 then fail "Generated C# verification build failed."
 
         if Option.isNone failure then
-            match StructuralVerificationProcess.run runDirectory [ assemblyPath ] with
+            match DotnetProcess.run runDirectory [ assemblyPath ] with
             | Error _ -> fail "Generated C# verification execution could not be started."
             | Ok result ->
                 executionExitCode <- Some result.ExitCode
-                StructuralVerificationArtifacts.writeText runStdoutPath result.StandardOutput
-                StructuralVerificationArtifacts.writeText runStderrPath result.StandardError
+                ArtifactFiles.writeText runStdoutPath FileMode.Create result.StandardOutput
+                ArtifactFiles.writeText runStderrPath FileMode.Create result.StandardError
                 let normalized = StructuralVerificationArtifacts.normalizeOutput result.StandardOutput
                 actualOutput <- Some normalized
                 if result.TimedOut then fail "Generated C# verification execution timed out."
@@ -329,13 +258,13 @@ Console.WriteLine(NyFunctions.{callerName}().ToString("R", CultureInfo.Invariant
               EvidenceDurable = false }
 
         reportValue provisional publication currentSnapshotFingerprint currentSemanticFingerprint typedSource executionSource compileExitCode executionExitCode
-        |> StructuralVerificationJson.serialize
-        |> StructuralVerificationArtifacts.writeAtomically evidencePath
+        |> ArtifactJson.serialize
+        |> ArtifactFiles.writeAtomically evidencePath
         ArtifactPermissions.restrictTree runDirectory
 
         let finalReport = { provisional with EvidenceDurable = true }
         reportValue finalReport publication currentSnapshotFingerprint currentSemanticFingerprint typedSource executionSource compileExitCode executionExitCode
-        |> StructuralVerificationJson.serialize
-        |> StructuralVerificationArtifacts.writeAtomically evidencePath
+        |> ArtifactJson.serialize
+        |> ArtifactFiles.writeAtomically evidencePath
         ArtifactPermissions.restrictTree runDirectory
         finalReport
