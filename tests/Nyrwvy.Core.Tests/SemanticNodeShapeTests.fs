@@ -349,6 +349,14 @@ module SemanticNodeShapeTests =
             ))
 
     [<Fact>]
+    let ``intrinsically effectful kinds are exactly the capability, resource, concurrency and task kinds`` () =
+        let expected =
+            set [ "CapabilityInvoke"; "UseResource"; "ParallelAll"; "CancellationRequested"
+                  "TaskScope"; "TaskStart"; "TaskWait"; "TaskCancel" ]
+        forEveryCase semanticKinds (fun kind ->
+            Assert.Equal(Set.contains (caseName kind) expected, SemanticNodeShape.isIntrinsicallyEffectful (nodeOfKind kind)))
+
+    [<Fact>]
     let ``tryDirectCall finds exactly DirectCall nodes`` () =
         forEveryCase semanticKinds (fun kind ->
             match kind, SemanticNodeShape.tryDirectCall (nodeOfKind kind) with
