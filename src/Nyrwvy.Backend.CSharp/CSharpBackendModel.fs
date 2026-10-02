@@ -51,11 +51,6 @@ type CSharpBackendError =
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId
     | UnknownCapabilityOperation of CapabilityOperationId
-    | UnknownNamedType of TypeId
-    | UnknownUnionVariant of VariantId
-    | UnknownField of FieldId
-    | UnknownExecutionValue of FunctionId * ExecutionValueId
-    | InvalidExecutionJumpTarget of FunctionId * ExecutionBlockId
 
 [<RequireQualifiedAccess>]
 module CSharpBackendProfile =

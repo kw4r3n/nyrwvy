@@ -229,10 +229,6 @@ type ViewerChangeReviewModel =
 
 [<RequireQualifiedAccess>]
 module ViewerProjection =
-    let private callbackRelation functionId =
-        [ { Kind = ViewerRelationKind.CallsFunction
-            Target = ViewerTarget.Function functionId } ]
-
     let private roleAndSemanticRelations (node: SemanticNode): ViewerNodeRole * ViewerRelation list =
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId ->
@@ -328,42 +324,25 @@ module ViewerProjection =
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
-        | SemanticNodeKind.ListFold(_, _, folderFunctionId, _) ->
-            ViewerNodeRole.ListFold, callbackRelation folderFunctionId
-        | SemanticNodeKind.ListEffectFold(_, _, folderFunctionId, _) ->
-            ViewerNodeRole.ListEffectFold, callbackRelation folderFunctionId
-        | SemanticNodeKind.UseResource(_, _, _, bodyFunctionId, _) ->
-            ViewerNodeRole.UseResource, callbackRelation bodyFunctionId
-        | SemanticNodeKind.ParallelAll(_, workerFunctionId, _) ->
-            ViewerNodeRole.ParallelAll, callbackRelation workerFunctionId
+        | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
+        | SemanticNodeKind.ListEffectFold _ -> ViewerNodeRole.ListEffectFold, []
+        | SemanticNodeKind.UseResource _ -> ViewerNodeRole.UseResource, []
+        | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
-        | SemanticNodeKind.TaskScope(bodyFunctionId, _) -> ViewerNodeRole.TaskScope, callbackRelation bodyFunctionId
-        | SemanticNodeKind.TaskStart(_, workerFunctionId, _, _) -> ViewerNodeRole.TaskStart, callbackRelation workerFunctionId
+        | SemanticNodeKind.TaskScope _ -> ViewerNodeRole.TaskScope, []
+        | SemanticNodeKind.TaskStart _ -> ViewerNodeRole.TaskStart, []
         | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
-        | SemanticNodeKind.ListMap(_, mapperFunctionId, _) ->
-            ViewerNodeRole.ListMap, callbackRelation mapperFunctionId
-        | SemanticNodeKind.ListFilter(_, predicateFunctionId, _) ->
-            ViewerNodeRole.ListFilter, callbackRelation predicateFunctionId
-        | SemanticNodeKind.ListSortBy(_, lessThanFunctionId, _) ->
-            ViewerNodeRole.ListSortBy, callbackRelation lessThanFunctionId
-        | SemanticNodeKind.ListAny(_, predicateFunctionId, _) ->
-            ViewerNodeRole.ListAny, callbackRelation predicateFunctionId
-        | SemanticNodeKind.ListAll(_, predicateFunctionId, _) ->
-            ViewerNodeRole.ListAll, callbackRelation predicateFunctionId
+        | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
+        | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
+        | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
+        | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
+        | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
-            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations),
-            (implementations |> List.map snd |> List.distinct |> List.map (fun functionId ->
-                { Kind = ViewerRelationKind.ReferencesFunction; Target = ViewerTarget.Function functionId }))
-        | SemanticNodeKind.FunctionReference functionId ->
-            ViewerNodeRole.FunctionReference,
-            [ { Kind = ViewerRelationKind.ReferencesFunction
-                Target = ViewerTarget.Function functionId } ]
+            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations), []
+        | SemanticNodeKind.FunctionReference _ -> ViewerNodeRole.FunctionReference, []
         | SemanticNodeKind.FunctionInvoke _ -> ViewerNodeRole.FunctionInvoke, []
-        | SemanticNodeKind.DirectCall(functionId, _) ->
-            ViewerNodeRole.DirectCall,
-            [ { Kind = ViewerRelationKind.CallsFunction
-                Target = ViewerTarget.Function functionId } ]
+        | SemanticNodeKind.DirectCall _ -> ViewerNodeRole.DirectCall, []
         | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
             ViewerNodeRole.CapabilityInvoke,
             [ { Kind = ViewerRelationKind.InvokesCapabilityOperation
@@ -430,6 +409,17 @@ module ViewerProjection =
 
         let projectNode (node: SemanticNode): ViewerNode =
             let role, semanticRelations = roleAndSemanticRelations node
+            // SemanticNodeShape is the one source of the functions a node names.
+            let functionRelations =
+                SemanticNodeShape.functionReferences node
+                |> List.map (fun reference ->
+                    { Kind =
+                        if FunctionReferenceRole.isInvoked reference.Role then
+                            ViewerRelationKind.CallsFunction
+                        else
+                            ViewerRelationKind.ReferencesFunction
+                      Target = ViewerTarget.Function reference.FunctionId })
+                |> List.distinct
             let valueDependencies = ValueDependency.ofNode node
             let dependencyRelations =
                 valueDependencies
@@ -475,7 +465,7 @@ module ViewerProjection =
             { Id = node.Id
               Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
               Role = role
-              Relations = semanticRelations @ dependencyRelations
+              Relations = semanticRelations @ functionRelations @ dependencyRelations
               ValueDependencies = valueDependencies
               Branches = branches }
 
