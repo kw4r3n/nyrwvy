@@ -251,6 +251,16 @@ module SnapshotValidator =
                         "BuiltinGenericArityMismatch"
                         $"{context} uses Task with {arguments.Length} type arguments; exactly 1 is required."
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
+                if arguments.Length <> 2 then
+                    add
+                        "BuiltinGenericArityMismatch"
+                        $"{context} uses Map with {arguments.Length} type arguments; exactly 2 are required."
+                else if not (EquatableTypes.isEquatable snapshot.Types arguments.Head) then
+                    add
+                        "MapKeyTypeNotEquatable"
+                        $"{context} uses a Map whose key type is not equatable: {EquatableTypes.explain snapshot.Types arguments.Head}"
+                arguments |> List.iter (validateTypeRef context)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
                 if not arguments.IsEmpty then
                     add
@@ -395,6 +405,22 @@ module SnapshotValidator =
                     $"{role} node '{StableId.value nodeId}' requires a {role} right operand."
                     expectedType
                     rightNodeId
+
+            /// The key and value types of a Map input, reporting MapInputTypeMismatch for any other type.
+            let requireMapInput (nodeId: GraphNodeId) mapNodeId =
+                match nodeType mapNodeId with
+                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])) -> Some(keyType, valueType)
+                | Some _ ->
+                    add "MapInputTypeMismatch" $"Node '{StableId.value nodeId}' requires a Map<K, V> input."
+                    None
+                | None -> None
+
+            let requireMapKey (nodeId: GraphNodeId) keyType keyNodeId =
+                requireNodeType
+                    "MapKeyTypeMismatch"
+                    $"Node '{StableId.value nodeId}' requires a key of the map's key type."
+                    keyType
+                    keyNodeId
 
             let requireInt64Operands nodeId leftNodeId rightNodeId =
                 requireBinaryOperands
@@ -992,6 +1018,10 @@ module SnapshotValidator =
                             amountNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
+                    | SemanticNodeKind.MapEmpty(keyType, valueType) ->
+                        validateTypeRef
+                            $"MapEmpty node '{StableId.value node.Id}' type"
+                            (TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
                     | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
                         validateTypeRef $"ListConstruct node '{StableId.value node.Id}' item type" itemType
                         for itemNodeId in itemNodeIds do
@@ -1007,6 +1037,26 @@ module SnapshotValidator =
                             add
                                 "ListLengthInputTypeMismatch"
                                 $"ListLength node '{StableId.value node.Id}' requires List<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.MapSize sourceMapNodeId
+                    | SemanticNodeKind.MapKeys sourceMapNodeId
+                    | SemanticNodeKind.MapValues sourceMapNodeId ->
+                        requireMapInput node.Id sourceMapNodeId |> ignore
+                    | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId)
+                    | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId)
+                    | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) ->
+                        match requireMapInput node.Id sourceMapNodeId with
+                        | Some(keyType, _) -> requireMapKey node.Id keyType keyNodeId
+                        | None -> ()
+                    | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
+                        match requireMapInput node.Id sourceMapNodeId with
+                        | Some(keyType, valueType) ->
+                            requireMapKey node.Id keyType keyNodeId
+                            requireNodeType
+                                "MapValueTypeMismatch"
+                                $"MapInsert node '{StableId.value node.Id}' requires a value of the map's value type."
+                                valueType
+                                valueNodeId
                         | None -> ()
                     | SemanticNodeKind.ListReverse listNodeId ->
                         match nodeType listNodeId with
@@ -1872,11 +1922,19 @@ module SnapshotValidator =
                 | SemanticNodeKind.Bits32ShiftRight _
                 | SemanticNodeKind.Bits32ShiftLeft _
                 | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.MapEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
+                | SemanticNodeKind.MapValues _
+                | SemanticNodeKind.MapKeys _
+                | SemanticNodeKind.MapSize _
                 | SemanticNodeKind.ListReverse _
                 | SemanticNodeKind.ListSlice _
+                | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
+                | SemanticNodeKind.MapRemove _
+                | SemanticNodeKind.MapContainsKey _
+                | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _

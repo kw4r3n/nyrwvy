@@ -85,6 +85,7 @@ module AuthoringProtocol =
             match kind with
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
             | "product" | "union" -> (array "fields" item).Length
+            | "map" -> 2 * (array "entries" item).Length
             | "result" -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
             | "fakeCapability" ->
@@ -106,6 +107,16 @@ module AuthoringProtocol =
             let items = array "items" item
             if items.Length > 4096 then fail "Lists may contain at most 4096 items."
             PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
+        | "map" ->
+            ensureFields "Map run value" [ "kind"; "keyType"; "valueType"; "entries" ] [ "kind"; "keyType"; "valueType"; "entries" ] item
+            let entries = array "entries" item
+            if entries.Length > 4096 then fail "Maps may contain at most 4096 entries."
+            let parsed =
+                entries |> List.map (fun entry ->
+                    ensureFields "Map run value entry" [ "key"; "value" ] [ "key"; "value" ] entry
+                    pureValueAt names remaining (depth + 1) (property "key" entry), pureValueAt names remaining (depth + 1) (property "value" entry))
+            if (parsed |> List.map fst |> List.distinct).Length <> parsed.Length then fail "A Map run value names a key more than once."
+            PureRunValue.MapValue(typeRef (property "keyType" item), typeRef (property "valueType" item), parsed)
         | "option" when tryProperty "itemType" item |> Option.isSome ->
             let hasValue = requiredBool "hasValue" item
             let fields = [ "kind"; "itemType"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
@@ -402,6 +413,9 @@ module AuthoringProtocol =
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]
+        | PureRunValue.MapValue(keyType, valueType, entries) ->
+            objectValue [ "kind", box "map"; "keyType", WireEncodeCommon.typeRef keyType; "valueType", WireEncodeCommon.typeRef valueType
+                          "entries", entries |> List.map (fun (key, value) -> objectValue [ "key", encodePureValue key; "value", encodePureValue value ]) |> arrayValue ]
         | PureRunValue.OptionValue(itemType, item) ->
             objectValue
                 ([ "kind", box "option"; "itemType", WireEncodeCommon.typeRef itemType; "hasValue", box (Option.isSome item) ]

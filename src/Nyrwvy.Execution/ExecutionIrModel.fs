@@ -166,12 +166,20 @@ type ExecutionInstructionKind =
     | Bits32ShiftRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | Bits32ShiftLeft of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | ListEmpty
+    | MapEmpty
     | ListConstruct of ExecutionValueId list
     | ListLength of listValueId: ExecutionValueId
+    | MapValues of mapValueId: ExecutionValueId
+    | MapKeys of mapValueId: ExecutionValueId
+    | MapSize of mapValueId: ExecutionValueId
     | ListReverse of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
+    | MapRemove of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
+    | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
+    | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
+    | MapInsert of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * valueValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -344,12 +352,20 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Bits32ShiftRight _
         | ExecutionInstructionKind.Bits32ShiftLeft _
         | ExecutionInstructionKind.ListEmpty
+        | ExecutionInstructionKind.MapEmpty
         | ExecutionInstructionKind.ListConstruct _
         | ExecutionInstructionKind.ListLength _
+        | ExecutionInstructionKind.MapValues _
+        | ExecutionInstructionKind.MapKeys _
+        | ExecutionInstructionKind.MapSize _
         | ExecutionInstructionKind.ListReverse _
         | ExecutionInstructionKind.ListAppendItem _
         | ExecutionInstructionKind.ListItemAt _
+        | ExecutionInstructionKind.MapRemove _
+        | ExecutionInstructionKind.MapContainsKey _
+        | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.ListSlice _
+        | ExecutionInstructionKind.MapInsert _
         | ExecutionInstructionKind.ListConcat _
         | ExecutionInstructionKind.FunctionInvoke _
         | ExecutionInstructionKind.ProductConstruct _

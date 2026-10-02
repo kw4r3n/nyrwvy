@@ -101,12 +101,20 @@ type ExpressionRecipe =
     | Bits32ShiftRight of value: ExpressionRecipe * amount: ExpressionRecipe
     | Bits32ShiftLeft of value: ExpressionRecipe * amount: ExpressionRecipe
     | ListEmpty of itemType: TypeRef
+    | MapEmpty of keyType: TypeRef * valueType: TypeRef
     | ListConstruct of itemType: TypeRef * items: ExpressionRecipe list
     | ListLength of ExpressionRecipe
+    | MapValues of ExpressionRecipe
+    | MapKeys of ExpressionRecipe
+    | MapSize of ExpressionRecipe
     | ListReverse of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
     | ListItemAt of list: ExpressionRecipe * index: ExpressionRecipe
+    | MapRemove of map: ExpressionRecipe * key: ExpressionRecipe
+    | MapContainsKey of map: ExpressionRecipe * key: ExpressionRecipe
+    | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
+    | MapInsert of map: ExpressionRecipe * key: ExpressionRecipe * ``end``: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -280,12 +288,20 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Bits32ShiftRight(left, right) -> ExpressionRecipe.Bits32ShiftRight(go left, go right)
         | ExpressionRecipe.Bits32ShiftLeft(left, right) -> ExpressionRecipe.Bits32ShiftLeft(go left, go right)
         | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
+        | ExpressionRecipe.MapEmpty(keyType, valueType) -> ExpressionRecipe.MapEmpty(mapType keyType, mapType valueType)
         | ExpressionRecipe.ListConstruct(itemType, items) -> ExpressionRecipe.ListConstruct(mapType itemType, List.map go items)
         | ExpressionRecipe.ListLength value -> ExpressionRecipe.ListLength(go value)
+        | ExpressionRecipe.MapValues value -> ExpressionRecipe.MapValues(go value)
+        | ExpressionRecipe.MapKeys value -> ExpressionRecipe.MapKeys(go value)
+        | ExpressionRecipe.MapSize value -> ExpressionRecipe.MapSize(go value)
         | ExpressionRecipe.ListReverse value -> ExpressionRecipe.ListReverse(go value)
         | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
         | ExpressionRecipe.ListItemAt(list, index) -> ExpressionRecipe.ListItemAt(go list, go index)
+        | ExpressionRecipe.MapRemove(map, key) -> ExpressionRecipe.MapRemove(go map, go key)
+        | ExpressionRecipe.MapContainsKey(map, key) -> ExpressionRecipe.MapContainsKey(go map, go key)
+        | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
+        | ExpressionRecipe.MapInsert(map, key, value) -> ExpressionRecipe.MapInsert(go map, go key, go value)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -452,6 +468,13 @@ module AgentExpressionStructuralWorkflow =
                 |> List.sortBy (fun (armVariants: SemanticVariant list, _, _) -> variantIndex armVariants.Head.Id)
             )
 
+    let private mapOf keyType valueType = TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])
+
+    let private mapEntryTypes typeRef =
+        match typeRef with
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) -> Some(keyType, valueType)
+        | _ -> None
+
     let private listItemType typeRef =
         match typeRef with
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some itemType
@@ -468,6 +491,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64Literal _
         | ExpressionRecipe.Float64Literal _
         | ExpressionRecipe.ListEmpty _
+        | ExpressionRecipe.MapEmpty _
         | ExpressionRecipe.OptionNone _ -> Seq.empty
         | ExpressionRecipe.StringIsEmpty child
         | ExpressionRecipe.Int64ToString child
@@ -502,6 +526,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Bits32ToInt64 child
         | ExpressionRecipe.Bits32Not child
         | ExpressionRecipe.ListLength child
+        | ExpressionRecipe.MapValues child
+        | ExpressionRecipe.MapKeys child
+        | ExpressionRecipe.MapSize child
         | ExpressionRecipe.ListReverse child
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
@@ -513,6 +540,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
+        | ExpressionRecipe.MapInsert(map, key, value) -> seq { map; key; value }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
         | ExpressionRecipe.StringStartsWith(left, right)
@@ -560,6 +588,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Bits32ShiftLeft(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListItemAt(left, right)
+        | ExpressionRecipe.MapRemove(left, right)
+        | ExpressionRecipe.MapContainsKey(left, right)
+        | ExpressionRecipe.MapGet(left, right)
         | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
@@ -730,7 +761,8 @@ module AgentExpressionStructuralWorkflow =
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
                     | BuiltinGenericType.Task -> 1
-                    | BuiltinGenericType.Result -> 2
+                    | BuiltinGenericType.Result
+                    | BuiltinGenericType.Map -> 2
 
                 if List.length arguments <> expectedArity then
                     Error(invalid $"Builtin generic type '{kind}' requires {expectedArity} type argument(s).")
@@ -909,6 +941,16 @@ module AgentExpressionStructuralWorkflow =
             diagnostic
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires List<T>, but the recipe produces {ty actual}."
+
+        let mapMismatch role side actual =
+            diagnostic
+                "PureExpressionOperandTypeMismatch"
+                $"{role} {side} operand requires Map<K, V>, but the recipe produces {ty actual}."
+
+        let mapKeyNotEquatable keyType =
+            diagnostic
+                "MapKeyTypeNotEquatable"
+                $"MapEmpty key type is not equatable: {EquatableTypes.explain snapshot.Types keyType}"
 
         /// The first of `effects` that the owner does not declare.
         let missingEffect effects =
@@ -1382,6 +1424,12 @@ module AgentExpressionStructuralWorkflow =
                 match validateTypeRef index itemType with
                 | Error error -> Error error
                 | Ok() -> Ok(listType itemType)
+            | ExpressionRecipe.MapEmpty(keyType, valueType) ->
+                let mapType = mapOf keyType valueType
+                match validateTypeRef index keyType |> Result.bind (fun () -> validateTypeRef index valueType) with
+                | Error error -> Error error
+                | Ok() when not (EquatableTypes.isEquatable snapshot.Types keyType) -> Error(mapKeyNotEquatable keyType)
+                | Ok() -> Ok mapType
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 match validateTypeRef index itemType with
                 | Error error -> Error error
@@ -1401,6 +1449,27 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType actual with
                     | Some _ -> Ok int64Type
                     | None -> Error(listMismatch "ListLength" "value" actual)
+            | ExpressionRecipe.MapValues map ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok actual ->
+                    match mapEntryTypes actual with
+                    | Some(_, valueType) -> Ok(listType valueType)
+                    | None -> Error(mapMismatch "MapValues" "value" actual)
+            | ExpressionRecipe.MapKeys map ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok actual ->
+                    match mapEntryTypes actual with
+                    | Some(keyType, _) -> Ok(listType keyType)
+                    | None -> Error(mapMismatch "MapKeys" "value" actual)
+            | ExpressionRecipe.MapSize map ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok actual ->
+                    match mapEntryTypes actual with
+                    | Some _ -> Ok int64Type
+                    | None -> Error(mapMismatch "MapSize" "value" actual)
             | ExpressionRecipe.ListReverse list ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1415,6 +1484,27 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType listResultType with
                     | None -> Error(listMismatch "ListItemAt" "list" listResultType)
                     | Some itemType -> operands "ListItemAt" (optionType itemType) [ "index", int64Type, index ]
+            | ExpressionRecipe.MapRemove(map, key) ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok mapResultType ->
+                    match mapEntryTypes mapResultType with
+                    | None -> Error(mapMismatch "MapRemove" "map" mapResultType)
+                    | Some(keyType, _) -> operands "MapRemove" mapResultType [ "key", keyType, key ]
+            | ExpressionRecipe.MapContainsKey(map, key) ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok mapResultType ->
+                    match mapEntryTypes mapResultType with
+                    | None -> Error(mapMismatch "MapContainsKey" "map" mapResultType)
+                    | Some(keyType, _) -> operands "MapContainsKey" boolType [ "key", keyType, key ]
+            | ExpressionRecipe.MapGet(map, key) ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok mapResultType ->
+                    match mapEntryTypes mapResultType with
+                    | None -> Error(mapMismatch "MapGet" "map" mapResultType)
+                    | Some(keyType, valueType) -> operands "MapGet" (optionType valueType) [ "key", keyType, key ]
             | ExpressionRecipe.ListSlice(list, start, stop) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1423,6 +1513,14 @@ module AgentExpressionStructuralWorkflow =
                     | None -> Error(listMismatch "ListSlice" "list" listResultType)
                     | Some _ ->
                         operands "ListSlice" listResultType [ "start", int64Type, start; "end", int64Type, stop ]
+            | ExpressionRecipe.MapInsert(map, key, value) ->
+                match infer frames map with
+                | Error error -> Error error
+                | Ok mapResultType ->
+                    match mapEntryTypes mapResultType with
+                    | None -> Error(mapMismatch "MapInsert" "map" mapResultType)
+                    | Some(keyType, valueType) ->
+                        operands "MapInsert" mapResultType [ "key", keyType, key; "value", valueType, value ]
             | ExpressionRecipe.ListAppendItem(list, item) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -2203,14 +2301,23 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListEmpty itemType ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ListEmpty itemType } ], nodeId
+        | ExpressionRecipe.MapEmpty(keyType, valueType) ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.MapEmpty(keyType, valueType) } ], nodeId
         | ExpressionRecipe.ListConstruct(itemType, items) ->
             let itemNodes, itemResults = many items
             let nodeId = StableIdAllocator.newGraphNodeId ()
             itemNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListConstruct(itemType, itemResults) } ], nodeId
         | ExpressionRecipe.ListLength list -> unary SemanticNodeKind.ListLength list
+        | ExpressionRecipe.MapValues map -> unary SemanticNodeKind.MapValues map
+        | ExpressionRecipe.MapKeys map -> unary SemanticNodeKind.MapKeys map
+        | ExpressionRecipe.MapSize map -> unary SemanticNodeKind.MapSize map
         | ExpressionRecipe.ListReverse list -> unary SemanticNodeKind.ListReverse list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
         | ExpressionRecipe.ListItemAt(list, index) -> binary SemanticNodeKind.ListItemAt list index
+        | ExpressionRecipe.MapRemove(map, key) -> binary SemanticNodeKind.MapRemove map key
+        | ExpressionRecipe.MapContainsKey(map, key) -> binary SemanticNodeKind.MapContainsKey map key
+        | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.ListSlice(list, start, stop) ->
             let listNodes, listResult = materializeRecipe list
             let startNodes, startResult = materializeRecipe start
@@ -2218,6 +2325,14 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             listNodes @ startNodes @ stopNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSlice(listResult, startResult, stopResult) } ],
+            nodeId
+        | ExpressionRecipe.MapInsert(map, key, value) ->
+            let listNodes, listResult = materializeRecipe map
+            let startNodes, startResult = materializeRecipe key
+            let stopNodes, stopResult = materializeRecipe value
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ startNodes @ stopNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.MapInsert(listResult, startResult, stopResult) } ],
             nodeId
         | ExpressionRecipe.ListConcat(left, right) -> binary SemanticNodeKind.ListConcat left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->

@@ -108,6 +108,9 @@ ExpressionRecipe =
   | ListSlice(list, start, end)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
+  | MapEmpty(keyType, valueType)
+  | MapInsert(map, key, value) | MapGet(map, key) | MapContainsKey(map, key) | MapRemove(map, key)
+  | MapSize(map) | MapKeys(map) | MapValues(map)
   | ListFold(source, seed, folderFunctionId, context)
   | ListEffectFold(source, seed, folderFunctionId, context)
   | ParallelAll(source, workerFunctionId, context)
@@ -339,6 +342,12 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 **Effectful iteration.** `ListEffectFold(source, seed, folderFunctionId, context)` is the separate construct for effectful traversal. The folder takes `(accumulator, item)` over its parameters not bound by context, may use effects, and every effect it requires must already be declared by the enclosing function (`ExpressionCallMissingEffectRequirement` / `MissingEffectRequirement`). Capabilities reach it as context arguments. It runs the folder exactly once per item, left to right, in the enclosing effect order. It has two modes, chosen by types: a folder returning the seed type `S` yields `S`; a folder returning `Result<S, E>` for seed `S` yields `Result<S, E>`, stops at the first `Err`, returns it, and calls the folder (and so performs its effects) for no later item. An empty source yields the seed (or `Ok seed`). The node is effectful for execution effect-ordering exactly when its folder declares effects.
 
 **Folds that stop at the first Err.** The folder of `ListEffectFold` may also be pure. With a pure folder returning `Result<S, E>` for seed `S`, the node is the short-circuiting pure fold: it needs no declared effect, the enclosing function stays pure (it can be run with `runPure` and used as a pure callback), and it yields `Result<S, E>` without a `Result` accumulator in the seed or a pass-through `Err` arm in the folder. It calls the folder for no item after the first `Err`, and the generated loop ends there without visiting the remaining items. `ListFold` keeps requiring a folder that returns the seed type; a folder returning `Result<S, E>` for seed `S` is rejected with a message that names `ListEffectFold` ([decision](../decisions/result-fold-short-circuit.md)). This does not prohibit an effectful source expression; its effects are checked before applying the existing pure-callback traversal contract.
+
+## Map
+
+`MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
+
+`runPure` takes and returns a map as `{"kind": "map", "keyType", "valueType", "entries": [{"key", "value"}]}` in iteration order; an input that names a key twice is a `ProtocolError`, and a map holds at most 4,096 entries.
 
 ## Structured declaration bindings
 

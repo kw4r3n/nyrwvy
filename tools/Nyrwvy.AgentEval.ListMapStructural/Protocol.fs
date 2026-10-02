@@ -91,6 +91,7 @@ module private Encode =
     let private genericName = function
         | BuiltinGenericType.Option -> "Option"
         | BuiltinGenericType.Result -> "Result"
+        | BuiltinGenericType.Map -> "Map"
         | BuiltinGenericType.List -> "List"
         | BuiltinGenericType.Task -> "Task"
         | BuiltinGenericType.TaskScope -> "TaskScope"

@@ -69,6 +69,11 @@ module ExecutionIrCodec =
                 [ property "kind" (quote "result")
                   property "okType" (writeTypeRef okType)
                   property "errorType" (writeTypeRef errorType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+            objectValue
+                [ property "kind" (quote "map")
+                  property "keyType" (writeTypeRef keyType)
+                  property "valueType" (writeTypeRef valueType) ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             objectValue
                 [ property "kind" (quote "list")
@@ -86,6 +91,8 @@ module ExecutionIrCodec =
             invalidOp $"Execution IR contains Option with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Execution IR contains Result with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
+            invalidOp $"Execution IR contains Map with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"Execution IR contains List with {arguments.Length} type arguments."
 
@@ -432,6 +439,8 @@ module ExecutionIrCodec =
               property "amountValueId" (executionValueIdValue amountValueId) ]
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
+        | ExecutionInstructionKind.MapEmpty ->
+            [ property "kind" (quote "mapEmpty") ]
         | ExecutionInstructionKind.ListConstruct itemValueIds ->
             [ property "kind" (quote "listConstruct")
               // List item order is semantic. Do not sort.
@@ -439,6 +448,15 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.ListLength listValueId ->
             [ property "kind" (quote "listLength")
               property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.MapValues mapValueId ->
+            [ property "kind" (quote "mapValues")
+              property "mapValueId" (executionValueIdValue mapValueId) ]
+        | ExecutionInstructionKind.MapKeys mapValueId ->
+            [ property "kind" (quote "mapKeys")
+              property "mapValueId" (executionValueIdValue mapValueId) ]
+        | ExecutionInstructionKind.MapSize mapValueId ->
+            [ property "kind" (quote "mapSize")
+              property "mapValueId" (executionValueIdValue mapValueId) ]
         | ExecutionInstructionKind.ListReverse listValueId ->
             [ property "kind" (quote "listReverse")
               property "listValueId" (executionValueIdValue listValueId) ]
@@ -446,11 +464,28 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listItemAt")
               property "listValueId" (executionValueIdValue listValueId)
               property "indexValueId" (executionValueIdValue indexValueId) ]
+        | ExecutionInstructionKind.MapRemove(mapValueId, keyValueId) ->
+            [ property "kind" (quote "mapRemove")
+              property "mapValueId" (executionValueIdValue mapValueId)
+              property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
+            [ property "kind" (quote "mapContainsKey")
+              property "mapValueId" (executionValueIdValue mapValueId)
+              property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
+            [ property "kind" (quote "mapGet")
+              property "mapValueId" (executionValueIdValue mapValueId)
+              property "keyValueId" (executionValueIdValue keyValueId) ]
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
             [ property "kind" (quote "listSlice")
               property "listValueId" (executionValueIdValue listValueId)
               property "startId" (executionValueIdValue startId)
               property "endId" (executionValueIdValue endId) ]
+        | ExecutionInstructionKind.MapInsert(mapValueId, keyValueId, valueValueId) ->
+            [ property "kind" (quote "mapInsert")
+              property "mapValueId" (executionValueIdValue mapValueId)
+              property "keyValueId" (executionValueIdValue keyValueId)
+              property "valueValueId" (executionValueIdValue valueValueId) ]
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             [ property "kind" (quote "listAppendItem")
               property "listValueId" (executionValueIdValue listValueId)

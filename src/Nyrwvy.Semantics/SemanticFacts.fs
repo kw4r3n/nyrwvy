@@ -174,6 +174,8 @@ module SemanticFacts =
                     | SemanticNodeKind.StringSpanBack _
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
+                    | SemanticNodeKind.MapSize _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.Float64Round _
                     | SemanticNodeKind.Float64Add _
@@ -241,8 +243,35 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64IsFinite _
                     | SemanticNodeKind.Float64IsInfinite _
                     | SemanticNodeKind.ListAny _
-                    | SemanticNodeKind.ListAll _ ->
+                    | SemanticNodeKind.ListAll _
+                    | SemanticNodeKind.MapContainsKey _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.MapEmpty(keyType, valueType) ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
+                    | SemanticNodeKind.MapInsert(sourceMapNodeId, _, _)
+                    | SemanticNodeKind.MapRemove(sourceMapNodeId, _) ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; _ ]) as mapType) -> Some mapType
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.MapGet(sourceMapNodeId, _) ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ valueType ]))
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.MapKeys sourceMapNodeId ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; _ ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ keyType ]))
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.MapValues sourceMapNodeId ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ valueType ]))
+                        | Some _
+                        | None -> None
                     | SemanticNodeKind.ListEmpty itemType
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))

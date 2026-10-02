@@ -193,6 +193,7 @@ module SnapshotCodec =
                 match genericType with
                 | BuiltinGenericType.Option -> "option"
                 | BuiltinGenericType.Result -> "result"
+                | BuiltinGenericType.Map -> "map"
                 | BuiltinGenericType.List -> "list"
                 | BuiltinGenericType.Task -> "task"
                 | BuiltinGenericType.TaskScope -> "taskScope"
@@ -617,6 +618,12 @@ module SnapshotCodec =
             writer.WriteString("kind", "listEmpty")
             writer.WritePropertyName("itemType")
             writeTypeRef writer itemType
+        | SemanticNodeKind.MapEmpty(keyType, valueType) ->
+            writer.WriteString("kind", "mapEmpty")
+            writer.WritePropertyName("keyType")
+            writeTypeRef writer keyType
+            writer.WritePropertyName("valueType")
+            writeTypeRef writer valueType
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
             writer.WriteString("kind", "listConstruct")
             writer.WritePropertyName("itemType")
@@ -629,6 +636,15 @@ module SnapshotCodec =
         | SemanticNodeKind.ListLength listNodeId ->
             writer.WriteString("kind", "listLength")
             writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.MapValues mapNodeId ->
+            writer.WriteString("kind", "mapValues")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+        | SemanticNodeKind.MapKeys mapNodeId ->
+            writer.WriteString("kind", "mapKeys")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+        | SemanticNodeKind.MapSize mapNodeId ->
+            writer.WriteString("kind", "mapSize")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
         | SemanticNodeKind.ListReverse listNodeId ->
             writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -636,11 +652,28 @@ module SnapshotCodec =
             writer.WriteString("kind", "listItemAt")
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("indexNodeId", StableId.value indexNodeId)
+        | SemanticNodeKind.MapRemove(mapNodeId, keyNodeId) ->
+            writer.WriteString("kind", "mapRemove")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
+            writer.WriteString("kind", "mapContainsKey")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
+            writer.WriteString("kind", "mapGet")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
             writer.WriteString("kind", "listSlice")
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("startNodeId", StableId.value startNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
+            writer.WriteString("kind", "mapInsert")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             writer.WriteString("kind", "listAppendItem")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1060,6 +1093,7 @@ module SnapshotCodec =
                 match readString "generic" element with
                 | "option" -> BuiltinGenericType.Option
                 | "result" -> BuiltinGenericType.Result
+                | "map" -> BuiltinGenericType.Map
                 | "list" -> BuiltinGenericType.List
                 | "task" -> BuiltinGenericType.Task
                 | "taskScope" -> BuiltinGenericType.TaskScope
@@ -1479,6 +1513,9 @@ module SnapshotCodec =
             | "listEmpty" ->
                 ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))
+            | "mapEmpty" ->
+                ensureProperties "MapEmpty node" (set [ "id"; "kind"; "keyType"; "valueType" ]) (set [ "id"; "kind"; "keyType"; "valueType" ]) element
+                SemanticNodeKind.MapEmpty(readTypeRef (requireProperty "keyType" element), readTypeRef (requireProperty "valueType" element))
             | "listConstruct" ->
                 ensureProperties
                     "ListConstruct node"
@@ -1492,6 +1529,15 @@ module SnapshotCodec =
             | "listLength" ->
                 ensureProperties "ListLength node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
                 SemanticNodeKind.ListLength(readId<GraphNodeTag> "listNodeId" element)
+            | "mapValues" ->
+                ensureProperties "MapValues node" (set [ "id"; "kind"; "mapNodeId" ]) (set [ "id"; "kind"; "mapNodeId" ]) element
+                SemanticNodeKind.MapValues(readId<GraphNodeTag> "mapNodeId" element)
+            | "mapKeys" ->
+                ensureProperties "MapKeys node" (set [ "id"; "kind"; "mapNodeId" ]) (set [ "id"; "kind"; "mapNodeId" ]) element
+                SemanticNodeKind.MapKeys(readId<GraphNodeTag> "mapNodeId" element)
+            | "mapSize" ->
+                ensureProperties "MapSize node" (set [ "id"; "kind"; "mapNodeId" ]) (set [ "id"; "kind"; "mapNodeId" ]) element
+                SemanticNodeKind.MapSize(readId<GraphNodeTag> "mapNodeId" element)
             | "listReverse" ->
                 ensureProperties "ListReverse node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
                 SemanticNodeKind.ListReverse(readId<GraphNodeTag> "listNodeId" element)
@@ -1505,6 +1551,36 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "indexNodeId" element
                 )
+            | "mapRemove" ->
+                ensureProperties
+                    "MapRemove node"
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    element
+                SemanticNodeKind.MapRemove(
+                    readId<GraphNodeTag> "mapNodeId" element,
+                    readId<GraphNodeTag> "keyNodeId" element
+                )
+            | "mapContainsKey" ->
+                ensureProperties
+                    "MapContainsKey node"
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    element
+                SemanticNodeKind.MapContainsKey(
+                    readId<GraphNodeTag> "mapNodeId" element,
+                    readId<GraphNodeTag> "keyNodeId" element
+                )
+            | "mapGet" ->
+                ensureProperties
+                    "MapGet node"
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId" ])
+                    element
+                SemanticNodeKind.MapGet(
+                    readId<GraphNodeTag> "mapNodeId" element,
+                    readId<GraphNodeTag> "keyNodeId" element
+                )
             | "listSlice" ->
                 ensureProperties
                     "ListSlice node"
@@ -1515,6 +1591,17 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "startNodeId" element,
                     readId<GraphNodeTag> "endNodeId" element
+                )
+            | "mapInsert" ->
+                ensureProperties
+                    "MapInsert node"
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId"; "valueNodeId" ])
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId"; "valueNodeId" ])
+                    element
+                SemanticNodeKind.MapInsert(
+                    readId<GraphNodeTag> "mapNodeId" element,
+                    readId<GraphNodeTag> "keyNodeId" element,
+                    readId<GraphNodeTag> "valueNodeId" element
                 )
             | "stringJoin" ->
                 ensureProperties

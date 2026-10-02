@@ -186,10 +186,16 @@ module internal WireRecipe =
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef (property "itemType" element))
+        | "mapEmpty" ->
+            ensureFields "map-empty recipe" [ "kind"; "keyType"; "valueType" ] [ "kind"; "keyType"; "valueType" ] element
+            ExpressionRecipe.MapEmpty(typeRef (property "keyType" element), typeRef (property "valueType" element))
         | "listConstruct" ->
             ensureFields "list-construct recipe" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] element
             ExpressionRecipe.ListConstruct(typeRef (property "itemType" element), array "items" element |> List.map recipe)
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
+        | "mapValues" -> unary "map-values recipe" ExpressionRecipe.MapValues
+        | "mapKeys" -> unary "map-keys recipe" ExpressionRecipe.MapKeys
+        | "mapSize" -> unary "map-size recipe" ExpressionRecipe.MapSize
         | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
         | "listAppendItem" ->
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
@@ -198,9 +204,21 @@ module internal WireRecipe =
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))
+        | "mapRemove" ->
+            ensureFields "map-remove recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
+            ExpressionRecipe.MapRemove(recipe (property "map" element), recipe (property "key" element))
+        | "mapContainsKey" ->
+            ensureFields "map-contains-key recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
+            ExpressionRecipe.MapContainsKey(recipe (property "map" element), recipe (property "key" element))
+        | "mapGet" ->
+            ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
+            ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))
         | "listSlice" ->
             ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
             ExpressionRecipe.ListSlice(recipe (property "list" element), recipe (property "start" element), recipe (property "end" element))
+        | "mapInsert" ->
+            ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
+            ExpressionRecipe.MapInsert(recipe (property "map" element), recipe (property "key" element), recipe (property "value" element))
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())

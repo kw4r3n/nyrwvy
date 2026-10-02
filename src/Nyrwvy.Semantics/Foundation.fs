@@ -69,6 +69,9 @@ type BuiltinGenericType =
     | Task
     /// `TaskScope`: the opaque scope value a TaskScope body receives; takes no type arguments.
     | TaskScope
+    /// `Map<K, V>`: an immutable map from equatable keys (compared with ValueEqual) to values, visited
+    /// in the order keys were first inserted.
+    | Map
 
 [<RequireQualifiedAccess>]
 type TaskWaitMode =
@@ -392,17 +395,26 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Logical shift by the Int64 amount: amount <= 0 gives the value unchanged, amount >= 32 gives zero. Never fails.
     | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | ListEmpty of itemType: TypeRef
+    /// The empty Map<K, V>. Maps are immutable and visit entries in the order keys were first inserted.
+    | MapEmpty of keyType: TypeRef * valueType: TypeRef
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
+    | MapValues of mapNodeId: GraphNodeId
+    | MapKeys of mapNodeId: GraphNodeId
+    | MapSize of mapNodeId: GraphNodeId
     /// The items of the List<T> in reverse order, as Python list(reversed(list)). Never fails.
     | ListReverse of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// The items at zero-based Int64 positions [start, end), both bounds clamped to [0, length]
     /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
     /// empty list). Same List<T> type as the input; never fails.
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     /// List callbacks reference an existing pure function. `context` binds some of its parameters,
     /// by identity, to values evaluated once before iteration; the remaining parameters, in
@@ -704,6 +716,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.MapValues sourceMapNodeId -> [ sourceMapNodeId ]
+        | SemanticNodeKind.MapKeys sourceMapNodeId -> [ sourceMapNodeId ]
+        | SemanticNodeKind.MapSize sourceMapNodeId -> [ sourceMapNodeId ]
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
@@ -712,7 +727,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
+        | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
+        | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
+        | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
+        | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: contextValues context
@@ -758,6 +777,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
     /// The same node with every direct value reference replaced. Nested graphs, the node's own
@@ -773,6 +793,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.Int64Literal _
             | SemanticNodeKind.Float64Literal _
             | SemanticNodeKind.ListEmpty _
+            | SemanticNodeKind.MapEmpty _
             | SemanticNodeKind.OptionNone _
             | SemanticNodeKind.CancellationRequested
             | SemanticNodeKind.CapabilityConstruct _
@@ -899,13 +920,24 @@ module SemanticNodeShape =
             | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
                 SemanticNodeKind.ListConstruct(itemType, List.map mapNodeId itemNodeIds)
             | SemanticNodeKind.ListLength listNodeId -> SemanticNodeKind.ListLength(mapNodeId listNodeId)
+            | SemanticNodeKind.MapValues sourceMapNodeId -> SemanticNodeKind.MapValues(mapNodeId sourceMapNodeId)
+            | SemanticNodeKind.MapKeys sourceMapNodeId -> SemanticNodeKind.MapKeys(mapNodeId sourceMapNodeId)
+            | SemanticNodeKind.MapSize sourceMapNodeId -> SemanticNodeKind.MapSize(mapNodeId sourceMapNodeId)
             | SemanticNodeKind.ListReverse listNodeId -> SemanticNodeKind.ListReverse(mapNodeId listNodeId)
             | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                 SemanticNodeKind.ListAppendItem(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                 SemanticNodeKind.ListItemAt(mapNodeId listNodeId, mapNodeId indexNodeId)
+            | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) ->
+                SemanticNodeKind.MapRemove(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
+            | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) ->
+                SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
+            | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
+                SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.ListSlice(mapNodeId listNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
+            | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
+                SemanticNodeKind.MapInsert(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId valueNodeId)
             | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.ListConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ListFold(listNodeId, seedNodeId, functionId, context) ->
@@ -1084,12 +1116,20 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.MapValues _
+        | SemanticNodeKind.MapKeys _
+        | SemanticNodeKind.MapSize _
         | SemanticNodeKind.ListReverse _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.MapRemove _
+        | SemanticNodeKind.MapContainsKey _
+        | SemanticNodeKind.MapGet _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.ParallelAll _
@@ -1177,6 +1217,7 @@ module SemanticNodeShape =
     let private typeRefPayload (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): TypeRef list * SemanticNodeKind =
         match node.Kind with
         | SemanticNodeKind.ListEmpty itemType -> [ itemType ], SemanticNodeKind.ListEmpty(mapTypeRef itemType)
+        | SemanticNodeKind.MapEmpty(keyType, valueType) -> [ keyType; valueType ], SemanticNodeKind.MapEmpty(mapTypeRef keyType, mapTypeRef valueType)
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
             [ itemType ], SemanticNodeKind.ListConstruct(mapTypeRef itemType, itemNodeIds)
         | SemanticNodeKind.OptionNone itemType -> [ itemType ], SemanticNodeKind.OptionNone(mapTypeRef itemType)
@@ -1269,10 +1310,17 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
         | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.MapValues _
+        | SemanticNodeKind.MapKeys _
+        | SemanticNodeKind.MapSize _
         | SemanticNodeKind.ListReverse _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.MapRemove _
+        | SemanticNodeKind.MapContainsKey _
+        | SemanticNodeKind.MapGet _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.ParallelAll _
@@ -1430,12 +1478,20 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.MapValues _
+        | SemanticNodeKind.MapKeys _
+        | SemanticNodeKind.MapSize _
         | SemanticNodeKind.ListReverse _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.MapRemove _
+        | SemanticNodeKind.MapContainsKey _
+        | SemanticNodeKind.MapGet _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.TaskWait _
@@ -1567,12 +1623,20 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.ListConstruct _
         | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.MapValues _
+        | SemanticNodeKind.MapKeys _
+        | SemanticNodeKind.MapSize _
         | SemanticNodeKind.ListReverse _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.MapRemove _
+        | SemanticNodeKind.MapContainsKey _
+        | SemanticNodeKind.MapGet _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.ListEffectFold _
@@ -1753,7 +1817,7 @@ module EquatableTypes =
             | TypeRef.Function _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _
-            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> Some(List.rev path, typeRef)
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map), _) -> Some(List.rev path, typeRef)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
                 arguments |> List.tryPick (visit ("List item" :: path))
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -1794,6 +1858,7 @@ module EquatableTypes =
                 | TypeRef.Primitive PrimitiveType.Float64 -> "Float64 is not equatable because of NaN; compare with Float64Equal"
                 | TypeRef.Function _ -> "function values are not equatable"
                 | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "task handles and scopes are not equatable"
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, _) -> "maps are not equatable"
                 | TypeRef.Capability _ -> "capability values are not equatable"
                 | TypeRef.TypeParameter _ -> "a type parameter is not known to be equatable"
                 | _ -> "it is not equatable"

@@ -158,12 +158,20 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | ListEmpty
+    | MapEmpty
     | ListConstruct of itemNodeIds: GraphNodeId list
     | ListLength of listNodeId: GraphNodeId
+    | MapValues of mapNodeId: GraphNodeId
+    | MapKeys of mapNodeId: GraphNodeId
+    | MapSize of mapNodeId: GraphNodeId
     | ListReverse of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -317,12 +325,20 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Bits32ShiftRight _
         | TypedSemanticNodeKind.Bits32ShiftLeft _
         | TypedSemanticNodeKind.ListEmpty
+        | TypedSemanticNodeKind.MapEmpty
         | TypedSemanticNodeKind.ListConstruct _
         | TypedSemanticNodeKind.ListLength _
+        | TypedSemanticNodeKind.MapValues _
+        | TypedSemanticNodeKind.MapKeys _
+        | TypedSemanticNodeKind.MapSize _
         | TypedSemanticNodeKind.ListReverse _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListItemAt _
+        | TypedSemanticNodeKind.MapRemove _
+        | TypedSemanticNodeKind.MapContainsKey _
+        | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.ListSlice _
+        | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.ParallelAll _
@@ -366,6 +382,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64Literal _
         | TypedSemanticNodeKind.Float64Literal _
         | TypedSemanticNodeKind.ListEmpty
+        | TypedSemanticNodeKind.MapEmpty
         | TypedSemanticNodeKind.OptionNone -> []
         | TypedSemanticNodeKind.Int64ToString valueNodeId
         | TypedSemanticNodeKind.Int64ToHexString valueNodeId
@@ -448,6 +465,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.MapValues mapNodeId -> [ mapNodeId ]
+        | TypedSemanticNodeKind.MapKeys mapNodeId -> [ mapNodeId ]
+        | TypedSemanticNodeKind.MapSize mapNodeId -> [ mapNodeId ]
         | TypedSemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
@@ -470,7 +490,11 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
+        | TypedSemanticNodeKind.MapRemove(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
+        | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
+        | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
+        | TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) -> [ mapNodeId; keyNodeId; valueNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
         | TypedSemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
@@ -749,18 +773,34 @@ module TypedSemanticIr =
                     | SemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId))
                     | SemanticNodeKind.ListEmpty _ ->
                         Ok TypedSemanticNodeKind.ListEmpty
+                    | SemanticNodeKind.MapEmpty _ ->
+                        Ok TypedSemanticNodeKind.MapEmpty
                     | SemanticNodeKind.ListConstruct(_, itemNodeIds) ->
                         Ok(TypedSemanticNodeKind.ListConstruct itemNodeIds)
                     | SemanticNodeKind.ListLength listNodeId ->
                         Ok(TypedSemanticNodeKind.ListLength listNodeId)
+                    | SemanticNodeKind.MapValues mapNodeId ->
+                        Ok(TypedSemanticNodeKind.MapValues mapNodeId)
+                    | SemanticNodeKind.MapKeys mapNodeId ->
+                        Ok(TypedSemanticNodeKind.MapKeys mapNodeId)
+                    | SemanticNodeKind.MapSize mapNodeId ->
+                        Ok(TypedSemanticNodeKind.MapSize mapNodeId)
                     | SemanticNodeKind.ListReverse listNodeId ->
                         Ok(TypedSemanticNodeKind.ListReverse listNodeId)
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                         Ok(TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId))
+                    | SemanticNodeKind.MapRemove(mapNodeId, keyNodeId) ->
+                        Ok(TypedSemanticNodeKind.MapRemove(mapNodeId, keyNodeId))
+                    | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
+                        Ok(TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId))
+                    | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
+                        Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                         Ok(TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId))
+                    | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
+                        Ok(TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->

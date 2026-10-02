@@ -135,13 +135,22 @@ module internal WireGraph =
         | SemanticNodeKind.Bits32ShiftRight(value, amount) -> tagged "bits32ShiftRight" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
         | SemanticNodeKind.Bits32ShiftLeft(value, amount) -> tagged "bits32ShiftLeft" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
         | SemanticNodeKind.ListEmpty itemType -> tagged "listEmpty" [ "itemType", typeRef itemType ]
+        | SemanticNodeKind.MapEmpty(keyType, valueType) -> tagged "mapEmpty" [ "keyType", typeRef keyType; "valueType", typeRef valueType ]
         | SemanticNodeKind.ListConstruct(itemType, items) -> tagged "listConstruct" [ "itemType", typeRef itemType; "itemNodeIds", identities items ]
         | SemanticNodeKind.ListLength value -> unary "listLength" value
+        | SemanticNodeKind.MapValues value -> unary "mapValues" value
+        | SemanticNodeKind.MapKeys value -> unary "mapKeys" value
+        | SemanticNodeKind.MapSize value -> unary "mapSize" value
         | SemanticNodeKind.ListReverse value -> unary "listReverse" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListItemAt(list, index) -> tagged "listItemAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
+        | SemanticNodeKind.MapRemove(map, key) -> tagged "mapRemove" [ "mapNodeId", identity map; "keyNodeId", identity key ]
+        | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
+        | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->
             tagged "listSlice" [ "listNodeId", identity list; "startNodeId", identity start; "endNodeId", identity stop ]
+        | SemanticNodeKind.MapInsert(map, key, value) ->
+            tagged "mapInsert" [ "mapNodeId", identity map; "keyNodeId", identity key; "valueNodeId", identity value ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
         | SemanticNodeKind.ListFold(source, seed, folder, bindings) ->
             tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
