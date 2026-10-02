@@ -1014,10 +1014,9 @@ module PureRun =
                     CSharpBackend.emit program profile
                     |> Result.mapError AuthoringSessionError.BackendFailure
                     |> Result.map (fun artifact -> program, artifact))
-            match emitted, session.Status() with
-            | Error error, _
-            | _, Error error -> Error(PureRunError.SessionFailure error)
-            | Ok(program, _), Ok _ when
+            match emitted with
+            | Error error -> Error(PureRunError.SessionFailure error)
+            | Ok(program, _) when
                 not (CSharpBackend.usesConcurrencyRuntime program)
                 && arguments |> List.exists (function
                     | PureRunValue.FakeCapability(_, operations) ->
@@ -1028,7 +1027,8 @@ module PureRun =
                                 | _ -> false))
                     | _ -> false) ->
                 Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
-            | Ok(program, artifact), Ok status ->
+            | Ok(program, artifact) ->
+                let snapshotId = session.SnapshotId
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
                     try
@@ -1346,7 +1346,7 @@ module PureRun =
                             + "(for text, over StringCodePoints) instead of recursing once per item."
                         let runtimeFailure exceptionType message frameNames exhausted calls =
                             PureRunError.RuntimeFailure
-                                { SnapshotId = status.SnapshotId
+                                { SnapshotId = snapshotId
                                   FunctionId = fn.Id
                                   ExceptionType = exceptionType
                                   Message = message
@@ -1377,7 +1377,7 @@ module PureRun =
                                 Error(runtimeFailure "System.StackOverflowException" stackOverflowMessage names false [])
                             else Error(processFailure output errors))
                         |> Result.map (fun (actual, calls) ->
-                            { SnapshotId = status.SnapshotId
+                            { SnapshotId = snapshotId
                               FunctionId = fn.Id
                               Actual = actual
                               Expected = expected
