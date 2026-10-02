@@ -17,6 +17,62 @@ module internal StructuralTransactionInternals =
     let rejected code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
+    /// Checks a type reference in a declaration (monomorphic, so no type parameters) against the
+    /// known type and capability IDs. Diagnostic codes are `codePrefix` plus the failure name.
+    let validateDeclaredTypeRef
+        (codePrefix: string)
+        (typeIds: Set<TypeId>)
+        (capabilityIds: Set<CapabilityId>)
+        (context: string)
+        (typeRef: TypeRef)
+        =
+        let rec validate current =
+            match current with
+            | TypeRef.Primitive _ -> Ok()
+            | TypeRef.TypeParameter _ ->
+                Error(diagnostic $"{codePrefix}TypeParameterNotAllowed" $"{context} cannot use a function type parameter; declared types are monomorphic.")
+            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
+            | TypeRef.Named typeId ->
+                Error(
+                    diagnostic
+                        $"{codePrefix}UnknownNamedType"
+                        $"{context} references unknown type '{StableId.value typeId}'."
+                )
+            | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
+            | TypeRef.Capability capabilityId ->
+                Error(
+                    diagnostic
+                        $"{codePrefix}UnknownCapabilityType"
+                        $"{context} references unknown capability '{StableId.value capabilityId}'."
+                )
+            | TypeRef.Function(arguments, result) ->
+                (arguments @ [ result ]) |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
+            | TypeRef.BuiltinGeneric(kind, arguments) ->
+                let expectedArity =
+                    match kind with
+                    | BuiltinGenericType.TaskScope -> 0
+                    | BuiltinGenericType.Option
+                    | BuiltinGenericType.List
+                    | BuiltinGenericType.Task -> 1
+                    | BuiltinGenericType.Result -> 2
+
+                if List.length arguments <> expectedArity then
+                    Error(
+                        diagnostic
+                            $"{codePrefix}BuiltinGenericArityMismatch"
+                            $"{context} uses {kind} with {arguments.Length} type arguments; exactly {expectedArity} required."
+                    )
+                else
+                    let rec loop = function
+                        | [] -> Ok()
+                        | argument :: rest ->
+                            match validate argument with
+                            | Error error -> Error error
+                            | Ok() -> loop rest
+                    loop arguments
+
+        validate typeRef
+
     type RecipeBounds = { MaxDepth: int; MaxNodes: int }
 
     /// The frozen Milestone 2 bounded Float64 replacement contract.

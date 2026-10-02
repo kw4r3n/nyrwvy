@@ -890,20 +890,10 @@ module AgentParameterTypeMigrationWorkflow =
         (AgentParameterTypeMigrationProposal proposal)
         policy
         =
-        match
-            publishReviewedWithPolicy
-                workspace
-                proposal.TransactionId
-                proposal.ProposedSnapshot
-                (List.head
-                    proposal.Review.ResultingChange.BodyRewrites)
-                proposal.Review.Readiness
-                proposal.Review.Receipt
-                policy
-        with
-        | AgentStructuralCommitResult.Rejected diagnostics ->
+        match publishCandidateWithPolicy workspace proposal.ProposedSnapshot proposal.Review.Readiness proposal.Review.Receipt policy with
+        | Error diagnostics ->
             AgentParameterTypeMigrationCommitResult.Rejected diagnostics
-        | AgentStructuralCommitResult.Committed(nextWorkspace, _) ->
+        | Ok nextWorkspace ->
             AgentParameterTypeMigrationCommitResult.Committed(
                 nextWorkspace,
                 { TransactionId = proposal.TransactionId
@@ -977,18 +967,9 @@ module AgentResultTypeMigrationWorkflow =
                                   BodyRewrites = simulated.BodyRewrites } } }))
 
     let commitWithPolicy workspace (AgentResultTypeMigrationProposal proposal) policy =
-        match
-            publishReviewedWithPolicy
-                workspace
-                proposal.TransactionId
-                proposal.ProposedSnapshot
-                (List.head proposal.Review.ResultingChange.BodyRewrites)
-                proposal.Review.Readiness
-                proposal.Review.Receipt
-                policy
-        with
-        | AgentStructuralCommitResult.Rejected diagnostics -> AgentResultTypeMigrationCommitResult.Rejected diagnostics
-        | AgentStructuralCommitResult.Committed(nextWorkspace, _) ->
+        match publishCandidateWithPolicy workspace proposal.ProposedSnapshot proposal.Review.Readiness proposal.Review.Receipt policy with
+        | Error diagnostics -> AgentResultTypeMigrationCommitResult.Rejected diagnostics
+        | Ok nextWorkspace ->
             AgentResultTypeMigrationCommitResult.Committed(
                 nextWorkspace,
                 { TransactionId = proposal.TransactionId

@@ -68,59 +68,8 @@ module AgentCapabilityDeclarationWorkflow =
         issues
         |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
 
-    let private validateTypeRef (snapshot: Snapshot) (context: string) (typeRef: TypeRef) =
-        let typeIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList
-        let capabilityIds = snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
-
-        let rec validate current =
-            match current with
-            | TypeRef.Primitive _ -> Ok()
-            | TypeRef.TypeParameter _ ->
-                Error(diagnostic "CapabilityDeclarationTypeParameterNotAllowed" $"{context} cannot use a function type parameter; declared types are monomorphic.")
-            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
-            | TypeRef.Named typeId ->
-                Error(
-                    diagnostic
-                        "CapabilityDeclarationUnknownNamedType"
-                        $"{context} references unknown type '{StableId.value typeId}'."
-                )
-            | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
-            | TypeRef.Capability capabilityId ->
-                Error(
-                    diagnostic
-                        "CapabilityDeclarationUnknownCapabilityType"
-                        $"{context} references unknown capability '{StableId.value capabilityId}'."
-                )
-            | TypeRef.Function(arguments, result) ->
-                (arguments @ [ result ]) |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
-            | TypeRef.BuiltinGeneric(kind, arguments) ->
-                let expectedArity =
-                    match kind with
-                    | BuiltinGenericType.TaskScope -> 0
-                    | BuiltinGenericType.Option
-                    | BuiltinGenericType.List
-                    | BuiltinGenericType.Task -> 1
-                    | BuiltinGenericType.Result -> 2
-
-                if List.length arguments <> expectedArity then
-                    Error(
-                        diagnostic
-                            "CapabilityDeclarationBuiltinGenericArityMismatch"
-                            $"{context} uses {kind} with {arguments.Length} type arguments; exactly {expectedArity} required."
-                    )
-                else
-                    let rec loop = function
-                        | [] -> Ok()
-                        | argument :: rest ->
-                            match validate argument with
-                            | Error error -> Error error
-                            | Ok() -> loop rest
-                    loop arguments
-
-        validate typeRef
-
     let private validateParameters
-        (snapshot: Snapshot)
+        validateTypeRef
         operationIndex
         (parameters: AgentCapabilityParameterIntent list)
         =
@@ -136,7 +85,6 @@ module AgentCapabilityDeclarationWorkflow =
             | parameter :: rest ->
                 match
                     validateTypeRef
-                        snapshot
                         $"Operation at index {operationIndex} parameter at index {index}"
                         parameter.Type
                 with
@@ -149,6 +97,11 @@ module AgentCapabilityDeclarationWorkflow =
         (request: AgentCreateCapabilityDeclarationRequest)
         =
         let effectIds = snapshot.Effects |> List.map (fun item -> item.Id) |> Set.ofList
+        let validateTypeRef =
+            StructuralTransactionInternals.validateDeclaredTypeRef
+                "CapabilityDeclaration"
+                (snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
+                (snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
 
         if request.ExpectedBaseSnapshotId <> snapshot.Id then
             Error(
@@ -185,12 +138,11 @@ module AgentCapabilityDeclarationWorkflow =
                             $"Capability operation at index {index} references unknown effect '{StableId.value operation.EffectId}'."
                     )
                 | operation :: rest ->
-                    match validateParameters snapshot index operation.Parameters with
+                    match validateParameters validateTypeRef index operation.Parameters with
                     | Error error -> Error error
                     | Ok() ->
                         match
                             validateTypeRef
-                                snapshot
                                 $"Capability operation at index {index} result"
                                 operation.ResultType
                         with
@@ -200,7 +152,6 @@ module AgentCapabilityDeclarationWorkflow =
                             | Some failureType ->
                                 match
                                     validateTypeRef
-                                        snapshot
                                         $"Capability operation at index {index} failure"
                                         failureType
                                 with
