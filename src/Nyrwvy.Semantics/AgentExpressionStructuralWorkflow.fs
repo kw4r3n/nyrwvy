@@ -623,9 +623,46 @@ module AgentExpressionStructuralWorkflow =
             | None -> error
         | _ -> error
 
-    let private validateTypeRef (snapshot: Snapshot) typeRef =
-        let typeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
-        let capabilityIds = snapshot.Capabilities |> List.map (fun capability -> capability.Id) |> Set.ofList
+    /// Snapshot lookups built once per simulate or preflight and shared by inference and materialization.
+    type private SnapshotIndex =
+        { Snapshot: Snapshot
+          FunctionsById: Map<FunctionId, SemanticFunction>
+          TypesById: Map<TypeId, SemanticType>
+          CapabilityOperationsById: Map<CapabilityOperationId, CapabilityId * SemanticCapabilityOperation>
+          VariantsById: Map<VariantId, TypeId * SemanticVariant>
+          ProductFieldsById: Map<FieldId, TypeId * SemanticField>
+          TypeIds: Set<TypeId>
+          CapabilityIds: Set<CapabilityId> }
+
+    let private buildSnapshotIndex (snapshot: Snapshot) =
+        { Snapshot = snapshot
+          FunctionsById = snapshot.Functions |> List.map (fun functionEntity -> functionEntity.Id, functionEntity) |> Map.ofList
+          TypesById = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id, typeEntity) |> Map.ofList
+          CapabilityOperationsById =
+            snapshot.Capabilities
+            |> List.collect (fun capability ->
+                capability.Operations |> List.map (fun operation -> operation.Id, (capability.Id, operation)))
+            |> Map.ofList
+          VariantsById =
+            snapshot.Types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product _ -> []
+                | SemanticTypeKind.Union variants -> variants |> List.map (fun variant -> variant.Id, (typeEntity.Id, variant)))
+            |> Map.ofList
+          ProductFieldsById =
+            snapshot.Types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> field.Id, (typeEntity.Id, field))
+                | SemanticTypeKind.Union _ -> [])
+            |> Map.ofList
+          TypeIds = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id) |> Set.ofList
+          CapabilityIds = snapshot.Capabilities |> List.map (fun capability -> capability.Id) |> Set.ofList }
+
+    let private validateTypeRef (index: SnapshotIndex) typeRef =
+        let typeIds = index.TypeIds
+        let capabilityIds = index.CapabilityIds
         let invalid message = diagnostic "PureExpressionInvalidTypeRef" message
 
         let rec validate typeRef =
@@ -773,33 +810,18 @@ module AgentExpressionStructuralWorkflow =
                     )
 
     let private inferTypeWithContext
-        (snapshot: Snapshot)
+        (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
         (initialFrames: PatternTypeFrame list)
         (rootLabel: string option)
         recipe
         =
-        let functionsById = snapshot.Functions |> List.map (fun functionEntity -> functionEntity.Id, functionEntity) |> Map.ofList
-        let typesById = snapshot.Types |> List.map (fun typeEntity -> typeEntity.Id, typeEntity) |> Map.ofList
-        let capabilityOperationsById =
-            snapshot.Capabilities
-            |> List.collect (fun capability ->
-                capability.Operations |> List.map (fun operation -> operation.Id, (capability.Id, operation)))
-            |> Map.ofList
-        let variantsById =
-            snapshot.Types
-            |> List.collect (fun typeEntity ->
-                match typeEntity.Kind with
-                | SemanticTypeKind.Product _ -> []
-                | SemanticTypeKind.Union variants -> variants |> List.map (fun variant -> variant.Id, (typeEntity.Id, variant)))
-            |> Map.ofList
-        let productFieldsById =
-            snapshot.Types
-            |> List.collect (fun typeEntity ->
-                match typeEntity.Kind with
-                | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> field.Id, (typeEntity.Id, field))
-                | SemanticTypeKind.Union _ -> [])
-            |> Map.ofList
+        let snapshot = index.Snapshot
+        let functionsById = index.FunctionsById
+        let typesById = index.TypesById
+        let capabilityOperationsById = index.CapabilityOperationsById
+        let variantsById = index.VariantsById
+        let productFieldsById = index.ProductFieldsById
 
         let ty = DiagnosticText.typeRef snapshot
         let callbackName = DiagnosticText.functionName
@@ -1266,11 +1288,11 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Bits32ShiftLeft(value, amount) ->
                 operands "Bits32ShiftLeft" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
             | ExpressionRecipe.ListEmpty itemType ->
-                match validateTypeRef snapshot itemType with
+                match validateTypeRef index itemType with
                 | Error error -> Error error
                 | Ok() -> Ok(listType itemType)
             | ExpressionRecipe.ListConstruct(itemType, items) ->
-                match validateTypeRef snapshot itemType with
+                match validateTypeRef index itemType with
                 | Error error -> Error error
                 | Ok() ->
                     let rec validateItems = function
@@ -1608,16 +1630,16 @@ module AgentExpressionStructuralWorkflow =
                 | Some(ownerTypeId, variant) ->
                     validateFieldBindings "UnionConstruct" variant.Fields fields |> Result.map (fun () -> TypeRef.Named ownerTypeId)
             | ExpressionRecipe.OptionNone itemType ->
-                match validateTypeRef snapshot itemType with
+                match validateTypeRef index itemType with
                 | Error error -> Error error
                 | Ok() -> Ok(optionType itemType)
             | ExpressionRecipe.OptionSome value -> infer frames value |> Result.map optionType
             | ExpressionRecipe.ResultOk(errorType, value) ->
-                match validateTypeRef snapshot errorType with
+                match validateTypeRef index errorType with
                 | Error error -> Error error
                 | Ok() -> infer frames value |> Result.map (fun okType -> resultType okType errorType)
             | ExpressionRecipe.ResultErr(okType, error) ->
-                match validateTypeRef snapshot okType with
+                match validateTypeRef index okType with
                 | Error error -> Error error
                 | Ok() -> infer frames error |> Result.map (resultType okType)
             | ExpressionRecipe.CapabilityConstruct(capabilityId, implementations) ->
@@ -1822,15 +1844,16 @@ module AgentExpressionStructuralWorkflow =
         | Error error -> Error(locate rootLabel recipe failure.Value error)
         | Ok completion -> Ok completion
 
-    let private inferTypeWithFrames rootLabel snapshot target initialFrames recipe =
-        inferTypeWithContext snapshot (ownerForExistingFunction target) initialFrames rootLabel recipe
+    let private inferTypeWithFrames rootLabel index target initialFrames recipe =
+        inferTypeWithContext index (ownerForExistingFunction target) initialFrames rootLabel recipe
 
-    let private inferType rootLabel snapshot target recipe = inferTypeWithFrames rootLabel snapshot target [] recipe
+    let private inferType rootLabel index target recipe = inferTypeWithFrames rootLabel index target [] recipe
 
     let private validatePreflight
         (request: AgentReplaceFunctionBodyWithExpressionRecipe)
-        (baseSnapshot: Snapshot)
+        (index: SnapshotIndex)
         : Result<SemanticFunction, TransactionDiagnostic> =
+        let baseSnapshot = index.Snapshot
         if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
             Error(diagnostic "StructuralExpectedBaseMismatch" "The structural request targets a different base snapshot.")
         else
@@ -1842,7 +1865,7 @@ module AgentExpressionStructuralWorkflow =
                 match validateRecipeBounds recipeChildren request.Replacement with
                 | Error error -> Error error
                 | Ok() ->
-                    match inferType (Some "replacement") baseSnapshot target request.Replacement with
+                    match inferType (Some "replacement") index target request.Replacement with
                     | Error error -> Error error
                     | Ok(GraphCompletion.Normal replacementType) when replacementType <> target.ResultType ->
                         Error(
@@ -1868,15 +1891,16 @@ module AgentExpressionStructuralWorkflow =
 
     /// Materialization is deterministic in shape/order with no caller-controlled IDs or CSE.
     let rec private materializeWithContext
-        (snapshot: Snapshot)
+        (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
         (frames: PatternBindingFrame list)
         recipe
         =
-        let materializeRecipe child = materializeWithContext snapshot owner frames child
+        let snapshot = index.Snapshot
+        let materializeRecipe child = materializeWithContext index owner frames child
 
         let materializeGraph childFrames body =
-            let nodes, resultNodeId = materializeWithContext snapshot owner childFrames body
+            let nodes, resultNodeId = materializeWithContext index owner childFrames body
             { Nodes = nodes
               ResultNodeId = resultNodeId }
 
@@ -1953,7 +1977,7 @@ module AgentExpressionStructuralWorkflow =
             loop operation.Parameters
 
         let inferHere child =
-            match inferTypeWithContext snapshot owner (bindingTypeFrames frames) None child with
+            match inferTypeWithContext index owner (bindingTypeFrames frames) None child with
             | Ok(GraphCompletion.Normal typeRef) -> typeRef
             | _ -> failwith "Expression recipe passed preflight but failed materialization type recovery."
 
@@ -2342,18 +2366,19 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchResult(inputResult, okArm, errArm) } ], nodeId
 
-    let private materialize snapshot target frames recipe =
-        materializeWithContext snapshot (ownerForExistingFunction target) frames recipe
+    let private materialize index target frames recipe =
+        materializeWithContext index (ownerForExistingFunction target) frames recipe
 
     /// Materializes a complete replacement body for an existing function against a candidate
     /// snapshot that a multi-function migration is still completing. The recipe is bound and
     /// type-checked against the candidate; the caller validates the final snapshot as a whole.
     let internal materializeReplacementBody (snapshot: Snapshot) (target: SemanticFunction) recipe
         : Result<ValueGraph, TransactionDiagnostic> =
+        let index = buildSnapshotIndex snapshot
         match validateRecipeBounds recipeChildren recipe with
         | Error error -> Error error
         | Ok() ->
-            match inferType None snapshot target recipe with
+            match inferType None index target recipe with
             | Error error -> Error error
             | Ok(GraphCompletion.Normal replacementType) when replacementType <> target.ResultType ->
                 Error(
@@ -2362,7 +2387,7 @@ module AgentExpressionStructuralWorkflow =
                         $"The replacement recipe produces {DiagnosticText.typeRef snapshot replacementType}, but the target function returns {DiagnosticText.typeRef snapshot target.ResultType}."
                 )
             | Ok _ ->
-                let nodes, resultNodeId = materialize snapshot target [] recipe
+                let nodes, resultNodeId = materialize index target [] recipe
                 Ok { Nodes = nodes; ResultNodeId = resultNodeId }
 
     let simulate
@@ -2374,10 +2399,11 @@ module AgentExpressionStructuralWorkflow =
         match SnapshotValidator.validate baseSnapshot with
         | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
         | [] ->
-            match validatePreflight request baseSnapshot with
+            let index = buildSnapshotIndex baseSnapshot
+            match validatePreflight request index with
             | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
             | Ok target ->
-                let newNodes, newResultId = materialize baseSnapshot target [] request.Replacement
+                let newNodes, newResultId = materialize index target [] request.Replacement
                 let replacementBody =
                     { Nodes = newNodes
                       ResultNodeId = newResultId }
@@ -2690,8 +2716,9 @@ module AgentExpressionStructuralWorkflow =
 
         let private validatePreflight
             (request: Request)
-            (baseSnapshot: Snapshot)
+            (index: SnapshotIndex)
             : Result<Preflight, TransactionDiagnostic> =
+            let baseSnapshot = index.Snapshot
             if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
                 Error(
                     diagnostic
@@ -2727,7 +2754,7 @@ module AgentExpressionStructuralWorkflow =
                             | Some targetType ->
                                 match
                                     inferTypeWithFrames (Some "replacement")
-                                        baseSnapshot
+                                        index
                                         target
                                         (bindingTypeFrames frames)
                                         request.Replacement
@@ -2784,13 +2811,13 @@ module AgentExpressionStructuralWorkflow =
                             Some(SemanticNodeShape.mapNestedGraphs (pruneNodes removedNodeIds) node)) }
 
         let private materializeReplacement
-            snapshot
+            index
             target
             frames
             targetNodeId
             recipe
             =
-            let nodes, generatedRootId = materialize snapshot target frames recipe
+            let nodes, generatedRootId = materialize index target frames recipe
             nodes
             |> List.map (fun node ->
                 if node.Id = generatedRootId then
@@ -2807,12 +2834,13 @@ module AgentExpressionStructuralWorkflow =
             match SnapshotValidator.validate baseSnapshot with
             | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
             | [] ->
-                match validatePreflight request baseSnapshot with
+                let index = buildSnapshotIndex baseSnapshot
+                match validatePreflight request index with
                 | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
                 | Ok preflight ->
                     let replacementNodes =
                         materializeReplacement
-                            baseSnapshot
+                            index
                             preflight.Target
                             preflight.Frames
                             request.TargetNodeId
@@ -3027,7 +3055,8 @@ module AgentExpressionStructuralWorkflow =
             | Rejected of TransactionDiagnostic list
             | Committed of AgentWorkspace * PublishedTransaction
 
-        let private validatePreflight (requireUniqueName: bool) (request: Request) (baseSnapshot: Snapshot) =
+        let private validatePreflight (requireUniqueName: bool) (request: Request) (index: SnapshotIndex) =
+            let baseSnapshot = index.Snapshot
             if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
                 Error(
                     diagnostic
@@ -3067,7 +3096,7 @@ module AgentExpressionStructuralWorkflow =
                     let rec validateTypes = function
                         | [] -> Ok()
                         | typeRef :: rest ->
-                            match validateTypeRef baseSnapshot typeRef with
+                            match validateTypeRef index typeRef with
                             | Error error -> Error error
                             | Ok() -> validateTypes rest
 
@@ -3122,7 +3151,7 @@ module AgentExpressionStructuralWorkflow =
                                 match validateRecipeBounds recipeChildren request.Body with
                                 | Error error -> Error error
                                 | Ok() ->
-                                    match inferTypeWithContext baseSnapshot owner [] (if requireUniqueName then Some "body" else None) request.Body with
+                                    match inferTypeWithContext index owner [] (if requireUniqueName then Some "body" else None) request.Body with
                                     | Error error -> Error error
                                     | Ok(GraphCompletion.Normal bodyType) when bodyType <> request.ResultType ->
                                         Error(
@@ -3164,7 +3193,8 @@ module AgentExpressionStructuralWorkflow =
             match SnapshotValidator.validate baseSnapshot with
             | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
             | [] ->
-                match validatePreflight requireUniqueName request baseSnapshot with
+                let index = buildSnapshotIndex baseSnapshot
+                match validatePreflight requireUniqueName request index with
                 | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
                 | Ok preflight ->
                     let functionId = StableIdAllocator.newFunctionId ()
@@ -3189,7 +3219,7 @@ module AgentExpressionStructuralWorkflow =
                             SelfParameters = slots }
                     let bodyNodes, bodyResultId =
                         materializeWithContext
-                            baseSnapshot
+                            index
                             materializationOwner
                             []
                             request.Body
