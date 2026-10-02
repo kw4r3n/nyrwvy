@@ -96,6 +96,7 @@ ExpressionRecipe =
   | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
   | Float64Sqrt(expr) | Float64Abs(expr) | Float64Negate(expr)
   | Float64Floor(expr) | Float64Ceiling(expr) | Float64Truncate(expr)
+  | Float64Round(value, digits)
   | Float64ToString(expr)
   | StringParseFloat64(expr)
   | ListEmpty(itemType)
@@ -399,7 +400,9 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 ## Float64RoundToInt64 and Float64FloorToInt64
 
-`Float64RoundToInt64(value)` (wire `float64RoundToInt64`, Nyason `float64-round-to-int64`) and `Float64FloorToInt64(value)` (wire `float64FloorToInt64`, Nyason `float64-floor-to-int64`) take a Float64 and produce `Option<Int64>`: Python `round(value)` (ties to even) and `math.floor(value)`, `None` for NaN, the infinities and results outside Int64. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-to-int64.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+`Float64RoundToInt64(value)` (wire `float64RoundToInt64`, Nyason `float64-round-to-int64`) and `Float64FloorToInt64(value)` (wire `float64FloorToInt64`, Nyason `float64-floor-to-int64`) take a Float64 and produce `Option<Int64>`: the nearest integer, half away from zero, and `math.floor(value)`, `None` for NaN, the infinities and results outside Int64. Both use the wire field `value` and never fail; the semantics are in the [language subset](../reference/language-subset.md#float64) and the [decision](../decisions/float64-to-int64.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+
+`Float64Round(value, digits)` (wire `float64Round` with the fields `value` and `digits`, Nyason `float64-round`) takes a Float64 and an Int64 and produces a Float64, rounded to `digits` decimal places half away from zero on the shortest decimal text ([decision](../decisions/rounding-half-away-from-zero.md)). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch` for either operand.
 
 ## Float64 unary operations
 

@@ -73,6 +73,7 @@ type ExpressionRecipe =
     | Int64CheckedMultiply of ExpressionRecipe * ExpressionRecipe
     | ListRange of ExpressionRecipe * ExpressionRecipe
     | StringRepeat of ExpressionRecipe * ExpressionRecipe
+    | Float64Round of ExpressionRecipe * ExpressionRecipe
     | Int64Equal of ExpressionRecipe * ExpressionRecipe
     | Int64LessThan of ExpressionRecipe * ExpressionRecipe
     | Int64LessThanOrEqual of ExpressionRecipe * ExpressionRecipe
@@ -251,6 +252,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> ExpressionRecipe.Int64CheckedMultiply(go left, go right)
         | ExpressionRecipe.ListRange(left, right) -> ExpressionRecipe.ListRange(go left, go right)
         | ExpressionRecipe.StringRepeat(left, right) -> ExpressionRecipe.StringRepeat(go left, go right)
+        | ExpressionRecipe.Float64Round(left, right) -> ExpressionRecipe.Float64Round(go left, go right)
         | ExpressionRecipe.Int64Equal(left, right) -> ExpressionRecipe.Int64Equal(go left, go right)
         | ExpressionRecipe.Int64LessThan(left, right) -> ExpressionRecipe.Int64LessThan(go left, go right)
         | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> ExpressionRecipe.Int64LessThanOrEqual(go left, go right)
@@ -537,6 +539,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64CheckedMultiply(left, right)
         | ExpressionRecipe.ListRange(left, right)
         | ExpressionRecipe.StringRepeat(left, right)
+        | ExpressionRecipe.Float64Round(left, right)
         | ExpressionRecipe.Int64Equal(left, right)
         | ExpressionRecipe.Int64LessThan(left, right)
         | ExpressionRecipe.Int64LessThanOrEqual(left, right)
@@ -1344,6 +1347,8 @@ module AgentExpressionStructuralWorkflow =
                 operands "ListRange" (listType int64Type) [ "start", int64Type, start; "end", int64Type, stop ]
             | ExpressionRecipe.StringRepeat(text, count) ->
                 operands "StringRepeat" stringType [ "text", stringType, text; "count", int64Type, count ]
+            | ExpressionRecipe.Float64Round(value, digits) ->
+                operands "Float64Round" float64Type [ "value", float64Type, value; "digits", int64Type, digits ]
             | ExpressionRecipe.Int64Equal(left, right) -> binary "Int64Equal" int64Type boolType left right
             | ExpressionRecipe.Int64LessThan(left, right) -> binary "Int64LessThan" int64Type boolType left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary "Int64LessThanOrEqual" int64Type boolType left right
@@ -2168,6 +2173,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary SemanticNodeKind.Int64CheckedMultiply left right
         | ExpressionRecipe.ListRange(left, right) -> binary SemanticNodeKind.ListRange left right
         | ExpressionRecipe.StringRepeat(left, right) -> binary SemanticNodeKind.StringRepeat left right
+        | ExpressionRecipe.Float64Round(left, right) -> binary SemanticNodeKind.Float64Round left right
         | ExpressionRecipe.Int64Equal(left, right) -> binary SemanticNodeKind.Int64Equal left right
         | ExpressionRecipe.Int64LessThan(left, right) -> binary SemanticNodeKind.Int64LessThan left right
         | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary SemanticNodeKind.Int64LessThanOrEqual left right

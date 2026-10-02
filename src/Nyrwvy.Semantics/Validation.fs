@@ -801,6 +801,17 @@ module SnapshotValidator =
                             $"StringRepeat node '{StableId.value node.Id}' requires an Int64 count."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             countNodeId
+                    | SemanticNodeKind.Float64Round(valueNodeId, digitsNodeId) ->
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Round node '{StableId.value node.Id}' requires a Float64 value."
+                            (TypeRef.Primitive PrimitiveType.Float64)
+                            valueNodeId
+                        requireNodeType
+                            "Float64OperandTypeMismatch"
+                            $"Float64Round node '{StableId.value node.Id}' requires an Int64 digit count."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            digitsNodeId
                     | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1833,6 +1844,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64CheckedMultiply _
                 | SemanticNodeKind.ListRange _
                 | SemanticNodeKind.StringRepeat _
+                | SemanticNodeKind.Float64Round _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _

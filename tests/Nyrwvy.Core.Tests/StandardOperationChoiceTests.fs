@@ -11,11 +11,13 @@ open Xunit
 /// ListRange and StringRepeat (an allocation too large is a host failure), Int64ToHexString and
 /// StringParseInt64Hex (Python format(x, "x") with a '-' sign), and Int64Min, Int64Max and
 /// Int64WrappingAbs; and the owner choice of 2026-10-03 (order 40): Int64CheckedAdd,
-/// Int64CheckedSubtract and Int64CheckedMultiply, the exact result or None outside Int64.
+/// Int64CheckedSubtract and Int64CheckedMultiply, the exact result or None outside Int64; and
+/// Float64Round (order 43), decimal places half away from zero on the shortest decimal text.
 module StandardOperationChoiceTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("standard-operation-choices-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private textType = TypeRef.Primitive PrimitiveType.String
+    let private floatType = TypeRef.Primitive PrimitiveType.Float64
     let private listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
     let private optionOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])
     let private unwrap label result =
@@ -37,6 +39,7 @@ module StandardOperationChoiceTests =
         | "checkedAdd" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedAdd(slot 0, slot 1)
         | "checkedSubtract" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedSubtract(slot 0, slot 1)
         | "checkedMultiply" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedMultiply(slot 0, slot 1)
+        | "round" -> [ floatType; intType ], floatType, ExpressionRecipe.Float64Round(slot 0, slot 1)
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
@@ -50,6 +53,7 @@ module StandardOperationChoiceTests =
     [<InlineData("checkedAdd", "int64CheckedAdd", "int64-checked-add", "NyNumber.CheckedAdd(", "Int64OperandTypeMismatch")>]
     [<InlineData("checkedSubtract", "int64CheckedSubtract", "int64-checked-subtract", "NyNumber.CheckedSubtract(", "Int64OperandTypeMismatch")>]
     [<InlineData("checkedMultiply", "int64CheckedMultiply", "int64-checked-multiply", "NyNumber.CheckedMultiply(", "Int64OperandTypeMismatch")>]
+    [<InlineData("round", "float64Round", "float64-round", "NyNumber.Round(", "Float64OperandTypeMismatch")>]
     let ``Standard operations type check, persist, and lower through every layer``
         (mode: string, wireKind: string, nyasonKind: string, csharpCall: string, issueCode: string) =
         let parameterTypes, resultType, body = shapeOf mode
@@ -193,6 +197,44 @@ module StandardOperationChoiceTests =
                 [ "5", "5"; "-5", "5"; "0", "0"; "9223372036854775807", "9223372036854775807"
                   "-9223372036854775807", "9223372036854775807"; "-9223372036854775808", "-9223372036854775808" ] do
                 expectRun call "abs" [ int64 value ] (int64 expected))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``JSONL-authored Float64Round rounds the decimal text half away from zero`` () =
+        withSession "float64-round" (fun call _ ->
+            let floatType = """{"kind":"primitive","primitive":"float64"}"""
+            define call "round" [ "x", floatType; "digits", int64Type ] floatType """{"kind":"float64Round","value":{"kind":"parameter","name":"x"},"digits":{"kind":"parameter","name":"digits"}}"""
+            let float (value: string) = """{"kind":"float64","value":""" + value + "}"
+            // (value, digits, expected); quoted values are the special forms of the wire format.
+            for value, digits, expected in
+                [ "2.675", "2", "2.68" // the binary64 is just below 2.675; the decimal text decides
+                  "1.005", "2", "1.01"
+                  "0.125", "2", "0.13"
+                  "-0.125", "2", "-0.13"
+                  "0.30000000000000004", "2", "0.3"
+                  "2.5", "0", "3"
+                  "-2.5", "0", "-3"
+                  "0.5", "0", "1"
+                  "0.49999999999999994", "0", "0"
+                  "1234.5678", "-2", "1200"
+                  "1250", "-2", "1300"
+                  "-1250", "-2", "-1300"
+                  "49", "-2", "0"
+                  "-49", "-2", "\"-0\""
+                  "50", "-2", "100"
+                  "1.5e-5", "5", "2e-5"
+                  "1e-5", "5", "1e-5"
+                  "5e-324", "323", "1e-323"
+                  "1.23456789", "100", "1.23456789"
+                  "123.456", "-1000", "0"
+                  "1e300", "-300", "1e300"
+                  "9.5e300", "-301", "1e301"
+                  "1.7976931348623157e308", "-308", "\"Infinity\"" // 2e308 is beyond Float64
+                  "\"-0\"", "2", "\"-0\""
+                  "\"NaN\"", "2", "\"NaN\""
+                  "\"-Infinity\"", "2", "\"-Infinity\""
+                  "123.456", "9223372036854775807", "123.456"
+                  "123.456", "-9223372036854775808", "0" ] do
+                expectRun call "round" [ float value; int64 digits ] (float expected))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``JSONL-authored checked Int64 arithmetic matches Python's exact result within Int64`` () =

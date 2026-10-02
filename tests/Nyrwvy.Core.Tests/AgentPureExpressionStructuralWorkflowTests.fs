@@ -564,6 +564,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "Int64CheckedMultiply"
               "ListRange"
               "StringRepeat"
+              "Float64Round"
               "Int64Equal"
               "Int64LessThan"
               "Int64LessThanOrEqual"

@@ -330,6 +330,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64CheckedMultiply(left, right) -> two ExpressionRecipe.Int64CheckedMultiply left right
             | ExpressionRecipe.ListRange(left, right) -> two ExpressionRecipe.ListRange left right
             | ExpressionRecipe.StringRepeat(left, right) -> two ExpressionRecipe.StringRepeat left right
+            | ExpressionRecipe.Float64Round(left, right) -> two ExpressionRecipe.Float64Round left right
             | ExpressionRecipe.Bits32Xor(left, right) -> two ExpressionRecipe.Bits32Xor left right
             | ExpressionRecipe.Bits32And(left, right) -> two ExpressionRecipe.Bits32And left right
             | ExpressionRecipe.Bits32Or(left, right) -> two ExpressionRecipe.Bits32Or left right

@@ -148,6 +148,9 @@ module internal WireRecipe =
         | "stringRepeat" ->
             ensureFields "string-repeat recipe" [ "kind"; "text"; "count" ] [ "kind"; "text"; "count" ] element
             ExpressionRecipe.StringRepeat(recipe (property "text" element), recipe (property "count" element))
+        | "float64Round" ->
+            ensureFields "float64-round recipe" [ "kind"; "value"; "digits" ] [ "kind"; "value"; "digits" ] element
+            ExpressionRecipe.Float64Round(recipe (property "value" element), recipe (property "digits" element))
         | "int64Equal" -> binary "int64-equal recipe" ExpressionRecipe.Int64Equal
         | "int64LessThan" -> binary "int64-less-than recipe" ExpressionRecipe.Int64LessThan
         | "int64LessThanOrEqual" -> binary "int64-less-than-or-equal recipe" ExpressionRecipe.Int64LessThanOrEqual

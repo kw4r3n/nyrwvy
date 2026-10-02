@@ -89,6 +89,7 @@ type ViewerNodeRole =
     | Int64CheckedMultiply
     | ListRange
     | StringRepeat
+    | Float64Round
     | Int64Equal
     | Int64LessThan
     | Int64LessThanOrEqual
@@ -298,6 +299,7 @@ module ViewerProjection =
         | SemanticNodeKind.Int64CheckedMultiply _ -> ViewerNodeRole.Int64CheckedMultiply, []
         | SemanticNodeKind.ListRange _ -> ViewerNodeRole.ListRange, []
         | SemanticNodeKind.StringRepeat _ -> ViewerNodeRole.StringRepeat, []
+        | SemanticNodeKind.Float64Round _ -> ViewerNodeRole.Float64Round, []
         | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []
         | SemanticNodeKind.Int64LessThan _ -> ViewerNodeRole.Int64LessThan, []
         | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []

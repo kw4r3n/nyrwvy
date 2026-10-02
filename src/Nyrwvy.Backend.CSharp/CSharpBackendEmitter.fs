@@ -114,13 +114,13 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("")
-        // Float64 to Int64 as Python round(x) (ties to even) and math.floor(x). Every double in
+        // Float64 to Int64 rounded half away from zero, and floor. Every double in
         // [-2^63, 2^63) converts exactly once it is integral; NaN fails both comparisons, so NaN,
         // the infinities and anything out of range give None instead of throwing.
         writer.Line("public static class NyNumber")
         writer.Line("{")
         writer.Push()
-        writer.Line("public static NyOption<long> RoundToInt64(double value) => ToInt64(System.Math.Round(value, System.MidpointRounding.ToEven));")
+        writer.Line("public static NyOption<long> RoundToInt64(double value) => ToInt64(System.Math.Round(value, System.MidpointRounding.AwayFromZero));")
         writer.Line("public static NyOption<long> FloorToInt64(double value) => ToInt64(System.Math.Floor(value));")
         writer.Line("private static NyOption<long> ToInt64(double integral) =>")
         writer.Line("integral >= -9223372036854775808.0 && integral < 9223372036854775808.0 ? NyOption<long>.Some((long)integral) : NyOption<long>.None();")
@@ -129,6 +129,35 @@ module CSharpBackend =
         writer.Line("public static NyOption<long> CheckedAdd(long left, long right) => FitInt64((System.Int128)left + right);")
         writer.Line("public static NyOption<long> CheckedSubtract(long left, long right) => FitInt64((System.Int128)left - right);")
         writer.Line("public static NyOption<long> CheckedMultiply(long left, long right) => FitInt64((System.Int128)left * right);")
+        // Round(value, digits) rounds the shortest round-trip decimal text of the value ("R"), which
+        // is the decimal the value is read and written as, half away from zero at `digits` places, and
+        // reads the result back: 2.675 to 2 places is 2.68 although the binary64 is slightly below it.
+        writer.Line("public static double Round(double value, long digits)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (double.IsNaN(value) || double.IsInfinity(value) || value == 0.0) return value;")
+        writer.Line("var culture = System.Globalization.CultureInfo.InvariantCulture;")
+        writer.Line("var text = System.Math.Abs(value).ToString(\"R\", culture);")
+        writer.Line("var exponentAt = text.IndexOf('E');")
+        writer.Line("var exponent = exponentAt < 0 ? 0 : int.Parse(text.Substring(exponentAt + 1), culture);")
+        writer.Line("var mantissa = exponentAt < 0 ? text : text.Substring(0, exponentAt);")
+        writer.Line("var pointAt = mantissa.IndexOf('.');")
+        writer.Line("var significand = pointAt < 0 ? mantissa : mantissa.Remove(pointAt, 1);")
+        // The value is 0.significand * 10^point.
+        writer.Line("long point = (pointAt < 0 ? mantissa.Length : pointAt) + exponent;")
+        writer.Line("var leading = 0;")
+        writer.Line("while (leading < significand.Length - 1 && significand[leading] == '0') leading++;")
+        writer.Line("significand = significand.Substring(leading);")
+        writer.Line("point -= leading;")
+        writer.Line("var keep = point + System.Math.Clamp(digits, -1000L, 1000L);")
+        writer.Line("if (keep >= significand.Length) return value;")
+        writer.Line("if (keep < 0) return value < 0 ? -0.0 : 0.0;")
+        writer.Line("var kept = keep == 0 ? 0L : long.Parse(significand.Substring(0, (int)keep), culture);")
+        writer.Line("if (significand[(int)keep] >= '5') kept += 1;")
+        writer.Line("var rounded = double.Parse(kept.ToString(culture) + \"E\" + (point - keep).ToString(culture), System.Globalization.NumberStyles.AllowExponent, culture);")
+        writer.Line("return value < 0 ? -rounded : rounded;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("private static NyOption<long> FitInt64(System.Int128 exact) =>")
         writer.Line("exact >= long.MinValue && exact <= long.MaxValue ? NyOption<long>.Some((long)exact) : NyOption<long>.None();")
         writer.Pop()
@@ -1634,6 +1663,8 @@ module CSharpBackend =
             writer.Line("else " + target + " = new System.Text.StringBuilder(text.Length * (int)count).Insert(0, text, (int)count).ToString();")
             writer.Pop()
             writer.Line("}")
+        | ExecutionInstructionKind.Float64Round(valueId, digitsValueId) ->
+            writer.Line(target + " = NyNumber.Round(" + valueName valueId + ", " + valueName digitsValueId + ");")
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "==" rightValueId false
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->
