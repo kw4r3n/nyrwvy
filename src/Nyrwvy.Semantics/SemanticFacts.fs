@@ -176,6 +176,8 @@ module SemanticFacts =
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.MapSize _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
+                    | SemanticNodeKind.SetSize _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.Float64Round _
                     | SemanticNodeKind.Float64Add _
@@ -246,6 +248,8 @@ module SemanticFacts =
                     | SemanticNodeKind.ListAll _
                     | SemanticNodeKind.MapContainsKey _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.SetContains _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.MapEmpty(keyType, valueType) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
                     | SemanticNodeKind.MapInsert(sourceMapNodeId, _, _)
@@ -270,6 +274,26 @@ module SemanticFacts =
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ valueType ]))
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.SetEmpty itemType ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]))
+                    | SemanticNodeKind.SetInsert(sourceSetNodeId, _)
+                    | SemanticNodeKind.SetRemove(sourceSetNodeId, _) ->
+                        match tryNodeType nextVisiting sourceSetNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ _ ]) as setType) -> Some setType
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.SetToList sourceSetNodeId ->
+                        match tryNodeType nextVisiting sourceSetNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.SetFromList sourceListNodeId ->
+                        match tryNodeType nextVisiting sourceListNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]))
                         | Some _
                         | None -> None
                     | SemanticNodeKind.ListEmpty itemType

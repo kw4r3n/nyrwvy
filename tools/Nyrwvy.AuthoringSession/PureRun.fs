@@ -45,6 +45,8 @@ type PureRunValue =
     | OptionValue of itemType: TypeRef * item: PureRunValue option
     /// A Map<K, V> as its entries in iteration (insertion) order, each key once.
     | MapValue of keyType: TypeRef * valueType: TypeRef * entries: (PureRunValue * PureRunValue) list
+    /// A Set<T> as its items in iteration (insertion) order, each item once.
+    | SetValue of itemType: TypeRef * items: PureRunValue list
     /// A Result with at least one non-scalar side. Results whose Ok and Err types are both scalars
     /// always use the flat ResultOk/ResultErr representation.
     | ResultValue of okType: TypeRef * errorType: TypeRef * isOk: bool * payload: PureRunValue
@@ -184,6 +186,7 @@ module PureRun =
         | PureRunValue.ResultValue(okType, errorType, _, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
         | PureRunValue.ListValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
         | PureRunValue.MapValue(keyType, valueType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])
+        | PureRunValue.SetValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])
         | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
         | PureRunValue.Product(typeId, _)
         | PureRunValue.Union(typeId, _, _) -> TypeRef.Named typeId
@@ -212,7 +215,7 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.BuiltinGeneric(kind, arguments) ->
-            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Task values are not run values."
+            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Task values are not run values."
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | _ -> invalidOp "Unsupported runner type passed validation."
 
@@ -255,6 +258,7 @@ module PureRun =
         | PureRunValue.BoolOption value -> option (Option.map PureRunValue.Bool value)
         | PureRunValue.Int64Option value -> option (Option.map PureRunValue.Int64 value)
         | PureRunValue.ListValue(_, values) -> items values
+        | PureRunValue.SetValue(_, values) -> items values
         | PureRunValue.MapValue(_, _, entries) ->
             add (string entries.Length)
             entries |> List.iter (fun (key, value) -> inputTokens types tokens key; inputTokens types tokens value)
@@ -332,6 +336,7 @@ module PureRun =
     let private children = function
         | PureRunValue.ListValue(_, items) -> items
         | PureRunValue.MapValue(_, _, entries) -> entries |> List.collect (fun (key, value) -> [ key; value ])
+        | PureRunValue.SetValue(_, items) -> items
         | PureRunValue.OptionValue(_, item) -> Option.toList item
         | PureRunValue.Product(_, fields)
         | PureRunValue.Union(_, _, fields) -> fields |> List.map snd
@@ -364,6 +369,7 @@ module PureRun =
             match value with
             | PureRunValue.ListValue(_, items) -> items.Length > 4096
             | PureRunValue.MapValue(_, _, entries) -> entries.Length > 4096
+            | PureRunValue.SetValue(_, items) -> items.Length > 4096
             | PureRunValue.Product(_, fields)
             | PureRunValue.Union(_, _, fields) -> fields.Length > 256
             | PureRunValue.FakeCapability(_, operations) ->
@@ -539,6 +545,7 @@ module PureRun =
                         | TypeRef.BuiltinGeneric((BuiltinGenericType.List | BuiltinGenericType.Option), [ item ]) -> total [ item ]
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) -> total [ okType; errorType ]
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) -> total [ keyType; valueType ]
+                        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> total [ item ]
                         | TypeRef.Named typeId when visiting.Add typeId ->
                             try
                                 match productFields types typeId, unionVariants types typeId with
@@ -583,6 +590,7 @@ module PureRun =
         | PureRunValue.ListValue(itemType, items) -> PureRunValue.ListValue(itemType, List.map canonicalValue items)
         | PureRunValue.MapValue(keyType, valueType, entries) ->
             PureRunValue.MapValue(keyType, valueType, entries |> List.map (fun (key, value) -> canonicalValue key, canonicalValue value))
+        | PureRunValue.SetValue(itemType, items) -> PureRunValue.SetValue(itemType, List.map canonicalValue items)
         | PureRunValue.OptionValue(itemType, item) -> PureRunValue.OptionValue(itemType, Option.map canonicalValue item)
         | PureRunValue.Union(typeId, variantId, fields) ->
             PureRunValue.Union(typeId, variantId, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
@@ -642,6 +650,14 @@ module PureRun =
                         let items = List.rev items
                         if kind = BuiltinGenericType.List then PureRunValue.ListValue(itemType, items)
                         else PureRunValue.OptionValue(itemType, List.tryHead items))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]), JsonValueKind.Array ->
+                let items = value.EnumerateArray() |> Seq.toList
+                if items.Length > 4096 then Error(diagnostic "RunInvalidResult" "Invalid container result size.")
+                else
+                    items
+                    |> List.fold (fun state item ->
+                        state |> Result.bind (fun acc -> parseElement types itemType item |> Result.map (fun parsed -> parsed :: acc))) (Ok [])
+                    |> Result.map (fun items -> PureRunValue.SetValue(itemType, List.rev items))
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]), JsonValueKind.Array ->
                 let pairs = value.EnumerateArray() |> Seq.toList
                 if pairs.Length > 4096 then Error(diagnostic "RunInvalidResult" "Invalid container result size.")
@@ -812,6 +828,10 @@ module PureRun =
                 not (supportedScalar okType && supportedScalar errorType)
                 && supported 1 okType && supported 1 errorType
                 && valueType payload = (if isOk then okType else errorType)
+            | PureRunValue.SetValue(itemType, items) ->
+                supported 1 itemType
+                && (items |> List.forall (fun item -> valueType item = itemType))
+                && (items |> List.map canonicalValue |> List.distinct |> List.length) = items.Length
             | PureRunValue.MapValue(keyType, valueType', entries) ->
                 supported 1 keyType && supported 1 valueType'
                 && (entries |> List.forall (fun (key, item) -> valueType key = keyType && valueType item = valueType'))
@@ -1000,7 +1020,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validUnion declarations.Types >> not) ->
             Error(diagnostic "RunUnionShapeMismatch" "Union arguments must name a variant of the declared Union and supply each field exactly once with its exact type, including nested Unions.")
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
-            Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item, Map key and value, and Result payload types must be supported and match every payload, and Map keys must be distinct; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
+            Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item, Set item, Map key and value, and Result payload types must be supported and match every payload, and Set items and Map keys must be distinct; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
         | Some fn when not (supported 0 fn.ResultType) ->
             Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
@@ -1099,6 +1119,10 @@ module PureRun =
                                     let name, accumulator = fresh (), fresh ()
                                     let child = encode item name depthBase (offset + 1)
                                     layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                    let name, accumulator = fresh (), fresh ()
+                                    let child = encode item name depthBase (offset + 1)
+                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Set result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
                                     let key, value, accumulator = fresh (), fresh (), fresh ()
                                     let pair = array [ encode keyType key depthBase (offset + 1); encode valueType value depthBase (offset + 1) ]
@@ -1162,6 +1186,9 @@ module PureRun =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
                                 let name = sourceType item
                                 $"(input.Bool() ? NyOption<{name}>.Some({decode item}) : NyOption<{name}>.None())"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                let name = sourceType item
+                                $"{sourceType itemType}.FromList(NyList<{name}>.Create(input.Items<{name}>(() => {decode item})))"
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
                                 let mapName, keyName, valueName = sourceType itemType, sourceType keyType, sourceType valueType
                                 $"System.Linq.Enumerable.Aggregate(input.Items<({keyName}, {valueName})>(() => ({decode keyType}, {decode valueType})), {mapName}.Empty(), (map, entry) => map.Insert(entry.Item1, entry.Item2))"
@@ -1201,6 +1228,9 @@ module PureRun =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                 let state, name = fresh (), fresh ()
                                 $"if ({access} == null) key.Null(); else {{ key.Add({access}.Length); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                let state, name = fresh (), fresh ()
+                                $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
                                 let state, key, value = fresh (), fresh (), fresh ()
                                 $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {key}, {value}) => {{ {keyStatement keyType key} {keyStatement valueType value} return {state}; }}); }}"

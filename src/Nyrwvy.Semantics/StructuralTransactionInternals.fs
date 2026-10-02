@@ -53,6 +53,7 @@ module internal StructuralTransactionInternals =
                     | BuiltinGenericType.TaskScope -> 0
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
+                    | BuiltinGenericType.Set
                     | BuiltinGenericType.Task -> 1
                     | BuiltinGenericType.Result
                     | BuiltinGenericType.Map -> 2

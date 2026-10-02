@@ -115,18 +115,25 @@ module FoundationTests =
                 | SemanticNodeKind.Bits32ShiftRight _
                 | SemanticNodeKind.Bits32ShiftLeft _
                 | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.SetEmpty _
                 | SemanticNodeKind.MapEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.MapValues _
                 | SemanticNodeKind.MapKeys _
+                | SemanticNodeKind.SetToList _
                 | SemanticNodeKind.MapSize _
+                | SemanticNodeKind.SetFromList _
+                | SemanticNodeKind.SetSize _
                 | SemanticNodeKind.ListReverse _
                 | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _
+                | SemanticNodeKind.SetInsert _
+                | SemanticNodeKind.SetRemove _
                 | SemanticNodeKind.MapContainsKey _
+                | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _

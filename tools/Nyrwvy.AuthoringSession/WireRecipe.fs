@@ -186,6 +186,9 @@ module internal WireRecipe =
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef (property "itemType" element))
+        | "setEmpty" ->
+            ensureFields "set-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
+            ExpressionRecipe.SetEmpty(typeRef (property "itemType" element))
         | "mapEmpty" ->
             ensureFields "map-empty recipe" [ "kind"; "keyType"; "valueType" ] [ "kind"; "keyType"; "valueType" ] element
             ExpressionRecipe.MapEmpty(typeRef (property "keyType" element), typeRef (property "valueType" element))
@@ -195,7 +198,10 @@ module internal WireRecipe =
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
         | "mapValues" -> unary "map-values recipe" ExpressionRecipe.MapValues
         | "mapKeys" -> unary "map-keys recipe" ExpressionRecipe.MapKeys
+        | "setToList" -> unary "set-to-list recipe" ExpressionRecipe.SetToList
         | "mapSize" -> unary "map-size recipe" ExpressionRecipe.MapSize
+        | "setFromList" -> unary "set-from-list recipe" ExpressionRecipe.SetFromList
+        | "setSize" -> unary "set-size recipe" ExpressionRecipe.SetSize
         | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
         | "listAppendItem" ->
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
@@ -207,9 +213,18 @@ module internal WireRecipe =
         | "mapRemove" ->
             ensureFields "map-remove recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapRemove(recipe (property "map" element), recipe (property "key" element))
+        | "setInsert" ->
+            ensureFields "set-insert recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetInsert(recipe (property "set" element), recipe (property "item" element))
+        | "setRemove" ->
+            ensureFields "set-remove recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetRemove(recipe (property "set" element), recipe (property "item" element))
         | "mapContainsKey" ->
             ensureFields "map-contains-key recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapContainsKey(recipe (property "map" element), recipe (property "key" element))
+        | "setContains" ->
+            ensureFields "set-contains recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetContains(recipe (property "set" element), recipe (property "item" element))
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))

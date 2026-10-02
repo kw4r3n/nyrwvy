@@ -86,6 +86,7 @@ module AuthoringProtocol =
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
             | "product" | "union" -> (array "fields" item).Length
             | "map" -> 2 * (array "entries" item).Length
+            | "set" -> (array "items" item).Length
             | "result" -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
             | "fakeCapability" ->
@@ -107,6 +108,11 @@ module AuthoringProtocol =
             let items = array "items" item
             if items.Length > 4096 then fail "Lists may contain at most 4096 items."
             PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
+        | "set" ->
+            ensureFields "Set run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
+            let items = array "items" item
+            if items.Length > 4096 then fail "Sets may contain at most 4096 items."
+            PureRunValue.SetValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
         | "map" ->
             ensureFields "Map run value" [ "kind"; "keyType"; "valueType"; "entries" ] [ "kind"; "keyType"; "valueType"; "entries" ] item
             let entries = array "entries" item
@@ -413,6 +419,8 @@ module AuthoringProtocol =
         | PureRunValue.ListValue(itemType, items) ->
             objectValue [ "kind", box "list"; "itemType", WireEncodeCommon.typeRef itemType
                           "items", items |> List.map encodePureValue |> arrayValue ]
+        | PureRunValue.SetValue(itemType, items) ->
+            objectValue [ "kind", box "set"; "itemType", WireEncodeCommon.typeRef itemType; "items", items |> List.map encodePureValue |> arrayValue ]
         | PureRunValue.MapValue(keyType, valueType, entries) ->
             objectValue [ "kind", box "map"; "keyType", WireEncodeCommon.typeRef keyType; "valueType", WireEncodeCommon.typeRef valueType
                           "entries", entries |> List.map (fun (key, value) -> objectValue [ "key", encodePureValue key; "value", encodePureValue value ]) |> arrayValue ]

@@ -78,6 +78,10 @@ module ExecutionIrCodec =
             objectValue
                 [ property "kind" (quote "list")
                   property "itemType" (writeTypeRef itemType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) ->
+            objectValue
+                [ property "kind" (quote "set")
+                  property "itemType" (writeTypeRef itemType) ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             objectValue
                 [ property "kind" (quote "task")
@@ -95,6 +99,9 @@ module ExecutionIrCodec =
             invalidOp $"Execution IR contains Map with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"Execution IR contains List with {arguments.Length} type arguments."
+
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+            invalidOp $"Execution IR contains Set with {arguments.Length} type arguments."
 
     let private writeOrigin (origin: ExecutionOrigin): string =
         match origin with
@@ -439,6 +446,8 @@ module ExecutionIrCodec =
               property "amountValueId" (executionValueIdValue amountValueId) ]
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
+        | ExecutionInstructionKind.SetEmpty ->
+            [ property "kind" (quote "setEmpty") ]
         | ExecutionInstructionKind.MapEmpty ->
             [ property "kind" (quote "mapEmpty") ]
         | ExecutionInstructionKind.ListConstruct itemValueIds ->
@@ -454,9 +463,18 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.MapKeys mapValueId ->
             [ property "kind" (quote "mapKeys")
               property "mapValueId" (executionValueIdValue mapValueId) ]
+        | ExecutionInstructionKind.SetToList setValueId ->
+            [ property "kind" (quote "setToList")
+              property "setValueId" (executionValueIdValue setValueId) ]
         | ExecutionInstructionKind.MapSize mapValueId ->
             [ property "kind" (quote "mapSize")
               property "mapValueId" (executionValueIdValue mapValueId) ]
+        | ExecutionInstructionKind.SetFromList setValueId ->
+            [ property "kind" (quote "setFromList")
+              property "listValueId" (executionValueIdValue setValueId) ]
+        | ExecutionInstructionKind.SetSize setValueId ->
+            [ property "kind" (quote "setSize")
+              property "setValueId" (executionValueIdValue setValueId) ]
         | ExecutionInstructionKind.ListReverse listValueId ->
             [ property "kind" (quote "listReverse")
               property "listValueId" (executionValueIdValue listValueId) ]
@@ -468,10 +486,22 @@ module ExecutionIrCodec =
             [ property "kind" (quote "mapRemove")
               property "mapValueId" (executionValueIdValue mapValueId)
               property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.SetInsert(setValueId, itemValueId) ->
+            [ property "kind" (quote "setInsert")
+              property "setValueId" (executionValueIdValue setValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.SetRemove(setValueId, itemValueId) ->
+            [ property "kind" (quote "setRemove")
+              property "setValueId" (executionValueIdValue setValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapContainsKey")
               property "mapValueId" (executionValueIdValue mapValueId)
               property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->
+            [ property "kind" (quote "setContains")
+              property "setValueId" (executionValueIdValue setValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)

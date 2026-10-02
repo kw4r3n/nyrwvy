@@ -431,6 +431,9 @@ module internal WireSymbolic =
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef declarations (property "itemType" element))
+        | "setEmpty" ->
+            ensureFields "set-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
+            ExpressionRecipe.SetEmpty(typeRef declarations (property "itemType" element))
         | "mapEmpty" ->
             ensureFields "map-empty recipe" [ "kind"; "keyType"; "valueType" ] [ "kind"; "keyType"; "valueType" ] element
             ExpressionRecipe.MapEmpty(typeRef declarations (property "keyType" element), typeRef declarations (property "valueType" element))
@@ -443,7 +446,10 @@ module internal WireSymbolic =
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
         | "mapValues" -> unary "map-values recipe" ExpressionRecipe.MapValues
         | "mapKeys" -> unary "map-keys recipe" ExpressionRecipe.MapKeys
+        | "setToList" -> unary "set-to-list recipe" ExpressionRecipe.SetToList
         | "mapSize" -> unary "map-size recipe" ExpressionRecipe.MapSize
+        | "setFromList" -> unary "set-from-list recipe" ExpressionRecipe.SetFromList
+        | "setSize" -> unary "set-size recipe" ExpressionRecipe.SetSize
         | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
@@ -457,11 +463,29 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "key" element)
             )
+        | "setInsert" ->
+            ensureFields "set-insert recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetInsert(
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "item" element)
+            )
+        | "setRemove" ->
+            ensureFields "set-remove recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetRemove(
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "item" element)
+            )
         | "mapContainsKey" ->
             ensureFields "map-contains-key recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapContainsKey(
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "key" element)
+            )
+        | "setContains" ->
+            ensureFields "set-contains recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
+            ExpressionRecipe.SetContains(
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "item" element)
             )
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element

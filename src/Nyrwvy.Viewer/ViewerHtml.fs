@@ -42,6 +42,8 @@ module ViewerHtml =
             "Map<" + typeRefText keyType + ", " + typeRefText valueType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
             "List<" + typeRefText item + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+            "Set<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ->
             "Task<" + typeRefText result + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
@@ -57,6 +59,9 @@ module ViewerHtml =
             "Map<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             "List<invalid-arity:" + string arguments.Length + ">"
+
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+            "Set<invalid-arity:" + string arguments.Length + ">"
 
     let private targetText (target: ViewerTarget): string =
         match target with
@@ -204,17 +209,24 @@ module ViewerHtml =
         | ViewerNodeRole.Bits32ShiftRight -> "bits32 shift right"
         | ViewerNodeRole.Bits32ShiftLeft -> "bits32 shift left"
         | ViewerNodeRole.ListEmpty -> "List empty"
+        | ViewerNodeRole.SetEmpty -> "Set empty"
         | ViewerNodeRole.MapEmpty -> "Map empty"
         | ViewerNodeRole.ListConstruct -> "List construct"
         | ViewerNodeRole.ListLength -> "List length"
         | ViewerNodeRole.MapValues -> "Map values"
         | ViewerNodeRole.MapKeys -> "Map keys"
+        | ViewerNodeRole.SetToList -> "Set to list"
         | ViewerNodeRole.MapSize -> "Map size"
+        | ViewerNodeRole.SetFromList -> "Set from list"
+        | ViewerNodeRole.SetSize -> "Set size"
         | ViewerNodeRole.ListReverse -> "List reverse"
         | ViewerNodeRole.ListAppendItem -> "List append item"
         | ViewerNodeRole.ListItemAt -> "List item at"
         | ViewerNodeRole.MapRemove -> "Map remove"
+        | ViewerNodeRole.SetInsert -> "Set insert"
+        | ViewerNodeRole.SetRemove -> "Set remove"
         | ViewerNodeRole.MapContainsKey -> "Map contains key"
+        | ViewerNodeRole.SetContains -> "Set contains"
         | ViewerNodeRole.MapGet -> "Map get"
         | ViewerNodeRole.ListSlice -> "List slice"
         | ViewerNodeRole.MapInsert -> "Map insert"

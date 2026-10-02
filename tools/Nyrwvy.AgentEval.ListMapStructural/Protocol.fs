@@ -93,6 +93,7 @@ module private Encode =
         | BuiltinGenericType.Result -> "Result"
         | BuiltinGenericType.Map -> "Map"
         | BuiltinGenericType.List -> "List"
+        | BuiltinGenericType.Set -> "Set"
         | BuiltinGenericType.Task -> "Task"
         | BuiltinGenericType.TaskScope -> "TaskScope"
 

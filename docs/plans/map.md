@@ -1,6 +1,6 @@
 # Map (design note)
 
-**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
+**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45; Set is order 46. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
 
 ## Context
 

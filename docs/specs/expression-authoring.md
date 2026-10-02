@@ -112,6 +112,8 @@ ExpressionRecipe =
   | MapInsert(map, key, value) | MapGet(map, key) | MapContainsKey(map, key) | MapRemove(map, key)
   | MapSize(map) | MapKeys(map) | MapValues(map)
   | MapFold(map, seed, folderFunctionId, context) | MapFromList(source, keyOfFunctionId, context)
+  | SetEmpty(itemType) | SetFromList(list) | SetInsert(set, item) | SetContains(set, item)
+  | SetRemove(set, item) | SetSize(set) | SetToList(set)
   | ListFold(source, seed, folderFunctionId, context)
   | ListEffectFold(source, seed, folderFunctionId, context)
   | ParallelAll(source, workerFunctionId, context)
@@ -349,6 +351,10 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 `MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. `MapFold(map, seed, folderFunctionId, context)` (wire `mapFold`: `map`, `seed`, `function` or `functionId`, `context`) takes a pure folder with three parameters not bound by context, `(S, K, V) -> S`, and yields `S`. `MapFromList(source, keyOfFunctionId, context)` (wire `mapFromList`: `source`, `function` or `functionId`, `context`) takes a pure `T -> K` callback over a `List<T>` and yields `Map<K, T>`; `K` must be equatable (`MapKeyTypeNotEquatable`). Callback problems report the same `PureExpressionListCallback*` codes as the List callbacks. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
 
 `runPure` takes and returns a map as `{"kind": "map", "keyType", "valueType", "entries": [{"key", "value"}]}` in iteration order; an input that names a key twice is a `ProtocolError`, and a map holds at most 4,096 entries.
+
+## Set
+
+`SetEmpty(itemType)` (wire `setEmpty` with the field `itemType`) produces `Set<T>`. `SetInsert`, `SetContains` and `SetRemove` (wire `setInsert`, `setContains`, `setRemove`: `set`, `item`) take a set and an item of its item type. `SetFromList`, `SetSize` and `SetToList` (wire `setFromList`, `setSize`, `setToList`) take their operand in the field `value`. Nyason uses the kebab-case tags. An item type that is not equatable reports `SetItemTypeNotEquatable`; a mistyped operand reports `PureExpressionOperandTypeMismatch`, and a persisted graph reports `SetInputTypeMismatch` or `SetItemTypeMismatch`. `runPure` takes and returns `{"kind": "set", "itemType", "items": [...]}` in iteration order, with each item once. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-sett).
 
 ## Structured declaration bindings
 

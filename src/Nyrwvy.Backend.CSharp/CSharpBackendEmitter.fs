@@ -65,6 +65,8 @@ module CSharpBackend =
             "NyResult<" + formatType okType + ", " + formatType errorType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
             "NyMap<" + formatType keyType + ", " + formatType valueType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) ->
+            "NySet<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             "NyList<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
@@ -80,6 +82,8 @@ module CSharpBackend =
             invalidOp $"C# backend received Result with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
             invalidOp $"C# backend received Map with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+            invalidOp $"C# backend received Set with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"C# backend received List with {arguments.Length} type arguments."
 
@@ -772,6 +776,49 @@ module CSharpBackend =
         writer.Line("var index = 0;")
         writer.Line("foreach (var key in order.Values) items[index++] = entries[key].Value;")
         writer.Line("return NyList<V>.FromOwnedArray(items);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
+        // NySet is NyMap's counterpart without values: persistent, structural item equality, and
+        // insertion order kept as insertion numbers so hash codes never affect the visible order.
+        writer.Line("public sealed class NySet<T> where T : notnull")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("private readonly System.Collections.Immutable.ImmutableDictionary<T, long> items;")
+        writer.Line("private readonly System.Collections.Immutable.ImmutableSortedDictionary<long, T> order;")
+        writer.Line("private readonly long next;")
+        writer.Line("private NySet(System.Collections.Immutable.ImmutableDictionary<T, long> items, System.Collections.Immutable.ImmutableSortedDictionary<long, T> order, long next)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("this.items = items;")
+        writer.Line("this.order = order;")
+        writer.Line("this.next = next;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("private static readonly NySet<T> EmptySet = new(System.Collections.Immutable.ImmutableDictionary.Create<T, long>(System.Collections.Generic.EqualityComparer<T>.Default), System.Collections.Immutable.ImmutableSortedDictionary<long, T>.Empty, 0L);")
+        writer.Line("public static NySet<T> Empty() => EmptySet;")
+        writer.Line("public static NySet<T> FromList(NyList<T> source) => source.Fold(EmptySet, (set, item) => set.Insert(item));")
+        writer.Line("public long Size => items.Count;")
+        writer.Line("public bool Contains(T item) => items.ContainsKey(item);")
+        writer.Line("public NySet<T> Insert(T item) => items.ContainsKey(item) ? this : new(items.Add(item, next), order.Add(next, item), next + 1L);")
+        writer.Line("public NySet<T> Remove(T item) => items.TryGetValue(item, out var number) ? new(items.Remove(item), order.Remove(number), next) : this;")
+        writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var state = seed;")
+        writer.Line("foreach (var item in order.Values) state = folder(state, item);")
+        writer.Line("return state;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public NyList<T> ToList()")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var result = new T[order.Count];")
+        writer.Line("var index = 0;")
+        writer.Line("foreach (var item in order.Values) result[index++] = item;")
+        writer.Line("return NyList<T>.FromOwnedArray(result);")
         writer.Pop()
         writer.Line("}")
         writer.Pop()
@@ -1804,6 +1851,8 @@ module CSharpBackend =
             writer.Line(target + " = " + amount + " <= 0L ? " + valueName valueId + " : " + amount + " >= 32L ? 0u : " + valueName valueId + " << (int)" + amount + ";")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
+        | ExecutionInstructionKind.SetEmpty ->
+            writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.MapEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.ListConstruct itemValueIds ->
@@ -1814,16 +1863,28 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName mapValueId + ".Values();")
         | ExecutionInstructionKind.MapKeys mapValueId ->
             writer.Line(target + " = " + valueName mapValueId + ".Keys();")
+        | ExecutionInstructionKind.SetToList setValueId ->
+            writer.Line(target + " = " + valueName setValueId + ".ToList();")
         | ExecutionInstructionKind.MapSize mapValueId ->
             writer.Line(target + " = " + valueName mapValueId + ".Size;")
+        | ExecutionInstructionKind.SetFromList listValueId ->
+            writer.Line(target + " = " + formatType instruction.Result.Type + ".FromList(" + valueName listValueId + ");")
+        | ExecutionInstructionKind.SetSize setValueId ->
+            writer.Line(target + " = " + valueName setValueId + ".Size;")
         | ExecutionInstructionKind.ListReverse listValueId ->
             writer.Line(target + " = " + valueName listValueId + ".Reverse();")
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".ItemAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.MapRemove(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Remove(" + valueName keyValueId + ");")
+        | ExecutionInstructionKind.SetInsert(setValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName setValueId + ".Insert(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.SetRemove(setValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName setValueId + ".Remove(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".ContainsKey(" + valueName keyValueId + ");")
+        | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName setValueId + ".Contains(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->

@@ -85,6 +85,7 @@
     <Compile Include="StandardOperationChoiceTests.fs" />
     <Compile Include="MatchUnionSharedArmTests.fs" />
     <Compile Include="MapTests.fs" />
+    <Compile Include="SetTests.fs" />
     <Compile Include="StringSpanTests.fs" />
     <Compile Include="StringPositionOffsetTests.fs" />
     <Compile Include="StringCodePointConversionTests.fs" />

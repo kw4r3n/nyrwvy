@@ -117,17 +117,24 @@ type ViewerNodeRole =
     | Bits32ShiftRight
     | Bits32ShiftLeft
     | ListEmpty
+    | SetEmpty
     | MapEmpty
     | ListConstruct
     | ListLength
     | MapValues
     | MapKeys
+    | SetToList
     | MapSize
+    | SetFromList
+    | SetSize
     | ListReverse
     | ListAppendItem
     | ListItemAt
     | MapRemove
+    | SetInsert
+    | SetRemove
     | MapContainsKey
+    | SetContains
     | MapGet
     | ListSlice
     | MapInsert
@@ -337,17 +344,24 @@ module ViewerProjection =
         | SemanticNodeKind.Bits32ShiftRight _ -> ViewerNodeRole.Bits32ShiftRight, []
         | SemanticNodeKind.Bits32ShiftLeft _ -> ViewerNodeRole.Bits32ShiftLeft, []
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
+        | SemanticNodeKind.SetEmpty _ -> ViewerNodeRole.SetEmpty, []
         | SemanticNodeKind.MapEmpty _ -> ViewerNodeRole.MapEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
         | SemanticNodeKind.MapValues _ -> ViewerNodeRole.MapValues, []
         | SemanticNodeKind.MapKeys _ -> ViewerNodeRole.MapKeys, []
+        | SemanticNodeKind.SetToList _ -> ViewerNodeRole.SetToList, []
         | SemanticNodeKind.MapSize _ -> ViewerNodeRole.MapSize, []
+        | SemanticNodeKind.SetFromList _ -> ViewerNodeRole.SetFromList, []
+        | SemanticNodeKind.SetSize _ -> ViewerNodeRole.SetSize, []
         | SemanticNodeKind.ListReverse _ -> ViewerNodeRole.ListReverse, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
         | SemanticNodeKind.MapRemove _ -> ViewerNodeRole.MapRemove, []
+        | SemanticNodeKind.SetInsert _ -> ViewerNodeRole.SetInsert, []
+        | SemanticNodeKind.SetRemove _ -> ViewerNodeRole.SetRemove, []
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
+        | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
         | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []

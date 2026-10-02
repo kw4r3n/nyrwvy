@@ -251,6 +251,16 @@ module SnapshotValidator =
                         "BuiltinGenericArityMismatch"
                         $"{context} uses Task with {arguments.Length} type arguments; exactly 1 is required."
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+                if arguments.Length <> 1 then
+                    add
+                        "BuiltinGenericArityMismatch"
+                        $"{context} uses Set with {arguments.Length} type arguments; exactly 1 is required."
+                else if not (EquatableTypes.isEquatable snapshot.Types arguments.Head) then
+                    add
+                        "SetItemTypeNotEquatable"
+                        $"{context} uses a Set whose item type is not equatable: {EquatableTypes.explain snapshot.Types arguments.Head}"
+                arguments |> List.iter (validateTypeRef context)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
                 if arguments.Length <> 2 then
                     add
@@ -412,6 +422,14 @@ module SnapshotValidator =
                 | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])) -> Some(keyType, valueType)
                 | Some _ ->
                     add "MapInputTypeMismatch" $"Node '{StableId.value nodeId}' requires a Map<K, V> input."
+                    None
+                | None -> None
+
+            let requireSetInput (nodeId: GraphNodeId) setNodeId =
+                match nodeType setNodeId with
+                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])) -> Some itemType
+                | Some _ ->
+                    add "SetInputTypeMismatch" $"Node '{StableId.value nodeId}' requires a Set<T> input."
                     None
                 | None -> None
 
@@ -1018,6 +1036,8 @@ module SnapshotValidator =
                             amountNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
+                    | SemanticNodeKind.SetEmpty itemType ->
+                        validateTypeRef $"SetEmpty node '{StableId.value node.Id}' type" (TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]))
                     | SemanticNodeKind.MapEmpty(keyType, valueType) ->
                         validateTypeRef
                             $"MapEmpty node '{StableId.value node.Id}' type"
@@ -1047,6 +1067,29 @@ module SnapshotValidator =
                     | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
                         | Some(keyType, _) -> requireMapKey node.Id keyType keyNodeId
+                        | None -> ()
+                    | SemanticNodeKind.SetSize sourceSetNodeId
+                    | SemanticNodeKind.SetToList sourceSetNodeId ->
+                        requireSetInput node.Id sourceSetNodeId |> ignore
+                    | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId)
+                    | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId)
+                    | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) ->
+                        match requireSetInput node.Id sourceSetNodeId with
+                        | Some itemType ->
+                            requireNodeType
+                                "SetItemTypeMismatch"
+                                $"Node '{StableId.value node.Id}' requires an item of the set's item type."
+                                itemType
+                                itemNodeId
+                        | None -> ()
+                    | SemanticNodeKind.SetFromList sourceListNodeId ->
+                        match nodeType sourceListNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            if not (EquatableTypes.isEquatable snapshot.Types itemType) then
+                                add
+                                    "SetItemTypeNotEquatable"
+                                    $"SetFromList node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                        | Some _ -> add "ListHigherOrderSourceTypeMismatch" $"SetFromList node '{StableId.value node.Id}' requires List<T> input."
                         | None -> ()
                     | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
@@ -1955,18 +1998,25 @@ module SnapshotValidator =
                 | SemanticNodeKind.Bits32ShiftRight _
                 | SemanticNodeKind.Bits32ShiftLeft _
                 | SemanticNodeKind.ListEmpty _
+                | SemanticNodeKind.SetEmpty _
                 | SemanticNodeKind.MapEmpty _
                 | SemanticNodeKind.ListConstruct _
                 | SemanticNodeKind.ListLength _
                 | SemanticNodeKind.MapValues _
                 | SemanticNodeKind.MapKeys _
+                | SemanticNodeKind.SetToList _
                 | SemanticNodeKind.MapSize _
+                | SemanticNodeKind.SetFromList _
+                | SemanticNodeKind.SetSize _
                 | SemanticNodeKind.ListReverse _
                 | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _
+                | SemanticNodeKind.SetInsert _
+                | SemanticNodeKind.SetRemove _
                 | SemanticNodeKind.MapContainsKey _
+                | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
