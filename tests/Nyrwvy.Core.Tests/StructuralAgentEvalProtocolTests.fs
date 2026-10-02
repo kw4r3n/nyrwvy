@@ -251,3 +251,19 @@ module StructuralAgentEvalProtocolTests =
         let error = document.RootElement.GetProperty("error")
         Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
         Assert.Contains("unsupported properties", error.GetProperty("message").GetString(), StringComparison.Ordinal)
+
+    [<Fact>]
+    let ``structural non-object command lines and recipes are protocol errors`` () =
+        let fixture = createFixture ()
+        let session = createSession fixture.Snapshot
+        let malformed =
+            [ "[]"
+              "5"
+              "\"x\""
+              simulateCommand fixture (box "x") ]
+
+        for payload in malformed do
+            let response = session.ExecuteLine(payload)
+            use document = parse response
+            Assert.False(document.RootElement.GetProperty("ok").GetBoolean(), response)
+            Assert.Equal("ProtocolError", document.RootElement.GetProperty("error").GetProperty("code").GetString())

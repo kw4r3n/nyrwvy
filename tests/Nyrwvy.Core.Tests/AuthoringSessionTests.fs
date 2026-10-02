@@ -467,6 +467,29 @@ module AuthoringSessionTests =
             if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
+    let ``JSONL reports wrongly typed recipe values as protocol errors`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let before = status session
+            let creation (body: string) =
+                sprintf """{"id":"typed","op":"simulateCreateFunctionByName","displayName":"typed","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" body
+            let requests =
+                [ creation """{"kind":"parameterSlot","index":"1"}"""
+                  creation "5"
+                  creation """{"kind":"boolAnd","left":5,"right":{"kind":"boolLiteral","value":true}}""" ]
+
+            for request in requests do
+                use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+                let error = response.RootElement.GetProperty("error")
+                Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+                Assert.Equal(before, status session)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL committed twenty level conditional reopens with identical fingerprints`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")
