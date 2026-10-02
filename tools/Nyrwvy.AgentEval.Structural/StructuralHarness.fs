@@ -35,49 +35,6 @@ type StructuralHarnessConfig =
       EnableStalePerturbation: bool
       RunMetadata: StructuralHarnessRunMetadata }
 
-type private StructuralHarnessEvent =
-    { Sequence: int
-      Request: string
-      Response: string
-      RequestBytes: int64
-      ResponseBytes: int64 }
-
-module private StructuralHarnessJson =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj = items |> List.toArray |> box
-
-    let optionalString = function
-        | Some value -> box value
-        | None -> null
-
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
-
-    let utf8Bytes (value: string): int64 = UTF8Encoding(false).GetByteCount(value) |> int64
-
-module private StructuralHarnessArtifacts =
-    let private utf8 = UTF8Encoding(false)
-
-    let writeText path mode (value: string) =
-        let bytes = utf8.GetBytes(value)
-        use stream =
-            new FileStream(path, mode, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough)
-        stream.Write(bytes, 0, bytes.Length)
-        stream.Flush(true)
-        ArtifactPermissions.ensureFile path
-
-    let writeAtomically path (value: string) =
-        let temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N")
-        try
-            writeText temporaryPath FileMode.CreateNew value
-            File.Move(temporaryPath, path, true)
-            ArtifactPermissions.ensureFile path
-        finally
-            if File.Exists temporaryPath then File.Delete temporaryPath
-
 [<Sealed>]
 type StructuralHarness private
     (config: StructuralHarnessConfig,
@@ -101,14 +58,13 @@ type StructuralHarness private
         let detailValue =
             details
             |> List.map (fun (key, value) -> key, box value)
-            |> StructuralHarnessJson.objectValue
-        StructuralHarnessJson.objectValue
+            |> ArtifactJson.objectValue
+        ArtifactJson.objectValue
             [ "sequence", box eventSequence
               "kind", box kind
               "details", detailValue ]
-        |> StructuralHarnessJson.serialize
-        |> fun line -> StructuralHarnessArtifacts.writeText harnessEventPath FileMode.Append (line + "\n")
-        ArtifactPermissions.restrictTree config.ArtifactDirectory
+        |> ArtifactJson.serialize
+        |> fun line -> ArtifactFiles.writeText harnessEventPath FileMode.Append (line + "\n")
 
     let recordPrivateOutcome (request: string) (response: string) =
         try
@@ -149,28 +105,22 @@ type StructuralHarness private
     member _.PerturbationApplied = perturbationApplied
 
     member _.RecordEvent(request: string, response: string) =
-        let requestSize = StructuralHarnessJson.utf8Bytes request
-        let responseSize = StructuralHarnessJson.utf8Bytes response
-        let event =
-            { Sequence = eventSequence
-              Request = request
-              Response = response
-              RequestBytes = requestSize
-              ResponseBytes = responseSize }
+        let requestSize = ArtifactJson.utf8ByteCount request
+        let responseSize = ArtifactJson.utf8ByteCount response
+        let sequence = eventSequence
         eventSequence <- eventSequence + 1
         requestBytes <- requestBytes + requestSize
         responseBytes <- responseBytes + responseSize
         recordPrivateOutcome request response
 
-        StructuralHarnessJson.objectValue
-            [ "sequence", box event.Sequence
-              "request", box event.Request
-              "response", box event.Response
-              "requestBytes", box event.RequestBytes
-              "responseBytes", box event.ResponseBytes ]
-        |> StructuralHarnessJson.serialize
-        |> fun line -> StructuralHarnessArtifacts.writeText eventPath FileMode.Append (line + "\n")
-        ArtifactPermissions.restrictTree config.ArtifactDirectory
+        ArtifactJson.objectValue
+            [ "sequence", box sequence
+              "request", box request
+              "response", box response
+              "requestBytes", box requestSize
+              "responseBytes", box responseSize ]
+        |> ArtifactJson.serialize
+        |> fun line -> ArtifactFiles.writeText eventPath FileMode.Append (line + "\n")
 
     member _.MaybeApplyStalePerturbation(workspace: AgentWorkspace, targetFunctionId: FunctionId): AgentWorkspace =
         if not config.EnableStalePerturbation
@@ -257,15 +207,15 @@ type StructuralHarness private
                 verificationReports
                 |> List.rev
                 |> List.map (fun report ->
-                    StructuralHarnessJson.objectValue
+                    ArtifactJson.objectValue
                         [ "transactionId", box (StableId.value report.TransactionId)
                           "publishedSnapshotId", box (StableId.value report.PublishedSnapshotId)
                           "status", box (StructuralVerificationStatus.name report.Status)
                           "evidenceDurable", box report.EvidenceDurable
                           "evidencePath", box report.EvidencePath ])
-                |> StructuralHarnessJson.arrayValue
+                |> ArtifactJson.arrayValue
 
-            StructuralHarnessJson.objectValue
+            ArtifactJson.objectValue
                 [ "schemaVersion", box 1
                   "taskId", box config.TaskId
                   "fixture", box config.FixtureName
@@ -287,10 +237,10 @@ type StructuralHarness private
                   "harnessPerturbationApplied", box perturbationApplied
                   "harnessPerturbationPreserved", box perturbationPreserved
                   "verificationReports", reports ]
-            |> StructuralHarnessJson.serialize
-            |> StructuralHarnessArtifacts.writeAtomically metricsPath
+            |> ArtifactJson.serialize
+            |> ArtifactFiles.writeAtomically metricsPath
 
-            StructuralHarnessJson.objectValue
+            ArtifactJson.objectValue
                 [ "schemaVersion", box 1
                   "state", box "terminal"
                   "taskId", box config.TaskId
@@ -304,8 +254,8 @@ type StructuralHarness private
                   "harnessPerturbationApplied", box perturbationApplied
                   "harnessPerturbationPreserved", box perturbationPreserved
                   "verificationReportCount", box verificationReports.Length ]
-            |> StructuralHarnessJson.serialize
-            |> StructuralHarnessArtifacts.writeAtomically runStatePath
+            |> ArtifactJson.serialize
+            |> ArtifactFiles.writeAtomically runStatePath
 
             ArtifactPermissions.restrictTree config.ArtifactDirectory
             true
@@ -356,10 +306,10 @@ type StructuralHarness private
                                 let runMetadataPath = Path.Combine(fullDirectory, "run-metadata.json")
                                 let runStatePath = Path.Combine(fullDirectory, "run-state.json")
                                 let harnessEventPath = Path.Combine(fullDirectory, "harness-events.jsonl")
-                                StructuralHarnessArtifacts.writeText eventPath FileMode.Create String.Empty
-                                StructuralHarnessArtifacts.writeText harnessEventPath FileMode.Create String.Empty
+                                ArtifactFiles.writeText eventPath FileMode.Create String.Empty
+                                ArtifactFiles.writeText harnessEventPath FileMode.Create String.Empty
 
-                                StructuralHarnessJson.objectValue
+                                ArtifactJson.objectValue
                                     [ "schemaVersion", box 1
                                       "corpusId", box FrozenM2StructuralCorpus.corpusId
                                       "corpusRevision", box FrozenM2StructuralCorpus.corpusRevision
@@ -369,23 +319,23 @@ type StructuralHarness private
                                       "startingSnapshotId", box (StableId.value snapshot.Id)
                                       "startingSnapshotFingerprint", box (SnapshotFingerprint.value actualSnapshot)
                                       "startingSemanticFingerprint", box (SemanticFingerprint.value actualSemantic)
-                                      "model", StructuralHarnessJson.optionalString config.RunMetadata.Model
-                                      "providerRuntime", StructuralHarnessJson.optionalString config.RunMetadata.ProviderRuntime
-                                      "reasoningConfig", StructuralHarnessJson.optionalString config.RunMetadata.ReasoningConfig
-                                      "openCodeVersion", StructuralHarnessJson.optionalString config.RunMetadata.OpenCodeVersion
-                                      "promptRevision", StructuralHarnessJson.optionalString config.RunMetadata.PromptRevision
-                                      "toolRevision", StructuralHarnessJson.optionalString config.RunMetadata.ToolRevision
-                                      "repositoryRevision", StructuralHarnessJson.optionalString config.RunMetadata.RepositoryRevision ]
-                                |> StructuralHarnessJson.serialize
-                                |> StructuralHarnessArtifacts.writeAtomically runMetadataPath
+                                      "model", ArtifactJson.optionalString config.RunMetadata.Model
+                                      "providerRuntime", ArtifactJson.optionalString config.RunMetadata.ProviderRuntime
+                                      "reasoningConfig", ArtifactJson.optionalString config.RunMetadata.ReasoningConfig
+                                      "openCodeVersion", ArtifactJson.optionalString config.RunMetadata.OpenCodeVersion
+                                      "promptRevision", ArtifactJson.optionalString config.RunMetadata.PromptRevision
+                                      "toolRevision", ArtifactJson.optionalString config.RunMetadata.ToolRevision
+                                      "repositoryRevision", ArtifactJson.optionalString config.RunMetadata.RepositoryRevision ]
+                                |> ArtifactJson.serialize
+                                |> ArtifactFiles.writeAtomically runMetadataPath
 
-                                StructuralHarnessJson.objectValue
+                                ArtifactJson.objectValue
                                     [ "schemaVersion", box 1
                                       "state", box "inProgress"
                                       "taskId", box config.TaskId
                                       "fixture", box config.FixtureName ]
-                                |> StructuralHarnessJson.serialize
-                                |> StructuralHarnessArtifacts.writeAtomically runStatePath
+                                |> ArtifactJson.serialize
+                                |> ArtifactFiles.writeAtomically runStatePath
                                 ArtifactPermissions.restrictTree fullDirectory
 
                                 Ok(
