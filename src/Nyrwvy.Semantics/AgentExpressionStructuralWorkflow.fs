@@ -661,8 +661,6 @@ module AgentExpressionStructuralWorkflow =
           CapabilityIds = snapshot.Capabilities |> List.map (fun capability -> capability.Id) |> Set.ofList }
 
     let private validateTypeRef (index: SnapshotIndex) typeRef =
-        let typeIds = index.TypeIds
-        let capabilityIds = index.CapabilityIds
         let invalid message = diagnostic "PureExpressionInvalidTypeRef" message
 
         let rec validate typeRef =
@@ -670,9 +668,9 @@ module AgentExpressionStructuralWorkflow =
             | TypeRef.Primitive _
             // Scope (a parameter type must declare it) is checked on the resulting snapshot.
             | TypeRef.TypeParameter _ -> Ok()
-            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
+            | TypeRef.Named typeId when Set.contains typeId index.TypeIds -> Ok()
             | TypeRef.Named typeId -> Error(invalid $"Type reference names unknown type '{StableId.value typeId}'.")
-            | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
+            | TypeRef.Capability capabilityId when Set.contains capabilityId index.CapabilityIds -> Ok()
             | TypeRef.Capability capabilityId ->
                 Error(invalid $"Type reference names unknown capability '{StableId.value capabilityId}'.")
             | TypeRef.Function(arguments, result) ->
