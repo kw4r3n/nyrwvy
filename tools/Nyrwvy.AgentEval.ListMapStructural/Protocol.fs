@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.Text.Json
 open Nyrwvy.Core
+open Nyrwvy.AgentEval
 
 /// Frozen evaluation protocol `m2-listmap-structural-v1` (freeze tag `eval/m2-listmap-condition-v1-20260831`, docs/operations/evaluation-freeze-tags.md).
 /// Its review encoding intentionally duplicates the maintained wire encoders to preserve historical
@@ -11,15 +12,6 @@ open Nyrwvy.Core
 [<RequireQualifiedAccess>]
 module ListMapStructuralProtocol =
     let version = "m2-listmap-structural-v1"
-
-module private Json =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj = items |> List.toArray |> box
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
 
 module private Input =
     exception ProtocolInputException of string
@@ -81,7 +73,7 @@ module private Input =
           MapperFunctionId = stableId<FunctionTag> "mapperFunctionId" (requiredString "mapperFunctionId" root) }
 
 module private Encode =
-    open Json
+    open ArtifactJson
 
     let private optional (value: 'a option) (encode: 'a -> obj): obj =
         match value with
@@ -327,7 +319,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             | _ -> false)
 
     let metrics () =
-        Json.objectValue
+        ArtifactJson.objectValue
             [ "toolCalls", box usage.ToolCalls
               "focusQueries", box usage.FocusQueries
               "simulations", box usage.Simulations
@@ -348,13 +340,13 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             |> function
                 | Ok value -> box (SemanticFingerprint.value value)
                 | Error error -> box $"error:{error}"
-        Json.objectValue
+        ArtifactJson.objectValue
             [ "status", box "ok"
               "protocolVersion", box ListMapStructuralProtocol.version
               "snapshotId", box (StableId.value (AgentWorkspace.currentSnapshotId workspace))
               "snapshotFingerprint", snapshotFingerprint
               "semanticFingerprint", semanticFingerprint
-              "proposalHandles", proposals |> Map.toList |> List.map (fst >> box) |> Json.arrayValue
+              "proposalHandles", proposals |> Map.toList |> List.map (fst >> box) |> ArtifactJson.arrayValue
               "metrics", metrics () ]
 
     let execute (root: JsonElement) =
@@ -377,12 +369,12 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
                 Input.stableId<FunctionTag> "functionId" (Input.requiredString "functionId" root)
             match AgentWorkspace.focusFunction workspace functionId with
             | Ok focus ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "ok"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "value", Encode.focus focus ]
             | Error error ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "error"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "errorKind", box "query"
@@ -394,7 +386,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             | Ok proposal ->
                 let handle = proposalHandle ()
                 proposals <- Map.add handle proposal proposals
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "proposed"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "proposalHandle", box handle
@@ -402,12 +394,12 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
                       "proposedSnapshotId", box (StableId.value (AgentListMapStructuralChangeProposal.proposedSnapshotId proposal))
                       "review", Encode.review (AgentListMapStructuralChangeProposal.review proposal) ]
             | Error(AgentStructuralWorkflowError.SimulationRejected diagnostics) ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "diagnostics", Encode.diagnostics diagnostics ]
             | Error error ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "error"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "errorKind", box "workflow"
@@ -425,7 +417,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             | AgentStructuralCommitResult.Rejected diagnostics ->
                 if isTerminalCommitRejection diagnostics then
                     proposals <- Map.remove handle proposals
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "proposalHandle", box handle
@@ -435,7 +427,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
                 lastPublication <- Some publication
                 proposals <- Map.remove handle proposals
                 usage <- { usage with Commits = usage.Commits + 1 }
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "committed"
                       "protocolVersion", box ListMapStructuralProtocol.version
                       "proposalHandle", box handle
@@ -452,7 +444,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
             workspace <- nextWorkspace
             proposals <- Map.remove handle proposals
             usage <- { usage with Rejects = usage.Rejects + 1 }
-            Json.objectValue
+            ArtifactJson.objectValue
                 [ "status", box "rejectedByAgent"
                   "protocolVersion", box ListMapStructuralProtocol.version
                   "proposalHandle", box handle
@@ -460,7 +452,7 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
                   "retainedSnapshotId", box (StableId.value receipt.RetainedSnapshotId) ]
         | "metricsV1" ->
             Input.ensureFields "metricsV1 command" [ "command" ] [ "command" ] root
-            Json.objectValue
+            ArtifactJson.objectValue
                 [ "status", box "ok"
                   "protocolVersion", box ListMapStructuralProtocol.version
                   "metrics", metrics () ]
@@ -479,17 +471,17 @@ type ListMapStructuralSession internal (initialWorkspace: AgentWorkspace) =
         try
             if String.IsNullOrWhiteSpace line then Input.fail "Input line must contain one JSON command."
             use document = Input.parseDocument line
-            Json.objectValue [ "ok", box true; "result", execute document.RootElement ]
-            |> Json.serialize
+            ArtifactJson.objectValue [ "ok", box true; "result", execute document.RootElement ]
+            |> ArtifactJson.serialize
         with Input.ProtocolInputException message ->
             usage <- { usage with ProtocolErrors = usage.ProtocolErrors + 1 }
-            Json.objectValue
+            ArtifactJson.objectValue
                 [ "ok", box false
                   "error",
-                    Json.objectValue
+                    ArtifactJson.objectValue
                         [ "code", box "ProtocolError"
                           "message", box message ] ]
-            |> Json.serialize
+            |> ArtifactJson.serialize
 
 [<RequireQualifiedAccess>]
 module ListMapStructuralSession =
