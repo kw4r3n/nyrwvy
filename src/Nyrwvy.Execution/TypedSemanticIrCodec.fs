@@ -427,6 +427,12 @@ module TypedSemanticIrCodec =
             writeBinaryNode writer "int64Min" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedAdd" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedSubtract" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedMultiply" leftNodeId rightNodeId
         | TypedSemanticNodeKind.ListRange(startNodeId, endNodeId) ->
             writer.WriteString("kind", "listRange")
             writer.WriteString("startNodeId", StableId.value startNodeId)

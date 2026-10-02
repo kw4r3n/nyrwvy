@@ -124,6 +124,13 @@ module CSharpBackend =
         writer.Line("public static NyOption<long> FloorToInt64(double value) => ToInt64(System.Math.Floor(value));")
         writer.Line("private static NyOption<long> ToInt64(double integral) =>")
         writer.Line("integral >= -9223372036854775808.0 && integral < 9223372036854775808.0 ? NyOption<long>.Some((long)integral) : NyOption<long>.None();")
+        // Checked Int64 arithmetic computes the exact result in Int128, which holds any sum, difference or
+        // product of two Int64 values, and gives None when it is outside Int64.
+        writer.Line("public static NyOption<long> CheckedAdd(long left, long right) => FitInt64((System.Int128)left + right);")
+        writer.Line("public static NyOption<long> CheckedSubtract(long left, long right) => FitInt64((System.Int128)left - right);")
+        writer.Line("public static NyOption<long> CheckedMultiply(long left, long right) => FitInt64((System.Int128)left * right);")
+        writer.Line("private static NyOption<long> FitInt64(System.Int128 exact) =>")
+        writer.Line("exact >= long.MinValue && exact <= long.MaxValue ? NyOption<long>.Some((long)exact) : NyOption<long>.None();")
         writer.Pop()
         writer.Line("}")
         writer.Line("")
@@ -1569,6 +1576,12 @@ module CSharpBackend =
             writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyNumber.CheckedAdd(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyNumber.CheckedSubtract(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64CheckedMultiply(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyNumber.CheckedMultiply(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.ListRange(startValueId, endValueId) ->
             // Python list(range(start, end)). end - start is taken as unsigned, so the full Int64 span is
             // counted without overflow; a list longer than an array can hold fails as allocation does.

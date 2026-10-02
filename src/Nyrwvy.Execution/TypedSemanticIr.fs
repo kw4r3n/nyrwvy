@@ -124,6 +124,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64CheckedAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64CheckedSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64CheckedMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | ListRange of startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringRepeat of textNodeId: GraphNodeId * countNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -278,6 +281,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Min _
         | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.Int64CheckedAdd _
+        | TypedSemanticNodeKind.Int64CheckedSubtract _
+        | TypedSemanticNodeKind.Int64CheckedMultiply _
         | TypedSemanticNodeKind.ListRange _
         | TypedSemanticNodeKind.StringRepeat _
         | TypedSemanticNodeKind.Int64Equal _
@@ -401,6 +407,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
@@ -676,6 +685,12 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId))
                     | SemanticNodeKind.ListRange(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId))
                     | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->

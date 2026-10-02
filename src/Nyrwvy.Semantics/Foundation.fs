@@ -334,6 +334,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// The larger of two Int64 values, as Python max(left, right). Never fails.
     | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Exact left + right as Option<Int64>: None when the exact result is outside Int64. Never fails.
+    | Int64CheckedAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Exact left - right as Option<Int64>: None when the exact result is outside Int64. Never fails.
+    | Int64CheckedSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Exact left * right as Option<Int64>: None when the exact result is outside Int64. Never fails.
+    | Int64CheckedMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// The List<Int64> start, start + 1, ..., end - 1, as Python list(range(start, end)); empty when
     /// end <= start. A list too large to allocate is a host failure, as for ListConcat.
     | ListRange of startNodeId: GraphNodeId * endNodeId: GraphNodeId
@@ -641,6 +647,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
@@ -812,6 +821,12 @@ module SemanticNodeShape =
                 SemanticNodeKind.Int64Min(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64Max(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64CheckedAdd(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64CheckedSubtract(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64CheckedMultiply(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ListRange(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.ListRange(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
@@ -1010,6 +1025,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64CheckedAdd _
+        | SemanticNodeKind.Int64CheckedSubtract _
+        | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
         | SemanticNodeKind.Int64Equal _
@@ -1190,6 +1208,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64CheckedAdd _
+        | SemanticNodeKind.Int64CheckedSubtract _
+        | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
         | SemanticNodeKind.Int64Equal _
@@ -1346,6 +1367,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64CheckedAdd _
+        | SemanticNodeKind.Int64CheckedSubtract _
+        | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
         | SemanticNodeKind.Int64Equal _
@@ -1478,6 +1502,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64CheckedAdd _
+        | SemanticNodeKind.Int64CheckedSubtract _
+        | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
         | SemanticNodeKind.Int64Equal _

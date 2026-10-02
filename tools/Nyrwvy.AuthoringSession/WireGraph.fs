@@ -101,6 +101,9 @@ module internal WireGraph =
         | SemanticNodeKind.Int64FloorModulo(left, right) -> binary "int64FloorModulo" left right
         | SemanticNodeKind.Int64Min(left, right) -> binary "int64Min" left right
         | SemanticNodeKind.Int64Max(left, right) -> binary "int64Max" left right
+        | SemanticNodeKind.Int64CheckedAdd(left, right) -> binary "int64CheckedAdd" left right
+        | SemanticNodeKind.Int64CheckedSubtract(left, right) -> binary "int64CheckedSubtract" left right
+        | SemanticNodeKind.Int64CheckedMultiply(left, right) -> binary "int64CheckedMultiply" left right
         | SemanticNodeKind.ListRange(start, stop) -> tagged "listRange" [ "startNodeId", identity start; "endNodeId", identity stop ]
         | SemanticNodeKind.StringRepeat(text, count) -> tagged "stringRepeat" [ "textNodeId", identity text; "countNodeId", identity count ]
         | SemanticNodeKind.Int64Equal(left, right) -> binary "int64Equal" left right

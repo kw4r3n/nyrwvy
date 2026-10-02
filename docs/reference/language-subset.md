@@ -57,6 +57,9 @@ Int64FloorModulo
 Int64Min
 Int64Max
 Int64WrappingAbs
+Int64CheckedAdd
+Int64CheckedSubtract
+Int64CheckedMultiply
 Int64Equal
 Int64LessThan
 Int64LessThanOrEqual
@@ -70,7 +73,9 @@ Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
 
 `Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like the other runtime operations of this subset (compare `StringSlice` clamping), they never fail with an error; only host failures such as an allocation too large for `ListRange` or `StringRepeat`, or recursion too deep, end a run: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
 
-Checked arithmetic, implicit conversion, and a broader numeric tower are not part of this contract.
+`Int64CheckedAdd(left, right)`, `Int64CheckedSubtract(left, right)` and `Int64CheckedMultiply(left, right)` yield `Option<Int64>`: `Some` of the exact result of Python `left + right`, `left - right` and `left * right` when it lies in `[-2^63, 2^63)`, and `None` otherwise (`Int64.MaxValue + 1`, `Int64.MinValue * -1`). They never fail ([decision](../decisions/checked-int64-arithmetic.md)).
+
+Implicit conversion and a broader numeric tower are not part of this contract.
 
 ## Immutable ordered `List<T>`
 

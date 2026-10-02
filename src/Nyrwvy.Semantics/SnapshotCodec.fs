@@ -541,6 +541,12 @@ module SnapshotCodec =
             writeBinaryNode writer "int64Min" leftNodeId rightNodeId
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedAdd" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedSubtract" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64CheckedMultiply" leftNodeId rightNodeId
         | SemanticNodeKind.ListRange(startNodeId, endNodeId) ->
             writer.WriteString("kind", "listRange")
             writer.WriteString("startNodeId", StableId.value startNodeId)
@@ -1365,6 +1371,12 @@ module SnapshotCodec =
                 readBinaryNode "Int64Min node" element (fun left right -> SemanticNodeKind.Int64Min(left, right))
             | "int64Max" ->
                 readBinaryNode "Int64Max node" element (fun left right -> SemanticNodeKind.Int64Max(left, right))
+            | "int64CheckedAdd" ->
+                readBinaryNode "Int64CheckedAdd node" element (fun left right -> SemanticNodeKind.Int64CheckedAdd(left, right))
+            | "int64CheckedSubtract" ->
+                readBinaryNode "Int64CheckedSubtract node" element (fun left right -> SemanticNodeKind.Int64CheckedSubtract(left, right))
+            | "int64CheckedMultiply" ->
+                readBinaryNode "Int64CheckedMultiply node" element (fun left right -> SemanticNodeKind.Int64CheckedMultiply(left, right))
             | "listRange" ->
                 ensureProperties
                     "ListRange node"

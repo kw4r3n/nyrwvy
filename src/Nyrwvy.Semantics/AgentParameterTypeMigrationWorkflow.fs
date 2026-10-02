@@ -324,6 +324,9 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
             | ExpressionRecipe.Int64Min(left, right) -> two ExpressionRecipe.Int64Min left right
             | ExpressionRecipe.Int64Max(left, right) -> two ExpressionRecipe.Int64Max left right
+            | ExpressionRecipe.Int64CheckedAdd(left, right) -> two ExpressionRecipe.Int64CheckedAdd left right
+            | ExpressionRecipe.Int64CheckedSubtract(left, right) -> two ExpressionRecipe.Int64CheckedSubtract left right
+            | ExpressionRecipe.Int64CheckedMultiply(left, right) -> two ExpressionRecipe.Int64CheckedMultiply left right
             | ExpressionRecipe.ListRange(left, right) -> two ExpressionRecipe.ListRange left right
             | ExpressionRecipe.StringRepeat(left, right) -> two ExpressionRecipe.StringRepeat left right
             | ExpressionRecipe.Bits32Xor(left, right) -> two ExpressionRecipe.Bits32Xor left right

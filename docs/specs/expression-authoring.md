@@ -73,6 +73,7 @@ ExpressionRecipe =
   | Int64FloorDivide(left, right)
   | Int64FloorModulo(left, right)
   | Int64Min(left, right) | Int64Max(left, right) | Int64WrappingAbs(expr)
+  | Int64CheckedAdd(left, right) | Int64CheckedSubtract(left, right) | Int64CheckedMultiply(left, right)
   | Int64Equal(left, right)
   | Int64LessThan(left, right)
   | Int64LessThanOrEqual(left, right)
@@ -414,8 +415,9 @@ These operations follow the owner's choices recorded in the [decision](../decisi
 - `ListRange(start, end)` (wire `listRange` with the fields `start` and `end`, Nyason `list-range`) takes two Int64 values and produces `List<Int64>`. `StringRepeat(text, count)` (wire `stringRepeat` with the fields `text` and `count`, Nyason `string-repeat`) takes a String and an Int64 and produces a String. A result too large to allocate is a host failure (`RunRuntimeFailure` with `System.OutOfMemoryException` under `runPure`); neither returns `Option`.
 - `Int64ToHexString` (wire `int64ToHexString`, Nyason `int64-to-hex-string`) takes an Int64 in the field `value` and produces a String; `StringParseInt64Hex` (wire `stringParseInt64Hex`, Nyason `string-parse-int64-hex`) takes a String in the field `value` and produces `Option<Int64>`.
 - `Int64Min` and `Int64Max` (wire `int64Min`, `int64Max` with the fields `left` and `right`; Nyason `int64-min`, `int64-max`) take two Int64 values, and `Int64WrappingAbs` (wire `int64WrappingAbs` with the field `value`, Nyason `int64-wrapping-abs`) takes one; all produce an Int64.
+- `Int64CheckedAdd`, `Int64CheckedSubtract` and `Int64CheckedMultiply` (wire `int64CheckedAdd`, `int64CheckedSubtract`, `int64CheckedMultiply` with the fields `left` and `right`; Nyason `int64-checked-add`, `int64-checked-subtract`, `int64-checked-multiply`) take two Int64 values and produce `Option<Int64>`.
 
-An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min` and `Int64Max`, `Int64IntrinsicTypeMismatch` for `Int64ToHexString` and `Int64WrappingAbs`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
+An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min`, `Int64Max` and the checked operations, `Int64IntrinsicTypeMismatch` for `Int64ToHexString` and `Int64WrappingAbs`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
 
 ## Bits32
 

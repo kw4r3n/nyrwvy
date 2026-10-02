@@ -183,6 +183,7 @@ The language/tool implementation queue lives in this document. Its orders came f
 | 37 | `ListRange` and `StringRepeat` | [standard-operation-choices](../decisions/standard-operation-choices.md) |
 | 38 | Hexadecimal text | [standard-operation-choices](../decisions/standard-operation-choices.md) |
 | 39 | Int64 minimum, maximum and wrapping absolute value | [standard-operation-choices](../decisions/standard-operation-choices.md) |
+| 40 | Checked Int64 add, subtract and multiply | [checked-int64-arithmetic](../decisions/checked-int64-arithmetic.md) |
 
 One change has no order number: after probe 11, a pure `ListEffectFold` whose folder returns `Result` stops at the first `Err` ([result-fold-short-circuit](../decisions/result-fold-short-circuit.md)).
 
@@ -198,7 +199,6 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | `Float64Round(value, digits)` (decimal rounding) | Probes 15 and 17 (2). Rounding to Int64 is done as order 34 | A further consumer or an owner choice |
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
-| Checked Int64 arithmetic | Probe 20 (1) | A further observation |
 | `StringToUpper` | None (0): found by the standard-operations review, not by a probe | A consumer; Python's `upper()` changes length, so there is a choice to make ([decision](../decisions/standard-operation-choices.md)) |
 | `matchUnion` default arm | Probes 7, 10, 17, 18 and 19 (5) | An owner decision: a default arm trades away the [exhaustiveness rule](../concepts/ai-first-design-principles.md#exhaustiveness-over-catch-all-behavior) of the language. D-015's rule against wildcard branches in the [foundational decisions](../decisions/foundational.md#d-015--f-is-the-initial-semantic-core-implementation-language) is the F# core's own code style, not a rule about Nyrwvy's `MatchUnion` |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
@@ -371,7 +371,7 @@ It converted Float64 to Int64 with Python's rounding by hand (95 nodes), the con
 
 ### Queue from the 2026-10-01 probe 20 owner choice
 
-After probe 20 the owner chose its one candidate that met the decision rule. Transcendental functions (probe 20) and checked Int64 arithmetic (probe 20) stay [open candidates](#open-candidates).
+After probe 20 the owner chose its one candidate that met the decision rule. Transcendental functions (probe 20) stay an [open candidate](#open-candidates); checked Int64 arithmetic was added later as order 40.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
@@ -390,6 +390,14 @@ A review of the builtin surface against ordinary language libraries ([decision](
 | 37 | **Done: ranges and repeated text** (owner choice: a size too large to allocate is a host failure) | Probes 5 (`repeat` by self-recursion), 7 (`"x" * n` as a generator) and 12 (a constant list sliced only for its length) | `ListRange(start, end): List<Int64>`, Python `list(range(start, end))`, and `StringRepeat(text, count): String`, Python `text * count`; [decision](../decisions/standard-operation-choices.md) |
 | 38 | **Done: hexadecimal text** (owner choice: signed like `Int64ToString`, `-ff` for -255) | Probes 9, 10, 11 (JSON `\u` escapes), 12, 16 (`hexdigest`), 17 and 18 (`isHex`) | `Int64ToHexString(value): String` and `StringParseInt64Hex(text): Option<Int64>`, strict like `StringParseInt64` |
 | 39 | **Done: Int64 minimum, maximum and absolute value** | Probes 15 (`clampInt`) and 20 (`absI`, `dimMax`), 3 to 5 nodes each | `Int64Min`, `Int64Max` and `Int64WrappingAbs` (`Int64.MinValue` gives itself, as wrapping arithmetic does) |
+
+### Owner choice of 2026-10-03
+
+Checked Int64 arithmetic had one observation (probe 20) and was an open candidate waiting on another. The owner chose to add it on that observation ([decision](../decisions/checked-int64-arithmetic.md)).
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 40 | **Done: checked Int64 arithmetic** (owner choice on one observation) | Probe 20 wrote checked add and multiply by hand (`addChk`, `mulChk`: 59 nodes) because wrapping is the only Int64 arithmetic | `Int64CheckedAdd`, `Int64CheckedSubtract` and `Int64CheckedMultiply`, all `(Int64, Int64) -> Option<Int64>`: the exact result, or `None` outside Int64 |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

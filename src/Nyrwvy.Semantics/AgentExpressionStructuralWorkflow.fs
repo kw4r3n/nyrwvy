@@ -67,6 +67,9 @@ type ExpressionRecipe =
     | Int64FloorModulo of ExpressionRecipe * ExpressionRecipe
     | Int64Min of ExpressionRecipe * ExpressionRecipe
     | Int64Max of ExpressionRecipe * ExpressionRecipe
+    | Int64CheckedAdd of ExpressionRecipe * ExpressionRecipe
+    | Int64CheckedSubtract of ExpressionRecipe * ExpressionRecipe
+    | Int64CheckedMultiply of ExpressionRecipe * ExpressionRecipe
     | ListRange of ExpressionRecipe * ExpressionRecipe
     | StringRepeat of ExpressionRecipe * ExpressionRecipe
     | Int64Equal of ExpressionRecipe * ExpressionRecipe
@@ -239,6 +242,9 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> ExpressionRecipe.Int64FloorModulo(go left, go right)
         | ExpressionRecipe.Int64Min(left, right) -> ExpressionRecipe.Int64Min(go left, go right)
         | ExpressionRecipe.Int64Max(left, right) -> ExpressionRecipe.Int64Max(go left, go right)
+        | ExpressionRecipe.Int64CheckedAdd(left, right) -> ExpressionRecipe.Int64CheckedAdd(go left, go right)
+        | ExpressionRecipe.Int64CheckedSubtract(left, right) -> ExpressionRecipe.Int64CheckedSubtract(go left, go right)
+        | ExpressionRecipe.Int64CheckedMultiply(left, right) -> ExpressionRecipe.Int64CheckedMultiply(go left, go right)
         | ExpressionRecipe.ListRange(left, right) -> ExpressionRecipe.ListRange(go left, go right)
         | ExpressionRecipe.StringRepeat(left, right) -> ExpressionRecipe.StringRepeat(go left, go right)
         | ExpressionRecipe.Int64Equal(left, right) -> ExpressionRecipe.Int64Equal(go left, go right)
@@ -490,6 +496,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right)
         | ExpressionRecipe.Int64Min(left, right)
         | ExpressionRecipe.Int64Max(left, right)
+        | ExpressionRecipe.Int64CheckedAdd(left, right)
+        | ExpressionRecipe.Int64CheckedSubtract(left, right)
+        | ExpressionRecipe.Int64CheckedMultiply(left, right)
         | ExpressionRecipe.ListRange(left, right)
         | ExpressionRecipe.StringRepeat(left, right)
         | ExpressionRecipe.Int64Equal(left, right)
@@ -1287,6 +1296,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64FloorModulo(left, right) -> binary "Int64FloorModulo" int64Type int64Type left right
             | ExpressionRecipe.Int64Min(left, right) -> binary "Int64Min" int64Type int64Type left right
             | ExpressionRecipe.Int64Max(left, right) -> binary "Int64Max" int64Type int64Type left right
+            | ExpressionRecipe.Int64CheckedAdd(left, right) -> binary "Int64CheckedAdd" int64Type (optionType int64Type) left right
+            | ExpressionRecipe.Int64CheckedSubtract(left, right) -> binary "Int64CheckedSubtract" int64Type (optionType int64Type) left right
+            | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary "Int64CheckedMultiply" int64Type (optionType int64Type) left right
             | ExpressionRecipe.ListRange(start, stop) ->
                 operands "ListRange" (listType int64Type) [ "start", int64Type, start; "end", int64Type, stop ]
             | ExpressionRecipe.StringRepeat(text, count) ->
@@ -2113,6 +2125,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> binary SemanticNodeKind.Int64FloorModulo left right
         | ExpressionRecipe.Int64Min(left, right) -> binary SemanticNodeKind.Int64Min left right
         | ExpressionRecipe.Int64Max(left, right) -> binary SemanticNodeKind.Int64Max left right
+        | ExpressionRecipe.Int64CheckedAdd(left, right) -> binary SemanticNodeKind.Int64CheckedAdd left right
+        | ExpressionRecipe.Int64CheckedSubtract(left, right) -> binary SemanticNodeKind.Int64CheckedSubtract left right
+        | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary SemanticNodeKind.Int64CheckedMultiply left right
         | ExpressionRecipe.ListRange(left, right) -> binary SemanticNodeKind.ListRange left right
         | ExpressionRecipe.StringRepeat(left, right) -> binary SemanticNodeKind.StringRepeat left right
         | ExpressionRecipe.Int64Equal(left, right) -> binary SemanticNodeKind.Int64Equal left right
