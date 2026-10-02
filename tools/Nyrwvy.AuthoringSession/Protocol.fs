@@ -477,10 +477,7 @@ module AuthoringProtocol =
         | PureRunFrame.CapabilityOperation operationId ->
             objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
-    let private currentSnapshotId (session: AuthoringSession) =
-        match session.Status() with
-        | Ok status -> status.SnapshotId
-        | Error error -> raise (InvalidOperationException(sprintf "%A" error))
+    let private currentSnapshotId (session: AuthoringSession) = session.SnapshotId
 
     let private typeFieldIntent (item: JsonElement): AgentTypeFieldIntent =
         ensureFields

@@ -582,6 +582,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.VerifyPersistedSource(): Result<unit, AuthoringSessionError> =
         ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
 
+    /// The current snapshot's id, without computing the fingerprints that `Status` reports.
+    member _.SnapshotId: SnapshotId = AgentWorkspace.currentSnapshotId workspace
+
     member _.Status(): Result<AuthoringSessionStatus, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match AgentWorkspace.currentSnapshotFingerprint workspace with
