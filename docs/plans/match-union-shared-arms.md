@@ -1,6 +1,6 @@
 # Repeated `MatchUnion` arms (design note)
 
-**Status:** Proposed. A design note for the `matchUnion` default-arm candidate in the post-M2 [open candidates](post-m2-roadmap.md#open-candidates). Nothing here is implemented or accepted; the owner chooses among the options below.
+**Status:** Decided 2026-10-03: option D with E's shorthand, no shared field bindings, one-variant arms keep their persisted form. Implemented as order 41; see the [decision](../decisions/match-union-shared-arms.md). The analysis below is kept as written.
 
 ## Context
 

@@ -818,10 +818,18 @@ module SnapshotCodec =
             writer.WritePropertyName("arms")
             writer.WriteStartArray()
             arms
-            |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+            |> List.sortBy (fun arm -> StableId.value (UnionMatchArm.key arm))
             |> List.iter (fun arm ->
                 writer.WriteStartObject()
-                writer.WriteString("variantId", StableId.value arm.VariantId)
+                // A one-variant arm keeps the original single-ID form, so existing graphs and their
+                // fingerprints are unchanged; only an arm with several variants writes the list.
+                match UnionMatchArm.canonicalVariantIds arm with
+                | [ variantId ] -> writer.WriteString("variantId", StableId.value variantId)
+                | variantIds ->
+                    writer.WritePropertyName("variantIds")
+                    writer.WriteStartArray()
+                    variantIds |> List.iter (fun variantId -> writer.WriteStringValue(StableId.value variantId))
+                    writer.WriteEndArray()
                 writer.WritePropertyName("fieldBindings")
                 writer.WriteStartArray()
                 arm.FieldBindings
@@ -1663,8 +1671,16 @@ module SnapshotCodec =
             | "matchUnion" ->
                 ensureProperties "Union match node" (set [ "id"; "kind"; "inputNodeId"; "arms" ]) (set [ "id"; "kind"; "inputNodeId"; "arms" ]) element
                 let readArm armElement =
-                    ensureProperties "Union match arm" (set [ "variantId"; "fieldBindings"; "body" ]) (set [ "variantId"; "fieldBindings"; "body" ]) armElement
-                    { VariantId = readId<VariantTag> "variantId" armElement
+                    ensureProperties "Union match arm" (set [ "fieldBindings"; "body" ]) (set [ "variantId"; "variantIds"; "fieldBindings"; "body" ]) armElement
+                    let variantIds =
+                        match tryProperty "variantId" armElement, tryProperty "variantIds" armElement with
+                        | Some _, None -> [ readId<VariantTag> "variantId" armElement ]
+                        | None, Some _ ->
+                            match readIdArray<VariantTag> "variantIds" armElement with
+                            | _ :: _ :: _ as variantIds -> variantIds
+                            | _ -> invalidShape "Union match arm 'variantIds' must name at least two variants; one variant uses 'variantId'."
+                        | _ -> invalidShape "Union match arm requires exactly one of 'variantId' and 'variantIds'."
+                    { VariantIds = variantIds
                       FieldBindings = readArray "fieldBindings" readPatternFieldBinding armElement
                       Body = readGraph (requireProperty "body" armElement) }
                 SemanticNodeKind.MatchUnion(readId<GraphNodeTag> "inputNodeId" element, readArray "arms" readArm element)

@@ -450,7 +450,7 @@ module FunctionAbortTests =
                 create session "union" [ "left", boolType ] (result textType) []
                             (ExpressionRecipe.MatchUnion(
                                 ExpressionRecipe.Conditional(slot 0, ExpressionRecipe.UnionConstruct(left, []), ExpressionRecipe.UnionConstruct(right, [])),
-                                [ left, abort "left"; right, ok (str "right") ]))
+                                [ [ left ], abort "left"; [ right ], ok (str "right") ]))
             for condition, expected in [ true, errText "left"; false, okText "right" ] do
                 Assert.Equal(expected, (PureRun.run session union.Id [ PureRunValue.Bool condition ] None |> unwrap).Actual)
             // All-aborting control flow generates no merge value or fabricated default result.

@@ -341,7 +341,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let emptyNameReportArm: UnionMatchArm =
-            { VariantId = emptyNameVariantId
+            { VariantIds = [ emptyNameVariantId ]
               FieldBindings = []
               Body =
                 { Nodes = [ emptyNameMessageNode; emptyNameWriteNode ]
@@ -362,7 +362,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let invalidEmailReportArm: UnionMatchArm =
-            { VariantId = invalidEmailVariantId
+            { VariantIds = [ invalidEmailVariantId ]
               FieldBindings = []
               Body =
                 { Nodes = [ invalidEmailMessageNode; invalidEmailWriteNode ]

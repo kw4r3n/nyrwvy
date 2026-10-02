@@ -83,6 +83,7 @@
     <Compile Include="Float64ToInt64Tests.fs" />
     <Compile Include="StandardOperationTests.fs" />
     <Compile Include="StandardOperationChoiceTests.fs" />
+    <Compile Include="MatchUnionSharedArmTests.fs" />
     <Compile Include="StringSpanTests.fs" />
     <Compile Include="StringPositionOffsetTests.fs" />
     <Compile Include="StringCodePointConversionTests.fs" />

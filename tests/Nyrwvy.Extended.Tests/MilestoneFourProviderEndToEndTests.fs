@@ -257,8 +257,8 @@ NyFunctions.{functionName}("not-an-email", console);
                                 classify.Id,
                                 [ classifyInput.Id, ExpressionRecipe.ParameterSlot 0 ]
                             ),
-                            [ accepted.Id, writeField acceptedField.Id
-                              rejected.Id, writeField rejectedField.Id ]
+                            [ [ accepted.Id ], writeField acceptedField.Id
+                              [ rejected.Id ], writeField rejectedField.Id ]
                         ))
 
                 session.Close()

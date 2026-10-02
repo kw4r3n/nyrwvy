@@ -148,7 +148,9 @@ type ExpressionRecipe =
     /// The right operand becomes a nested value graph evaluated only when left is false.
     | BoolOr of left: ExpressionRecipe * right: ExpressionRecipe
     | Conditional of condition: ExpressionRecipe * whenTrue: ExpressionRecipe * whenFalse: ExpressionRecipe
-    | MatchUnion of input: ExpressionRecipe * arms: (VariantId * ExpressionRecipe) list
+    /// Each arm names one or more variants. At most one arm may name none: it is the `otherwise` arm,
+    /// and materialization expands it to an explicit list of the variants no other arm names.
+    | MatchUnion of input: ExpressionRecipe * arms: (VariantId list * ExpressionRecipe) list
     | Bind of value: ExpressionRecipe * body: ExpressionRecipe
     | MatchOption of input: ExpressionRecipe * someBody: ExpressionRecipe * noneBody: ExpressionRecipe
     | MatchResult of input: ExpressionRecipe * okBody: ExpressionRecipe * errBody: ExpressionRecipe
@@ -334,7 +336,7 @@ module AgentExpressionStructuralWorkflow =
     /// What opened a lexical frame; used only to describe visible frames in scope diagnostics.
     [<RequireQualifiedAccess>]
     type private ScopeFrameKind =
-        | UnionArm of VariantId
+        | UnionArm of VariantId list
         | BindBody
         | OptionSome
         | OptionNone
@@ -414,6 +416,37 @@ module AgentExpressionStructuralWorkflow =
     /// The first key that occurs more than once in `items`, if any.
     let private tryFindDuplicate keyOf items =
         items |> List.countBy keyOf |> List.tryFind (fun (_, count) -> count > 1) |> Option.map fst
+
+    /// A recipe MatchUnion's arms resolved against the union's variants, in declaration order of each
+    /// arm's first variant: the variants each arm covers (an `otherwise` arm expanded), its body, and
+    /// whether its body sees the variant's fields (only an explicit arm naming exactly one variant).
+    let private resolveUnionArms (variants: SemanticVariant list) (arms: (VariantId list * ExpressionRecipe) list) =
+        let explicitArms, otherwiseArms = arms |> List.partition (fun (variantIds, _) -> not (List.isEmpty variantIds))
+        let named = explicitArms |> List.collect fst
+        let declared = variants |> List.map (fun variant -> variant.Id) |> Set.ofList
+        let remaining = variants |> List.filter (fun variant -> not (List.contains variant.Id named))
+        match tryFindDuplicate id named, otherwiseArms with
+        | Some variantId, _ ->
+            Error(diagnostic "PureExpressionMatchArmDuplicate" $"MatchUnion contains variant '{StableId.value variantId}' more than once.")
+        | None, _ when not (Set.isSubset (Set.ofList named) declared) ->
+            Error(diagnostic "PureExpressionMatchArmMismatch" "MatchUnion must contain every declared variant exactly once and no other variants.")
+        | None, _ :: _ :: _ ->
+            Error(diagnostic "PureExpressionMatchOtherwiseDuplicate" "MatchUnion has more than one otherwise arm.")
+        | None, [ _ ] when List.isEmpty remaining ->
+            Error(diagnostic "PureExpressionMatchOtherwiseUnused" "MatchUnion has an otherwise arm, but every variant is already named by another arm.")
+        | None, [] when not (List.isEmpty remaining) ->
+            Error(diagnostic "PureExpressionMatchArmMismatch" "MatchUnion must contain every declared variant exactly once and no other variants.")
+        | None, otherwiseArm ->
+            let variantIndex variantId = variants |> List.findIndex (fun variant -> variant.Id = variantId)
+            let covered variantIds = variants |> List.filter (fun variant -> List.contains variant.Id variantIds)
+            let explicitResolved =
+                explicitArms
+                |> List.map (fun (variantIds, body) -> covered variantIds, body, (List.length variantIds = 1))
+            let otherwiseResolved = otherwiseArm |> List.map (fun (_, body) -> remaining, body, false)
+            Ok(
+                explicitResolved @ otherwiseResolved
+                |> List.sortBy (fun (armVariants: SemanticVariant list, _, _) -> variantIndex armVariants.Head.Id)
+            )
 
     let private listItemType typeRef =
         match typeRef with
@@ -746,16 +779,20 @@ module AgentExpressionStructuralWorkflow =
     let private describeScopeFrame (snapshot: Snapshot) (frame: ScopeFrame<'Binding>) =
         let opener =
             match frame.Kind with
-            | ScopeFrameKind.UnionArm variantId ->
+            | ScopeFrameKind.UnionArm variantIds ->
                 snapshot.Types
                 |> List.tryPick (fun typeEntity ->
                     match typeEntity.Kind with
-                    | SemanticTypeKind.Union variants ->
-                        variants
-                        |> List.tryFind (fun variant -> variant.Id = variantId)
-                        |> Option.map (fun variant -> $"arm '{variant.DisplayName}' of MatchUnion on '{typeEntity.DisplayName}'")
+                    | SemanticTypeKind.Union variants when variants |> List.exists (fun variant -> List.contains variant.Id variantIds) ->
+                        let names =
+                            variants
+                            |> List.filter (fun variant -> List.contains variant.Id variantIds)
+                            |> List.map (fun variant -> variant.DisplayName)
+                            |> String.concat "|"
+                        Some $"arm '{names}' of MatchUnion on '{typeEntity.DisplayName}'"
+                    | SemanticTypeKind.Union _
                     | SemanticTypeKind.Product _ -> None)
-                |> Option.defaultValue $"arm '{StableId.value variantId}' of MatchUnion"
+                |> Option.defaultValue ("arm '" + (variantIds |> List.map StableId.value |> String.concat "|") + "' of MatchUnion")
             | ScopeFrameKind.BindBody -> "Bind body"
             | ScopeFrameKind.OptionSome -> "Some arm of MatchOption"
             | ScopeFrameKind.OptionNone -> "None arm of MatchOption"
@@ -1823,32 +1860,28 @@ module AgentExpressionStructuralWorkflow =
                 | Ok(TypeRef.Named inputTypeId) ->
                     match Map.tryFind inputTypeId typesById with
                     | Some { Kind = SemanticTypeKind.Union variants } ->
-                        match tryFindDuplicate fst arms with
-                        | Some variantId ->
-                            Error(diagnostic "PureExpressionMatchArmDuplicate" $"MatchUnion contains variant '{StableId.value variantId}' more than once.")
-                        | None ->
-                            let expectedIds = variants |> List.map (fun variant -> variant.Id) |> Set.ofList
-                            let actualIds = arms |> List.map fst |> Set.ofList
-                            if expectedIds <> actualIds then
-                                Error(diagnostic "PureExpressionMatchArmMismatch" "MatchUnion must contain every declared variant exactly once and no other variants.")
-                            else
-                                let rec inferArms expected = function
-                                    | [] ->
+                        match resolveUnionArms variants arms with
+                        | Error error -> Error error
+                        | Ok resolved ->
+                            let rec inferArms expected = function
+                                | [] ->
+                                    match expected with
+                                    | Some resultType -> Ok resultType
+                                    | None -> Error(diagnostic "PureExpressionMatchHasNoArms" "MatchUnion requires at least one declared variant to derive a result type.")
+                                | ((armVariants: SemanticVariant list), body, bindsFields) :: rest ->
+                                    let frame: PatternTypeFrame =
+                                        { Kind = ScopeFrameKind.UnionArm(armVariants |> List.map (fun variant -> variant.Id))
+                                          Slots =
+                                            if bindsFields then
+                                                armVariants.Head.Fields |> List.map (fun field -> RecipePatternSlot.Field field.Id, field.Type)
+                                            else [] }
+                                    match inferCompletion (frame :: frames) body with
+                                    | Error error -> Error error
+                                    | Ok actual ->
                                         match expected with
-                                        | Some resultType -> Ok resultType
-                                        | None -> Error(diagnostic "PureExpressionMatchHasNoArms" "MatchUnion requires at least one declared variant to derive a result type.")
-                                    | (variant: SemanticVariant) :: rest ->
-                                        let _, body = arms |> List.find (fun (variantId, _) -> variantId = variant.Id)
-                                        let frame: PatternTypeFrame =
-                                            { Kind = ScopeFrameKind.UnionArm variant.Id
-                                              Slots = variant.Fields |> List.map (fun field -> RecipePatternSlot.Field field.Id, field.Type) }
-                                        match inferCompletion (frame :: frames) body with
-                                        | Error error -> Error error
-                                        | Ok actual ->
-                                            match expected with
-                                            | None -> inferArms (Some actual) rest
-                                            | Some expectedType -> merge "MatchUnion" expectedType actual |> Result.bind (fun merged -> inferArms (Some merged) rest)
-                                inferArms None variants
+                                        | None -> inferArms (Some actual) rest
+                                        | Some expectedType -> merge "MatchUnion" expectedType actual |> Result.bind (fun merged -> inferArms (Some merged) rest)
+                            inferArms None resolved
                     | Some _
                     | None ->
                         Error(diagnostic "PureExpressionMatchInputTypeMismatch" "MatchUnion input must produce an existing named union type.")
@@ -2337,29 +2370,33 @@ module AgentExpressionStructuralWorkflow =
                     | _ -> failwith "MatchUnion recipe passed preflight with a non-union type."
                 | _ -> failwith "MatchUnion recipe passed preflight with a non-named input type."
 
-            let preparedArms =
-                variants
-                |> List.map (fun variant ->
-                    let preparedFields =
-                        variant.Fields
-                        |> List.map (fun field ->
-                            let binding: PatternBinding =
-                                { Id = StableIdAllocator.newPatternBindingId ()
-                                  DisplayName = None
-                                  Type = field.Type }
-                            { SourceFieldId = field.Id
-                              Binding = binding },
-                            (RecipePatternSlot.Field field.Id, binding))
-                    variant,
-                    (preparedFields |> List.map fst),
-                    { Kind = ScopeFrameKind.UnionArm variant.Id
-                      Slots = preparedFields |> List.map snd })
+            let resolved =
+                match resolveUnionArms variants arms with
+                | Ok resolved -> resolved
+                | Error _ -> failwith "MatchUnion recipe passed preflight with arms that do not resolve."
 
             let materializedArms: UnionMatchArm list =
-                preparedArms
-                |> List.map (fun (variant, fieldBindings, frame) ->
-                    let _, bodyRecipe = arms |> List.find (fun (variantId, _) -> variantId = variant.Id)
-                    { VariantId = variant.Id
+                resolved
+                |> List.map (fun (armVariants, bodyRecipe, bindsFields) ->
+                    // A one-variant arm binds every field, even an `otherwise` arm whose body cannot see them.
+                    let fieldBindings =
+                        match armVariants with
+                        | [ variant ] ->
+                            variant.Fields
+                            |> List.map (fun field ->
+                                { SourceFieldId = field.Id
+                                  Binding =
+                                    { Id = StableIdAllocator.newPatternBindingId ()
+                                      DisplayName = None
+                                      Type = field.Type } })
+                        | _ -> []
+                    let frame: PatternBindingFrame =
+                        { Kind = ScopeFrameKind.UnionArm(armVariants |> List.map (fun variant -> variant.Id))
+                          Slots =
+                            if bindsFields then
+                                fieldBindings |> List.map (fun item -> RecipePatternSlot.Field item.SourceFieldId, item.Binding)
+                            else [] }
+                    { VariantIds = armVariants |> List.map (fun variant -> variant.Id)
                       FieldBindings = fieldBindings
                       Body = materializeGraph (frame :: frames) bodyRecipe })
 
@@ -2626,7 +2663,7 @@ module AgentExpressionStructuralWorkflow =
             | NestedGraphRole.WhenFalse
             | NestedGraphRole.BoolAndRight
             | NestedGraphRole.BoolOrRight -> None
-            | NestedGraphRole.UnionArm variantId -> frame (ScopeFrameKind.UnionArm variantId)
+            | NestedGraphRole.UnionArm variantIds -> frame (ScopeFrameKind.UnionArm variantIds)
             | NestedGraphRole.BindBody -> frame ScopeFrameKind.BindBody
             | NestedGraphRole.OptionSome -> frame ScopeFrameKind.OptionSome
             | NestedGraphRole.OptionNone -> frame ScopeFrameKind.OptionNone

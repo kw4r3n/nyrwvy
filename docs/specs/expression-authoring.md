@@ -210,7 +210,7 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 20. the target function already declares the capability operation's effect;
 21. every `Conditional` condition produces `Bool` and both branches produce exactly the same type; every `BoolNot` operand and `BoolAnd`/`BoolOr` left operand produces `Bool`, and every `BoolAnd`/`BoolOr` right operand produces `Bool` or aborts;
 22. every match input has the required union/`Option<T>`/`Result<T,E>` shape;
-23. `MatchUnion` contains every declared variant exactly once, with no unknown or duplicate variants;
+23. `MatchUnion` names every declared variant in exactly one arm (an `otherwise` arm takes the rest), with no unknown or duplicate variants;
 24. all branches of one match produce exactly the same result type;
 25. the inferred recipe result type exactly equals the target function result type;
 26. no open or resolved obligation targets a node in the body being replaced.
@@ -540,9 +540,15 @@ The left operand materializes in the current graph. The right operand materializ
 
 ### MatchUnion
 
-`MatchUnion(input, arms)` requires an input whose inferred type names an existing union. The caller supplies `(VariantId, ExpressionRecipe)` arms but the set must equal the declared variant set exactly.
+`MatchUnion(input, arms)` requires an input whose inferred type names an existing union. The caller supplies `(VariantId list, ExpressionRecipe)` arms. An arm names one variant or several that share its body; at most one arm names none, and it is the `otherwise` arm. The named variants must be distinct declared variants. Without `otherwise` they must be exactly the declared set (`PureExpressionMatchArmMismatch`); with it, at least one variant must be left for it (`PureExpressionMatchOtherwiseUnused`). A variant named twice is `PureExpressionMatchArmDuplicate`, and a second `otherwise` is `PureExpressionMatchOtherwiseDuplicate`.
 
-Caller arm order is not semantic. Persistent arms follow union declaration order, and each arm's pattern-field bindings follow field declaration order. Fresh production `PatternBindingId`s are allocated system-side with `DisplayName = None` and declaration-derived types.
+Materialization expands `otherwise` into an explicit list of the variants no other arm names, so the persisted graph names every variant by ID and a variant added to the union later is not absorbed: every match over it reports `NonExhaustiveUnionMatch` until an arm names the new variant ([decision](../decisions/match-union-shared-arms.md)). The expanded list is visible in a `detail: "full"` structured review and in `readFunction`.
+
+Only an explicit arm naming exactly one variant opens a frame with that variant's fields. An arm naming several variants, and the `otherwise` arm even when it covers one variant, opens a frame with no slots. A persisted arm with one variant still binds each of its fields exactly once (system-side, unused under `otherwise`); a persisted arm with several variants binds none (`PatternFieldBindingMismatch` otherwise).
+
+Wire forms: the ID-based recipe takes `arms: [{"variantId", "body"} | {"variantIds": [...], "body"}]` and an optional `otherwise` body; the name-resolved recipe takes `variant` or `variants` (display names) in the same way. Persisted snapshots, Nyason and the graph read keep `variantId` (Nyason `variant`) for a one-variant arm and use `variantIds` (Nyason `variants`, at least two) for a shared arm, so existing graphs and their fingerprints are unchanged.
+
+Caller arm order is not semantic. Persistent arms follow union declaration order of their first variant, and each arm's pattern-field bindings follow field declaration order. Fresh production `PatternBindingId`s are allocated system-side with `DisplayName = None` and declaration-derived types.
 
 All arm bodies must produce the same result type.
 

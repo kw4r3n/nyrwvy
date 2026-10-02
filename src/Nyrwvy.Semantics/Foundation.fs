@@ -181,8 +181,12 @@ type PatternFieldBinding =
     { SourceFieldId: FieldId
       Binding: PatternBinding }
 
+/// One arm of a union match. An arm names one or more variants and has one body. An arm with one
+/// variant binds each of its fields exactly once; an arm with several variants binds no fields.
+/// Every declared variant is named by exactly one arm, so adding a variant leaves every match over
+/// the union incomplete until an arm names it.
 type UnionMatchArm =
-    { VariantId: VariantId
+    { VariantIds: VariantId list
       FieldBindings: PatternFieldBinding list
       Body: ValueGraph }
 
@@ -545,6 +549,15 @@ module FunctionReferenceRole =
         | FunctionReferenceRole.FunctionValue
         | FunctionReferenceRole.CapabilityImplementation _ -> false
 
+[<RequireQualifiedAccess>]
+module UnionMatchArm =
+    /// Variant IDs in canonical (ordinal StableId) order; persisted forms and lowering use it.
+    let canonicalVariantIds (arm: UnionMatchArm) = arm.VariantIds |> List.sortBy StableId.value
+
+    /// The arm's first variant in canonical order: orders arms and names an arm's execution block.
+    let key (arm: UnionMatchArm) = arm.VariantIds |> List.minBy StableId.value
+
+
 /// The role one nested graph plays in the node that owns it.
 [<RequireQualifiedAccess>]
 type NestedGraphRole =
@@ -552,7 +565,7 @@ type NestedGraphRole =
     | WhenFalse
     | BoolAndRight
     | BoolOrRight
-    | UnionArm of VariantId
+    | UnionArm of VariantId list
     | BindBody
     | OptionSome
     | OptionNone
@@ -963,7 +976,7 @@ module SemanticNodeShape =
             arms
             |> List.map (fun arm ->
                 scope
-                    (NestedGraphRole.UnionArm arm.VariantId)
+                    (NestedGraphRole.UnionArm arm.VariantIds)
                     (arm.FieldBindings |> List.map (fun field -> NestedBinding.Field(field.SourceFieldId, field.Binding)))
                     arm.Body)
         | SemanticNodeKind.Bind(_, body) ->

@@ -156,7 +156,7 @@ module private Input =
                 |> List.map (fun arm ->
                     ensureFields "matchUnion arm" [ "variantId"; "body" ] [ "variantId"; "body" ] arm
                     let variantId = stableId<VariantTag> "arm.variantId" (requiredString "variantId" arm)
-                    variantId, recipe (property "body" arm))
+                    [ variantId ], recipe (property "body" arm))
             PureExpressionRecipe.MatchUnion(recipe (property "input" element), arms)
         | other -> fail $"Unsupported pure-expression recipe kind '{other}'."
 

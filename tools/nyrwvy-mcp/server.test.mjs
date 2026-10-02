@@ -62,7 +62,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.deepEqual((await call(first, "recipe_reference", { kind: "fieldAccess" })).shape,
       { kind: "fieldAccess", source: "<recipe>", type: "<product type display name>", field: "<field display name>" })
     assert.deepEqual((await call(first, "recipe_reference", { kind: "matchUnion" })).shape,
-      { kind: "matchUnion", type: "<union type display name>", input: "<recipe>", arms: [{ variant: "<variant display name>", body: "<recipe>" }] })
+      { kind: "matchUnion", type: "<union type display name>", input: "<recipe>", arms: [{ variant: "<variant display name>", body: "<recipe>" }, { variants: ["<variant>", "<variant>"], body: "<recipe>" }], otherwise: "<recipe>" })
     await failed(first, "open", { mode: "unexpected", snapshot: "workspace.json" })
     await failed(first, "recipe_reference", { kind: "__proto__" })
     await failed(first, "inspect", { view: "status", extra: true })

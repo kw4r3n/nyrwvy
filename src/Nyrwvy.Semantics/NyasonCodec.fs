@@ -417,7 +417,9 @@ module NyasonCodec =
     and private encodeUnionArm (arm: UnionMatchArm) =
         record
             "union-arm"
-            [ "variant", encodeId "variant" arm.VariantId
+            [ (match UnionMatchArm.canonicalVariantIds arm with
+               | [ variantId ] -> "variant", encodeId "variant" variantId
+               | variantIds -> "variants", variantIds |> List.map (encodeId "variant") |> list)
               "fields",
               arm.FieldBindings
               |> List.sortBy (fun binding -> StableId.value binding.SourceFieldId)
@@ -831,7 +833,7 @@ module NyasonCodec =
                   "input", encodeId "node" inputNodeId
                   "arms",
                   arms
-                  |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+                  |> List.sortBy (fun arm -> StableId.value (UnionMatchArm.key arm))
                   |> List.map encodeUnionArm
                   |> list ]
         | SemanticNodeKind.Bind(inputNodeId, body) ->
@@ -861,8 +863,16 @@ module NyasonCodec =
           ResultNodeId = decodeId<GraphNodeTag> "node" (require "result" fields) }
 
     and private decodeUnionArm value: UnionMatchArm =
-        let fields = recordFields "union-arm" [ "variant"; "fields"; "body" ] [] value
-        { VariantId = decodeId<VariantTag> "variant" (require "variant" fields)
+        let fields = recordFields "union-arm" [ "fields"; "body" ] [ "variant"; "variants" ] value
+        let variantIds =
+            match optional "variant" fields, optional "variants" fields with
+            | Some variant, None -> [ decodeId<VariantTag> "variant" variant ]
+            | None, Some variants ->
+                match decodeList (decodeId<VariantTag> "variant") variants with
+                | _ :: _ :: _ as variantIds -> variantIds
+                | _ -> shape "Record 'union-arm' field 'variants' must name at least two variants; one variant uses 'variant'."
+            | _ -> shape "Record 'union-arm' requires exactly one of the fields 'variant' and 'variants'."
+        { VariantIds = variantIds
           FieldBindings = decodeList decodePatternField (require "fields" fields)
           Body = decodeGraph (require "body" fields) }
 

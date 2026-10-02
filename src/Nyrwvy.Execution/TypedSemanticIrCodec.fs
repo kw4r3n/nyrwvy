@@ -216,7 +216,13 @@ module TypedSemanticIrCodec =
 
     and private writeUnionArm (writer: Utf8JsonWriter) (arm: TypedSemanticUnionArm) =
         writer.WriteStartObject()
-        writer.WriteString("variantId", StableId.value arm.VariantId)
+        match arm.VariantIds with
+        | [ variantId ] -> writer.WriteString("variantId", StableId.value variantId)
+        | variantIds ->
+            writer.WritePropertyName("variantIds")
+            writer.WriteStartArray()
+            variantIds |> List.iter (fun variantId -> writer.WriteStringValue(StableId.value variantId))
+            writer.WriteEndArray()
         writer.WritePropertyName("fieldBindings")
         writer.WriteStartArray()
         arm.FieldBindings
@@ -684,7 +690,7 @@ module TypedSemanticIrCodec =
             writer.WritePropertyName("arms")
             writer.WriteStartArray()
             arms
-            |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+            |> List.sortBy (fun arm -> StableId.value arm.VariantIds.Head)
             |> List.iter (writeUnionArm writer)
             writer.WriteEndArray()
         | TypedSemanticNodeKind.Bind(inputNodeId, body) ->

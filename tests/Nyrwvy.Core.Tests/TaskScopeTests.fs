@@ -209,7 +209,7 @@ module TaskScopeTests =
             let body =
                 ExpressionRecipe.MatchUnion(
                     invoke (own 1) nextId reportId (own 5),
-                    [ spawnId,
+                    [ [ spawnId ],
                       again
                           (ExpressionRecipe.ListAppendItem(
                               own 4,
@@ -219,17 +219,17 @@ module TaskScopeTests =
                                   [ parameter "agent" memberWorker, own 2; parameter "workspaces" memberWorker, own 3 ],
                                   pattern 0 (RecipePatternSlot.Field nameFieldId))))
                           (text "spawned")
-                      awaitId, helper onAwait awaitIndexId
-                      stopId, helper onStop stopIndexId
-                      waitAnyId,
+                      [ awaitId ], helper onAwait awaitIndexId
+                      [ stopId ], helper onStop stopIndexId
+                      [ waitAnyId ],
                       again (own 4) (ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(own 4, TaskWaitMode.Any, None) ]))
-                      awaitWithinId,
+                      [ awaitWithinId ],
                       ExpressionRecipe.DirectCall(
                           onAwaitWithin.Id,
                           loopArguments own onAwaitWithin (own 4)
                               [ parameter "index" onAwaitWithin, pattern 0 (RecipePatternSlot.Field awaitWithinIndexId)
                                 parameter "limit" onAwaitWithin, pattern 0 (RecipePatternSlot.Field awaitWithinLimitId) ])
-                      waitAnyWithinId,
+                      [ waitAnyWithinId ],
                       again (own 4)
                           (ExpressionRecipe.DirectCall(
                               describe.Id,
@@ -238,7 +238,7 @@ module TaskScopeTests =
                                     own 4,
                                     TaskWaitMode.Any,
                                     Some(ExpressionRecipe.OptionSome(pattern 0 (RecipePatternSlot.Field waitAnyLimitId)))) ]))
-                      finishId, ExpressionRecipe.ResultOk(stringType, text "done") ])
+                      [ finishId ], ExpressionRecipe.ResultOk(stringType, text "done") ])
             let replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
                 { TargetFunctionId = placeholder.Id
                   ExpectedBaseSnapshotId = current session

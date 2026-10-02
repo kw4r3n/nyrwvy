@@ -637,13 +637,16 @@ module ExecutionIr =
                         let merge = makeMerge node
                         let armBlocks: (TypedSemanticUnionArm * MutableBlock) list =
                             arms
-                            |> List.sortBy (fun (arm: TypedSemanticUnionArm) -> StableId.value arm.VariantId)
-                            |> List.map (fun arm -> arm, addBlock (ExecutionIrIds.unionBlock node.OriginNodeId arm.VariantId) [])
+                            |> List.sortBy (fun (arm: TypedSemanticUnionArm) -> StableId.value arm.VariantIds.Head)
+                            |> List.map (fun arm -> arm, addBlock (ExecutionIrIds.unionBlock node.OriginNodeId arm.VariantIds.Head) [])
+                        // One block per arm, named by its first variant in canonical order; one target per variant.
                         let targets: ExecutionUnionTarget list =
                             armBlocks
-                            |> List.map (fun (arm, block) ->
-                                { VariantId = arm.VariantId
-                                  BlockId = block.Id })
+                            |> List.collect (fun (arm, block) ->
+                                arm.VariantIds
+                                |> List.map (fun variantId ->
+                                    { VariantId = variantId
+                                      BlockId = block.Id }))
                         setTerminator currentBlock (ExecutionTerminator.MatchUnion(inputValueId, targets))
 
                         for (arm: TypedSemanticUnionArm), (block: MutableBlock) in armBlocks do
@@ -655,7 +658,7 @@ module ExecutionIr =
                                             block
                                             node.OriginNodeId
                                             fieldBinding.Binding
-                                            (ExecutionInstructionKind.ExtractUnionField(inputValueId, arm.VariantId, fieldBinding.SourceFieldId))
+                                            (ExecutionInstructionKind.ExtractUnionField(inputValueId, List.exactlyOne arm.VariantIds, fieldBinding.SourceFieldId))
                                     patternValues <- Map.add fieldBinding.Binding.Id extracted.Id patternValues
                                 let armEnvironment: LoweringEnvironment =
                                     { environment with PatternValues = patternValues }

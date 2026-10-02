@@ -160,7 +160,7 @@ const categories = {
   control: {
     "abort": "(error: E) -> ends the Result<T, E> function with Err",
     "conditional": "(condition: Bool, whenTrue: T, whenFalse: T) -> T",
-    "matchUnion": "(type, input: Union, arms: [variant, body: T]) -> T",
+    "matchUnion": "(type, input: Union, arms: [variant | variants, body: T], otherwise?: T) -> T",
     "bind": "(value: T, body: U) -> U",
     "matchOption": "(input: Option<T>, someBody: U, noneBody: U) -> U",
     "matchResult": "(input: Result<T, E>, okBody: U, errBody: U) -> U",
@@ -347,8 +347,8 @@ const references = {
     notes: "condition must produce Bool; normally completing branches must produce the same type. An aborting branch contributes no normal value type.",
   },
   matchUnion: {
-    shape: { kind: "matchUnion", type: "<union type display name>", input: recipe, arms: [{ variant: "<variant display name>", body: recipe }] },
-    notes: "arms must cover every variant exactly once. A branch can read variant fields with patternReference slot=field.",
+    shape: { kind: "matchUnion", type: "<union type display name>", input: recipe, arms: [{ variant: "<variant display name>", body: recipe }, { variants: ["<variant>", "<variant>"], body: recipe }], otherwise: recipe },
+    notes: "Every variant is named by exactly one arm, or taken by the optional otherwise. An arm names one variant (variant) or several sharing one body (variants). otherwise covers every variant no arm names; it is stored as an explicit variant list, so a variant added later is not absorbed, and it is an error when no variant is left for it. Only an arm with exactly one variant can read that variant's fields with patternReference slot=field; arms with several variants and otherwise see no fields.",
   },
   bind: {
     shape: { kind: "bind", value: recipe, body: recipe },
