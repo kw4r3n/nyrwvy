@@ -833,7 +833,7 @@ module NyasonCodec =
                   "input", encodeId "node" inputNodeId
                   "arms",
                   arms
-                  |> List.sortBy (fun arm -> StableId.value (UnionMatchArm.key arm))
+                  |> List.sortBy (fun arm -> UnionMatchArm.key arm)
                   |> List.map encodeUnionArm
                   |> list ]
         | SemanticNodeKind.Bind(inputNodeId, body) ->

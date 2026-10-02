@@ -554,8 +554,10 @@ module UnionMatchArm =
     /// Variant IDs in canonical (ordinal StableId) order; persisted forms and lowering use it.
     let canonicalVariantIds (arm: UnionMatchArm) = arm.VariantIds |> List.sortBy StableId.value
 
-    /// The arm's first variant in canonical order: orders arms and names an arm's execution block.
-    let key (arm: UnionMatchArm) = arm.VariantIds |> List.minBy StableId.value
+    /// The text of the arm's first variant in canonical order, which orders arms; "" for an arm with
+    /// no variant, which validation reports, so serialization never fails before validation runs.
+    let key (arm: UnionMatchArm) =
+        canonicalVariantIds arm |> List.tryHead |> Option.map StableId.value |> Option.defaultValue ""
 
 
 /// The role one nested graph plays in the node that owns it.

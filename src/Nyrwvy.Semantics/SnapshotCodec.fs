@@ -818,7 +818,7 @@ module SnapshotCodec =
             writer.WritePropertyName("arms")
             writer.WriteStartArray()
             arms
-            |> List.sortBy (fun arm -> StableId.value (UnionMatchArm.key arm))
+            |> List.sortBy (fun arm -> UnionMatchArm.key arm)
             |> List.iter (fun arm ->
                 writer.WriteStartObject()
                 // A one-variant arm keeps the original single-ID form, so existing graphs and their
