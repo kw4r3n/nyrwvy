@@ -44,6 +44,7 @@ module private Input =
             fail $"{context} is missing required properties: {names}."
 
     let property (name: string) (element: JsonElement): JsonElement =
+        if element.ValueKind <> JsonValueKind.Object then fail "Expected a JSON object."
         match element.TryGetProperty(name) with
         | true, value -> value
         | false, _ -> fail $"Missing required property '{name}'."
@@ -61,13 +62,21 @@ module private Input =
 
     let requiredInt32 (name: string) (element: JsonElement): int =
         let value = property name element
-        match value.TryGetInt32() with
+        let parsed =
+            match value.ValueKind with
+            | JsonValueKind.Number -> value.TryGetInt32()
+            | _ -> false, 0
+        match parsed with
         | true, result -> result
         | false, _ -> fail $"Property '{name}' must be a 32-bit JSON integer."
 
     let requiredInt64 (name: string) (element: JsonElement): int64 =
         let value = property name element
-        match value.TryGetInt64() with
+        let parsed =
+            match value.ValueKind with
+            | JsonValueKind.Number -> value.TryGetInt64()
+            | _ -> false, 0L
+        match parsed with
         | true, result -> result
         | false, _ -> fail $"Property '{name}' must be a 64-bit JSON integer."
 

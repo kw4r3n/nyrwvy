@@ -47,6 +47,7 @@ module private Input =
             fail $"{context} is missing required properties: {rendered}."
 
     let property (name: string) (element: JsonElement): JsonElement =
+        if element.ValueKind <> JsonValueKind.Object then fail "Expected a JSON object."
         match element.TryGetProperty(name) with
         | true, value -> value
         | false, _ -> fail $"Missing required property '{name}'."
