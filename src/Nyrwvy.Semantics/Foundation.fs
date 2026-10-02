@@ -1414,7 +1414,9 @@ module SemanticNodeShape =
 
     /// Whether the node itself performs an effect or ambient behavior (a capability call, a resource
     /// scope, concurrency or cancellation), apart from any function it names. Calls and callbacks
-    /// are effectful through their target, which callers follow with `functionReferences`.
+    /// are effectful through their target, which callers follow with `functionReferences`. This is the
+    /// purity rule for function references (`PureFunctions`); `GraphOrder` and the typed IR's
+    /// effect-order analysis treat ParallelAll through its worker instead.
     let isIntrinsicallyEffectful (node: SemanticNode): bool =
         match node.Kind with
         | SemanticNodeKind.ParallelAll _

@@ -376,6 +376,17 @@ module ExecutionShapeTests =
                 |> List.map unbox<TypedSemanticGraph>
             Assert.Equal<TypedSemanticGraph list>(owned, TypedSemanticNodeKind.subgraphs kind))
 
+    [<Fact>]
+    let ``typed value references are exactly the node IDs a kind holds outside its subgraphs`` () =
+        forEveryCase (everyCase<TypedSemanticNodeKind> ()) (fun kind ->
+            let held =
+                collect typeof<GraphNodeId> (fun t -> t = typeof<TypedSemanticGraph>) typeof<TypedSemanticNodeKind> (box kind)
+                |> List.map unbox<GraphNodeId>
+            Assert.Equal<GraphNodeId list>(
+                held |> List.sortBy StableId.value,
+                TypedSemanticNodeKind.valueReferences kind |> List.sortBy StableId.value
+            ))
+
     let private instructionKinds = everyCase<ExecutionInstructionKind> ()
 
     let private instructionValues<'T> (kind: ExecutionInstructionKind): 'T list =
