@@ -807,9 +807,32 @@ module AgentExpressionStructuralWorkflow =
                             $"Pattern-reference slot {slotText ()} does not exist in scope depth {reference.ScopeDepth}. {describeVisibleFrames snapshot frames reference.Slot}"
                     )
 
+    /// Successful inference results keyed by recipe identity and scope, so materialization, which
+    /// recovers the input type of every match and bind, infers each subtree once. Valid only
+    /// for one snapshot index and owner.
+    type private InferenceCache() =
+        let find (table: System.Collections.Generic.Dictionary<ExpressionRecipe, (PatternTypeFrame list * 'T) list>) frames recipe =
+            match table.TryGetValue recipe with
+            | true, entries -> entries |> List.tryPick (fun (known, value) -> if known = frames then Some value else None)
+            | false, _ -> None
+        let add (table: System.Collections.Generic.Dictionary<ExpressionRecipe, (PatternTypeFrame list * 'T) list>) frames recipe value =
+            let entries =
+                match table.TryGetValue recipe with
+                | true, entries -> entries
+                | false, _ -> []
+            table[recipe] <- (frames, value) :: entries
+        let values = System.Collections.Generic.Dictionary<ExpressionRecipe, (PatternTypeFrame list * TypeRef) list>(HashIdentity.Reference)
+        let completions =
+            System.Collections.Generic.Dictionary<ExpressionRecipe, (PatternTypeFrame list * GraphCompletion) list>(HashIdentity.Reference)
+        member _.TryValue(frames, recipe) = find values frames recipe
+        member _.AddValue(frames, recipe, value) = add values frames recipe value
+        member _.TryCompletion(frames, recipe) = find completions frames recipe
+        member _.AddCompletion(frames, recipe, value) = add completions frames recipe value
+
     let private inferTypeWithContext
         (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
+        (cache: InferenceCache)
         (initialFrames: PatternTypeFrame list)
         (rootLabel: string option)
         recipe
@@ -974,8 +997,20 @@ module AgentExpressionStructuralWorkflow =
             | Ok _ -> ()
             result
 
-        let rec infer frames recipe = track recipe (inferNode frames recipe)
-        and inferCompletion frames recipe = track recipe (inferCompletionNode frames recipe)
+        let rec infer frames recipe =
+            match cache.TryValue(frames, recipe) with
+            | Some value -> Ok value
+            | None ->
+                let result = track recipe (inferNode frames recipe)
+                result |> Result.iter (fun value -> cache.AddValue(frames, recipe, value))
+                result
+        and inferCompletion frames recipe =
+            match cache.TryCompletion(frames, recipe) with
+            | Some completion -> Ok completion
+            | None ->
+                let result = track recipe (inferCompletionNode frames recipe)
+                result |> Result.iter (fun completion -> cache.AddCompletion(frames, recipe, completion))
+                result
         and inferNode frames recipe =
             // Checks each (side, expected type, operand) in order and stops at the first failure.
             let operands role result checks =
@@ -1843,7 +1878,7 @@ module AgentExpressionStructuralWorkflow =
         | Ok completion -> Ok completion
 
     let private inferTypeWithFrames rootLabel index target initialFrames recipe =
-        inferTypeWithContext index (ownerForExistingFunction target) initialFrames rootLabel recipe
+        inferTypeWithContext index (ownerForExistingFunction target) (InferenceCache()) initialFrames rootLabel recipe
 
     let private inferType rootLabel index target recipe = inferTypeWithFrames rootLabel index target [] recipe
 
@@ -1891,14 +1926,15 @@ module AgentExpressionStructuralWorkflow =
     let rec private materializeWithContext
         (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
+        (cache: InferenceCache)
         (frames: PatternBindingFrame list)
         recipe
         =
         let snapshot = index.Snapshot
-        let materializeRecipe child = materializeWithContext index owner frames child
+        let materializeRecipe child = materializeWithContext index owner cache frames child
 
         let materializeGraph childFrames body =
-            let nodes, resultNodeId = materializeWithContext index owner childFrames body
+            let nodes, resultNodeId = materializeWithContext index owner cache childFrames body
             { Nodes = nodes
               ResultNodeId = resultNodeId }
 
@@ -1975,7 +2011,7 @@ module AgentExpressionStructuralWorkflow =
             loop operation.Parameters
 
         let inferHere child =
-            match inferTypeWithContext index owner (bindingTypeFrames frames) None child with
+            match inferTypeWithContext index owner cache (bindingTypeFrames frames) None child with
             | Ok(GraphCompletion.Normal typeRef) -> typeRef
             | _ -> failwith "Expression recipe passed preflight but failed materialization type recovery."
 
@@ -2365,7 +2401,7 @@ module AgentExpressionStructuralWorkflow =
             inputNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MatchResult(inputResult, okArm, errArm) } ], nodeId
 
     let private materialize index target frames recipe =
-        materializeWithContext index (ownerForExistingFunction target) frames recipe
+        materializeWithContext index (ownerForExistingFunction target) (InferenceCache()) frames recipe
 
     /// Materializes a complete replacement body for an existing function against a candidate
     /// snapshot that a multi-function migration is still completing. The recipe is bound and
@@ -3149,7 +3185,7 @@ module AgentExpressionStructuralWorkflow =
                                 match validateRecipeBounds recipeChildren request.Body with
                                 | Error error -> Error error
                                 | Ok() ->
-                                    match inferTypeWithContext index owner [] (if requireUniqueName then Some "body" else None) request.Body with
+                                    match inferTypeWithContext index owner (InferenceCache()) [] (if requireUniqueName then Some "body" else None) request.Body with
                                     | Error error -> Error error
                                     | Ok(GraphCompletion.Normal bodyType) when bodyType <> request.ResultType ->
                                         Error(
@@ -3219,6 +3255,7 @@ module AgentExpressionStructuralWorkflow =
                         materializeWithContext
                             index
                             materializationOwner
+                            (InferenceCache())
                             []
                             request.Body
                     let createdFunction: SemanticFunction =
