@@ -118,58 +118,15 @@ module AgentTypeDeclarationWorkflow =
         issues
         |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
 
-    let private validateTypeRef (snapshot: Snapshot) (groupReferences: Set<TypeId>) (context: string) (typeRef: TypeRef) =
-        let typeIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList |> Set.union groupReferences
-        let capabilityIds = snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
+    /// Validates declared type references against the snapshot's types plus `groupReferences`
+    /// (the IDs a type group is declaring together).
+    let private typeRefValidator (snapshot: Snapshot) (groupReferences: Set<TypeId>) =
+        StructuralTransactionInternals.validateDeclaredTypeRef
+            "TypeDeclaration"
+            (snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList |> Set.union groupReferences)
+            (snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
 
-        let rec validate current =
-            match current with
-            | TypeRef.Primitive _ -> Ok()
-            | TypeRef.TypeParameter _ ->
-                Error(diagnostic "TypeDeclarationTypeParameterNotAllowed" $"{context} cannot use a function type parameter; declared types are monomorphic.")
-            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
-            | TypeRef.Named typeId ->
-                Error(
-                    diagnostic
-                        "TypeDeclarationUnknownNamedType"
-                        $"{context} references unknown type '{StableId.value typeId}'."
-                )
-            | TypeRef.Capability capabilityId when Set.contains capabilityId capabilityIds -> Ok()
-            | TypeRef.Capability capabilityId ->
-                Error(
-                    diagnostic
-                        "TypeDeclarationUnknownCapabilityType"
-                        $"{context} references unknown capability '{StableId.value capabilityId}'."
-                )
-            | TypeRef.Function(arguments, result) ->
-                (arguments @ [ result ]) |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
-            | TypeRef.BuiltinGeneric(kind, arguments) ->
-                let expectedArity =
-                    match kind with
-                    | BuiltinGenericType.TaskScope -> 0
-                    | BuiltinGenericType.Option
-                    | BuiltinGenericType.List
-                    | BuiltinGenericType.Task -> 1
-                    | BuiltinGenericType.Result -> 2
-
-                if List.length arguments <> expectedArity then
-                    Error(
-                        diagnostic
-                            "TypeDeclarationBuiltinGenericArityMismatch"
-                            $"{context} uses {kind} with {arguments.Length} type arguments; exactly {expectedArity} required."
-                    )
-                else
-                    let rec loop = function
-                        | [] -> Ok()
-                        | argument :: rest ->
-                            match validate argument with
-                            | Error error -> Error error
-                            | Ok() -> loop rest
-                    loop arguments
-
-        validate typeRef
-
-    let private validateFields (snapshot: Snapshot) groupReferences context (fields: AgentTypeFieldIntent list) =
+    let private validateFields validateTypeRef context (fields: AgentTypeFieldIntent list) =
         let rec loop index (remaining: AgentTypeFieldIntent list) =
             match remaining with
             | [] -> Ok()
@@ -180,15 +137,15 @@ module AgentTypeDeclarationWorkflow =
                         $"{context} field at index {index} must have a nonblank display name."
                 )
             | field :: rest ->
-                match validateTypeRef snapshot groupReferences $"{context} field at index {index}" field.Type with
+                match validateTypeRef $"{context} field at index {index}" field.Type with
                 | Error error -> Error error
                 | Ok() -> loop (index + 1) rest
         loop 0 fields
 
-    let private validateKind (snapshot: Snapshot) groupReferences (kind: AgentTypeDeclarationKindIntent) =
+    let private validateKind validateTypeRef (kind: AgentTypeDeclarationKindIntent) =
         match kind with
         | AgentTypeDeclarationKindIntent.Product fields ->
-            validateFields snapshot groupReferences "Product" fields
+            validateFields validateTypeRef "Product" fields
         | AgentTypeDeclarationKindIntent.Union variants ->
             let rec loop index (remaining: AgentTypeVariantIntent list) =
                 match remaining with
@@ -200,7 +157,7 @@ module AgentTypeDeclarationWorkflow =
                             $"Union variant at index {index} must have a nonblank display name."
                     )
                 | variant :: rest ->
-                    match validateFields snapshot groupReferences $"Union variant at index {index}" variant.Fields with
+                    match validateFields validateTypeRef $"Union variant at index {index}" variant.Fields with
                     | Error error -> Error error
                     | Ok() -> loop (index + 1) rest
             loop 0 variants
@@ -234,7 +191,7 @@ module AgentTypeDeclarationWorkflow =
     let private validatePreflight (snapshot: Snapshot) (request: AgentCreateTypeDeclarationRequest) =
         validateBase snapshot request.ExpectedBaseSnapshotId
         |> Result.bind (fun () -> validateDisplayName snapshot request.DisplayName)
-        |> Result.bind (fun () -> validateKind snapshot Set.empty request.Kind)
+        |> Result.bind (fun () -> validateKind (typeRefValidator snapshot Set.empty) request.Kind)
 
     /// A group member must have a finite value: otherwise it could never be constructed. Existing
     /// types, primitives, List/Option (empty) and function/capability/task values count as inhabited;
@@ -277,6 +234,7 @@ module AgentTypeDeclarationWorkflow =
         let existingIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList
         let references = request.Declarations |> List.map (fun item -> item.Reference)
         let referenceSet = Set.ofList references
+        let validateTypeRef = typeRefValidator snapshot referenceSet
 
         let rec members seen (remaining: AgentTypeDeclarationGroupMember list) =
             match remaining with
@@ -291,7 +249,7 @@ module AgentTypeDeclarationWorkflow =
                             $"The type group declares '{item.DisplayName}' more than once; type display names must be unique."
                     )
                 | Ok() ->
-                    match validateKind snapshot referenceSet item.Kind with
+                    match validateKind validateTypeRef item.Kind with
                     | Error error -> Error { error with Message = $"Type '{item.DisplayName}': {error.Message}" }
                     | Ok() -> members (Set.add item.DisplayName seen) rest
 

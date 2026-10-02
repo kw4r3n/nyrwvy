@@ -405,6 +405,10 @@ module AgentExpressionStructuralWorkflow =
     let private optionType itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
     let private resultType okType errorType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])
 
+    /// The first key that occurs more than once in `items`, if any.
+    let private tryFindDuplicate keyOf items =
+        items |> List.countBy keyOf |> List.tryFind (fun (_, count) -> count > 1) |> Option.map fst
+
     let private listItemType typeRef =
         match typeRef with
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) -> Some itemType
@@ -658,6 +662,22 @@ module AgentExpressionStructuralWorkflow =
 
         validate typeRef
 
+    /// A declared field by ID with a description of its owning product or variant.
+    let private tryFindFieldWithOwner (snapshot: Snapshot) fieldId =
+        snapshot.Types
+        |> List.tryPick (fun typeEntity ->
+            match typeEntity.Kind with
+            | SemanticTypeKind.Product fields ->
+                fields
+                |> List.tryFind (fun field -> field.Id = fieldId)
+                |> Option.map (fun field -> field, $"product '{typeEntity.DisplayName}'")
+            | SemanticTypeKind.Union variants ->
+                variants
+                |> List.tryPick (fun variant ->
+                    variant.Fields
+                    |> List.tryFind (fun field -> field.Id = fieldId)
+                    |> Option.map (fun field -> field, $"variant '{variant.DisplayName}' of '{typeEntity.DisplayName}'")))
+
     /// A pattern slot in a diagnostic: a field by display name and ID with its owning variant/type
     /// (the ID alone when no declaration has it), or `Value`/`Error`.
     let private describePatternSlot (snapshot: Snapshot) slot =
@@ -665,21 +685,8 @@ module AgentExpressionStructuralWorkflow =
         | RecipePatternSlot.Value -> "Value"
         | RecipePatternSlot.Error -> "Error"
         | RecipePatternSlot.Field fieldId ->
-            snapshot.Types
-            |> List.tryPick (fun typeEntity ->
-                match typeEntity.Kind with
-                | SemanticTypeKind.Product fields ->
-                    fields
-                    |> List.tryFind (fun field -> field.Id = fieldId)
-                    |> Option.map (fun field ->
-                        $"field {StableId.describe field.DisplayName fieldId} of product '{typeEntity.DisplayName}'")
-                | SemanticTypeKind.Union variants ->
-                    variants
-                    |> List.tryPick (fun variant ->
-                        variant.Fields
-                        |> List.tryFind (fun field -> field.Id = fieldId)
-                        |> Option.map (fun field ->
-                            $"field {StableId.describe field.DisplayName fieldId} of variant '{variant.DisplayName}' of '{typeEntity.DisplayName}'")))
+            tryFindFieldWithOwner snapshot fieldId
+            |> Option.map (fun (field, owner) -> $"field {StableId.describe field.DisplayName fieldId} of {owner}")
             |> Option.defaultValue $"field '{StableId.value fieldId}' (not a declared field)"
 
     let private shortSlotName (snapshot: Snapshot) slot =
@@ -687,12 +694,8 @@ module AgentExpressionStructuralWorkflow =
         | RecipePatternSlot.Value -> "Value"
         | RecipePatternSlot.Error -> "Error"
         | RecipePatternSlot.Field fieldId ->
-            snapshot.Types
-            |> List.tryPick (fun typeEntity ->
-                match typeEntity.Kind with
-                | SemanticTypeKind.Product fields -> fields |> List.tryFind (fun field -> field.Id = fieldId)
-                | SemanticTypeKind.Union variants -> variants |> List.tryPick (fun variant -> variant.Fields |> List.tryFind (fun field -> field.Id = fieldId)))
-            |> Option.map (fun field -> $"'{field.DisplayName}'")
+            tryFindFieldWithOwner snapshot fieldId
+            |> Option.map (fun (field, _) -> $"'{field.DisplayName}'")
             |> Option.defaultValue $"'{StableId.value fieldId}'"
 
     /// One visible frame in a diagnostic, e.g. `arm 'Stop' of MatchUnion on 'Action' (binds 'member')`.
@@ -812,12 +815,21 @@ module AgentExpressionStructuralWorkflow =
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires List<T>, but the recipe produces {ty actual}."
 
+        /// The first of `effects` that the owner does not declare.
+        let missingEffect effects =
+            effects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
+
+        let missingEffectError subject effectId =
+            diagnostic
+                "ExpressionCallMissingEffectRequirement"
+                $"{subject} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
+
         /// Types context bindings with `inferValue` and returns the callback's unbound parameters with
         /// the type arguments that the context values determine for a generic callback.
         let validateCallbackContext role (callback: SemanticFunction) (context: (ParameterId * ExpressionRecipe) list) inferValue =
             let parametersById = callback.Parameters |> List.map (fun parameter -> parameter.Id, parameter) |> Map.ofList
-            match context |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-            | Some(parameterId, _) ->
+            match tryFindDuplicate fst context with
+            | Some parameterId ->
                 Error(diagnostic "PureExpressionDuplicateCallArgument" $"{role} binds callback parameter '{StableId.value parameterId}' more than once.")
             | None ->
                 context
@@ -945,25 +957,26 @@ module AgentExpressionStructuralWorkflow =
         let rec infer frames recipe = track recipe (inferNode frames recipe)
         and inferCompletion frames recipe = track recipe (inferCompletionNode frames recipe)
         and inferNode frames recipe =
-            let unary role expected result child =
-                match infer frames child with
-                | Error error -> Error error
-                | Ok actual when actual <> expected -> Error(typeMismatch role "value" expected actual)
-                | Ok _ -> Ok result
+            // Checks each (side, expected type, operand) in order and stops at the first failure.
+            let operands role result checks =
+                checks
+                |> List.fold (fun state (side, expected, child) ->
+                    state
+                    |> Result.bind (fun () ->
+                        match infer frames child with
+                        | Error error -> Error error
+                        | Ok actual when actual <> expected -> Error(typeMismatch role side expected actual)
+                        | Ok _ -> Ok())) (Ok())
+                |> Result.map (fun () -> result)
+
+            let unary role expected result child = operands role result [ "value", expected, child ]
 
             let binary role expected result left right =
-                match infer frames left with
-                | Error error -> Error error
-                | Ok actual when actual <> expected -> Error(typeMismatch role "left" expected actual)
-                | Ok _ ->
-                    match infer frames right with
-                    | Error error -> Error error
-                    | Ok actual when actual <> expected -> Error(typeMismatch role "right" expected actual)
-                    | Ok _ -> Ok result
+                operands role result [ "left", expected, left; "right", expected, right ]
 
             let validateFieldBindings role (expectedFields: SemanticField list) (bindings: (FieldId * ExpressionRecipe) list) =
-                match bindings |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-                | Some(fieldId, _) ->
+                match tryFindDuplicate fst bindings with
+                | Some fieldId ->
                     Error(
                         diagnostic
                             "PureExpressionDuplicateFieldBinding"
@@ -991,8 +1004,8 @@ module AgentExpressionStructuralWorkflow =
                         validateFields expectedFields
 
             let validateCallArguments (callee: SemanticFunction) (bindings: (ParameterId * ExpressionRecipe) list) =
-                match bindings |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-                | Some(parameterId, _) ->
+                match tryFindDuplicate fst bindings with
+                | Some parameterId ->
                     Error(
                         diagnostic
                             "PureExpressionDuplicateCallArgument"
@@ -1039,8 +1052,8 @@ module AgentExpressionStructuralWorkflow =
                 (operation: SemanticCapabilityOperation)
                 (bindings: (CapabilityParameterId * ExpressionRecipe) list)
                 =
-                match bindings |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-                | Some(parameterId, _) ->
+                match tryFindDuplicate fst bindings with
+                | Some parameterId ->
                     Error(
                         diagnostic
                             "ExpressionDuplicateCapabilityArgument"
@@ -1124,20 +1137,20 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
             | ExpressionRecipe.Int64ToHexString value -> unary "Int64ToHexString" int64Type stringType value
             | ExpressionRecipe.StringParseInt64 value ->
-                unary "StringParseInt64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+                unary "StringParseInt64" stringType (optionType int64Type) value
             | ExpressionRecipe.StringParseInt64Hex value ->
-                unary "StringParseInt64Hex" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+                unary "StringParseInt64Hex" stringType (optionType int64Type) value
             | ExpressionRecipe.Float64ToString value -> unary "Float64ToString" float64Type stringType value
             | ExpressionRecipe.StringParseFloat64 value ->
-                unary "StringParseFloat64" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ float64Type ])) value
+                unary "StringParseFloat64" stringType (optionType float64Type) value
             | ExpressionRecipe.StringCodePoints value ->
-                unary "StringCodePoints" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value
+                unary "StringCodePoints" stringType (listType stringType) value
             | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary "StringDecodeUtf8Lossy" stringType stringType value
             | ExpressionRecipe.Float64RoundToInt64 value ->
-                unary "Float64RoundToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+                unary "Float64RoundToInt64" float64Type (optionType int64Type) value
             | ExpressionRecipe.Float64FloorToInt64 value ->
-                unary "Float64FloorToInt64" float64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+                unary "Float64FloorToInt64" float64Type (optionType int64Type) value
             | ExpressionRecipe.Float64Sqrt value ->
                 unary "Float64Sqrt" float64Type float64Type value
             | ExpressionRecipe.Float64Abs value ->
@@ -1152,9 +1165,9 @@ module AgentExpressionStructuralWorkflow =
                 unary "Float64Truncate" float64Type float64Type value
             | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
             | ExpressionRecipe.StringFromCodePoint value ->
-                unary "StringFromCodePoint" int64Type (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])) value
+                unary "StringFromCodePoint" int64Type (optionType stringType) value
             | ExpressionRecipe.StringToCodePoint value ->
-                unary "StringToCodePoint" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value
+                unary "StringToCodePoint" stringType (optionType int64Type) value
             | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
             | ExpressionRecipe.BoolNot operand -> unary "BoolNot" boolType boolType operand
             | ExpressionRecipe.BoolAnd(left, right)
@@ -1173,69 +1186,28 @@ module AgentExpressionStructuralWorkflow =
                     | Ok(GraphCompletion.Normal actual) when actual <> boolType -> Error(typeMismatch role "right" boolType actual)
                     | Ok _ -> Ok boolType
             | ExpressionRecipe.StringSlice(value, start, stop) ->
-                match unary "StringSlice" stringType stringType value with
-                | Error error -> Error error
-                | Ok _ ->
-                    match infer frames start with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "start" int64Type actual)
-                    | Ok _ ->
-                        match infer frames stop with
-                        | Error error -> Error error
-                        | Ok actual when actual <> int64Type -> Error(typeMismatch "StringSlice" "end" int64Type actual)
-                        | Ok _ -> Ok stringType
+                operands "StringSlice" stringType [ "value", stringType, value; "start", int64Type, start; "end", int64Type, stop ]
             | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
             | ExpressionRecipe.StringIndexOf(value, substring, from) ->
-                match binary "StringIndexOf" stringType stringType value substring with
-                | Error error -> Error error
-                | Ok _ ->
-                    match infer frames from with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringIndexOf" "from" int64Type actual)
-                    | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ]))
+                operands "StringIndexOf" (optionType int64Type) [ "left", stringType, value; "right", stringType, substring; "from", int64Type, from ]
             | ExpressionRecipe.StringSpan(value, set, bound)
             | ExpressionRecipe.StringSpanBack(value, set, bound) ->
                 let name, boundRole =
                     match recipe with
                     | ExpressionRecipe.StringSpan _ -> "StringSpan", "from"
                     | _ -> "StringSpanBack", "end"
-                match infer frames value with
-                | Error error -> Error error
-                | Ok actual when actual <> stringType -> Error(typeMismatch name "value" stringType actual)
-                | Ok _ ->
-                    match infer frames set with
-                    | Error error -> Error error
-                    | Ok actual when actual <> stringType -> Error(typeMismatch name "set" stringType actual)
-                    | Ok _ ->
-                        match infer frames bound with
-                        | Error error -> Error error
-                        | Ok actual when actual <> int64Type -> Error(typeMismatch name boundRole int64Type actual)
-                        | Ok _ -> Ok int64Type
+                operands name int64Type [ "value", stringType, value; "set", stringType, set; boundRole, int64Type, bound ]
             | ExpressionRecipe.StringLastIndexOf(value, substring) ->
-                binary "StringLastIndexOf" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64Type ])) value substring
+                binary "StringLastIndexOf" stringType (optionType int64Type) value substring
             | ExpressionRecipe.StringStartsWith(value, prefix) -> binary "StringStartsWith" stringType boolType value prefix
             | ExpressionRecipe.StringEndsWith(value, suffix) -> binary "StringEndsWith" stringType boolType value suffix
             | ExpressionRecipe.StringSplit(value, separator) ->
-                binary "StringSplit" stringType (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])) value separator
+                binary "StringSplit" stringType (listType stringType) value separator
             | ExpressionRecipe.StringSplitLines(value, breaks) ->
-                match infer frames value with
-                | Error error -> Error error
-                | Ok actual when actual <> stringType -> Error(typeMismatch "StringSplitLines" "value" stringType actual)
-                | Ok _ ->
-                    match infer frames breaks with
-                    | Error error -> Error error
-                    | Ok actual when actual <> stringType -> Error(typeMismatch "StringSplitLines" "breaks" stringType actual)
-                    | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]))
+                operands "StringSplitLines" (listType stringType) [ "value", stringType, value; "breaks", stringType, breaks ]
             | ExpressionRecipe.StringJoin(list, separator) ->
-                let stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual when actual <> stringListType -> Error(typeMismatch "StringJoin" "list" stringListType actual)
-                | Ok _ ->
-                    match infer frames separator with
-                    | Error error -> Error error
-                    | Ok actual when actual <> stringType -> Error(typeMismatch "StringJoin" "separator" stringType actual)
-                    | Ok _ -> Ok stringType
+                let stringListType = listType stringType
+                operands "StringJoin" stringType [ "list", stringListType, list; "separator", stringType, separator ]
             | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
             | ExpressionRecipe.StringLessThan(left, right) -> binary "StringLessThan" stringType boolType left right
             | ExpressionRecipe.ValueEqual(left, right) ->
@@ -1261,23 +1233,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64Min(left, right) -> binary "Int64Min" int64Type int64Type left right
             | ExpressionRecipe.Int64Max(left, right) -> binary "Int64Max" int64Type int64Type left right
             | ExpressionRecipe.ListRange(start, stop) ->
-                match infer frames start with
-                | Error error -> Error error
-                | Ok actual when actual <> int64Type -> Error(typeMismatch "ListRange" "start" int64Type actual)
-                | Ok _ ->
-                    match infer frames stop with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "ListRange" "end" int64Type actual)
-                    | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ int64Type ]))
+                operands "ListRange" (listType int64Type) [ "start", int64Type, start; "end", int64Type, stop ]
             | ExpressionRecipe.StringRepeat(text, count) ->
-                match infer frames text with
-                | Error error -> Error error
-                | Ok actual when actual <> stringType -> Error(typeMismatch "StringRepeat" "text" stringType actual)
-                | Ok _ ->
-                    match infer frames count with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "StringRepeat" "count" int64Type actual)
-                    | Ok _ -> Ok stringType
+                operands "StringRepeat" stringType [ "text", stringType, text; "count", int64Type, count ]
             | ExpressionRecipe.Int64Equal(left, right) -> binary "Int64Equal" int64Type boolType left right
             | ExpressionRecipe.Int64LessThan(left, right) -> binary "Int64LessThan" int64Type boolType left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary "Int64LessThanOrEqual" int64Type boolType left right
@@ -1302,32 +1260,11 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Bits32Or(left, right) -> binary "Bits32Or" bits32Type bits32Type left right
             | ExpressionRecipe.Bits32Add(left, right) -> binary "Bits32Add" bits32Type bits32Type left right
             | ExpressionRecipe.Bits32RotateRight(value, amount) ->
-                match infer frames value with
-                | Error error -> Error error
-                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32RotateRight" "value" bits32Type actual)
-                | Ok _ ->
-                    match infer frames amount with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32RotateRight" "amount" int64Type actual)
-                    | Ok _ -> Ok bits32Type
+                operands "Bits32RotateRight" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
             | ExpressionRecipe.Bits32ShiftRight(value, amount) ->
-                match infer frames value with
-                | Error error -> Error error
-                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32ShiftRight" "value" bits32Type actual)
-                | Ok _ ->
-                    match infer frames amount with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32ShiftRight" "amount" int64Type actual)
-                    | Ok _ -> Ok bits32Type
+                operands "Bits32ShiftRight" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
             | ExpressionRecipe.Bits32ShiftLeft(value, amount) ->
-                match infer frames value with
-                | Error error -> Error error
-                | Ok actual when actual <> bits32Type -> Error(typeMismatch "Bits32ShiftLeft" "value" bits32Type actual)
-                | Ok _ ->
-                    match infer frames amount with
-                    | Error error -> Error error
-                    | Ok actual when actual <> int64Type -> Error(typeMismatch "Bits32ShiftLeft" "amount" int64Type actual)
-                    | Ok _ -> Ok bits32Type
+                operands "Bits32ShiftLeft" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
             | ExpressionRecipe.ListEmpty itemType ->
                 match validateTypeRef snapshot itemType with
                 | Error error -> Error error
@@ -1364,11 +1301,7 @@ module AgentExpressionStructuralWorkflow =
                 | Ok listResultType ->
                     match listItemType listResultType with
                     | None -> Error(listMismatch "ListItemAt" "list" listResultType)
-                    | Some itemType ->
-                        match infer frames index with
-                        | Error error -> Error error
-                        | Ok actual when actual <> int64Type -> Error(typeMismatch "ListItemAt" "index" int64Type actual)
-                        | Ok _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
+                    | Some itemType -> operands "ListItemAt" (optionType itemType) [ "index", int64Type, index ]
             | ExpressionRecipe.ListSlice(list, start, stop) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1376,14 +1309,7 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType listResultType with
                     | None -> Error(listMismatch "ListSlice" "list" listResultType)
                     | Some _ ->
-                        match infer frames start with
-                        | Error error -> Error error
-                        | Ok actual when actual <> int64Type -> Error(typeMismatch "ListSlice" "start" int64Type actual)
-                        | Ok _ ->
-                            match infer frames stop with
-                            | Error error -> Error error
-                            | Ok actual when actual <> int64Type -> Error(typeMismatch "ListSlice" "end" int64Type actual)
-                            | Ok _ -> Ok listResultType
+                        operands "ListSlice" listResultType [ "start", int64Type, start; "end", int64Type, stop ]
             | ExpressionRecipe.ListAppendItem(list, item) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -1462,16 +1388,8 @@ module AgentExpressionStructuralWorkflow =
                                   with
                                   | None -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must take (accumulator, item), here ({ty seedType}, {ty itemType}); the folder has type {callbackSignature folder}.")
                                   | Some current ->
-                                    match
-                                        folder.RequiredEffects
-                                        |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
-                                    with
-                                    | Some effectId ->
-                                        Error(
-                                            diagnostic
-                                                "ExpressionCallMissingEffectRequirement"
-                                                $"ListEffectFold folder {callbackName folder} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
-                                        )
+                                    match missingEffect folder.RequiredEffects with
+                                    | Some effectId -> Error(missingEffectError $"ListEffectFold folder {callbackName folder}" effectId)
                                     | None ->
                                         match TypeParameters.substitute current folder.ResultType with
                                         | resultType when resultType = seedType -> Ok seedType
@@ -1498,13 +1416,9 @@ module AgentExpressionStructuralWorkflow =
                             fail "UseResourceReleaseReceiverMismatch" "UseResource release capability value does not own the release operation."
                           | Some bodySubstitution ->
                             let bodyResult = TypeParameters.substitute bodySubstitution body.ResultType
-                            let releaseReturnsResult = operation.ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ unitType; errorType ])
-                            let missing =
-                                body.RequiredEffects @ [ operation.EffectId ]
-                                |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
-                            match bodyResult, missing with
-                            | _, Some effectId ->
-                                fail "ExpressionCallMissingEffectRequirement" $"UseResource requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
+                            let releaseReturnsResult = operation.ResultType = resultType unitType errorType
+                            match bodyResult, missingEffect (body.RequiredEffects @ [ operation.EffectId ]) with
+                            | _, Some effectId -> Error(missingEffectError "UseResource" effectId)
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; bodyError ]), None when bodyError <> errorType ->
                                 fail "UseResourceResultMismatch" $"UseResource body {callbackName body} must return Result<T, E> with the acquisition error type E = {ty errorType}; it returns {ty bodyResult}."
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]), None ->
@@ -1525,10 +1439,10 @@ module AgentExpressionStructuralWorkflow =
                     | Ok(unbound, substitution) ->
                         let scopeType = TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
                         match (match unbound with [ scope ] -> TypeParameters.matchType substitution scope.Type scopeType | _ -> None),
-                              body.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                              missingEffect body.RequiredEffects with
                         | None, _ -> Error(diagnostic "TaskScopeBodyMismatch" $"TaskScope body {callbackName body} must have exactly one parameter not bound by context, of type TaskScope; the body has type {callbackSignature body}.")
                         | _, Some effectId ->
-                            Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskScope body {StableId.describe body.DisplayName body.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
+                            Error(missingEffectError $"TaskScope body {StableId.describe body.DisplayName body.Id}" effectId)
                         | Some current, None ->
                             match TypeParameters.substitute current body.ResultType with
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result -> Ok result
@@ -1547,11 +1461,11 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok(unbound, substitution) ->
                             let matched = match unbound with [ parameter ] -> TypeParameters.matchType substitution parameter.Type itemType | _ -> None
-                            match matched, worker.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                            match matched, missingEffect worker.RequiredEffects with
                             | None, _ ->
                                 Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"TaskStart worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
                             | _, Some effectId ->
-                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"TaskStart worker {StableId.describe worker.DisplayName worker.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
+                                Error(missingEffectError $"TaskStart worker {StableId.describe worker.DisplayName worker.Id}" effectId)
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result ->
@@ -1568,7 +1482,7 @@ module AgentExpressionStructuralWorkflow =
                 | Error error, _
                 | _, Error error -> Error error
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ])), Ok() ->
-                    Ok(listType (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ result ])))
+                    Ok(listType (optionType result))
                 | Ok actual, Ok() -> Error(diagnostic "TaskWaitInputTypeMismatch" $"TaskWait requires List<Task<T>>, not {ty actual}.")
             | ExpressionRecipe.TaskCancel task ->
                 match infer frames task with
@@ -1587,15 +1501,15 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok(unbound, substitution) ->
                             let matched = match unbound with [ item ] -> TypeParameters.matchType substitution item.Type itemType | _ -> None
-                            match matched, worker.RequiredEffects |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects)) with
+                            match matched, missingEffect worker.RequiredEffects with
                             | None, _ ->
                                 Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
                             | _, Some effectId ->
-                                Error(diagnostic "ExpressionCallMissingEffectRequirement" $"ParallelAll worker {StableId.describe worker.DisplayName worker.Id} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}.")
+                                Error(missingEffectError $"ParallelAll worker {StableId.describe worker.DisplayName worker.Id}" effectId)
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                    Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ listType okType; errorType ]))
+                                    Ok(resultType (listType okType) errorType)
                                 | other -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must return Result<U, E>, not {ty other}.")
             | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
@@ -1734,23 +1648,15 @@ module AgentExpressionStructuralWorkflow =
                 | None ->
                     Error(diagnostic "PureExpressionCallTargetNotFound" $"DirectCall references unknown function '{StableId.value targetFunctionId}'.")
                 | Some callee ->
-                    match
-                        callee.RequiredEffects
-                        |> List.tryFind (fun effectId -> not (List.contains effectId owner.RequiredEffects))
-                    with
-                    | Some effectId ->
-                        Error(
-                            diagnostic
-                                "ExpressionCallMissingEffectRequirement"
-                                $"DirectCall callee {callbackName callee} requires effect {effectLabel snapshot effectId} not declared by {owner.Description}."
-                        )
+                    match missingEffect callee.RequiredEffects with
+                    | Some effectId -> Error(missingEffectError $"DirectCall callee {callbackName callee}" effectId)
                     | None ->
                         validateCallArguments callee arguments |> Result.map (fun substitution -> TypeParameters.substitute substitution callee.ResultType)
             | ExpressionRecipe.SelfCall arguments ->
                 // The owner's RequiredEffects trivially cover its own, so only the arguments are checked.
                 let slotCount = List.length owner.SelfParameters
-                match arguments |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-                | Some(slot, _) ->
+                match tryFindDuplicate fst arguments with
+                | Some slot ->
                     Error(diagnostic "PureExpressionDuplicateCallArgument" $"SelfCall binds parameter slot {slot} more than once.")
                 | None ->
                     match arguments |> List.tryFind (fun (slot, _) -> slot < 0 || slot >= slotCount) with
@@ -1850,8 +1756,8 @@ module AgentExpressionStructuralWorkflow =
                 | Ok(TypeRef.Named inputTypeId) ->
                     match Map.tryFind inputTypeId typesById with
                     | Some { Kind = SemanticTypeKind.Union variants } ->
-                        match arms |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
-                        | Some(variantId, _) ->
+                        match tryFindDuplicate fst arms with
+                        | Some variantId ->
                             Error(diagnostic "PureExpressionMatchArmDuplicate" $"MatchUnion contains variant '{StableId.value variantId}' more than once.")
                         | None ->
                             let expectedIds = variants |> List.map (fun variant -> variant.Id) |> Set.ofList
@@ -3169,11 +3075,9 @@ module AgentExpressionStructuralWorkflow =
                     | Error error -> Error error
                     | Ok() ->
                         match
-                            request.RequiredEffects
-                            |> List.countBy id
-                            |> List.tryFind (fun (_, count) -> count > 1)
+                            request.RequiredEffects |> tryFindDuplicate id
                         with
-                        | Some(effectId, _) ->
+                        | Some effectId ->
                             Error(
                                 diagnostic
                                     "FunctionCreationDuplicateRequiredEffect"
