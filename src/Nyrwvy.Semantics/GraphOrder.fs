@@ -38,20 +38,18 @@ module internal GraphOrder =
                 | FunctionReferenceRole.PureListCallback
                 | FunctionReferenceRole.FunctionValue
                 | FunctionReferenceRole.CapabilityImplementation _ -> false
+            // Abort and every intrinsically effectful kind are observable on their own, except
+            // ParallelAll: it orders nothing itself, so only an effectful worker makes it observable.
             let rec observable node =
-                match node.Kind with
-                | SemanticNodeKind.Abort _
-                | SemanticNodeKind.CapabilityInvoke _
-                | SemanticNodeKind.UseResource _
-                | SemanticNodeKind.TaskScope _
-                | SemanticNodeKind.TaskStart _
-                | SemanticNodeKind.TaskWait _
-                | SemanticNodeKind.TaskCancel _
-                | SemanticNodeKind.CancellationRequested -> true
-                | _ ->
+                let throughReferences () =
                     SemanticNodeShape.functionReferences node |> List.exists (fun reference ->
                         carriesCalleeEffects reference.Role && functionHasEffects reference.FunctionId)
                     || SemanticNodeShape.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
+                match node.Kind with
+                | SemanticNodeKind.Abort _ -> true
+                | SemanticNodeKind.ParallelAll _ -> throughReferences ()
+                | _ when SemanticNodeShape.isIntrinsicallyEffectful node -> true
+                | _ -> throughReferences ()
             let rec check graph =
                 let edges = graph.Nodes |> List.map (fun node -> node.Id, SemanticNodeShape.dependencies node) |> Map.ofList
                 match tryUnorderedPair edges (graph.Nodes |> List.filter observable |> List.map (fun node -> node.Id)) with
