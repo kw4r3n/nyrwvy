@@ -1127,10 +1127,6 @@ module SemanticNodeShape =
     let mapNestedGraphs (mapGraph: ValueGraph -> ValueGraph) (node: SemanticNode): SemanticNode =
         mapNested id mapGraph node
 
-    /// Folds over the nested scopes of one node, in evaluation order.
-    let foldNestedGraphs (folder: 'State -> NestedScope -> 'State) (state: 'State) (node: SemanticNode): 'State =
-        nestedScopes node |> List.fold folder state
-
     /// The one list of the types a node states in its own payload (pattern bindings and nested
     /// graphs excluded), paired with the node's kind after `mapTypeRef` rewrote each of them.
     let private typeRefPayload (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): TypeRef list * SemanticNodeKind =

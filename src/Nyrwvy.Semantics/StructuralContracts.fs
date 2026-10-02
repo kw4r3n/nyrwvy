@@ -42,6 +42,9 @@ module ValueDependency =
         { Role = role
           NodeId = nodeId }
 
+    let private contextDependencies (context: ArgumentBinding list) =
+        context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId)
+
     /// Canonical role-aware direct value dependencies for one semantic node.
     /// Nested branch result nodes remain represented by their child ValueGraphs.
     let ofNode (node: SemanticNode): ValueDependency list =
@@ -165,29 +168,26 @@ module ValueDependency =
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
             create ValueDependencyRole.Source sourceNodeId
-            :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
-        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context) ->
-            [ create ValueDependencyRole.Source sourceNodeId
-              create ValueDependencyRole.Value seedNodeId ]
-            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+            :: contextDependencies context
+        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Value seedNodeId ]
-            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+            @ contextDependencies context
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             [ create ValueDependencyRole.Value acquireNodeId
               create ValueDependencyRole.CapabilityValue releaseCapabilityNodeId ]
-            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+            @ contextDependencies context
         | SemanticNodeKind.ParallelAll(sourceNodeId, _, context) ->
             create ValueDependencyRole.Source sourceNodeId
-            :: (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+            :: contextDependencies context
         | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.TaskScope(_, context) ->
-            context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId)
+            contextDependencies context
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             [ create ValueDependencyRole.TaskScope scopeNodeId
               create ValueDependencyRole.Item itemNodeId ]
-            @ (context |> List.map (fun binding -> create (ValueDependencyRole.CallArgument binding.TargetParameterId) binding.ValueNodeId))
+            @ contextDependencies context
         | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) ->
             create ValueDependencyRole.Source tasksNodeId :: (limitNodeId |> Option.map (create ValueDependencyRole.Limit) |> Option.toList)
         | SemanticNodeKind.TaskCancel taskNodeId -> [ create ValueDependencyRole.Value taskNodeId ]
@@ -204,7 +204,7 @@ module ValueDependency =
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->
-            { Role = ValueDependencyRole.FunctionValue; NodeId = value } :: (arguments |> List.mapi (fun index id -> { Role = ValueDependencyRole.FunctionArgument index; NodeId = id }))
+            create ValueDependencyRole.FunctionValue value :: (arguments |> List.mapi (fun index id -> create (ValueDependencyRole.FunctionArgument index) id))
         | SemanticNodeKind.DirectCall(_, arguments) ->
             arguments
             |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)

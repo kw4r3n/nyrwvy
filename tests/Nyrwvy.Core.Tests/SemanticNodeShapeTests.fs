@@ -238,7 +238,7 @@ module SemanticNodeShapeTests =
             Assert.Equal<PatternBinding list>(sortBindings (payload.Bindings |> List.map markBinding), sortBindings marked.Bindings)
             Assert.Equal<GraphNodeId list>(sortIds payload.References, sortIds marked.References)
 
-            let folded = SemanticNodeShape.foldNestedGraphs (fun graphs scope -> scope.Graph :: graphs) [] node
+            let folded = SemanticNodeShape.nestedScopes node |> List.fold (fun graphs scope -> scope.Graph :: graphs) []
             Assert.Equal<ValueGraph list>(sortGraphs payload.Graphs, sortGraphs folded))
 
     [<Fact>]

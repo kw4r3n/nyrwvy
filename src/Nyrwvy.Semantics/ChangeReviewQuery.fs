@@ -63,11 +63,7 @@ module ChangeReviewQuery =
             (simulation.Diff.ProductFieldsBound |> List.map (fun item -> item.OwnerFunctionId))
             @ (simulation.Diff.ProductFieldsRemoved
                |> List.collect (fun item ->
-                   let affected = item.AffectedConstructNodeIds |> Set.ofList
-                   simulation.ProposedSnapshot.Functions
-                   |> List.filter (fun fn ->
-                       ValueGraph.collectNodes fn.Body |> List.exists (fun node -> Set.contains node.Id affected))
-                   |> List.map (fun fn -> fn.Id)))
+                   item.AffectedConstructNodeIds |> List.choose (fun nodeId -> Map.tryFind nodeId ownersByNode)))
 
         let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
         renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners

@@ -305,7 +305,6 @@ module Transaction =
                                           ValueNodeId = valueNodeId }
                                     attached <- change :: attached
                                     { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
-                                | LeaveMissing _, SemanticNodeKind.DirectCall _ -> node
                                 | BindExistingValue _, _
                                 | LeaveMissing _, _ -> node
 

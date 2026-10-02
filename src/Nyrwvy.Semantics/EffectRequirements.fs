@@ -25,9 +25,15 @@ type FunctionEffectSummary =
 
 [<RequireQualifiedAccess>]
 module EffectRequirements =
-    let derive (snapshot: Snapshot) (fn: SemanticFunction): BodyEffectRequirements =
-        let functions = snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList
-        let operations = snapshot.Capabilities |> List.collect (fun cap -> cap.Operations) |> List.map (fun op -> op.Id, op) |> Map.ofList
+    let private lookups (snapshot: Snapshot) =
+        snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList,
+        snapshot.Capabilities |> List.collect (fun cap -> cap.Operations) |> List.map (fun op -> op.Id, op) |> Map.ofList
+
+    let private deriveWith
+        (functions: Map<FunctionId, SemanticFunction>)
+        (operations: Map<CapabilityOperationId, SemanticCapabilityOperation>)
+        (fn: SemanticFunction)
+        : BodyEffectRequirements =
         let sources =
             ValueGraph.collectNodes fn.Body |> List.collect (fun node ->
                 let functionSource id = node.Id, EffectRequirementSource.FunctionContract id
@@ -55,11 +61,16 @@ module EffectRequirements =
             | _, EffectRequirementSource.CapabilityOperation id when not (Map.containsKey id operations) -> Some id
             | _ -> None) |> List.distinct |> List.sortBy StableId.value }
 
+    let derive (snapshot: Snapshot) (fn: SemanticFunction): BodyEffectRequirements =
+        let functions, operations = lookups snapshot
+        deriveWith functions operations fn
+
     let summarize (snapshot: Snapshot) functionIds =
+        let functions, operations = lookups snapshot
         snapshot.Functions
         |> List.filter (fun fn -> Set.contains fn.Id functionIds)
         |> List.sortBy (fun fn -> StableId.value fn.Id)
         |> List.map (fun fn ->
             { FunctionId = fn.Id
               DeclaredEffectIds = fn.RequiredEffects |> List.distinct |> List.sortBy StableId.value
-              Body = derive snapshot fn })
+              Body = deriveWith functions operations fn })

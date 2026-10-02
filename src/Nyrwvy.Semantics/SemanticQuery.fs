@@ -242,19 +242,27 @@ module SemanticQuery =
     let private abortBoundaries (functionEntity: SemanticFunction) (nodeTypes: QueryNodeType list) =
         let nodes = ValueGraph.collectNodes functionEntity.Body
         let types = nodeTypes |> List.map (fun item -> item.NodeId, item.Type) |> Map.ofList
+        let dependentsOf =
+            nodes
+            |> List.collect (fun node -> SemanticNodeShape.directValueReferences node |> List.map (fun id -> id, node.Id))
+            |> List.groupBy fst
+            |> List.map (fun (id, pairs) -> id, List.map snd pairs)
+            |> Map.ofList
+        // Every node that transitively consumes a value in `found`, by a worklist over `dependentsOf`.
+        let rec close found pending =
+            match pending with
+            | [] -> found
+            | id :: rest ->
+                let added =
+                    Map.tryFind id dependentsOf |> Option.defaultValue [] |> List.distinct
+                    |> List.filter (fun dependent -> not (Set.contains dependent found))
+                close (Set.union found (Set.ofList added)) (added @ rest)
         let rec visit parents (graph: ValueGraph) =
             graph.Nodes |> List.collect (fun node ->
                 match node.Kind with
                 | SemanticNodeKind.Abort error ->
                     let seeds = node.Id :: parents |> Set.ofList
-                    let mutable dependent = seeds
-                    let mutable changed = true
-                    while changed do
-                        let next = nodes |> List.fold (fun found candidate ->
-                            if SemanticNodeShape.directValueReferences candidate |> List.exists (fun id -> Set.contains id found)
-                            then Set.add candidate.Id found else found) dependent
-                        changed <- next <> dependent
-                        dependent <- next
+                    let dependent = close seeds (Set.toList seeds)
                     [ { OwnerFunctionId = functionEntity.Id; NodeId = node.Id; ErrorNodeId = error
                         ErrorType = Map.tryFind error types |> Option.flatten
                         EnclosingControlNodeIds = parents
