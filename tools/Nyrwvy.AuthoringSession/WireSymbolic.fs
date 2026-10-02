@@ -390,6 +390,12 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "text" element),
                 recipe declarations parameterContext (property "count" element)
             )
+        | "float64Round" ->
+            ensureFields "float64-round recipe" [ "kind"; "value"; "digits" ] [ "kind"; "value"; "digits" ] element
+            ExpressionRecipe.Float64Round(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "digits" element)
+            )
         | "int64Equal" -> binary "int64-equal recipe" ExpressionRecipe.Int64Equal
         | "int64LessThan" -> binary "int64-less-than recipe" ExpressionRecipe.Int64LessThan
         | "int64LessThanOrEqual" -> binary "int64-less-than-or-equal recipe" ExpressionRecipe.Int64LessThanOrEqual

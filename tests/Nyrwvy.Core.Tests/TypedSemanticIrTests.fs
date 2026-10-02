@@ -82,6 +82,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Int64CheckedMultiply _
                 | TypedSemanticNodeKind.ListRange _
                 | TypedSemanticNodeKind.StringRepeat _
+                | TypedSemanticNodeKind.Float64Round _
                 | TypedSemanticNodeKind.Int64Equal _
                 | TypedSemanticNodeKind.Int64LessThan _
                 | TypedSemanticNodeKind.Int64LessThanOrEqual _

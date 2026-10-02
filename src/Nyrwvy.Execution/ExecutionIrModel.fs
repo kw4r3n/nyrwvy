@@ -138,6 +138,7 @@ type ExecutionInstructionKind =
     | Int64CheckedMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | ListRange of startValueId: ExecutionValueId * endValueId: ExecutionValueId
     | StringRepeat of textValueId: ExecutionValueId * countValueId: ExecutionValueId
+    | Float64Round of valueId: ExecutionValueId * digitsValueId: ExecutionValueId
     | Int64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64LessThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -315,6 +316,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64CheckedMultiply _
         | ExecutionInstructionKind.ListRange _
         | ExecutionInstructionKind.StringRepeat _
+        | ExecutionInstructionKind.Float64Round _
         | ExecutionInstructionKind.Int64Equal _
         | ExecutionInstructionKind.Int64LessThan _
         | ExecutionInstructionKind.Int64LessThanOrEqual _

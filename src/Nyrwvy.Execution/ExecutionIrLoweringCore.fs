@@ -344,6 +344,8 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.ListRange(left, right))
                         | TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.StringRepeat(left, right))
+                        | TypedSemanticNodeKind.Float64Round(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Round(left, right))
                         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Equal(left, right))
                         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

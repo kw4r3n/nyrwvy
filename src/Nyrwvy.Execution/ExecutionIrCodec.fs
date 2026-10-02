@@ -375,6 +375,10 @@ module ExecutionIrCodec =
             [ property "kind" (quote "stringRepeat")
               property "textValueId" (executionValueIdValue textValueId)
               property "countValueId" (executionValueIdValue countValueId) ]
+        | ExecutionInstructionKind.Float64Round(valueId, digitsValueId) ->
+            [ property "kind" (quote "float64Round")
+              property "valueId" (executionValueIdValue valueId)
+              property "digitsValueId" (executionValueIdValue digitsValueId) ]
         | ExecutionInstructionKind.Int64Equal(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Equal" leftValueId rightValueId
         | ExecutionInstructionKind.Int64LessThan(leftValueId, rightValueId) ->

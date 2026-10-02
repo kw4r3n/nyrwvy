@@ -87,6 +87,7 @@ module FoundationTests =
                 | SemanticNodeKind.Int64CheckedMultiply _
                 | SemanticNodeKind.ListRange _
                 | SemanticNodeKind.StringRepeat _
+                | SemanticNodeKind.Float64Round _
                 | SemanticNodeKind.Int64Equal _
                 | SemanticNodeKind.Int64LessThan _
                 | SemanticNodeKind.Int64LessThanOrEqual _

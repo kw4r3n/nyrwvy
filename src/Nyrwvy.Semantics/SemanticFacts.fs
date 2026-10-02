@@ -175,6 +175,7 @@ module SemanticFacts =
                     | SemanticNodeKind.ListLength _ ->
                         Some(TypeRef.Primitive PrimitiveType.Int64)
                     | SemanticNodeKind.Float64Literal _
+                    | SemanticNodeKind.Float64Round _
                     | SemanticNodeKind.Float64Add _
                     | SemanticNodeKind.Float64Subtract _
                     | SemanticNodeKind.Float64Multiply _

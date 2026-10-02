@@ -7,8 +7,8 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// Float64RoundToInt64 and Float64FloorToInt64 (post-M2 order 34): Python round(x) (ties to even) and
-/// math.floor(x) as Option<Int64>, None for NaN, the infinities and results outside Int64. Never fail.
+/// Float64RoundToInt64 and Float64FloorToInt64 (post-M2 order 34; rounding half away from zero since
+/// order 43) and floor as Option<Int64>, None for NaN, the infinities and results outside Int64. Never fail.
 module Float64ToInt64Tests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("float64-to-int64-" + name)
     let private floatType = TypeRef.Primitive PrimitiveType.Float64
@@ -95,17 +95,17 @@ module Float64ToInt64Tests =
             let option (value: string) =
                 if isNull value then """{"kind":"option","itemKind":"int64","hasValue":false}"""
                 else """{"kind":"option","itemKind":"int64","hasValue":true,"value":""" + "\"" + value + "\"}"
-            // Each expected pair is Python's round(x) and math.floor(x), or None where Python raises or
-            // gives an int outside Int64.
+            // Each expected pair is x rounded half away from zero and math.floor(x), or None where the
+            // result is outside Int64 or x is not finite.
             let cases: (string * string * string) list =
                 [ "0.0", "0", "0"
                   "\"-0\"", "0", "0"
-                  "0.5", "0", "0"
+                  "0.5", "1", "0"
                   "1.5", "2", "1"
-                  "2.5", "2", "2"
-                  "-0.5", "0", "-1"
+                  "2.5", "3", "2"
+                  "-0.5", "-1", "-1"
                   "-1.5", "-2", "-2"
-                  "-2.5", "-2", "-3"
+                  "-2.5", "-3", "-3"
                   "0.49999999999999994", "0", "0"
                   "-0.49999999999999994", "0", "-1"
                   "4503599627370495.5", "4503599627370496", "4503599627370495"

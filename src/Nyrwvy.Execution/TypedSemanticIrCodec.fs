@@ -449,6 +449,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "stringRepeat")
             writer.WriteString("textNodeId", StableId.value textNodeId)
             writer.WriteString("countNodeId", StableId.value countNodeId)
+        | TypedSemanticNodeKind.Float64Round(valueNodeId, digitsNodeId) ->
+            writer.WriteString("kind", "float64Round")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("digitsNodeId", StableId.value digitsNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

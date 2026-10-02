@@ -558,6 +558,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringRepeat")
             writer.WriteString("textNodeId", StableId.value textNodeId)
             writer.WriteString("countNodeId", StableId.value countNodeId)
+        | SemanticNodeKind.Float64Round(valueNodeId, digitsNodeId) ->
+            writer.WriteString("kind", "float64Round")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("digitsNodeId", StableId.value digitsNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Equal" leftNodeId rightNodeId
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -1405,6 +1409,13 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "textNodeId"; "countNodeId" ])
                     element
                 SemanticNodeKind.StringRepeat(readId<GraphNodeTag> "textNodeId" element, readId<GraphNodeTag> "countNodeId" element)
+            | "float64Round" ->
+                ensureProperties
+                    "Float64Round node"
+                    (set [ "id"; "kind"; "valueNodeId"; "digitsNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "digitsNodeId" ])
+                    element
+                SemanticNodeKind.Float64Round(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "digitsNodeId" element)
             | "int64Equal" ->
                 readBinaryNode "Int64Equal node" element (fun left right -> SemanticNodeKind.Int64Equal(left, right))
             | "int64LessThan" ->

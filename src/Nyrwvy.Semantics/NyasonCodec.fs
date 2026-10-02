@@ -603,6 +603,8 @@ module NyasonCodec =
             record "list-range" [ nodeId; "start", encodeId "node" startNodeId; "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringRepeat(textNodeId, countNodeId) ->
             record "string-repeat" [ nodeId; "text", encodeId "node" textNodeId; "count", encodeId "node" countNodeId ]
+        | SemanticNodeKind.Float64Round(valueNodeId, digitsNodeId) ->
+            record "float64-round" [ nodeId; "value", encodeId "node" valueNodeId; "digits", encodeId "node" digitsNodeId ]
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -1135,6 +1137,14 @@ module NyasonCodec =
                 SemanticNodeKind.StringRepeat(
                     decodeId<GraphNodeTag> "node" (require "text" fields),
                     decodeId<GraphNodeTag> "node" (require "count" fields)
+                ) }
+        | NyasonValue.Record("float64-round", _) ->
+            let fields = recordFields "float64-round" [ "id"; "value"; "digits" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Float64Round(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "digits" fields)
                 ) }
         | NyasonValue.Record("int64-equal", _) ->
             decodeBinaryNode "int64-equal" value (fun left right -> SemanticNodeKind.Int64Equal(left, right))

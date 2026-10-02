@@ -130,6 +130,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64CheckedMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | ListRange of startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | StringRepeat of textNodeId: GraphNodeId * countNodeId: GraphNodeId
+    | Float64Round of valueNodeId: GraphNodeId * digitsNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -288,6 +289,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64CheckedMultiply _
         | TypedSemanticNodeKind.ListRange _
         | TypedSemanticNodeKind.StringRepeat _
+        | TypedSemanticNodeKind.Float64Round _
         | TypedSemanticNodeKind.Int64Equal _
         | TypedSemanticNodeKind.Int64LessThan _
         | TypedSemanticNodeKind.Int64LessThanOrEqual _
@@ -415,6 +417,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Round(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -700,6 +703,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListRange(leftNodeId, rightNodeId))
                     | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.StringRepeat(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Round(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Round(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64Equal(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->

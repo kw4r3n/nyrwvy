@@ -137,6 +137,7 @@ module ValueDependency =
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Round(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)

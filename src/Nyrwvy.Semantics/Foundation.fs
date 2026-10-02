@@ -247,8 +247,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
     /// point above U+00FF reads as the invalid byte 0xFF. Never fails.
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
-    /// Python round(value) as Option<Int64>: the nearest integer, ties to even. None for NaN, an
-    /// infinity, or a result outside Int64 (where Python would give a larger int). Never fails.
+    /// The nearest integer as Option<Int64>, rounding half away from zero (Python's round rounds ties to
+    /// even). None for NaN, an infinity, or a result outside Int64. Never fails.
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
     /// Python math.floor(value) as Option<Int64>, with None in the same cases as Float64RoundToInt64.
     | Float64FloorToInt64 of valueNodeId: GraphNodeId
@@ -351,6 +351,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The String repeated count times, as Python text * count; "" when count <= 0. A String too large to
     /// allocate is a host failure, as for StringConcat.
     | StringRepeat of textNodeId: GraphNodeId * countNodeId: GraphNodeId
+    /// The Float64 value rounded to `digits` decimal places (tens, hundreds, ... when negative), half away
+    /// from zero, on the shortest decimal text that reads back to the value (2.675 to 2 places is 2.68).
+    /// NaN, the infinities and zeros are returned unchanged. Never fails.
+    | Float64Round of valueNodeId: GraphNodeId * digitsNodeId: GraphNodeId
     | Int64Equal of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64LessThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -669,6 +673,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Round(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64LessThanOrEqual(leftNodeId, rightNodeId)
@@ -849,6 +854,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListRange(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.StringRepeat(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Round(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Round(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64Equal(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId) ->
@@ -1049,6 +1056,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Float64Round _
         | SemanticNodeKind.Int64Equal _
         | SemanticNodeKind.Int64LessThan _
         | SemanticNodeKind.Int64LessThanOrEqual _
@@ -1233,6 +1241,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Float64Round _
         | SemanticNodeKind.Int64Equal _
         | SemanticNodeKind.Int64LessThan _
         | SemanticNodeKind.Int64LessThanOrEqual _
@@ -1393,6 +1402,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Float64Round _
         | SemanticNodeKind.Int64Equal _
         | SemanticNodeKind.Int64LessThan _
         | SemanticNodeKind.Int64LessThanOrEqual _
@@ -1529,6 +1539,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64CheckedMultiply _
         | SemanticNodeKind.ListRange _
         | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Float64Round _
         | SemanticNodeKind.Int64Equal _
         | SemanticNodeKind.Int64LessThan _
         | SemanticNodeKind.Int64LessThanOrEqual _

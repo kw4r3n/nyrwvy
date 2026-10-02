@@ -171,6 +171,7 @@ module ViewerHtml =
         | ViewerNodeRole.Int64CheckedMultiply -> "Int64 checked multiply"
         | ViewerNodeRole.ListRange -> "List range"
         | ViewerNodeRole.StringRepeat -> "String repeat"
+        | ViewerNodeRole.Float64Round -> "Float64 round"
         | ViewerNodeRole.Int64Equal -> "Int64 equal"
         | ViewerNodeRole.Int64LessThan -> "Int64 less than"
         | ViewerNodeRole.Int64LessThanOrEqual -> "Int64 less than or equal"
