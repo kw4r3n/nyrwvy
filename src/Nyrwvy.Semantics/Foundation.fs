@@ -1412,6 +1412,135 @@ module SemanticNodeShape =
     /// release). The operations a CapabilityConstruct implements are roles in `functionReferences`.
     let invokedOperations (node: SemanticNode): CapabilityOperationId list = symbolReferences node |> snd
 
+    /// Whether the node itself performs an effect or ambient behavior (a capability call, a resource
+    /// scope, concurrency or cancellation), apart from any function it names. Calls and callbacks
+    /// are effectful through their target, which callers follow with `functionReferences`.
+    let isIntrinsicallyEffectful (node: SemanticNode): bool =
+        match node.Kind with
+        | SemanticNodeKind.ParallelAll _
+        | SemanticNodeKind.CancellationRequested
+        | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.TaskScope _
+        | SemanticNodeKind.TaskStart _
+        | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.TaskCancel _
+        | SemanticNodeKind.CapabilityInvoke _ -> true
+        | SemanticNodeKind.ParameterReference _
+        | SemanticNodeKind.PatternReference _
+        | SemanticNodeKind.StringLiteral _
+        | SemanticNodeKind.BoolLiteral _
+        | SemanticNodeKind.UnitLiteral
+        | SemanticNodeKind.Int64Literal _
+        | SemanticNodeKind.Float64Literal _
+        | SemanticNodeKind.StringIsEmpty _
+        | SemanticNodeKind.Int64ToString _
+        | SemanticNodeKind.Int64ToHexString _
+        | SemanticNodeKind.StringParseInt64 _
+        | SemanticNodeKind.StringParseInt64Hex _
+        | SemanticNodeKind.Float64ToString _
+        | SemanticNodeKind.StringParseFloat64 _
+        | SemanticNodeKind.StringCodePoints _
+        | SemanticNodeKind.StringToLower _
+        | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.Float64RoundToInt64 _
+        | SemanticNodeKind.Float64FloorToInt64 _
+        | SemanticNodeKind.Float64Sqrt _
+        | SemanticNodeKind.Float64Abs _
+        | SemanticNodeKind.Float64Negate _
+        | SemanticNodeKind.Float64Floor _
+        | SemanticNodeKind.Float64Ceiling _
+        | SemanticNodeKind.Float64Truncate _
+        | SemanticNodeKind.StringUtf8ByteCount _
+        | SemanticNodeKind.StringFromCodePoint _
+        | SemanticNodeKind.StringToCodePoint _
+        | SemanticNodeKind.StringLength _
+        | SemanticNodeKind.StringSlice _
+        | SemanticNodeKind.StringContains _
+        | SemanticNodeKind.StringIndexOf _
+        | SemanticNodeKind.StringSpan _
+        | SemanticNodeKind.StringSpanBack _
+        | SemanticNodeKind.StringLastIndexOf _
+        | SemanticNodeKind.StringStartsWith _
+        | SemanticNodeKind.StringEndsWith _
+        | SemanticNodeKind.StringSplit _
+        | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringJoin _
+        | SemanticNodeKind.StringEqual _
+        | SemanticNodeKind.StringLessThan _
+        | SemanticNodeKind.ValueEqual _
+        | SemanticNodeKind.StringConcat _
+        | SemanticNodeKind.Int64WrappingAdd _
+        | SemanticNodeKind.Int64WrappingSubtract _
+        | SemanticNodeKind.Int64WrappingMultiply _
+        | SemanticNodeKind.Int64FloorDivide _
+        | SemanticNodeKind.Int64FloorModulo _
+        | SemanticNodeKind.Int64Min _
+        | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.ListRange _
+        | SemanticNodeKind.StringRepeat _
+        | SemanticNodeKind.Int64Equal _
+        | SemanticNodeKind.Int64LessThan _
+        | SemanticNodeKind.Int64LessThanOrEqual _
+        | SemanticNodeKind.Int64GreaterThan _
+        | SemanticNodeKind.Int64GreaterThanOrEqual _
+        | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Subtract _
+        | SemanticNodeKind.Float64Multiply _
+        | SemanticNodeKind.Float64Divide _
+        | SemanticNodeKind.Float64Equal _
+        | SemanticNodeKind.Float64LessThan _
+        | SemanticNodeKind.Float64IsNaN _
+        | SemanticNodeKind.Float64IsFinite _
+        | SemanticNodeKind.Float64IsInfinite _
+        | SemanticNodeKind.Int64ToFloat64 _
+        | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Bits32FromInt64 _
+        | SemanticNodeKind.Bits32ToInt64 _
+        | SemanticNodeKind.Bits32Xor _
+        | SemanticNodeKind.Bits32And _
+        | SemanticNodeKind.Bits32Or _
+        | SemanticNodeKind.Bits32Not _
+        | SemanticNodeKind.Bits32Add _
+        | SemanticNodeKind.Bits32RotateRight _
+        | SemanticNodeKind.Bits32ShiftRight _
+        | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.ListConstruct _
+        | SemanticNodeKind.ListLength _
+        | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListAppendItem _
+        | SemanticNodeKind.ListItemAt _
+        | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListConcat _
+        | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListAll _
+        | SemanticNodeKind.DirectCall _
+        | SemanticNodeKind.CapabilityConstruct _
+        | SemanticNodeKind.FunctionReference _
+        | SemanticNodeKind.FunctionInvoke _
+        | SemanticNodeKind.ProductConstruct _
+        | SemanticNodeKind.FieldAccess _
+        | SemanticNodeKind.ProductUpdate _
+        | SemanticNodeKind.UnionConstruct _
+        | SemanticNodeKind.OptionNone _
+        | SemanticNodeKind.OptionSome _
+        | SemanticNodeKind.ResultOk _
+        | SemanticNodeKind.Abort _
+        | SemanticNodeKind.ResultErr _
+        | SemanticNodeKind.BoolNot _
+        | SemanticNodeKind.BoolAnd _
+        | SemanticNodeKind.BoolOr _
+        | SemanticNodeKind.Conditional _
+        | SemanticNodeKind.MatchUnion _
+        | SemanticNodeKind.Bind _
+        | SemanticNodeKind.MatchOption _
+        | SemanticNodeKind.MatchResult _ -> false
+
     /// The target and argument bindings of a DirectCall node; None for every other kind.
     let tryDirectCall (node: SemanticNode): (FunctionId * ArgumentBinding list) option =
         match node.Kind with

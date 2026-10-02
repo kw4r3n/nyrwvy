@@ -19,17 +19,7 @@ module PureFunctions =
                 | Some fn when not (List.isEmpty fn.RequiredEffects) -> false
                 | Some fn ->
                     let nodes = ValueGraph.collectNodes fn.Body
-                    let effectful = nodes |> List.exists (fun node ->
-                        match node.Kind with
-                        | SemanticNodeKind.CapabilityInvoke _
-                        | SemanticNodeKind.UseResource _
-                        | SemanticNodeKind.ParallelAll _
-                        | SemanticNodeKind.TaskScope _
-                        | SemanticNodeKind.TaskStart _
-                        | SemanticNodeKind.TaskWait _
-                        | SemanticNodeKind.TaskCancel _
-                        | SemanticNodeKind.CancellationRequested -> true
-                        | _ -> false)
+                    let effectful = nodes |> List.exists SemanticNodeShape.isIntrinsicallyEffectful
                     // Every named function, in any role. The UseResource and TaskScope bodies and the
                     // ParallelAll and TaskStart workers were left out of this list before; including
                     // them changes nothing, because those kinds make `effectful` true and the targets
