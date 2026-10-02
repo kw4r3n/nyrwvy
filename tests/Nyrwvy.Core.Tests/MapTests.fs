@@ -7,7 +7,7 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// Map<K, V> (post-M2 order 44): keys of any equatable type compared with ValueEqual, entries in
+/// Map<K, V> (post-M2 orders 44 and 45): keys of any equatable type compared with ValueEqual, entries in
 /// insertion order, immutable values, over the maintained JSONL protocol and runPure.
 module MapTests =
     let private execute session (line: string) = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
@@ -218,4 +218,58 @@ module MapTests =
             Assert.Equal(
                 "RunContainerTypeMismatch",
                 rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{mistyped}]}}"""
+            ))
+
+    [<Fact>]
+    let ``MapFold walks entries in insertion order and MapFromList keeps the first position and the last value`` () =
+        withSession (fun session path ->
+            let s, k, v = parameter "s", parameter "k", parameter "v"
+            // s + k + "=" + toString(v) + ";"
+            let piece =
+                $"""{{"kind":"stringConcat","left":{{"kind":"stringConcat","left":{{"kind":"stringConcat","left":{s},"right":{k}}},"right":{{"kind":"stringLiteral","value":"="}}}},"right":{{"kind":"stringConcat","left":{{"kind":"int64ToString","value":{v}}},"right":{{"kind":"stringLiteral","value":";"}}}}}}"""
+            define session "render" [ "s", str; "k", str; "v", int64Type ] str piece
+            define
+                session
+                "dump"
+                [ "m", wordCounts ]
+                str
+                $"""{{"kind":"mapFold","map":{parameter "m"},"seed":{{"kind":"stringLiteral","value":""}},"function":"render"}}"""
+            expectRun session "dump" [ counts [ "b", 2L; "a", 1L; "c", 3L ] ] (text "b=2;a=1;c=3;")
+            expectRun session "dump" [ counts [] ] (text "")
+
+            publish
+                session
+                $"""{{"id":"t","op":"simulateCreateTypeByName","displayName":"Row","typeKind":{{"kind":"product","fields":[{{"displayName":"id","type":{str}}},{{"displayName":"n","type":{int64Type}}}]}}}}"""
+            let row = """{"kind":"named","name":"Row"}"""
+            let rowValue (id: string) (n: int64) =
+                $"""{{"kind":"product","type":"Row","fields":[{{"field":"id","value":{text id}}},{{"field":"n","value":{int64 n}}}]}}"""
+            define session "rowId" [ "r", row ] str $"""{{"kind":"fieldAccess","source":{parameter "r"},"type":"Row","field":"id"}}"""
+            define
+                session
+                "index"
+                [ "rows", listOf row ]
+                (mapOf str row)
+                $"""{{"kind":"mapFromList","source":{parameter "rows"},"function":"rowId"}}"""
+            let rows = $"""{{"kind":"list","itemType":{row},"items":[{rowValue "x" 1L},{rowValue "y" 2L},{rowValue "x" 3L}]}}"""
+            let expected =
+                $"""{{"kind":"map","keyType":{str},"valueType":{row},"entries":[{{"key":{text "x"},"value":{rowValue "x" 3L}}},{{"key":{text "y"},"value":{rowValue "y" 2L}}}]}}"""
+            expectRun session "index" [ rows ] expected
+            let snapshot = readSnapshot path
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            Assert.Contains("map-fold", nyason)
+            Assert.Contains("map-from-list", nyason)
+            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
+
+            // A folder with two parameters, and a key callback returning Float64, are rejected.
+            define session "twoArgs" [ "s", str; "k", str ] str (parameter "s")
+            Assert.Equal(
+                "PureExpressionListCallbackArityMismatch",
+                simulateCode session [ "m", wordCounts ] str $"""{{"kind":"mapFold","map":{parameter "m"},"seed":{{"kind":"stringLiteral","value":""}},"function":"twoArgs"}}"""
+            )
+            define session "rowWeight" [ "r", row ] (primitive "float64") """{"kind":"int64ToFloat64","value":{"kind":"fieldAccess","source":{"kind":"parameter","name":"r"},"type":"Row","field":"n"}}"""
+            Assert.Equal(
+                "MapKeyTypeNotEquatable",
+                simulateCode session [ "rows", listOf row ] (mapOf (primitive "float64") row) $"""{{"kind":"mapFromList","source":{parameter "rows"},"function":"rowWeight"}}"""
             ))

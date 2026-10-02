@@ -421,6 +421,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// declaration order, receive the iteration values (accumulator and item for ListFold, the
     /// item otherwise). An empty context is the plain callback.
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     /// Acquires a resource with `acquire : Result<R, E>`; on Ok runs the body function with R (other
     /// parameters bound by `context`) and then always releases R through a capability operation.
     /// Runs the worker for every source item concurrently and waits for all of them. The first Err
@@ -445,6 +446,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | TaskCancel of taskNodeId: GraphNodeId
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     /// The source items in a stable order under a pure `(T, T) -> Bool` "less than" callback whose
     /// two unbound parameters receive (left, right). The result is fixed by a top-down merge sort:
@@ -721,6 +723,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapSize sourceMapNodeId -> [ sourceMapNodeId ]
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
+        | SemanticNodeKind.MapFromList(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
         | SemanticNodeKind.ListSortBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
@@ -733,6 +736,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.MapFold(listNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: contextValues context
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
@@ -942,6 +946,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ListFold(listNodeId, seedNodeId, functionId, context) ->
                 SemanticNodeKind.ListFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.MapFold(listNodeId, seedNodeId, functionId, context) ->
+                SemanticNodeKind.MapFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, functionId, context) ->
                 SemanticNodeKind.ListEffectFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ParallelAll(sourceListNodeId, functionId, context) ->
@@ -963,6 +969,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
             | SemanticNodeKind.ListMap(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.MapFromList(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.MapFromList(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListFilter(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListFilter(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
@@ -1132,6 +1140,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.MapFold _
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
@@ -1141,6 +1150,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
         | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _
@@ -1323,6 +1333,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.MapFold _
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
@@ -1332,6 +1343,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
         | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _
@@ -1373,7 +1385,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             [ reference FunctionReferenceRole.DirectCall arguments functionId ], []
         | SemanticNodeKind.ListFold(_, _, functionId, context)
+        | SemanticNodeKind.MapFold(_, _, functionId, context)
         | SemanticNodeKind.ListMap(_, functionId, context)
+        | SemanticNodeKind.MapFromList(_, functionId, context)
         | SemanticNodeKind.ListFilter(_, functionId, context)
         | SemanticNodeKind.ListSortBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
@@ -1639,8 +1653,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.MapFold _
         | SemanticNodeKind.ListEffectFold _
         | SemanticNodeKind.ListMap _
+        | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _

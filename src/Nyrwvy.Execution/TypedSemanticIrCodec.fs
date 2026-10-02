@@ -578,6 +578,12 @@ module TypedSemanticIrCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "mapFold")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listEffectFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
@@ -617,6 +623,8 @@ module TypedSemanticIrCodec =
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+            writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->

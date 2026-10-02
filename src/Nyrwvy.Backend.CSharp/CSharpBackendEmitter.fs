@@ -753,6 +753,9 @@ module CSharpBackend =
         writer.Line("return state;")
         writer.Pop()
         writer.Line("}")
+        // Items indexed by keyOf(item): a later item with an equal key replaces the value and keeps the
+        // first item's position, as repeated Insert does.
+        writer.Line("public static NyMap<K, V> FromList(NyList<V> items, System.Func<V, K> keyOf) => items.Fold(EmptyMap, (map, item) => map.Insert(keyOf(item), item));")
         writer.Line("public NyList<K> Keys()")
         writer.Line("{")
         writer.Push()
@@ -1833,6 +1836,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
         | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.MapFold(sourceMapValueId, seedValueId, folderFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceMapValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
         | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             if instruction.Result.Type = valueTypeOf seedValueId then
                 writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
@@ -1946,6 +1951,8 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
+            writer.Line(target + " = " + formatType instruction.Result.Type + ".FromList(" + valueName sourceListValueId + ", " + callback keyOfFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->

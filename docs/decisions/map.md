@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
-- **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), order 44
+- **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), orders 44 and 45
 - **Design note:** [Map](../plans/map.md)
 - **Supersedes:** the "Map stays deferred" parts of [value equality, and Map revisited again](value-equality-and-map.md)
 
@@ -14,8 +14,8 @@ Five probes (3, 7, 13, 14 and 16) paid for the missing keyed collection. Probe 1
 - **Insertion order.** Entries are visited in the order their keys were first inserted. Replacing a value keeps the key's position; removing and re-inserting puts it last. The order never depends on hash values.
 - **Immutable values.** `MapInsert` and `MapRemove` return new maps. The runtime structure is persistent and O(log n).
 - **Operations.**
-  - This change adds `MapEmpty`, `MapInsert`, `MapGet`, `MapContainsKey`, `MapRemove`, `MapSize`, `MapKeys` and `MapValues`.
-  - `MapFold` and `MapFromList` follow in the next change. They take callbacks, and so share the callback handling of `ListFold` and `ListMap`.
+  - Order 44 added `MapEmpty`, `MapInsert`, `MapGet`, `MapContainsKey`, `MapRemove`, `MapSize`, `MapKeys` and `MapValues`.
+  - Order 45 added `MapFold` (folder `(S, K, V) -> S`) and `MapFromList` (key callback `T -> K`, later items win, first position kept). They share the callback handling of `ListFold` and `ListMap`.
 - **A Map is not equatable.** `ValueEqual` rejects it, and so do keys. Order-insensitive equality would make two "equal" maps differ in `MapKeys`; order-sensitive equality would surprise readers used to Python. No consumer has compared maps.
 - **Set comes second.** `Set<K>` follows in a later slice on the same runtime structure. Until then, `Map<K, Unit>` serves.
 - **No general tuple type.** The owner agreed that positional tuples would lose the named, stable-ID fields that make changes traceable; declared Products serve. If an API needs pairs (map entries, zip), a single built-in `Pair<A, B>` with named fields `first` and `second` is the candidate, not tuples.

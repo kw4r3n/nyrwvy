@@ -303,6 +303,8 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
+                    | SemanticNodeKind.MapFold(_, seedNodeId, _, _) ->
+                        tryNodeType nextVisiting seedNodeId
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         // A folder returning Result<S, E> for seed S stops at the first Err.
                         match tryNodeType nextVisiting seedNodeId, Map.tryFind folderFunctionId index.Functions with
@@ -351,6 +353,11 @@ module SemanticFacts =
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting mapper context [ itemType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind keyOfFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some keyOf ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ callbackResult nextVisiting keyOf context [ itemType ]; itemType ]))
                         | _ -> None
                     | SemanticNodeKind.CapabilityConstruct(capabilityId, _) -> Some(TypeRef.Capability capabilityId)
                     | SemanticNodeKind.FunctionReference target ->

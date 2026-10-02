@@ -688,6 +688,12 @@ module SnapshotCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "mapFold")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listEffectFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
@@ -733,6 +739,8 @@ module SnapshotCodec =
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+            writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
@@ -1633,6 +1641,9 @@ module SnapshotCodec =
             | "listFold" ->
                 ensureProperties "ListFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.ListFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "mapFold" ->
+                ensureProperties "MapFold node" (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
+                SemanticNodeKind.MapFold(readId<GraphNodeTag> "sourceMapNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
             | "listEffectFold" ->
                 ensureProperties "ListEffectFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.ListEffectFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
@@ -1679,6 +1690,9 @@ module SnapshotCodec =
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))
+            | "mapFromList" ->
+                readListCallbackNode "MapFromList node" "keyOfFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.MapFromList(source, callback, context))
             | "listFilter" ->
                 readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListFilter(source, callback, context))

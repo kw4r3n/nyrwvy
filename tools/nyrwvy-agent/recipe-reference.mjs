@@ -142,6 +142,8 @@ const categories = {
     "mapSize": "(value: Map<K, V>) -> Int64",
     "mapKeys": "(value: Map<K, V>) -> List<K>  // insertion order",
     "mapValues": "(value: Map<K, V>) -> List<V>  // insertion order",
+    "mapFold": "(map: Map<K, V>, seed: S, function: (S, K, V) -> S, context) -> S",
+    "mapFromList": "(source: List<T>, function: T -> K, context) -> Map<K, T>",
   },
   tasks: {
     "taskScope": "(body: TaskScope -> Result<T, E>, context) -> Result<T, E>",
@@ -301,6 +303,8 @@ const references = {
   mapSize: unary("mapSize"),
   mapKeys: { ...unary("mapKeys"), notes: "List<K> of the keys in insertion order (the order keys were first inserted, as Python dict and JavaScript Map)." },
   mapValues: { ...unary("mapValues"), notes: "List<V> of the values in the same order as mapKeys." },
+  mapFold: { shape: { kind: "mapFold", map: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "S: folder(state, key, value) over the entries in insertion order, like listFold. The folder is a pure function with exactly three parameters not bound by context." },
+  mapFromList: { shape: { kind: "mapFromList", source: recipe, function: "<function display name>", context: callbackContext }, notes: "Map<K, T>: the items indexed by function(item), which must return an equatable K. On a duplicate key the later item wins and the first position is kept, as with repeated mapInsert. Index records by id: mapFromList(rows, rowId)." },
   listEmpty: { shape: { kind: "listEmpty", itemType: type }, typeRef },
   listConstruct: { shape: { kind: "listConstruct", itemType: type, items: [recipe] }, typeRef },
   listLength: unary("listLength"),

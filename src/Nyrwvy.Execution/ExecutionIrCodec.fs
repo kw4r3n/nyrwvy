@@ -500,6 +500,12 @@ module ExecutionIrCodec =
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.MapFold(sourceMapValueId, seedValueId, folderFunctionId, context) ->
+            [ property "kind" (quote "mapFold")
+              property "sourceMapValueId" (executionValueIdValue sourceMapValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             [ property "kind" (quote "listEffectFold")
               property "sourceListValueId" (executionValueIdValue sourceListValueId)
@@ -539,6 +545,8 @@ module ExecutionIrCodec =
               property "taskValueId" (executionValueIdValue taskValueId) ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
+        | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
+            writeListCallbackInstruction "mapFromList" sourceListValueId "keyOfFunctionId" keyOfFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->

@@ -172,6 +172,7 @@ module ValueDependency =
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
+        | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
@@ -179,6 +180,7 @@ module ValueDependency =
             create ValueDependencyRole.Source sourceNodeId
             :: contextDependencies context
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Value seedNodeId ]

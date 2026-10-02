@@ -183,6 +183,7 @@ type ExecutionInstructionKind =
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
+    | MapFold of sourceMapValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
     | TaskScope of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -192,6 +193,7 @@ type ExecutionInstructionKind =
     | UseResource of acquireValueId: ExecutionValueId * releaseCapabilityValueId: ExecutionValueId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | MapFromList of sourceListValueId: ExecutionValueId * keyOfFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Stable top-down merge sort under a pure less-than callback (see SemanticNodeKind.ListSortBy).
     | ListSortBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -248,7 +250,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.FunctionReference functionId -> [ callback FunctionReferenceRole.FunctionValue functionId ]
         | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
+        | ExecutionInstructionKind.MapFold(_, _, functionId, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
+        | ExecutionInstructionKind.MapFromList(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)

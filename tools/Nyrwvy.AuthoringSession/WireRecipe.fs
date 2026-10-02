@@ -222,6 +222,9 @@ module internal WireRecipe =
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "mapFold" ->
+            ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "functionId"; "context" ] [ "kind"; "map"; "seed"; "functionId" ] element
+            ExpressionRecipe.MapFold(recipe (property "map" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListEffectFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -252,6 +255,7 @@ module internal WireRecipe =
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe (property "task" element))
         | "listMap"
+        | "mapFromList"
         | "listSortBy"
         | "listFilter"
         | "listAny"
@@ -262,6 +266,7 @@ module internal WireRecipe =
             let context = callbackContext ()
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, functionId, context)
+            | "mapFromList" -> ExpressionRecipe.MapFromList(source, functionId, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)

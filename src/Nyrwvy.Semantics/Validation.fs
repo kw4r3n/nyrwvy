@@ -1162,6 +1162,31 @@ module SnapshotValidator =
                                     add "ListCallbackEffectsNotAllowed" "ListFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
                         | Some _, Some _ -> add "ListHigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
                         | _ -> ()
+                    | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+                        match nodeType sourceMapNodeId, nodeType seedNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])), Some seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> add "UnknownListCallbackFunction" $"MapFold node '{StableId.value node.Id}' references an unknown folder."
+                            | Some folder ->
+                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
+                                let mutable substitution = contextSubstitution
+                                match unbound with
+                                | [ accumulator; key; value ] ->
+                                    match
+                                        TypeParameters.matchType substitution accumulator.Type seedType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current key.Type keyType)
+                                        |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
+                                    with
+                                    | Some extended -> substitution <- extended
+                                    | None -> add "ListCallbackParameterTypeMismatch" "MapFold folder input types must match the seed, key and value types."
+                                | _ ->
+                                    add "ListCallbackArityMismatch" "MapFold folder must have exactly three parameters not bound by context (accumulator, key, value)."
+                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
+                                    add "ListCallbackResultTypeMismatch" "MapFold folder must return the seed type."
+                                if not (PureFunctions.isPure snapshot folder.Id) then
+                                    add "ListCallbackEffectsNotAllowed" "MapFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "MapInputTypeMismatch" $"MapFold node '{StableId.value node.Id}' requires a Map<K, V> input."
+                        | _ -> ()
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceListNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
@@ -1312,6 +1337,14 @@ module SnapshotValidator =
                         | None, _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
+                    | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+                        validateListCallback node.Id sourceListNodeId keyOfFunctionId context false
+                        match nodeType node.Id with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; _ ])) when not (EquatableTypes.isEquatable snapshot.Types keyType) ->
+                            add
+                                "MapKeyTypeNotEquatable"
+                                $"MapFromList node '{StableId.value node.Id}' makes keys of a type that is not equatable: {EquatableTypes.explain snapshot.Types keyType}"
+                        | _ -> ()
                     | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                         validateLessThanCallback node.Id sourceListNodeId lessThanFunctionId context
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
@@ -1938,6 +1971,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.MapFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
@@ -1947,6 +1981,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.TaskWait _
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
