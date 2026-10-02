@@ -1418,16 +1418,9 @@ module SemanticNodeShape =
 
     /// The target and argument bindings of a DirectCall node; None for every other kind.
     let tryDirectCall (node: SemanticNode): (FunctionId * ArgumentBinding list) option =
-        functionReferences node
-        |> List.tryPick (fun reference ->
-            match reference.Role with
-            | FunctionReferenceRole.DirectCall -> Some(reference.FunctionId, reference.Arguments)
-            | FunctionReferenceRole.PureListCallback
-            | FunctionReferenceRole.EffectListCallback
-            | FunctionReferenceRole.Worker
-            | FunctionReferenceRole.Body
-            | FunctionReferenceRole.FunctionValue
-            | FunctionReferenceRole.CapabilityImplementation _ -> None)
+        match node.Kind with
+        | SemanticNodeKind.DirectCall(functionId, arguments) -> Some(functionId, arguments)
+        | _ -> None
 
     /// A node depends on its direct value references and on every node its nested graphs
     /// reference from outside themselves, the same edges IR lowering orders by. A nested

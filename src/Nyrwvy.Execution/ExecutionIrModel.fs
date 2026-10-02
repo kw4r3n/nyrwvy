@@ -204,22 +204,11 @@ type ExecutionInstructionKind =
     | ExtractResultOk of inputValueId: ExecutionValueId
     | ExtractResultErr of inputValueId: ExecutionValueId
 
-/// How an instruction names a function by identity (see `FunctionReferenceRole` in Semantics).
-[<RequireQualifiedAccess>]
-type ExecutionCallbackRole =
-    | DirectCall
-    | PureListCallback
-    | EffectListCallback
-    | Worker
-    | Body
-    | FunctionValue
-    | CapabilityImplementation of CapabilityOperationId
-
 /// What an instruction needs from the program and the generated runtime besides its operand values.
 [<RequireQualifiedAccess>]
 type ExecutionInstructionUse =
-    /// A function the instruction names: called, run as a callback, worker or body, or handed on.
-    | Callback of ExecutionCallbackRole * FunctionId
+    /// A function the instruction names, in the role the matching semantic node gives it.
+    | Callback of FunctionReferenceRole * FunctionId
     /// A capability operation the instruction invokes, which needs a host binding.
     | CapabilityOperation of CapabilityOperationId
     /// A generated implementation class for the capability, one method per implemented operation
@@ -242,27 +231,27 @@ module ExecutionInstructionKind =
             ExecutionInstructionUse.CapabilityImplementationClass(capabilityId, implementations)
             :: (implementations
                 |> List.map (fun (operationId, functionId) ->
-                    callback (ExecutionCallbackRole.CapabilityImplementation operationId) functionId))
-        | ExecutionInstructionKind.FunctionReference functionId -> [ callback ExecutionCallbackRole.FunctionValue functionId ]
-        | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback ExecutionCallbackRole.DirectCall functionId ]
+                    callback (FunctionReferenceRole.CapabilityImplementation operationId) functionId))
+        | ExecutionInstructionKind.FunctionReference functionId -> [ callback FunctionReferenceRole.FunctionValue functionId ]
+        | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
-        | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback ExecutionCallbackRole.PureListCallback functionId ]
-        | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _) -> [ callback ExecutionCallbackRole.EffectListCallback functionId ]
+        | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback FunctionReferenceRole.PureListCallback functionId ]
+        | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _) -> [ callback FunctionReferenceRole.EffectListCallback functionId ]
         | ExecutionInstructionKind.ParallelAll(_, functionId, _) ->
-            [ callback ExecutionCallbackRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
+            [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.CancellationRequested -> [ ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.TaskScope(functionId, _) ->
-            [ callback ExecutionCallbackRole.Body functionId; ExecutionInstructionUse.TaskRuntime ]
+            [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.TaskStart(_, functionId, _, _) ->
-            [ callback ExecutionCallbackRole.Worker functionId; ExecutionInstructionUse.TaskRuntime ]
+            [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.TaskWait _
         | ExecutionInstructionKind.TaskCancel _ -> [ ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.UseResource(_, _, releaseOperationId, functionId, _) ->
-            [ callback ExecutionCallbackRole.Body functionId; ExecutionInstructionUse.CapabilityOperation releaseOperationId ]
+            [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.CapabilityOperation releaseOperationId ]
         | ExecutionInstructionKind.CapabilityInvoke(_, operationId, _) -> [ ExecutionInstructionUse.CapabilityOperation operationId ]
         | ExecutionInstructionKind.ReadParameter _
         | ExecutionInstructionKind.ReadPatternBinding _
@@ -367,7 +356,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ExtractResultErr _ -> []
 
     /// Every function the instruction names, with its role, in payload order.
-    let callbackTargets (kind: ExecutionInstructionKind): (ExecutionCallbackRole * FunctionId) list =
+    let callbackTargets (kind: ExecutionInstructionKind): (FunctionReferenceRole * FunctionId) list =
         uses kind
         |> List.choose (fun used ->
             match used with
