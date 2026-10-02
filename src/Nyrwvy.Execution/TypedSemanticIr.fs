@@ -365,8 +365,9 @@ type TypedSemanticIrError =
     | MissingNodeType of FunctionId * GraphNodeId
 
 [<RequireQualifiedAccess>]
-module TypedSemanticIr =
-    let private traverse (mapper: 'a -> Result<'b, 'error>) (items: 'a list): Result<'b list, 'error> =
+module internal ResultList =
+    /// Maps each item in order, stopping at the first error.
+    let traverse (mapper: 'a -> Result<'b, 'error>) (items: 'a list): Result<'b list, 'error> =
         let folder state item =
             match state with
             | Error error -> Error error
@@ -376,6 +377,8 @@ module TypedSemanticIr =
         |> List.fold folder (Ok [])
         |> Result.map List.rev
 
+[<RequireQualifiedAccess>]
+module TypedSemanticIr =
     let private projectPatternBinding (binding: PatternBinding): TypedSemanticPatternBinding =
         { Id = binding.Id
           Type = binding.Type }
@@ -701,7 +704,7 @@ module TypedSemanticIr =
                         | Error error, _
                         | _, Error error -> Error error
                     | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
-                        traverse projectUnionArm arms
+                        ResultList.traverse projectUnionArm arms
                         |> Result.map (fun projectedArms ->
                             TypedSemanticNodeKind.MatchUnion(
                                 inputNodeId,
@@ -734,7 +737,7 @@ module TypedSemanticIr =
 
         graph.Nodes
         |> List.sortBy (fun node -> StableId.value node.Id)
-        |> traverse projectNode
+        |> ResultList.traverse projectNode
         |> Result.map (fun nodes ->
             { Nodes = nodes
               ResultNodeId = graph.ResultNodeId })
@@ -819,7 +822,7 @@ module TypedSemanticIr =
             let createNodeTypeResolver = SemanticFacts.createNodeCompletionResolverFactory snapshot
             snapshot.Functions
             |> List.sortBy (fun functionEntity -> StableId.value functionEntity.Id)
-            |> traverse (projectFunction snapshot createNodeTypeResolver)
+            |> ResultList.traverse (projectFunction snapshot createNodeTypeResolver)
             |> Result.map (fun functions ->
                 { SourceSnapshotId = snapshot.Id
                   Types =

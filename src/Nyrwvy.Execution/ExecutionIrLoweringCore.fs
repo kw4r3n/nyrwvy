@@ -117,6 +117,11 @@ module ExecutionIr =
                     graph.Nodes
                     |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, node)
                     |> Map.ofList
+                // `dependencies` walks nested graphs, so compute it once per node rather than per scheduling step.
+                let dependenciesById: Map<GraphNodeId, GraphNodeId list> =
+                    graph.Nodes
+                    |> List.map (fun (node: TypedSemanticNode) -> node.OriginNodeId, ExecutionIrAnalysis.dependencies node)
+                    |> Map.ofList
                 let mutable failure: ExecutionIrError option = None
                 let mutable stopped = false
 
@@ -130,78 +135,48 @@ module ExecutionIr =
                     |> Map.toList
                     |> List.map snd
                     |> List.filter (fun (node: TypedSemanticNode) ->
-                        ExecutionIrAnalysis.dependencies node
+                        Map.find node.OriginNodeId dependenciesById
                         |> List.forall (fun dependencyId -> Map.containsKey dependencyId environment.NodeValues))
                     |> List.sortBy (fun node -> StableId.value node.OriginNodeId)
 
                 let lowerFieldValues
                     (fields: TypedSemanticFieldValue list)
                     : Result<ExecutionFieldValue list, ExecutionIrError> =
-                    let rec loop
-                        (acc: ExecutionFieldValue list)
-                        (remaining: TypedSemanticFieldValue list)
-                        : Result<ExecutionFieldValue list, ExecutionIrError> =
-                        match remaining with
-                        | [] ->
-                            acc
-                            |> List.rev
-                            |> List.sortBy (fun (field: ExecutionFieldValue) -> StableId.value field.TargetFieldId)
-                            |> Ok
-                        | field :: rest ->
-                            match requireNodeValue environment field.ValueNodeId with
-                            | Error error -> Error error
-                            | Ok valueId ->
-                                let lowered: ExecutionFieldValue =
-                                    { TargetFieldId = field.TargetFieldId
-                                      ValueId = valueId }
-                                loop (lowered :: acc) rest
-                    loop [] fields
+                    fields
+                    |> ResultList.traverse (fun (field: TypedSemanticFieldValue) ->
+                        requireNodeValue environment field.ValueNodeId
+                        |> Result.map (fun valueId ->
+                            let lowered: ExecutionFieldValue =
+                                { TargetFieldId = field.TargetFieldId
+                                  ValueId = valueId }
+                            lowered))
+                    |> Result.map (List.sortBy (fun (field: ExecutionFieldValue) -> StableId.value field.TargetFieldId))
 
                 let lowerCallArguments
                     (arguments: TypedSemanticArgument list)
                     : Result<ExecutionCallArgument list, ExecutionIrError> =
-                    let rec loop
-                        (acc: ExecutionCallArgument list)
-                        (remaining: TypedSemanticArgument list)
-                        : Result<ExecutionCallArgument list, ExecutionIrError> =
-                        match remaining with
-                        | [] ->
-                            acc
-                            |> List.rev
-                            |> List.sortBy (fun (argument: ExecutionCallArgument) -> StableId.value argument.TargetParameterId)
-                            |> Ok
-                        | argument :: rest ->
-                            match requireNodeValue environment argument.ValueNodeId with
-                            | Error error -> Error error
-                            | Ok valueId ->
-                                let lowered: ExecutionCallArgument =
-                                    { TargetParameterId = argument.TargetParameterId
-                                      ValueId = valueId }
-                                loop (lowered :: acc) rest
-                    loop [] arguments
+                    arguments
+                    |> ResultList.traverse (fun (argument: TypedSemanticArgument) ->
+                        requireNodeValue environment argument.ValueNodeId
+                        |> Result.map (fun valueId ->
+                            let lowered: ExecutionCallArgument =
+                                { TargetParameterId = argument.TargetParameterId
+                                  ValueId = valueId }
+                            lowered))
+                    |> Result.map (List.sortBy (fun (argument: ExecutionCallArgument) -> StableId.value argument.TargetParameterId))
 
                 let lowerCapabilityArguments
                     (arguments: TypedSemanticCapabilityArgument list)
                     : Result<ExecutionCapabilityArgument list, ExecutionIrError> =
-                    let rec loop
-                        (acc: ExecutionCapabilityArgument list)
-                        (remaining: TypedSemanticCapabilityArgument list)
-                        : Result<ExecutionCapabilityArgument list, ExecutionIrError> =
-                        match remaining with
-                        | [] ->
-                            acc
-                            |> List.rev
-                            |> List.sortBy (fun (argument: ExecutionCapabilityArgument) -> StableId.value argument.TargetCapabilityParameterId)
-                            |> Ok
-                        | argument :: rest ->
-                            match requireNodeValue environment argument.ValueNodeId with
-                            | Error error -> Error error
-                            | Ok valueId ->
-                                let lowered: ExecutionCapabilityArgument =
-                                    { TargetCapabilityParameterId = argument.TargetCapabilityParameterId
-                                      ValueId = valueId }
-                                loop (lowered :: acc) rest
-                    loop [] arguments
+                    arguments
+                    |> ResultList.traverse (fun (argument: TypedSemanticCapabilityArgument) ->
+                        requireNodeValue environment argument.ValueNodeId
+                        |> Result.map (fun valueId ->
+                            let lowered: ExecutionCapabilityArgument =
+                                { TargetCapabilityParameterId = argument.TargetCapabilityParameterId
+                                  ValueId = valueId }
+                            lowered))
+                    |> Result.map (List.sortBy (fun (argument: ExecutionCapabilityArgument) -> StableId.value argument.TargetCapabilityParameterId))
 
                 let lowerBinaryNode node leftNodeId rightNodeId constructor =
                     match requireNodeValue environment leftNodeId, requireNodeValue environment rightNodeId with
@@ -210,20 +185,25 @@ module ExecutionIr =
                     | Error error, _
                     | _, Error error -> Error error
 
+                let lowerTernaryNode node firstNodeId secondNodeId thirdNodeId constructor =
+                    match
+                        requireNodeValue environment firstNodeId,
+                        requireNodeValue environment secondNodeId,
+                        requireNodeValue environment thirdNodeId
+                    with
+                    | Ok firstValueId, Ok secondValueId, Ok thirdValueId ->
+                        Ok(addInstruction currentBlock node (constructor firstValueId secondValueId thirdValueId))
+                    | Error error, _, _
+                    | _, Error error, _
+                    | _, _, Error error -> Error error
+
                 let lowerUnaryNode node valueNodeId constructor =
                     requireNodeValue environment valueNodeId
                     |> Result.map (fun valueId ->
                         addInstruction currentBlock node (constructor valueId))
 
                 let lowerNodeValues (nodeIds: GraphNodeId list): Result<ExecutionValueId list, ExecutionIrError> =
-                    let rec loop acc remaining =
-                        match remaining with
-                        | [] -> Ok(List.rev acc)
-                        | nodeId :: rest ->
-                            match requireNodeValue environment nodeId with
-                            | Error error -> Error error
-                            | Ok valueId -> loop (valueId :: acc) rest
-                    loop [] nodeIds
+                    nodeIds |> ResultList.traverse (requireNodeValue environment)
 
                 let lowerListCallbackNode node sourceListNodeId callbackFunctionId context constructor =
                     match requireNodeValue environment sourceListNodeId, lowerCallArguments context with
@@ -255,19 +235,13 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.Float64Literal bits ->
                             Ok(addInstruction currentBlock node (ExecutionInstructionKind.Float64Literal bits))
                         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.StringIsEmpty valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringIsEmpty
                         | TypedSemanticNodeKind.Int64ToString valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.Int64ToString valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToString
                         | TypedSemanticNodeKind.Int64ToHexString valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToHexString
                         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.StringParseInt64 valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringParseInt64
                         | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringParseInt64Hex
                         | TypedSemanticNodeKind.Float64ToString valueNodeId ->
@@ -307,16 +281,8 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.BoolNot operandNodeId ->
                             lowerUnaryNode node operandNodeId ExecutionInstructionKind.BoolNot
                         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
-                            match
-                                requireNodeValue environment valueNodeId,
-                                requireNodeValue environment startNodeId,
-                                requireNodeValue environment endNodeId
-                            with
-                            | Ok valueId, Ok startId, Ok endId ->
-                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringSlice(valueId, startId, endId)))
-                            | Error error, _, _
-                            | _, Error error, _
-                            | _, _, Error error -> Error error
+                            lowerTernaryNode node valueNodeId startNodeId endNodeId (fun valueId startId endId ->
+                                ExecutionInstructionKind.StringSlice(valueId, startId, endId))
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->
@@ -324,32 +290,14 @@ module ExecutionIr =
                             | Error error, _
                             | _, Error error -> Error error
                         | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) ->
-                            match
-                                requireNodeValue environment valueNodeId,
-                                requireNodeValue environment substringNodeId,
-                                requireNodeValue environment fromNodeId
-                            with
-                            | Ok valueId, Ok substringId, Ok fromId ->
-                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.StringIndexOf(valueId, substringId, fromId)))
-                            | Error error, _, _
-                            | _, Error error, _
-                            | _, _, Error error -> Error error
-                        | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
+                            lowerTernaryNode node valueNodeId substringNodeId fromNodeId (fun valueId substringId fromId ->
+                                ExecutionInstructionKind.StringIndexOf(valueId, substringId, fromId))
+                        | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId) ->
+                            lowerTernaryNode node valueNodeId setNodeId boundNodeId (fun valueId setId boundId ->
+                                ExecutionInstructionKind.StringSpan(valueId, setId, boundId))
                         | TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) ->
-                            match
-                                requireNodeValue environment valueNodeId,
-                                requireNodeValue environment setNodeId,
-                                requireNodeValue environment boundNodeId
-                            with
-                            | Ok valueId, Ok setId, Ok boundId ->
-                                let kind =
-                                    match node.Kind with
-                                    | TypedSemanticNodeKind.StringSpan _ -> ExecutionInstructionKind.StringSpan(valueId, setId, boundId)
-                                    | _ -> ExecutionInstructionKind.StringSpanBack(valueId, setId, boundId)
-                                Ok(addInstruction currentBlock node kind)
-                            | Error error, _, _
-                            | _, Error error, _
-                            | _, _, Error error -> Error error
+                            lowerTernaryNode node valueNodeId setNodeId boundNodeId (fun valueId setId boundId ->
+                                ExecutionInstructionKind.StringSpanBack(valueId, setId, boundId))
                         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringLastIndexOf(value, other))
                         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
@@ -444,25 +392,15 @@ module ExecutionIr =
                             |> Result.map (fun valueIds ->
                                 addInstruction currentBlock node (ExecutionInstructionKind.ListConstruct valueIds))
                         | TypedSemanticNodeKind.ListLength listNodeId ->
-                            requireNodeValue environment listNodeId
-                            |> Result.map (fun listValueId ->
-                                addInstruction currentBlock node (ExecutionInstructionKind.ListLength listValueId))
+                            lowerUnaryNode node listNodeId ExecutionInstructionKind.ListLength
                         | TypedSemanticNodeKind.ListReverse listNodeId ->
                             lowerUnaryNode node listNodeId ExecutionInstructionKind.ListReverse
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                             lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
                                 ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))
                         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
-                            match
-                                requireNodeValue environment listNodeId,
-                                requireNodeValue environment startNodeId,
-                                requireNodeValue environment endNodeId
-                            with
-                            | Ok listValueId, Ok startId, Ok endId ->
-                                Ok(addInstruction currentBlock node (ExecutionInstructionKind.ListSlice(listValueId, startId, endId)))
-                            | Error error, _, _
-                            | _, Error error, _
-                            | _, _, Error error -> Error error
+                            lowerTernaryNode node listNodeId startNodeId endNodeId (fun listValueId startId endId ->
+                                ExecutionInstructionKind.ListSlice(listValueId, startId, endId))
                         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                             lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId))
@@ -568,14 +506,11 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.OptionNone ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.OptionNone)
                         | TypedSemanticNodeKind.OptionSome valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.OptionSome valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.OptionSome
                         | TypedSemanticNodeKind.ResultOk valueNodeId ->
-                            requireNodeValue environment valueNodeId
-                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultOk valueId))
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.ResultOk
                         | TypedSemanticNodeKind.ResultErr errorNodeId ->
-                            requireNodeValue environment errorNodeId
-                            |> Result.map (fun valueId -> addInstruction currentBlock node (ExecutionInstructionKind.ResultErr valueId))
+                            lowerUnaryNode node errorNodeId ExecutionInstructionKind.ResultErr
                         | TypedSemanticNodeKind.Abort _
                         | TypedSemanticNodeKind.BoolAnd _
                         | TypedSemanticNodeKind.BoolOr _
@@ -837,23 +772,12 @@ module ExecutionIr =
                               Terminator = terminator }
                         Ok finalized
 
-                let rec finalize
-                    (acc: ExecutionBlock list)
-                    (remaining: MutableBlock list)
-                    : Result<ExecutionBlock list, ExecutionIrError> =
-                    match remaining with
-                    | [] -> Ok(List.rev acc)
-                    | block :: rest ->
-                        match finalizeBlock block with
-                        | Error error -> Error error
-                        | Ok value -> finalize (value :: acc) rest
-
                 let orderedBlocks: MutableBlock list =
                     blocks.Values
                     |> Seq.toList
                     |> List.sortBy (fun (block: MutableBlock) -> ExecutionBlockId.value block.Id)
 
-                finalize [] orderedBlocks
+                ResultList.traverse finalizeBlock orderedBlocks
                 |> Result.map (fun finalizedBlocks ->
                     { SemanticFunctionId = functionEntity.Id
                       Parameters = executionParameters
@@ -868,20 +792,9 @@ module ExecutionIr =
             |> List.map (fun (functionEntity: TypedSemanticFunction) -> functionEntity.Id, functionEntity)
             |> Map.ofList
 
-        let rec lowerFunctions
-            (acc: ExecutionFunction list)
-            (remaining: TypedSemanticFunction list)
-            : Result<ExecutionFunction list, ExecutionIrError> =
-            match remaining with
-            | [] -> Ok(List.rev acc)
-            | functionEntity :: rest ->
-                match lowerFunction functionsById functionEntity with
-                | Error error -> Error error
-                | Ok lowered -> lowerFunctions (lowered :: acc) rest
-
         program.Functions
         |> List.sortBy (fun (functionEntity: TypedSemanticFunction) -> StableId.value functionEntity.Id)
-        |> lowerFunctions []
+        |> ResultList.traverse (lowerFunction functionsById)
         |> Result.map (fun functions ->
             { SourceSnapshotId = program.SourceSnapshotId
               Types =
