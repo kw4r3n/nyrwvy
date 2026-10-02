@@ -907,6 +907,9 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
                     | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64LessThan(leftNodeId, rightNodeId)
@@ -1802,6 +1805,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Min _
                 | SemanticNodeKind.Int64Max _
+                | SemanticNodeKind.Int64CheckedAdd _
+                | SemanticNodeKind.Int64CheckedSubtract _
+                | SemanticNodeKind.Int64CheckedMultiply _
                 | SemanticNodeKind.ListRange _
                 | SemanticNodeKind.StringRepeat _
                 | SemanticNodeKind.Int64Equal _

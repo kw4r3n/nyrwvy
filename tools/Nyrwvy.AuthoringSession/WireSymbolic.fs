@@ -374,6 +374,9 @@ module internal WireSymbolic =
         | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
         | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
         | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
+        | "int64CheckedAdd" -> binary "int64-checked-add recipe" ExpressionRecipe.Int64CheckedAdd
+        | "int64CheckedSubtract" -> binary "int64-checked-subtract recipe" ExpressionRecipe.Int64CheckedSubtract
+        | "int64CheckedMultiply" -> binary "int64-checked-multiply recipe" ExpressionRecipe.Int64CheckedMultiply
         | "listRange" ->
             ensureFields "list-range recipe" [ "kind"; "start"; "end" ] [ "kind"; "start"; "end" ] element
             ExpressionRecipe.ListRange(

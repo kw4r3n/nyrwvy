@@ -132,6 +132,9 @@ type ExecutionInstructionKind =
     | Int64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64CheckedAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64CheckedSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64CheckedMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | ListRange of startValueId: ExecutionValueId * endValueId: ExecutionValueId
     | StringRepeat of textValueId: ExecutionValueId * countValueId: ExecutionValueId
     | Int64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -305,6 +308,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64FloorModulo _
         | ExecutionInstructionKind.Int64Min _
         | ExecutionInstructionKind.Int64Max _
+        | ExecutionInstructionKind.Int64CheckedAdd _
+        | ExecutionInstructionKind.Int64CheckedSubtract _
+        | ExecutionInstructionKind.Int64CheckedMultiply _
         | ExecutionInstructionKind.ListRange _
         | ExecutionInstructionKind.StringRepeat _
         | ExecutionInstructionKind.Int64Equal _

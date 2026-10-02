@@ -126,6 +126,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Min _
         | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.Int64CheckedAdd _
+        | TypedSemanticNodeKind.Int64CheckedSubtract _
+        | TypedSemanticNodeKind.Int64CheckedMultiply _
         | TypedSemanticNodeKind.ListRange _
         | TypedSemanticNodeKind.StringRepeat _
         | TypedSemanticNodeKind.Int64Equal _

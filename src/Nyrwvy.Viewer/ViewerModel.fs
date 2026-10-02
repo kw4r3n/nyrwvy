@@ -83,6 +83,9 @@ type ViewerNodeRole =
     | Int64FloorModulo
     | Int64Min
     | Int64Max
+    | Int64CheckedAdd
+    | Int64CheckedSubtract
+    | Int64CheckedMultiply
     | ListRange
     | StringRepeat
     | Int64Equal
@@ -288,6 +291,9 @@ module ViewerProjection =
         | SemanticNodeKind.Int64FloorModulo _ -> ViewerNodeRole.Int64FloorModulo, []
         | SemanticNodeKind.Int64Min _ -> ViewerNodeRole.Int64Min, []
         | SemanticNodeKind.Int64Max _ -> ViewerNodeRole.Int64Max, []
+        | SemanticNodeKind.Int64CheckedAdd _ -> ViewerNodeRole.Int64CheckedAdd, []
+        | SemanticNodeKind.Int64CheckedSubtract _ -> ViewerNodeRole.Int64CheckedSubtract, []
+        | SemanticNodeKind.Int64CheckedMultiply _ -> ViewerNodeRole.Int64CheckedMultiply, []
         | SemanticNodeKind.ListRange _ -> ViewerNodeRole.ListRange, []
         | SemanticNodeKind.StringRepeat _ -> ViewerNodeRole.StringRepeat, []
         | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []

@@ -10,7 +10,8 @@ open Xunit
 /// Standard operations added after the owner's choices of 2026-10-01 (post-M2 orders 37 to 39):
 /// ListRange and StringRepeat (an allocation too large is a host failure), Int64ToHexString and
 /// StringParseInt64Hex (Python format(x, "x") with a '-' sign), and Int64Min, Int64Max and
-/// Int64WrappingAbs.
+/// Int64WrappingAbs; and the owner choice of 2026-10-03 (order 40): Int64CheckedAdd,
+/// Int64CheckedSubtract and Int64CheckedMultiply, the exact result or None outside Int64.
 module StandardOperationChoiceTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("standard-operation-choices-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64
@@ -33,6 +34,9 @@ module StandardOperationChoiceTests =
         | "min" -> [ intType; intType ], intType, ExpressionRecipe.Int64Min(slot 0, slot 1)
         | "max" -> [ intType; intType ], intType, ExpressionRecipe.Int64Max(slot 0, slot 1)
         | "abs" -> [ intType ], intType, ExpressionRecipe.Int64WrappingAbs(slot 0)
+        | "checkedAdd" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedAdd(slot 0, slot 1)
+        | "checkedSubtract" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedSubtract(slot 0, slot 1)
+        | "checkedMultiply" -> [ intType; intType ], optionOf intType, ExpressionRecipe.Int64CheckedMultiply(slot 0, slot 1)
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
@@ -43,6 +47,9 @@ module StandardOperationChoiceTests =
     [<InlineData("min", "int64Min", "int64-min", "System.Math.Min(", "Int64OperandTypeMismatch")>]
     [<InlineData("max", "int64Max", "int64-max", "System.Math.Max(", "Int64OperandTypeMismatch")>]
     [<InlineData("abs", "int64WrappingAbs", "int64-wrapping-abs", "unchecked(-", "Int64IntrinsicTypeMismatch")>]
+    [<InlineData("checkedAdd", "int64CheckedAdd", "int64-checked-add", "NyNumber.CheckedAdd(", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedSubtract", "int64CheckedSubtract", "int64-checked-subtract", "NyNumber.CheckedSubtract(", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedMultiply", "int64CheckedMultiply", "int64-checked-multiply", "NyNumber.CheckedMultiply(", "Int64OperandTypeMismatch")>]
     let ``Standard operations type check, persist, and lower through every layer``
         (mode: string, wireKind: string, nyasonKind: string, csharpCall: string, issueCode: string) =
         let parameterTypes, resultType, body = shapeOf mode
@@ -186,6 +193,36 @@ module StandardOperationChoiceTests =
                 [ "5", "5"; "-5", "5"; "0", "0"; "9223372036854775807", "9223372036854775807"
                   "-9223372036854775807", "9223372036854775807"; "-9223372036854775808", "-9223372036854775808" ] do
                 expectRun call "abs" [ int64 value ] (int64 expected))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``JSONL-authored checked Int64 arithmetic matches Python's exact result within Int64`` () =
+        withSession "int64-checked" (fun call _ ->
+            let pair kind = """{"kind":""" + "\"" + kind + "\"" + ""","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}"""
+            let optionInt64 = """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+            let operations =
+                [ "add", "int64CheckedAdd", (fun (a: bigint) b -> a + b)
+                  "subtract", "int64CheckedSubtract", (fun a b -> a - b)
+                  "multiply", "int64CheckedMultiply", (fun a b -> a * b) ]
+            for name, kind, _ in operations do
+                define call name [ "a", int64Type; "b", int64Type ] optionInt64 (pair kind)
+            // Python: exact = a op b; Some(exact) if -2**63 <= exact < 2**63 else None.
+            let expected (exact: bigint) =
+                if exact >= bigint Int64.MinValue && exact <= bigint Int64.MaxValue then
+                    """{"kind":"option","itemKind":"int64","hasValue":true,"value":""" + "\"" + exact.ToString() + "\"}"
+                else """{"kind":"option","itemKind":"int64","hasValue":false}"""
+            let edges =
+                [ Int64.MinValue; Int64.MinValue + 1L; -4294967296L; -3037000500L; -3037000499L; -2L; -1L; 0L
+                  1L; 2L; 3037000499L; 3037000500L; 4294967296L; Int64.MaxValue - 1L; Int64.MaxValue ]
+            let random = Random(20261003)
+            let pairs =
+                [ for a in edges do
+                      for b in edges -> a, b
+                  for _ in 1 .. 40 -> random.NextInt64(Int64.MinValue, Int64.MaxValue), random.NextInt64(Int64.MinValue, Int64.MaxValue)
+                  for _ in 1 .. 40 -> random.NextInt64(-4000000000L, 4000000000L), random.NextInt64(-4000000000L, 4000000000L) ]
+            for a, b in pairs do
+                for name, _, exact in operations do
+                    expectRun call name [ int64 (string a); int64 (string b) ] (expected (exact (bigint a) (bigint b)))
+        )
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``JSONL-authored ListRange and StringRepeat match Python, and a huge size is a host failure`` () =

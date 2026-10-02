@@ -359,6 +359,12 @@ module ExecutionIrCodec =
             writeBinaryInstruction "int64Min" leftValueId rightValueId
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Max" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64CheckedAdd" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64CheckedSubtract" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64CheckedMultiply(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64CheckedMultiply" leftValueId rightValueId
         | ExecutionInstructionKind.ListRange(startValueId, endValueId) ->
             [ property "kind" (quote "listRange")
               property "startValueId" (executionValueIdValue startValueId)

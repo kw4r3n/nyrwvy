@@ -589,6 +589,12 @@ module NyasonCodec =
             encodeBinaryNode "int64-min" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-max" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-checked-add" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-checked-subtract" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-checked-multiply" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.ListRange(startNodeId, endNodeId) ->
             record "list-range" [ nodeId; "start", encodeId "node" startNodeId; "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringRepeat(textNodeId, countNodeId) ->
@@ -1092,6 +1098,12 @@ module NyasonCodec =
             decodeBinaryNode "int64-min" value (fun left right -> SemanticNodeKind.Int64Min(left, right))
         | NyasonValue.Record("int64-max", _) ->
             decodeBinaryNode "int64-max" value (fun left right -> SemanticNodeKind.Int64Max(left, right))
+        | NyasonValue.Record("int64-checked-add", _) ->
+            decodeBinaryNode "int64-checked-add" value (fun left right -> SemanticNodeKind.Int64CheckedAdd(left, right))
+        | NyasonValue.Record("int64-checked-subtract", _) ->
+            decodeBinaryNode "int64-checked-subtract" value (fun left right -> SemanticNodeKind.Int64CheckedSubtract(left, right))
+        | NyasonValue.Record("int64-checked-multiply", _) ->
+            decodeBinaryNode "int64-checked-multiply" value (fun left right -> SemanticNodeKind.Int64CheckedMultiply(left, right))
         | NyasonValue.Record("list-range", _) ->
             let fields = recordFields "list-range" [ "id"; "start"; "end" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

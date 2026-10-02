@@ -209,6 +209,9 @@ module SemanticFacts =
                     | SemanticNodeKind.StringIndexOf _
                     | SemanticNodeKind.StringLastIndexOf _
                     | SemanticNodeKind.StringToCodePoint _
+                    | SemanticNodeKind.Int64CheckedAdd _
+                    | SemanticNodeKind.Int64CheckedSubtract _
+                    | SemanticNodeKind.Int64CheckedMultiply _
                     | SemanticNodeKind.Float64RoundToInt64 _
                     | SemanticNodeKind.Float64FloorToInt64 _ ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
