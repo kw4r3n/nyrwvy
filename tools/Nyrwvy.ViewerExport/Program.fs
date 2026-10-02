@@ -25,46 +25,13 @@ let private parseEncoding (value: string) =
     | "nyason" -> Ok ViewerSourceEncoding.Nyason
     | _ -> Error $"Unsupported --format '{value}'. Expected json or nyason."
 
-let private parseOptions
-    (allowed: Set<string>)
-    (arguments: string list)
-    : Result<Map<string, string>, string> =
-    let rec loop
-        (values: Map<string, string>)
-        (remaining: string list)
-        : Result<Map<string, string>, string> =
-        match remaining with
-        | [] -> Ok values
-        | [ key ] ->
-            if key.StartsWith("--", StringComparison.Ordinal) then
-                Error $"Option '{key}' is missing its value."
-            else
-                Error $"Unexpected positional argument '{key}'."
-        | key :: value :: rest ->
-            if not (key.StartsWith("--", StringComparison.Ordinal)) then
-                Error $"Unexpected positional argument '{key}'."
-            elif not (Set.contains key allowed) then
-                Error $"Unsupported option '{key}'."
-            elif Map.containsKey key values then
-                Error $"Duplicate option '{key}'."
-            elif value.StartsWith("--", StringComparison.Ordinal) then
-                Error $"Option '{key}' is missing its value."
-            else
-                loop (Map.add key value values) rest
-    loop Map.empty arguments
-
-let private requiredOption name (options: Map<string, string>) =
-    match Map.tryFind name options with
-    | Some value -> Ok value
-    | None -> Error $"Missing required {name} argument."
-
 let private parseFocusArguments (arguments: string list): Result<FocusArguments, string> =
     let allowed = set [ "--input"; "--format"; "--function-id"; "--output" ]
-    parseOptions allowed arguments
+    ExportCli.parseOptions allowed arguments
     |> Result.bind (fun options ->
-        match requiredOption "--input" options,
-              requiredOption "--format" options,
-              requiredOption "--function-id" options with
+        match ExportCli.requiredOption "--input" options,
+              ExportCli.requiredOption "--format" options,
+              ExportCli.requiredOption "--function-id" options with
         | Error error, _, _
         | _, Error error, _
         | _, _, Error error -> Error error
@@ -79,25 +46,20 @@ let private parseFocusArguments (arguments: string list): Result<FocusArguments,
 let private runFocus (arguments: string list): Result<string, string> =
     parseFocusArguments arguments
     |> Result.bind (fun parsed ->
-        try
-            let source = File.ReadAllText(parsed.InputPath, Encoding.UTF8)
+        let source =
+            try
+                Ok(File.ReadAllText(parsed.InputPath, Encoding.UTF8))
+            with
+            | :? IOException as error -> Error $"I/O error: {error.Message}"
+            | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}"
+
+        source
+        |> Result.bind (fun source ->
             match ViewerExport.focusFromSource parsed.Encoding source parsed.FunctionIdText with
             | Error error -> Error $"Viewer export failed: {error}"
             | Ok artifact ->
-                let outputPath =
-                    parsed.OutputPath
-                    |> Option.defaultValue artifact.SuggestedFileName
-
-                let fullPath = Path.GetFullPath(outputPath)
-                let directory = Path.GetDirectoryName(fullPath)
-                if not (String.IsNullOrEmpty directory) then
-                    Directory.CreateDirectory(directory) |> ignore
-
-                File.WriteAllText(fullPath, artifact.Content, UTF8Encoding(false))
-                Ok fullPath
-        with
-        | :? IOException as error -> Error $"I/O error: {error.Message}"
-        | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}")
+                let outputPath = parsed.OutputPath |> Option.defaultValue artifact.SuggestedFileName
+                ExportCli.writeUtf8 outputPath artifact.Content))
 
 [<EntryPoint>]
 let main argv =
