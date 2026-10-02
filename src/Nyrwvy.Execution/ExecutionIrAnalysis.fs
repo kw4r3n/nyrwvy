@@ -90,6 +90,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringParseFloat64 _
         | TypedSemanticNodeKind.StringCodePoints _
         | TypedSemanticNodeKind.StringToLower _
+        | TypedSemanticNodeKind.StringToUpper _
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
         | TypedSemanticNodeKind.Float64RoundToInt64 _
         | TypedSemanticNodeKind.Float64FloorToInt64 _

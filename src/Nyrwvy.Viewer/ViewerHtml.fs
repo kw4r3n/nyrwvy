@@ -130,6 +130,7 @@ module ViewerHtml =
         | ViewerNodeRole.StringParseFloat64 -> "parse float64"
         | ViewerNodeRole.StringCodePoints -> "code points"
         | ViewerNodeRole.StringToLower -> "to lower"
+        | ViewerNodeRole.StringToUpper -> "to upper"
         | ViewerNodeRole.StringDecodeUtf8Lossy -> "UTF-8 decode (replace)"
         | ViewerNodeRole.Float64RoundToInt64 -> "round to int64"
         | ViewerNodeRole.Float64FloorToInt64 -> "floor to int64"

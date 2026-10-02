@@ -93,6 +93,8 @@ Implicit conversion and a broader numeric tower are not part of this contract.
 
 `StringToLower(text)` replaces each code point of `text` with its Unicode simple (one-to-one) lowercase mapping, culture invariant: `I` becomes `i`, KELVIN SIGN `K` becomes `k`, and code points without a mapping, including an unpaired surrogate, are kept, so the code-point length never changes. It equals Python `text.lower()` except for `İ` (U+0130), which becomes `i` rather than Python's `i̇`, and a word-final `Σ`, which becomes `σ` rather than Python's `ς`. The mappings follow the Unicode data of the .NET runtime. `StringUtf8ByteCount(text)` is the `Int64` length of the UTF-8 encoding of `text`, `len(text.encode("utf-8"))`; an unpaired surrogate counts 3 bytes. Both never fail; see the [decision](../decisions/string-lowercase-and-utf8-length.md).
 
+`StringToUpper(text)` replaces each code point with its Unicode simple (one-to-one) uppercase mapping, culture invariant: `i` and DOTLESS I `ı` become `I`, LONG S `ſ` becomes `S`, and `ß`, which has no simple uppercase mapping, becomes CAPITAL SHARP S `ẞ`, so `StringToLower` undoes it. Code points without a mapping are kept, so the code-point length never changes. It differs from Python `text.upper()`, which applies the full mapping (`ß` to `SS`, `ŉ` to `ʼN`) ([decision](../decisions/string-uppercase.md)).
+
 `StringDecodeUtf8Lossy(bytes)` decodes UTF-8 bytes held one per code point (U+0000..U+00FF, the latin-1 form in which probes carry bytes, so code-point positions are byte offsets) and equals Python `bytes.decode("utf-8", "replace")`: each maximal ill-formed subpart of the input (a byte that cannot start a sequence, an overlong form, an encoded surrogate, a value above U+10FFFF, or a sequence cut short) becomes one U+FFFD. A code point above U+00FF is not a byte and reads as the invalid byte 0xFF, so it becomes one U+FFFD too. It never fails and runs in linear time; see the [decision](../decisions/utf8-decode.md).
 
 `StringFromCodePoint(code)` yields `Option<String>`: for an `Int64` `code` with `0 <= code <= 0x10FFFF`, `Some` String of that one code point, Python `chr(code)`, and `None` for a negative code or one above 0x10FFFF. A surrogate code 0xD800..0xDFFF gives a String of one unpaired surrogate code unit, as Python allows, and `StringConcat` of a high and a low one forms the pair, as when a JSON `\ud83d\ude00` escape is decoded. `StringToCodePoint(text)` yields `Option<Int64>`, Python `ord(text)`: `Some` code point when `text` is exactly one code point as `StringLength` counts it (a surrogate pair gives its scalar value, an unpaired surrogate its code unit), and `None` for the empty String or a longer one. `StringToCodePoint(StringFromCodePoint(n)) = Some n` for every `n` in `0..0x10FFFF`. `runPure` passes Strings with unpaired surrogates as arguments and results unchanged, using JSON `\uD800`-style escapes ([String run values](../specs/agent-authoring-session.md)). Both never fail; see the [decision](../decisions/string-code-point-conversion.md).
@@ -267,6 +269,7 @@ StringSplit
 StringSplitLines
 StringJoin
 StringToLower
+StringToUpper
 StringUtf8ByteCount
 StringDecodeUtf8Lossy
 StringFromCodePoint / ToCodePoint

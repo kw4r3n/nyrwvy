@@ -314,6 +314,25 @@ module CSharpBackend =
         writer.Line("return builder.ToString();")
         writer.Pop()
         writer.Line("}")
+        // ToUpper applies the Unicode simple uppercase mapping per code point in the same way. .NET's
+        // invariant casing keeps U+0131 where UnicodeData maps it to U+0049, and ß (U+00DF), which has
+        // no simple uppercase mapping, becomes CAPITAL SHARP S (U+1E9E), the inverse of ToLower.
+        writer.Line("public static string ToUpper(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var builder = new System.Text.StringBuilder(text.Length);")
+        writer.Line("for (var index = 0; index < text.Length; index++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var unit = text[index];")
+        writer.Line("if (Width(text, index) == 2) builder.Append(System.Text.Rune.ToUpperInvariant(new System.Text.Rune(unit, text[++index])).ToString());")
+        writer.Line("else if (char.IsSurrogate(unit)) builder.Append(unit);")
+        writer.Line("else builder.Append(unit == '\\u0131' ? 'I' : unit == '\\u00DF' ? '\\u1E9E' : char.ToUpperInvariant(unit));")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return builder.ToString();")
+        writer.Pop()
+        writer.Line("}")
         // UTF-8 length; the replacement fallback encodes an unpaired surrogate as U+FFFD, 3 bytes.
         writer.Line("public static long Utf8ByteCount(string text) => System.Text.Encoding.UTF8.GetByteCount(text);")
         // Bytes travel as one code point each (U+0000..U+00FF); a code point above U+00FF is not a byte
@@ -1456,6 +1475,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.CodePointLength(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringToLower sourceValueId ->
             writer.Line(target + " = NyText.ToLower(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringToUpper sourceValueId ->
+            writer.Line(target + " = NyText.ToUpper(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringDecodeUtf8Lossy sourceValueId ->
             writer.Line(target + " = NyText.DecodeUtf8Lossy(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64RoundToInt64 sourceValueId ->

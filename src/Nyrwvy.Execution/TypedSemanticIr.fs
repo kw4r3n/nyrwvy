@@ -89,6 +89,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringParseFloat64 of valueNodeId: GraphNodeId
     | StringCodePoints of valueNodeId: GraphNodeId
     | StringToLower of valueNodeId: GraphNodeId
+    | StringToUpper of valueNodeId: GraphNodeId
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
     | Float64FloorToInt64 of valueNodeId: GraphNodeId
@@ -246,6 +247,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringParseFloat64 _
         | TypedSemanticNodeKind.StringCodePoints _
         | TypedSemanticNodeKind.StringToLower _
+        | TypedSemanticNodeKind.StringToUpper _
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
         | TypedSemanticNodeKind.Float64RoundToInt64 _
         | TypedSemanticNodeKind.Float64FloorToInt64 _
@@ -371,6 +373,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId
+        | TypedSemanticNodeKind.StringToUpper valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId
@@ -615,6 +618,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringCodePoints valueNodeId)
                     | SemanticNodeKind.StringToLower valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringToLower valueNodeId)
+                    | SemanticNodeKind.StringToUpper valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringToUpper valueNodeId)
                     | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId)
                     | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->

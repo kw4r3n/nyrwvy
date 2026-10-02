@@ -690,6 +690,12 @@ module SnapshotValidator =
                             $"StringToLower node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringToUpper valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringToUpper node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1786,6 +1792,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringParseFloat64 _
                 | SemanticNodeKind.StringCodePoints _
                 | SemanticNodeKind.StringToLower _
+                | SemanticNodeKind.StringToUpper _
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _

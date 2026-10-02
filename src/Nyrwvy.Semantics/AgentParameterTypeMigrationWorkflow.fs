@@ -278,6 +278,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringParseFloat64 value -> one ExpressionRecipe.StringParseFloat64 value
             | ExpressionRecipe.StringCodePoints value -> one ExpressionRecipe.StringCodePoints value
             | ExpressionRecipe.StringToLower value -> one ExpressionRecipe.StringToLower value
+            | ExpressionRecipe.StringToUpper value -> one ExpressionRecipe.StringToUpper value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> one ExpressionRecipe.StringDecodeUtf8Lossy value
             | ExpressionRecipe.Float64RoundToInt64 value -> one ExpressionRecipe.Float64RoundToInt64 value
             | ExpressionRecipe.Float64FloorToInt64 value -> one ExpressionRecipe.Float64FloorToInt64 value

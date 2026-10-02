@@ -21,7 +21,7 @@ module StringCaseTests =
     let private text value = ExpressionRecipe.StringLiteral value
 
     [<Fact>]
-    let ``StringToLower and StringUtf8ByteCount type check, persist, and lower through every layer`` () =
+    let ``StringToLower, StringToUpper and StringUtf8ByteCount type check, persist, and lower through every layer`` () =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
@@ -39,11 +39,13 @@ module StringCaseTests =
         let mismatch = "PureExpressionOperandTypeMismatch"
         Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringToLower(slot 0))))
         Assert.Equal(mismatch, rejects (request [ intType ] intType (ExpressionRecipe.StringUtf8ByteCount(slot 0))))
+        Assert.Equal(mismatch, rejects (request [ intType ] stringType (ExpressionRecipe.StringToUpper(slot 0))))
         // Result types: String and Int64, not the other way round.
         Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringToLower(slot 0))))
         Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringUtf8ByteCount(slot 0))))
         let cases =
             [ "stringToLower", "string-to-lower", "NyText.ToLower(", stringType, ExpressionRecipe.StringToLower(slot 0)
+              "stringToUpper", "string-to-upper", "NyText.ToUpper(", stringType, ExpressionRecipe.StringToUpper(slot 0)
               "stringUtf8ByteCount", "string-utf8-byte-count", "NyText.Utf8ByteCount(", intType, ExpressionRecipe.StringUtf8ByteCount(slot 0) ]
         for kind, nyasonTag, emitted, resultType, body in cases do
             let proposal =
@@ -84,7 +86,7 @@ module StringCaseTests =
             Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``JSONL-authored StringToLower and StringUtf8ByteCount match Python per code point`` () =
+    let ``JSONL-authored StringToLower, StringToUpper and StringUtf8ByteCount per code point`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-string-case-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore
         let path = Path.Combine(root, "workspace.json")
@@ -143,6 +145,30 @@ module StringCaseTests =
                   "ΟΔΟΣ", "οδοσ" ]
             create "lowerTable" (listOf stringType)
                 (ExpressionRecipe.ListConstruct(stringType, lowerCases |> List.map (fst >> text >> ExpressionRecipe.StringToLower)))
+            // Simple uppercase per code point, so the code-point length never changes: ß becomes
+            // CAPITAL SHARP S (the inverse of StringToLower), where Python's full mapping gives "SS".
+            let upperCases =
+                [ "Hello, World!", "HELLO, WORLD!"
+                  "", ""
+                  "αβγδ ωμέγα", "ΑΒΓΔ ΩΜΈΓΑ"
+                  "привет, Мир", "ПРИВЕТ, МИР"
+                  "i", "I" // never the Turkish dotted İ: culture invariant
+                  "ı", "I" // DOTLESS I: UnicodeData maps it to I, which .NET's invariant casing does not
+                  "ß", "ẞ" // Python: "SS"
+                  "straße", "STRAẞE"
+                  "ſ", "S" // LONG S
+                  "ǆ", "Ǆ" // Dž lowercase to uppercase, not titlecase
+                  "ᾳ", "ᾼ" // simple mapping; Python: "ΑΙ"
+                  "ŉ", "ŉ" // no simple mapping; Python: "ʼN"
+                  "àéî", "ÀÉÎ"
+                  "ａｂ", "ＡＢ"
+                  "😀abc", "😀ABC"
+                  "\U00010428", "\U00010400" // DESERET
+                  "日本語abc", "日本語ABC"
+                  utf16 "a{D800}b{DC00}c", utf16 "A{D800}B{DC00}C"
+                  "οδος", "ΟΔΟΣ" ]
+            create "upperTable" (listOf stringType)
+                (ExpressionRecipe.ListConstruct(stringType, upperCases |> List.map (fst >> text >> ExpressionRecipe.StringToUpper)))
             // Python parity: len(text.encode("utf-8")); a lone surrogate, which strict Python cannot
             // encode, counts 3 bytes as with "surrogatepass" (WTF-8) and as its U+FFFD replacement.
             let utf8Cases =
@@ -162,6 +188,7 @@ module StringCaseTests =
                 let result = PureRun.run session (functionId name) [] (Some expected) |> unwrap name
                 Assert.True((result.Matches = Some true), sprintf "%s: %A" name result.Actual)
             check "lowerTable" (PureRunValue.StringList(lowerCases |> List.map snd))
+            check "upperTable" (PureRunValue.StringList(upperCases |> List.map snd))
             check "utf8Table" (PureRunValue.Int64List(utf8Cases |> List.map snd))
             session.Close()
         finally

@@ -254,6 +254,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringCodePoints
                         | TypedSemanticNodeKind.StringToLower valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToLower
+                        | TypedSemanticNodeKind.StringToUpper valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToUpper
                         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringDecodeUtf8Lossy
                         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
