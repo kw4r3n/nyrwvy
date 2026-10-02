@@ -116,6 +116,29 @@ module internal WireEncodeCommon =
               "displayName", box value.DisplayName
               "typeKind", kind ]
 
+    let capabilityEntity (value: SemanticCapability) =
+        let operations =
+            value.Operations
+            |> List.map (fun operation ->
+                let parameters =
+                    operation.Parameters
+                    |> List.map (fun parameter ->
+                        objectValue
+                            [ "id", box (StableId.value parameter.Id)
+                              "displayName", box parameter.DisplayName
+                              "type", typeRef parameter.Type ])
+                objectValue
+                    [ "id", box (StableId.value operation.Id)
+                      "displayName", box operation.DisplayName
+                      "parameters", arrayValue parameters
+                      "resultType", typeRef operation.ResultType
+                      "failureType", optional operation.FailureType typeRef
+                      "effectId", box (StableId.value operation.EffectId) ])
+        objectValue
+            [ "id", box (StableId.value value.Id)
+              "displayName", box value.DisplayName
+              "operations", arrayValue operations ]
+
     let declarations (value: AuthoringDeclarations) =
         let effects =
             value.Effects
@@ -123,30 +146,7 @@ module internal WireEncodeCommon =
                 objectValue
                     [ "id", box (StableId.value effect.Id)
                       "displayName", box effect.DisplayName ])
-        let capabilities =
-            value.Capabilities
-            |> List.map (fun capability ->
-                let operations =
-                    capability.Operations
-                    |> List.map (fun operation ->
-                        let parameters =
-                            operation.Parameters
-                            |> List.map (fun parameter ->
-                                objectValue
-                                    [ "id", box (StableId.value parameter.Id)
-                                      "displayName", box parameter.DisplayName
-                                      "type", typeRef parameter.Type ])
-                        objectValue
-                            [ "id", box (StableId.value operation.Id)
-                              "displayName", box operation.DisplayName
-                              "parameters", arrayValue parameters
-                              "resultType", typeRef operation.ResultType
-                              "failureType", optional operation.FailureType typeRef
-                              "effectId", box (StableId.value operation.EffectId) ])
-                objectValue
-                    [ "id", box (StableId.value capability.Id)
-                      "displayName", box capability.DisplayName
-                      "operations", arrayValue operations ])
+        let capabilities = value.Capabilities |> List.map capabilityEntity
         objectValue
             [ "functions", value.Functions |> List.map functionDeclaration |> arrayValue
               "types", value.Types |> List.map semanticType |> arrayValue
@@ -202,7 +202,7 @@ module internal WireEncodeCommon =
               "literal", optional value.Literal nodeLiteral
               "referenceDisplayName", optional value.ReferenceDisplayName box ]
 
-    let private callSite (value: QueryCallSite) =
+    let callSite (value: QueryCallSite) =
         objectValue
             [ "callerFunctionId", box (StableId.value value.CallerFunctionId)
               "callNodeId", box (StableId.value value.CallNodeId)

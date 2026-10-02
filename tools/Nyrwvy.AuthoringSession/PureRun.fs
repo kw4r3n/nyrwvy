@@ -425,7 +425,7 @@ module PureRun =
             else
                 List.zip left right
                 |> List.tryPick (fun ((fieldId, left), (_, right)) ->
-                    if left = right then None else firstDifference (step fieldId :: path) left right)
+                    firstDifference (step fieldId :: path) left right)
                 |> Option.orElse (here ())
         let items = function
             | PureRunValue.ListValue(_, items) -> Some items
@@ -458,7 +458,7 @@ module PureRun =
                     List.zip (List.truncate right.Length left) (List.truncate left.Length right)
                     |> List.indexed
                     |> List.tryPick (fun (index, (left, right)) ->
-                        if left = right then None else firstDifference (PureRunPathStep.Item index :: path) left right)
+                        firstDifference (PureRunPathStep.Item index :: path) left right)
                     |> Option.orElse (here ())
                 | _, _, Some(Some left), Some(Some right), _, _ -> firstDifference (PureRunPathStep.SomeValue :: path) left right
                 | _, _, _, _, Some(leftOk, left), Some(rightOk, right) when leftOk = rightOk ->

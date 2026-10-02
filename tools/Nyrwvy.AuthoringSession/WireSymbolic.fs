@@ -56,15 +56,7 @@ module internal WireSymbolic =
             ensureFields "Function type" [ "kind"; "parameters"; "resultType" ] [ "kind"; "parameters"; "resultType" ] element
             TypeRef.Function(array "parameters" element |> List.map (typeRef declarations), typeRef declarations (property "resultType" element))
         | "primitive" ->
-            ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element
-            match requiredString "primitive" element with
-            | "string" -> TypeRef.Primitive PrimitiveType.String
-            | "bool" -> TypeRef.Primitive PrimitiveType.Bool
-            | "unit" -> TypeRef.Primitive PrimitiveType.Unit
-            | "int64" -> TypeRef.Primitive PrimitiveType.Int64
-            | "float64" -> TypeRef.Primitive PrimitiveType.Float64
-            | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
-            | value -> fail $"Unsupported primitive type '{value}'."
+            primitiveType element
         | "named" ->
             ensureFields "named type" [ "kind"; "name" ] [ "kind"; "name" ] element
             let name = requiredString "name" element
@@ -75,16 +67,7 @@ module internal WireSymbolic =
             ensureFields "capability type" [ "kind"; "name" ] [ "kind"; "name" ] element
             TypeRef.Capability((resolveCapability declarations (requiredString "name" element)).Id)
         | "builtinGeneric" ->
-            ensureFields "builtin generic type" [ "kind"; "generic"; "arguments" ] [ "kind"; "generic"; "arguments" ] element
-            let generic =
-                match requiredString "generic" element with
-                | "option" -> BuiltinGenericType.Option
-                | "result" -> BuiltinGenericType.Result
-                | "list" -> BuiltinGenericType.List
-                | "task" -> BuiltinGenericType.Task
-                | "taskScope" -> BuiltinGenericType.TaskScope
-                | value -> fail $"Unsupported builtin generic '{value}'."
-            TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map (typeRef declarations))
+            builtinGenericType (typeRef declarations) element
         | "typeParameter" ->
             // A request-local type parameter name; function creation allocates its identity.
             ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
