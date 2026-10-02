@@ -234,13 +234,12 @@ module internal StructuralTransactionInternals =
               Literal = literal node
               ReferenceDisplayName = referenceName node functionId })
 
+    let validationDiagnostics (issues: ValidationIssue list) =
+        issues |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
+
     let classifyReadiness snapshot =
         match SnapshotReadiness.evaluate snapshot with
-        | Error issues ->
-            Error(
-                issues
-                |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
-            )
+        | Error issues -> Error(validationDiagnostics issues)
         | Ok SemanticReadiness.Complete -> Ok TransactionReadiness.SemanticallyReady
         | Ok(SemanticReadiness.Incomplete ids) -> Ok(TransactionReadiness.Incomplete ids)
 
@@ -270,6 +269,60 @@ module internal StructuralTransactionInternals =
                             proposedFingerprint
                             semanticFingerprint
                     )
+
+    [<RequireQualifiedAccess>]
+    type DeclarationSimulationFailure =
+        | Rejected of TransactionDiagnostic list
+        | FingerprintFailed of SnapshotCodecError
+
+    type DeclarationCandidate<'Created> =
+        { TransactionId: TransactionId
+          ProposedSnapshot: Snapshot
+          Readiness: TransactionReadiness
+          Receipt: TransactionPreviewReceipt
+          Created: 'Created }
+
+    /// The simulate pipeline shared by the declaration workflows: validate the base, preflight,
+    /// append the created declarations, validate the proposed snapshot, classify readiness and
+    /// fingerprint the receipt. `append` adds `created` to the base snapshot's collection.
+    let simulateDeclaration
+        (workspace: AgentWorkspace)
+        (preflight: Snapshot -> Result<unit, TransactionDiagnostic>)
+        (create: unit -> 'Created)
+        (append: 'Created -> Snapshot -> Snapshot)
+        : Result<DeclarationCandidate<'Created>, DeclarationSimulationFailure> =
+        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+
+        match SnapshotValidator.validate baseSnapshot with
+        | _ :: _ as issues -> Error(DeclarationSimulationFailure.Rejected(validationDiagnostics issues))
+        | [] ->
+            match preflight baseSnapshot with
+            | Error error -> Error(DeclarationSimulationFailure.Rejected [ error ])
+            | Ok() ->
+                let created = create ()
+                let transactionId = StableIdAllocator.newTransactionId ()
+                let proposedSnapshot =
+                    append
+                        created
+                        { baseSnapshot with
+                            Id = StableIdAllocator.newSnapshotId ()
+                            ParentId = Some baseSnapshot.Id }
+
+                match SnapshotValidator.validate proposedSnapshot with
+                | _ :: _ as issues -> Error(DeclarationSimulationFailure.Rejected(validationDiagnostics issues))
+                | [] ->
+                    match classifyReadiness proposedSnapshot with
+                    | Error diagnostics -> Error(DeclarationSimulationFailure.Rejected diagnostics)
+                    | Ok readiness ->
+                        match computeReceipt transactionId baseSnapshot proposedSnapshot with
+                        | Error error -> Error(DeclarationSimulationFailure.FingerprintFailed error)
+                        | Ok receipt ->
+                            Ok
+                                { TransactionId = transactionId
+                                  ProposedSnapshot = proposedSnapshot
+                                  Readiness = readiness
+                                  Receipt = receipt
+                                  Created = created }
 
     let createReceipt transactionId baseSnapshot proposedSnapshot =
         computeReceipt transactionId baseSnapshot proposedSnapshot

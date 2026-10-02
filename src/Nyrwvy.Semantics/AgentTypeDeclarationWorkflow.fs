@@ -110,13 +110,7 @@ module AgentTypeDeclarationProposal =
 
 [<RequireQualifiedAccess>]
 module AgentTypeDeclarationWorkflow =
-    let private diagnostic code message: TransactionDiagnostic =
-        { Code = code
-          Message = message }
-
-    let private validationDiagnostics (issues: ValidationIssue list) =
-        issues
-        |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
+    open StructuralTransactionInternals
 
     /// Validates declared type references against the snapshot's types plus `groupReferences`
     /// (the IDs a type group is declaring together).
@@ -320,58 +314,25 @@ module AgentTypeDeclarationWorkflow =
         (preflight: Snapshot -> Result<unit, TransactionDiagnostic>)
         (create: unit -> SemanticType list)
         =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: rest ->
-            Error(
-                AgentTypeDeclarationWorkflowError.SimulationRejected(
-                    validationDiagnostics (issue :: rest)
-                )
-            )
-        | [] ->
-            match preflight baseSnapshot with
-            | Error error ->
-                Error(AgentTypeDeclarationWorkflowError.SimulationRejected [ error ])
-            | Ok() ->
-                let createdTypes = create ()
-                let transactionId = StableIdAllocator.newTransactionId ()
-                let proposedSnapshot =
-                    { baseSnapshot with
-                        Id = StableIdAllocator.newSnapshotId ()
-                        ParentId = Some baseSnapshot.Id
-                        Types = baseSnapshot.Types @ createdTypes }
-
-                match SnapshotValidator.validate proposedSnapshot with
-                | issue :: rest ->
-                    Error(
-                        AgentTypeDeclarationWorkflowError.SimulationRejected(
-                            validationDiagnostics (issue :: rest)
-                        )
-                    )
-                | [] ->
-                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
-                    | Error diagnostics ->
-                        Error(AgentTypeDeclarationWorkflowError.SimulationRejected diagnostics)
-                    | Ok readiness ->
-                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error(AgentTypeDeclarationWorkflowError.FingerprintFailed error)
-                        | Ok receipt -> Ok(transactionId, proposedSnapshot, readiness, receipt, createdTypes)
+        simulateDeclaration workspace preflight create (fun created snapshot -> { snapshot with Types = snapshot.Types @ created })
+        |> Result.mapError (function
+            | DeclarationSimulationFailure.Rejected diagnostics -> AgentTypeDeclarationWorkflowError.SimulationRejected diagnostics
+            | DeclarationSimulationFailure.FingerprintFailed error -> AgentTypeDeclarationWorkflowError.FingerprintFailed error)
 
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentCreateTypeDeclarationRequest)
         : Result<AgentTypeDeclarationProposal, AgentTypeDeclarationWorkflowError> =
         simulateCandidate workspace (fun snapshot -> validatePreflight snapshot request) (fun () -> [ materialize request ])
-        |> Result.map (fun (transactionId, proposedSnapshot, readiness, receipt, createdTypes) ->
+        |> Result.map (fun candidate ->
             AgentTypeDeclarationProposal
-                { TransactionId = transactionId
-                  ProposedSnapshot = proposedSnapshot
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = candidate.ProposedSnapshot
                   Review =
                     { RequestedChange = request
-                      Receipt = receipt
-                      Readiness = readiness
-                      CreatedType = List.exactlyOne createdTypes } })
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      CreatedType = List.exactlyOne candidate.Created } })
 
     /// Creates a group of types that may reference themselves and each other through their
     /// request-local references.
@@ -380,15 +341,15 @@ module AgentTypeDeclarationWorkflow =
         (request: AgentCreateTypeDeclarationGroupRequest)
         : Result<AgentTypeDeclarationGroupProposal, AgentTypeDeclarationWorkflowError> =
         simulateCandidate workspace (fun snapshot -> validateGroupPreflight snapshot request) (fun () -> materializeGroup request)
-        |> Result.map (fun (transactionId, proposedSnapshot, readiness, receipt, createdTypes) ->
+        |> Result.map (fun candidate ->
             AgentTypeDeclarationGroupProposal
-                { TransactionId = transactionId
-                  ProposedSnapshot = proposedSnapshot
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = candidate.ProposedSnapshot
                   Review =
                     { RequestedChange = request
-                      Receipt = receipt
-                      Readiness = readiness
-                      CreatedTypes = createdTypes } })
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      CreatedTypes = candidate.Created } })
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)

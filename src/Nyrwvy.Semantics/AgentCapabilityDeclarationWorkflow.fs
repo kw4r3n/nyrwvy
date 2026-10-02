@@ -60,13 +60,7 @@ module AgentCapabilityDeclarationProposal =
 
 [<RequireQualifiedAccess>]
 module AgentCapabilityDeclarationWorkflow =
-    let private diagnostic code message: TransactionDiagnostic =
-        { Code = code
-          Message = message }
-
-    let private validationDiagnostics (issues: ValidationIssue list) =
-        issues
-        |> List.map (fun issue -> diagnostic ("Validation." + issue.Code) issue.Message)
+    open StructuralTransactionInternals
 
     let private validateParameters
         validateTypeRef
@@ -188,55 +182,23 @@ module AgentCapabilityDeclarationWorkflow =
         (workspace: AgentWorkspace)
         (request: AgentCreateCapabilityDeclarationRequest)
         : Result<AgentCapabilityDeclarationProposal, AgentCapabilityDeclarationWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: rest ->
-            Error(
-                AgentCapabilityDeclarationWorkflowError.SimulationRejected(
-                    validationDiagnostics (issue :: rest)
-                )
-            )
-        | [] ->
-            match validatePreflight baseSnapshot request with
-            | Error error ->
-                Error(AgentCapabilityDeclarationWorkflowError.SimulationRejected [ error ])
-            | Ok() ->
-                let createdCapability = materialize request
-                let transactionId = StableIdAllocator.newTransactionId ()
-                let proposedSnapshot =
-                    { baseSnapshot with
-                        Id = StableIdAllocator.newSnapshotId ()
-                        ParentId = Some baseSnapshot.Id
-                        Capabilities = baseSnapshot.Capabilities @ [ createdCapability ] }
-
-                match SnapshotValidator.validate proposedSnapshot with
-                | issue :: rest ->
-                    Error(
-                        AgentCapabilityDeclarationWorkflowError.SimulationRejected(
-                            validationDiagnostics (issue :: rest)
-                        )
-                    )
-                | [] ->
-                    match StructuralTransactionInternals.classifyReadiness proposedSnapshot with
-                    | Error diagnostics ->
-                        Error(AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics)
-                    | Ok readiness ->
-                        match StructuralTransactionInternals.computeReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error(AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
-                        | Ok receipt ->
-                            let review =
-                                { RequestedChange = request
-                                  Receipt = receipt
-                                  Readiness = readiness
-                                  CreatedCapability = createdCapability }
-
-                            Ok(
-                                AgentCapabilityDeclarationProposal
-                                    { TransactionId = transactionId
-                                      ProposedSnapshot = proposedSnapshot
-                                      Review = review }
-                            )
+        simulateDeclaration
+            workspace
+            (fun snapshot -> validatePreflight snapshot request)
+            (fun () -> materialize request)
+            (fun created snapshot -> { snapshot with Capabilities = snapshot.Capabilities @ [ created ] })
+        |> Result.map (fun candidate ->
+            AgentCapabilityDeclarationProposal
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = candidate.ProposedSnapshot
+                  Review =
+                    { RequestedChange = request
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      CreatedCapability = candidate.Created } })
+        |> Result.mapError (function
+            | DeclarationSimulationFailure.Rejected diagnostics -> AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics
+            | DeclarationSimulationFailure.FingerprintFailed error -> AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)
