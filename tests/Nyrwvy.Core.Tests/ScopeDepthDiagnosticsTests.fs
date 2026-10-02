@@ -79,9 +79,9 @@ module ScopeDepthDiagnosticsTests =
     let private stopArmWith noneBody =
         ExpressionRecipe.MatchUnion(
             ExpressionRecipe.Parameter actionParameterId,
-            [ stopVariantId,
+            [ [ stopVariantId ],
               ExpressionRecipe.MatchOption(ExpressionRecipe.Parameter maybeParameterId, ExpressionRecipe.StringLiteral "some", noneBody)
-              goVariantId, ExpressionRecipe.StringLiteral "go" ]
+              [ goVariantId ], ExpressionRecipe.StringLiteral "go" ]
         )
 
     [<Fact>]

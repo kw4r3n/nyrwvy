@@ -182,11 +182,11 @@ module AgentTypeDeclarationTests =
               Body =
                 ExpressionRecipe.MatchUnion(
                     ExpressionRecipe.ParameterSlot 0,
-                    [ numberVariant.Id,
+                    [ [ numberVariant.Id ],
                         ExpressionRecipe.PatternReference
                             { ScopeDepth = 0
                               Slot = RecipePatternSlot.Field numberField.Id }
-                      emptyVariant.Id, ExpressionRecipe.Int64Literal 0L ]
+                      [ emptyVariant.Id ], ExpressionRecipe.Int64Literal 0L ]
                 ) }
         let ws6, matchUnionId = createFunction ws5 matchUnionRequest
 

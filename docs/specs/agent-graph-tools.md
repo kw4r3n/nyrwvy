@@ -117,7 +117,7 @@ Use the existing expression kinds and explicit types. Only references differ fro
 | Product construction | `type`, plus `fields: [{field, value}]` |
 | Product update | `source`, `type`, plus `fields: [{field, value}]` for the replaced fields only |
 | Union construction | `type`, `variant`, plus `fields: [{field, value}]` |
-| Union match | `type`, `input`, plus `arms: [{variant, body}]` |
+| Union match | `type`, `input`, plus `arms: [{variant, body}]` or `[{variants: [...], body}]`, and an optional `otherwise` body |
 | Direct call | `function`, plus `arguments: [{parameter, value}]` |
 | Higher-order List operation | `source` and `function` |
 | Capability call | `capabilityValue`, `capability`, `operation`, `arguments: [{parameter, value}]` |

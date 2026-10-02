@@ -1530,12 +1530,22 @@ module SnapshotValidator =
                             $"Conditional false branch of '{StableId.value node.Id}'"
                             whenFalse
                     | SemanticNodeKind.MatchUnion(inputNodeId, arms) ->
+                        let describeArm (arm: UnionMatchArm) =
+                            UnionMatchArm.canonicalVariantIds arm |> List.map StableId.value |> String.concat "|"
                         match nodeType inputNodeId with
                         | Some(TypeRef.Named inputTypeId) ->
                             match Map.tryFind inputTypeId typesById with
                             | Some { Kind = SemanticTypeKind.Union variants } ->
                                 arms
-                                |> List.countBy (fun arm -> arm.VariantId)
+                                |> List.filter (fun arm -> List.isEmpty arm.VariantIds)
+                                |> List.iter (fun _ ->
+                                    add
+                                        "EmptyUnionMatchArm"
+                                        $"Union match node '{StableId.value node.Id}' has an arm that names no variant.")
+
+                                arms
+                                |> List.collect (fun arm -> arm.VariantIds)
+                                |> List.countBy id
                                 |> List.filter (fun (_, count) -> count > 1)
                                 |> List.iter (fun (variantId, _) ->
                                     add
@@ -1545,7 +1555,7 @@ module SnapshotValidator =
                                 let expectedVariantIds =
                                     variants |> List.map (fun variant -> variant.Id) |> Set.ofList
                                 let actualVariantIds =
-                                    arms |> List.map (fun arm -> arm.VariantId) |> Set.ofList
+                                    arms |> List.collect (fun arm -> arm.VariantIds) |> Set.ofList
 
                                 if expectedVariantIds <> actualVariantIds then
                                     add
@@ -1553,7 +1563,13 @@ module SnapshotValidator =
                                         $"Union match node '{StableId.value node.Id}' must contain exactly one arm for every variant."
 
                                 for arm in arms do
-                                    match variants |> List.tryFind (fun variant -> variant.Id = arm.VariantId) with
+                                    match arm.VariantIds with
+                                    | _ :: _ :: _ when not arm.FieldBindings.IsEmpty ->
+                                        add
+                                            "PatternFieldBindingMismatch"
+                                            $"Union match arm '{describeArm arm}' names several variants and must bind no fields."
+                                    | _ -> ()
+                                    match arm.VariantIds |> List.tryExactlyOne |> Option.bind (fun variantId -> variants |> List.tryFind (fun variant -> variant.Id = variantId)) with
                                     | None -> ()
                                     | Some variant ->
                                         let expectedFieldIds =
@@ -1567,7 +1583,7 @@ module SnapshotValidator =
                                            || arm.FieldBindings.Length <> actualFieldIds.Count then
                                             add
                                                 "PatternFieldBindingMismatch"
-                                                $"Union match arm '{StableId.value arm.VariantId}' must bind each variant field exactly once."
+                                                $"Union match arm '{describeArm arm}' must bind each variant field exactly once."
 
                                         for fieldBinding in arm.FieldBindings do
                                             match
@@ -1606,7 +1622,7 @@ module SnapshotValidator =
                             validateGraph
                                 visibleNodes
                                 (Set.union visiblePatterns armPatterns)
-                                $"Union match arm '{StableId.value arm.VariantId}'"
+                                $"Union match arm '{describeArm arm}'"
                                 arm.Body
                     | SemanticNodeKind.Bind(inputNodeId, body) ->
                         requireNodeType

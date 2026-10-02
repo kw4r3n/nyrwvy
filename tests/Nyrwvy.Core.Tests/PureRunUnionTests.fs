@@ -68,9 +68,9 @@ module PureRunUnionTests =
                           flagId, ExpressionRecipe.BoolLiteral false ]))
         let ws = create ws "classify" [ TypeRef.Named unionId ] (TypeRef.Primitive PrimitiveType.Bool)
                     (ExpressionRecipe.MatchUnion(ExpressionRecipe.ParameterSlot 0,
-                        [ payloadId, ExpressionRecipe.BoolLiteral true
-                          emptyId, ExpressionRecipe.BoolLiteral false
-                          otherEmptyId, ExpressionRecipe.BoolLiteral false ]))
+                        [ [ payloadId ], ExpressionRecipe.BoolLiteral true
+                          [ emptyId ], ExpressionRecipe.BoolLiteral false
+                          [ otherEmptyId ], ExpressionRecipe.BoolLiteral false ]))
         let ws = create ws "nested" [] (TypeRef.Named nestedId) (ExpressionRecipe.UnionConstruct(id<VariantTag> "nested-empty", []))
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-union-run-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore

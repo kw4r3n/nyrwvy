@@ -694,14 +694,10 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "whenFalse" element)
             )
         | "matchUnion" ->
-            ensureFields "match-union recipe" [ "kind"; "type"; "input"; "arms" ] [ "kind"; "type"; "input"; "arms" ] element
+            ensureFields "match-union recipe" [ "kind"; "type"; "input"; "arms"; "otherwise" ] [ "kind"; "type"; "input"; "arms" ] element
             let owner = resolveType declarations (requiredString "type" element)
             let arms =
-                array "arms" element
-                |> List.map (fun arm ->
-                    ensureFields "union arm" [ "variant"; "body" ] [ "variant"; "body" ] arm
-                    let variant = unionVariant owner (requiredString "variant" arm)
-                    variant.Id, recipe declarations parameterContext (property "body" arm))
+                unionArms "variant" "variants" (fun name -> (unionVariant owner name).Id) (recipe declarations parameterContext) element
             ExpressionRecipe.MatchUnion(
                 recipe declarations parameterContext (property "input" element),
                 arms

@@ -113,14 +113,14 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.StringLiteral "invalid email" }
 
         let emptyArm: UnionMatchArm =
-            { VariantId = emptyNameVariantId
+            { VariantIds = [ emptyNameVariantId ]
               FieldBindings = []
               Body =
                 { Nodes = [ emptyLiteral ]
                   ResultNodeId = emptyLiteralId } }
 
         let invalidArm: UnionMatchArm =
-            { VariantId = invalidEmailVariantId
+            { VariantIds = [ invalidEmailVariantId ]
               FieldBindings = []
               Body =
                 { Nodes = [ invalidLiteral ]
@@ -192,7 +192,7 @@ module ValueGraphTests =
         let unknownBindingId = StableId.createForTesting<PatternBindingTag> "binding-unknown"
         let referenceId = StableId.createForTesting<GraphNodeTag> "node-unknown-reference"
         let unknownArm: UnionMatchArm =
-            { VariantId = unknownVariantId
+            { VariantIds = [ unknownVariantId ]
               FieldBindings = []
               Body =
                 { Nodes =

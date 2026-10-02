@@ -159,8 +159,8 @@ module AgentPureExpressionControlFlowTests =
         let unionMatch =
             PureExpressionRecipe.MatchUnion(
                 PureExpressionRecipe.Parameter fixture.UnionParameterId,
-                [ fixture.SecondVariantId, PureExpressionRecipe.Int64Literal 2L
-                  fixture.FirstVariantId, pattern 0 (RecipePatternSlot.Field fixture.FirstFieldId) ]
+                [ [ fixture.SecondVariantId ], PureExpressionRecipe.Int64Literal 2L
+                  [ fixture.FirstVariantId ], pattern 0 (RecipePatternSlot.Field fixture.FirstFieldId) ]
             )
         Assert.Equal<string list>(
             [ "ParameterReference"; "MatchUnion"; "PatternReference"; "Int64Literal" ],
@@ -205,14 +205,14 @@ module AgentPureExpressionControlFlowTests =
 
         PureExpressionRecipe.MatchUnion(
             PureExpressionRecipe.Parameter fixture.UnionParameterId,
-            [ fixture.FirstVariantId, PureExpressionRecipe.Int64Literal 1L
-              fixture.FirstVariantId, PureExpressionRecipe.Int64Literal 2L ]
+            [ [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 1L
+              [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 2L ]
         )
         |> assertRejectedCode "PureExpressionMatchArmDuplicate" fixture
 
         PureExpressionRecipe.MatchUnion(
             PureExpressionRecipe.Parameter fixture.UnionParameterId,
-            [ fixture.FirstVariantId, PureExpressionRecipe.Int64Literal 1L ]
+            [ [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 1L ]
         )
         |> assertRejectedCode "PureExpressionMatchArmMismatch" fixture
 

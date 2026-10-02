@@ -248,7 +248,7 @@ module ViewerHtml =
         match role with
         | ViewerBranchRole.WhenTrue -> "when true"
         | ViewerBranchRole.WhenFalse -> "when false"
-        | ViewerBranchRole.UnionVariant variantId -> "variant " + stableText "variant:" variantId
+        | ViewerBranchRole.UnionVariant variantIds -> "variant " + (variantIds |> List.map (stableText "variant:") |> String.concat " | ")
         | ViewerBranchRole.BindBody -> "body after input"
         | ViewerBranchRole.OptionSome -> "Option.Some"
         | ViewerBranchRole.OptionNone -> "Option.None"

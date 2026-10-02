@@ -203,9 +203,11 @@ module internal WireGraph =
         | SemanticNodeKind.MatchUnion(input, arms) ->
             tagged "matchUnion"
                 [ "inputNodeId", identity input
-                  "arms", arms |> List.sortBy (fun arm -> StableId.value arm.VariantId) |> List.map (fun arm ->
+                  "arms", arms |> List.sortBy (fun arm -> UnionMatchArm.key arm) |> List.map (fun arm ->
                     objectValue
-                        [ "variantId", identity arm.VariantId
+                        [ (match UnionMatchArm.canonicalVariantIds arm with
+                           | [ variantId ] -> "variantId", identity variantId
+                           | variantIds -> "variantIds", variantIds |> List.map identity |> arrayValue)
                           "fieldBindings", arm.FieldBindings |> List.sortBy (fun field -> StableId.value field.SourceFieldId) |> List.map (fun field ->
                             objectValue [ "fieldId", identity field.SourceFieldId; "binding", binding field.Binding ]) |> arrayValue
                           "body", graph arm.Body ]) |> arrayValue ]

@@ -46,8 +46,8 @@ module UnionVariantWithFieldsTests =
         withFunction "area" [ "shape", TypeRef.Named shapeId ] intType (
             ExpressionRecipe.MatchUnion(
                 ExpressionRecipe.ParameterSlot 0,
-                [ circleId, ExpressionRecipe.Int64WrappingMultiply(radius, radius)
-                  emptyId, ExpressionRecipe.Int64Literal 0L ]))
+                [ [ circleId ], ExpressionRecipe.Int64WrappingMultiply(radius, radius)
+                  [ emptyId ], ExpressionRecipe.Int64Literal 0L ]))
 
     let private like ws name: AgentAddFieldlessUnionVariantLikeRequest =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
@@ -81,8 +81,8 @@ module UnionVariantWithFieldsTests =
         let snapshot = AgentWorkspace.snapshotForStructuralEditing next
         Assert.Empty(SnapshotValidator.validate snapshot)
         let arms = arms snapshot
-        let circleArm = arms |> List.find (fun arm -> arm.VariantId = circleId)
-        let ringArm = arms |> List.find (fun arm -> arm.VariantId = ring.Id)
+        let circleArm = arms |> List.find (fun arm -> arm.VariantIds = [ circleId ])
+        let ringArm = arms |> List.find (fun arm -> arm.VariantIds = [ ring.Id ])
         let copiedRadius = ring.Fields.Head.Id
         // Every field is bound: the copied radius, plus the additional field, which is unused so far.
         Assert.Equal<FieldId list>(ring.Fields |> List.map (fun field -> field.Id), ringArm.FieldBindings |> List.map (fun item -> item.SourceFieldId))
@@ -107,11 +107,11 @@ module UnionVariantWithFieldsTests =
                     ExpressionRecipe.ParameterSlot 1,
                     ExpressionRecipe.MatchUnion(
                         ExpressionRecipe.ParameterSlot 0,
-                        [ circleId,
+                        [ [ circleId ],
                           ExpressionRecipe.BoolOr(
                               ExpressionRecipe.BoolLiteral false,
                               ExpressionRecipe.Int64Equal(radius, ExpressionRecipe.Int64Literal 0L))
-                          emptyId, ExpressionRecipe.BoolLiteral false ])))
+                          [ emptyId ], ExpressionRecipe.BoolLiteral false ])))
         let proposal = AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
         let review = AgentFieldlessUnionVariantEvolutionProposal.review proposal
         Assert.Equal(1, review.RepairedMatchCount)
@@ -121,7 +121,7 @@ module UnionVariantWithFieldsTests =
             | other -> failwithf "Commit failed: %A" other
         let snapshot = AgentWorkspace.snapshotForStructuralEditing next
         Assert.Empty(SnapshotValidator.validate snapshot)
-        let ringArm = arms snapshot |> List.find (fun arm -> arm.VariantId = review.AddedVariant.Id)
+        let ringArm = arms snapshot |> List.find (fun arm -> arm.VariantIds = [ review.AddedVariant.Id ])
         let cloned =
             ValueGraph.collectNodes ringArm.Body |> List.pick (fun node ->
                 match node.Kind with

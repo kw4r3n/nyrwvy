@@ -302,12 +302,8 @@ module internal WireRecipe =
             ensureFields "conditional recipe" [ "kind"; "condition"; "whenTrue"; "whenFalse" ] [ "kind"; "condition"; "whenTrue"; "whenFalse" ] element
             ExpressionRecipe.Conditional(recipe (property "condition" element), recipe (property "whenTrue" element), recipe (property "whenFalse" element))
         | "matchUnion" ->
-            ensureFields "match-union recipe" [ "kind"; "input"; "arms" ] [ "kind"; "input"; "arms" ] element
-            let arms =
-                array "arms" element
-                |> List.map (fun arm ->
-                    ensureFields "union arm" [ "variantId"; "body" ] [ "variantId"; "body" ] arm
-                    id<VariantTag> "variantId" arm, recipe (property "body" arm))
+            ensureFields "match-union recipe" [ "kind"; "input"; "arms"; "otherwise" ] [ "kind"; "input"; "arms" ] element
+            let arms = unionArms "variantId" "variantIds" (stableId<VariantTag> "variantId") recipe element
             ExpressionRecipe.MatchUnion(recipe (property "input" element), arms)
         | "bind" ->
             ensureFields "bind recipe" [ "kind"; "value"; "body" ] [ "kind"; "value"; "body" ] element

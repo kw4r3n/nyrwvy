@@ -128,15 +128,25 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                 | SemanticNodeKind.MatchUnion(inputNodeId, repairedArms) ->
                     match
                         repairedArms
-                        |> List.tryFind (fun arm -> arm.VariantId = sourceVariantId)
+                        |> List.tryFind (fun arm -> List.contains sourceVariantId arm.VariantIds)
                     with
                     | None -> repaired
+                    | Some sourceArm when sourceArm.VariantIds.Length > 1 ->
+                        // An arm naming several variants binds no fields, so the added variant joins it
+                        // and shares its body instead of receiving a copy.
+                        repairedMatchCount <- repairedMatchCount + 1
+                        let joinedArms =
+                            repairedArms
+                            |> List.map (fun arm ->
+                                if List.contains sourceVariantId arm.VariantIds then { arm with VariantIds = arm.VariantIds @ [ addedVariantId ] }
+                                else arm)
+                        { repaired with Kind = SemanticNodeKind.MatchUnion(inputNodeId, joinedArms) }
                     | Some sourceArm ->
                         repairedMatchCount <- repairedMatchCount + 1
                         let body, bindingMap =
                             cloneGraph (sourceArm.FieldBindings |> List.map (fun item -> item.Binding.Id)) sourceArm.Body
                         let addedArm: UnionMatchArm =
-                            { VariantId = addedVariantId
+                            { VariantIds = [ addedVariantId ]
                               FieldBindings =
                                 (sourceArm.FieldBindings
                                  |> List.map (fun item ->

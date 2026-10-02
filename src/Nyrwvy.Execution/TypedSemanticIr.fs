@@ -60,7 +60,7 @@ type TypedSemanticPatternField =
       Binding: TypedSemanticPatternBinding }
 
 type TypedSemanticUnionArm =
-    { VariantId: VariantId
+    { VariantIds: VariantId list
       FieldBindings: TypedSemanticPatternField list
       Body: TypedSemanticGraph }
 
@@ -558,7 +558,7 @@ module TypedSemanticIr =
         let projectUnionArm (arm: UnionMatchArm): Result<TypedSemanticUnionArm, TypedSemanticIrError> =
             projectGraph snapshot functionEntity resolveType arm.Body
             |> Result.map (fun body ->
-                { VariantId = arm.VariantId
+                { VariantIds = UnionMatchArm.canonicalVariantIds arm
                   FieldBindings =
                     arm.FieldBindings
                     |> List.sortBy (fun binding -> StableId.value binding.SourceFieldId)
@@ -859,7 +859,7 @@ module TypedSemanticIr =
                         |> Result.map (fun projectedArms ->
                             TypedSemanticNodeKind.MatchUnion(
                                 inputNodeId,
-                                projectedArms |> List.sortBy (fun arm -> StableId.value arm.VariantId)
+                                projectedArms |> List.sortBy (fun arm -> StableId.value arm.VariantIds.Head)
                             ))
                     | SemanticNodeKind.Bind(inputNodeId, body) ->
                         projectValueArm body

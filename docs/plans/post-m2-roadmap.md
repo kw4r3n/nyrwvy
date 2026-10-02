@@ -184,6 +184,7 @@ The language/tool implementation queue lives in this document. Its orders came f
 | 38 | Hexadecimal text | [standard-operation-choices](../decisions/standard-operation-choices.md) |
 | 39 | Int64 minimum, maximum and wrapping absolute value | [standard-operation-choices](../decisions/standard-operation-choices.md) |
 | 40 | Checked Int64 add, subtract and multiply | [checked-int64-arithmetic](../decisions/checked-int64-arithmetic.md) |
+| 41 | `MatchUnion` arms shared by several variants, and `otherwise` | [match-union-shared-arms](../decisions/match-union-shared-arms.md) |
 
 One change has no order number: after probe 11, a pure `ListEffectFold` whose folder returns `Result` stops at the first `Err` ([result-fold-short-circuit](../decisions/result-fold-short-circuit.md)).
 
@@ -200,7 +201,6 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | `StringToUpper` | None (0): found by the standard-operations review, not by a probe | A consumer; Python's `upper()` changes length, so there is a choice to make ([decision](../decisions/standard-operation-choices.md)) |
-| `matchUnion` default arm | Probes 7, 10, 17, 18 and 19 (5) | An owner decision; options in the [design note](match-union-shared-arms.md), which recommends multi-variant arms that keep every variant named. a default arm trades away the [exhaustiveness rule](../concepts/ai-first-design-principles.md#exhaustiveness-over-catch-all-behavior) of the language. D-015's rule against wildcard branches in the [foundational decisions](../decisions/foundational.md#d-015--f-is-the-initial-semantic-core-implementation-language) is the F# core's own code style, not a rule about Nyrwvy's `MatchUnion` |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
 
 ### Queue from the 2026-09-25 probe
@@ -393,11 +393,12 @@ A review of the builtin surface against ordinary language libraries ([decision](
 
 ### Owner choice of 2026-10-03
 
-Checked Int64 arithmetic had one observation (probe 20) and was an open candidate waiting on another. The owner chose to add it on that observation ([decision](../decisions/checked-int64-arithmetic.md)).
+Checked Int64 arithmetic had one observation (probe 20) and was an open candidate waiting on another. The owner chose to add it on that observation ([decision](../decisions/checked-int64-arithmetic.md)). The same day the owner chose option D of the [`MatchUnion` design note](match-union-shared-arms.md) for the recurring repeated-arm cost.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
 | 40 | **Done: checked Int64 arithmetic** (owner choice on one observation) | Probe 20 wrote checked add and multiply by hand (`addChk`, `mulChk`: 59 nodes) because wrapping is the only Int64 arithmetic | `Int64CheckedAdd`, `Int64CheckedSubtract` and `Int64CheckedMultiply`, all `(Int64, Int64) -> Option<Int64>`: the exact result, or `None` outside Int64 |
+| 41 | **Done: shared `MatchUnion` arms** (owner choice of option D; `otherwise` taken as AI-facing shorthand) | Probes 7, 10, 17, 18 and 19 repeated one body across arms: 8 to 11% of each port (probe 19: 133 arms, 295 nodes) | An arm names one or more variants and has one body; a recipe `otherwise` expands to an explicit variant list; [design note](match-union-shared-arms.md), [decision](../decisions/match-union-shared-arms.md) |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

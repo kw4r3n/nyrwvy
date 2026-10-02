@@ -152,6 +152,31 @@ module internal WireInput =
     let id<'Kind> (name: string) (element: JsonElement): StableId<'Kind> =
         stableId<'Kind> name (requiredString name element)
 
+    /// The arms of a `matchUnion` recipe, shared by the ID-based and symbolic parsers. Each arm names
+    /// one variant in `single` or one or more in the array `plural`; the recipe's optional `otherwise`
+    /// body becomes the arm with no variants, which covers every variant the other arms do not name.
+    let unionArms (single: string) (plural: string) (variantOf: string -> VariantId) (body: JsonElement -> 'Recipe) (element: JsonElement) =
+        let arms =
+            array "arms" element
+            |> List.map (fun arm ->
+                ensureFields "union arm" [ single; plural; "body" ] [ "body" ] arm
+                let variantIds =
+                    match tryProperty single arm, tryProperty plural arm with
+                    | Some _, None -> [ variantOf (requiredString single arm) ]
+                    | None, Some _ ->
+                        match array plural arm with
+                        | [] -> fail $"Property '{plural}' must name at least one variant."
+                        | items ->
+                            items
+                            |> List.map (fun item ->
+                                if item.ValueKind <> JsonValueKind.String then fail $"Property '{plural}' must contain only strings."
+                                variantOf (item.GetString()))
+                    | _ -> fail $"A union arm requires exactly one of '{single}' and '{plural}'."
+                variantIds, body (property "body" arm))
+        match tryProperty "otherwise" element with
+        | Some otherwise -> arms @ [ [], body otherwise ]
+        | None -> arms
+
     /// The `primitive` type form, shared by the ID-based and symbolic type parsers.
     let primitiveType (element: JsonElement): TypeRef =
         ensureFields "primitive type" [ "kind"; "primitive" ] [ "kind"; "primitive" ] element

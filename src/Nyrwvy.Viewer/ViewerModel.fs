@@ -163,7 +163,7 @@ type ViewerNodeRole =
 type ViewerBranchRole =
     | WhenTrue
     | WhenFalse
-    | UnionVariant of VariantId
+    | UnionVariant of VariantId list
     | BindBody
     | OptionSome
     | OptionNone
@@ -439,7 +439,7 @@ module ViewerProjection =
                 | NestedGraphRole.WhenFalse -> ViewerBranchRole.WhenFalse
                 | NestedGraphRole.BoolAndRight
                 | NestedGraphRole.BoolOrRight -> ViewerBranchRole.RightOperand
-                | NestedGraphRole.UnionArm variantId -> ViewerBranchRole.UnionVariant variantId
+                | NestedGraphRole.UnionArm variantIds -> ViewerBranchRole.UnionVariant(variantIds |> List.sortBy StableId.value)
                 | NestedGraphRole.BindBody -> ViewerBranchRole.BindBody
                 | NestedGraphRole.OptionSome -> ViewerBranchRole.OptionSome
                 | NestedGraphRole.OptionNone -> ViewerBranchRole.OptionNone
@@ -452,7 +452,7 @@ module ViewerProjection =
                 SemanticNodeShape.nestedScopes node
                 |> List.sortBy (fun scope ->
                     match scope.Role with
-                    | NestedGraphRole.UnionArm variantId -> Some(StableId.value variantId)
+                    | NestedGraphRole.UnionArm variantIds -> Some(variantIds |> List.map StableId.value |> List.min)
                     | _ -> None)
                 |> List.map (fun scope ->
                     let bindings =
