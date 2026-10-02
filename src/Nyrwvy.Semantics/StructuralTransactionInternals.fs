@@ -54,7 +54,8 @@ module internal StructuralTransactionInternals =
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
                     | BuiltinGenericType.Task -> 1
-                    | BuiltinGenericType.Result -> 2
+                    | BuiltinGenericType.Result
+                    | BuiltinGenericType.Map -> 2
 
                 if List.length arguments <> expectedArity then
                     Error(

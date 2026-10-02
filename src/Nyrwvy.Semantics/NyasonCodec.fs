@@ -133,6 +133,8 @@ module NyasonCodec =
             record "option-type" [ "item", encodeTypeRef itemType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
             record "result-type" [ "ok", encodeTypeRef okType; "error", encodeTypeRef errorType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+            record "map-type" [ "key", encodeTypeRef keyType; "value", encodeTypeRef valueType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             record "list-type" [ "item", encodeTypeRef itemType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
@@ -142,6 +144,8 @@ module NyasonCodec =
             invalidOp $"Validated Option type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             invalidOp $"Validated Result type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
+            invalidOp $"Validated Map type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"Validated List type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
@@ -190,6 +194,12 @@ module NyasonCodec =
             TypeRef.BuiltinGeneric(
                 BuiltinGenericType.Result,
                 [ decodeTypeRef (require "ok" fields); decodeTypeRef (require "error" fields) ]
+            )
+        | NyasonValue.Record("map-type", _) ->
+            let fields = recordFields "map-type" [ "key"; "value" ] [] value
+            TypeRef.BuiltinGeneric(
+                BuiltinGenericType.Map,
+                [ decodeTypeRef (require "key" fields); decodeTypeRef (require "value" fields) ]
             )
         | NyasonValue.Record("list-type", _) ->
             let fields = recordFields "list-type" [ "item" ] [] value
@@ -652,6 +662,8 @@ module NyasonCodec =
             record "bits32-shift-left" [ nodeId; "value", encodeId "node" valueNodeId; "amount", encodeId "node" amountNodeId ]
         | SemanticNodeKind.ListEmpty itemType ->
             record "list-empty" [ nodeId; "item-type", encodeTypeRef itemType ]
+        | SemanticNodeKind.MapEmpty(keyType, valueType) ->
+            record "map-empty" [ nodeId; "key-type", encodeTypeRef keyType; "value-type", encodeTypeRef valueType ]
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
             record
                 "list-construct"
@@ -672,8 +684,21 @@ module NyasonCodec =
                   "list", encodeId "node" listNodeId
                   "start", encodeId "node" startNodeId
                   "end", encodeId "node" endNodeId ]
+        | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
+            record
+                "map-insert"
+                [ nodeId
+                  "map", encodeId "node" mapNodeId
+                  "key", encodeId "node" keyNodeId
+                  "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.ListLength listNodeId ->
             record "list-length" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.MapValues mapNodeId ->
+            record "map-values" [ nodeId; "map", encodeId "node" mapNodeId ]
+        | SemanticNodeKind.MapKeys mapNodeId ->
+            record "map-keys" [ nodeId; "map", encodeId "node" mapNodeId ]
+        | SemanticNodeKind.MapSize mapNodeId ->
+            record "map-size" [ nodeId; "map", encodeId "node" mapNodeId ]
         | SemanticNodeKind.ListReverse listNodeId ->
             record "list-reverse" [ nodeId; "list", encodeId "node" listNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
@@ -682,6 +707,24 @@ module NyasonCodec =
                 [ nodeId
                   "list", encodeId "node" listNodeId
                   "index", encodeId "node" indexNodeId ]
+        | SemanticNodeKind.MapRemove(mapNodeId, keyNodeId) ->
+            record
+                "map-remove"
+                [ nodeId
+                  "map", encodeId "node" mapNodeId
+                  "key", encodeId "node" keyNodeId ]
+        | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
+            record
+                "map-contains-key"
+                [ nodeId
+                  "map", encodeId "node" mapNodeId
+                  "key", encodeId "node" keyNodeId ]
+        | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
+            record
+                "map-get"
+                [ nodeId
+                  "map", encodeId "node" mapNodeId
+                  "key", encodeId "node" keyNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             record
                 "list-append-item"
@@ -1217,6 +1260,10 @@ module NyasonCodec =
             let fields = recordFields "list-empty" [ "id"; "item-type" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListEmpty(decodeTypeRef (require "item-type" fields)) }
+        | NyasonValue.Record("map-empty", _) ->
+            let fields = recordFields "map-empty" [ "id"; "key-type"; "value-type" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapEmpty(decodeTypeRef (require "key-type" fields), decodeTypeRef (require "value-type" fields)) }
         | NyasonValue.Record("list-construct", _) ->
             let fields = recordFields "list-construct" [ "id"; "item-type"; "items" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1229,6 +1276,18 @@ module NyasonCodec =
             let fields = recordFields "list-length" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListLength(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("map-values", _) ->
+            let fields = recordFields "map-values" [ "id"; "map" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapValues(decodeId<GraphNodeTag> "node" (require "map" fields)) }
+        | NyasonValue.Record("map-keys", _) ->
+            let fields = recordFields "map-keys" [ "id"; "map" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapKeys(decodeId<GraphNodeTag> "node" (require "map" fields)) }
+        | NyasonValue.Record("map-size", _) ->
+            let fields = recordFields "map-size" [ "id"; "map" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapSize(decodeId<GraphNodeTag> "node" (require "map" fields)) }
         | NyasonValue.Record("list-reverse", _) ->
             let fields = recordFields "list-reverse" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1250,6 +1309,15 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "start" fields),
                     decodeId<GraphNodeTag> "node" (require "end" fields)
                 ) }
+        | NyasonValue.Record("map-insert", _) ->
+            let fields = recordFields "map-insert" [ "id"; "map"; "key"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.MapInsert(
+                    decodeId<GraphNodeTag> "node" (require "map" fields),
+                    decodeId<GraphNodeTag> "node" (require "key" fields),
+                    decodeId<GraphNodeTag> "node" (require "value" fields)
+                ) }
         | NyasonValue.Record("list-item-at", _) ->
             let fields = recordFields "list-item-at" [ "id"; "list"; "index" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1257,6 +1325,30 @@ module NyasonCodec =
                 SemanticNodeKind.ListItemAt(
                     decodeId<GraphNodeTag> "node" (require "list" fields),
                     decodeId<GraphNodeTag> "node" (require "index" fields)
+                ) }
+        | NyasonValue.Record("map-remove", _) ->
+            let fields = recordFields "map-remove" [ "id"; "map"; "key" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.MapRemove(
+                    decodeId<GraphNodeTag> "node" (require "map" fields),
+                    decodeId<GraphNodeTag> "node" (require "key" fields)
+                ) }
+        | NyasonValue.Record("map-contains-key", _) ->
+            let fields = recordFields "map-contains-key" [ "id"; "map"; "key" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.MapContainsKey(
+                    decodeId<GraphNodeTag> "node" (require "map" fields),
+                    decodeId<GraphNodeTag> "node" (require "key" fields)
+                ) }
+        | NyasonValue.Record("map-get", _) ->
+            let fields = recordFields "map-get" [ "id"; "map"; "key" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.MapGet(
+                    decodeId<GraphNodeTag> "node" (require "map" fields),
+                    decodeId<GraphNodeTag> "node" (require "key" fields)
                 ) }
         | NyasonValue.Record("list-append-item", _) ->
             let fields = recordFields "list-append-item" [ "id"; "list"; "item" ] [] value

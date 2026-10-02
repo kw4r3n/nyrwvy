@@ -196,6 +196,7 @@ module internal WireInput =
             match requiredString "generic" element with
             | "option" -> BuiltinGenericType.Option
             | "result" -> BuiltinGenericType.Result
+            | "map" -> BuiltinGenericType.Map
             | "list" -> BuiltinGenericType.List
             | "task" -> BuiltinGenericType.Task
             | "taskScope" -> BuiltinGenericType.TaskScope

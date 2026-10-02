@@ -139,6 +139,25 @@ Higher-order operations reference callbacks by stable `FunctionId`. The accepted
 
 `ListSortBy(source, lessThan, context)` returns the items of a `List<T>` in sorted order. `lessThan` is a pure callback whose two parameters not bound by the optional context receive two items `(left, right)` and return Bool: true when `left` must come before `right`. The sort is stable: items the callback does not order keep their input order. Descending order swaps the comparison, and a composite key compares the first key and falls through to the next on equality. For example, Python's `rows.sort(key=lambda r: (r.role, -r.count))` is `ListSortBy(rows, rowBefore)` with `rowBefore(a, b) = Conditional(StringEqual(a.role, b.role), Int64GreaterThan(a.count, b.count), StringLessThan(a.role, b.role))`. The result is defined by one algorithm, a top-down merge sort: a list of 0 or 1 items is returned as is; otherwise the first `length / 2` (rounded down) items and the rest are sorted, and then merged by repeatedly taking the head of the right half when `lessThan(rightHead, leftHead)` holds and the head of the left half otherwise. A callback that is a strict weak order yields the stable sorted order. Any other callback still yields a deterministic permutation of the source; for example, one that is always true reverses the list. It calls the callback at most `n log2 n` times and never fails.
 
+## Immutable insertion-ordered `Map<K, V>`
+
+`Map<K, V>` maps keys to values. `K` must be equatable, the set [`ValueEqual`](#structured-values-and-control) accepts: String, Int64, Bool, Unit, `List`, `Option` and `Result` of equatable types, and declared Products and Unions of equatable fields. Float64, functions, tasks, capabilities and maps are not keys, and a `Map` itself is not equatable. Keys compare with `ValueEqual`.
+
+A map is an immutable value. `MapInsert` and `MapRemove` return a new map and leave the old one unchanged. Entries are visited in the order their keys were first inserted, as with Python's `dict` and JavaScript's `Map`. Replacing a key's value keeps its position, and removing a key and inserting it again puts it last. The order never depends on hash values, so it is the same on every run and backend.
+
+```text
+MapEmpty(keyType, valueType)      Map<K, V>
+MapInsert(map, key, value)        Map<K, V>
+MapGet(map, key)                  Option<V>
+MapContainsKey(map, key)          Bool
+MapRemove(map, key)               Map<K, V>, unchanged when the key is absent
+MapSize(map)                      Int64
+MapKeys(map)                      List<K>, in iteration order
+MapValues(map)                    List<V>, in iteration order
+```
+
+Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapFold` and `MapFromList`, which take callbacks, follow in a later change. See the [decision](../decisions/map.md).
+
 ## Program-defined capability values
 
 `CapabilityConstruct` maps every operation of an existing Capability to a monomorphic pure function with the same positional parameter types and result type. The resulting value can be passed to existing consumers; invocation still requires the operation's declared Effect. See [program capability implementations](../specs/program-capability-implementations.md) for validation, authoring, review and versioned persistence. State, capture and effectful implementations are outside this slice.

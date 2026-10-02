@@ -110,11 +110,19 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Bits32ShiftRight _
                 | TypedSemanticNodeKind.Bits32ShiftLeft _
                 | TypedSemanticNodeKind.ListEmpty
+                | TypedSemanticNodeKind.MapEmpty
                 | TypedSemanticNodeKind.ListConstruct _
                 | TypedSemanticNodeKind.ListLength _
+                | TypedSemanticNodeKind.MapValues _
+                | TypedSemanticNodeKind.MapKeys _
+                | TypedSemanticNodeKind.MapSize _
                 | TypedSemanticNodeKind.ListReverse _
                 | TypedSemanticNodeKind.ListSlice _
+                | TypedSemanticNodeKind.MapInsert _
                 | TypedSemanticNodeKind.ListItemAt _
+                | TypedSemanticNodeKind.MapRemove _
+                | TypedSemanticNodeKind.MapContainsKey _
+                | TypedSemanticNodeKind.MapGet _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _
                 | TypedSemanticNodeKind.ListFold _

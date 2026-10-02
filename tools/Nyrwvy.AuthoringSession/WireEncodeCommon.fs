@@ -35,6 +35,7 @@ module internal WireEncodeCommon =
                 match generic with
                 | BuiltinGenericType.Option -> "option"
                 | BuiltinGenericType.Result -> "result"
+                | BuiltinGenericType.Map -> "map"
                 | BuiltinGenericType.List -> "list"
                 | BuiltinGenericType.Task -> "task"
                 | BuiltinGenericType.TaskScope -> "taskScope"

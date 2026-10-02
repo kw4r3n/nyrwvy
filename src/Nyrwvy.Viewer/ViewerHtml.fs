@@ -38,6 +38,8 @@ module ViewerHtml =
             "Option<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
             "Result<" + typeRefText okType + ", " + typeRefText errorType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+            "Map<" + typeRefText keyType + ", " + typeRefText valueType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
             "List<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ->
@@ -51,6 +53,8 @@ module ViewerHtml =
             "Option<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
             "Result<invalid-arity:" + string arguments.Length + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
+            "Map<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             "List<invalid-arity:" + string arguments.Length + ">"
 
@@ -199,12 +203,20 @@ module ViewerHtml =
         | ViewerNodeRole.Bits32ShiftRight -> "bits32 shift right"
         | ViewerNodeRole.Bits32ShiftLeft -> "bits32 shift left"
         | ViewerNodeRole.ListEmpty -> "List empty"
+        | ViewerNodeRole.MapEmpty -> "Map empty"
         | ViewerNodeRole.ListConstruct -> "List construct"
         | ViewerNodeRole.ListLength -> "List length"
+        | ViewerNodeRole.MapValues -> "Map values"
+        | ViewerNodeRole.MapKeys -> "Map keys"
+        | ViewerNodeRole.MapSize -> "Map size"
         | ViewerNodeRole.ListReverse -> "List reverse"
         | ViewerNodeRole.ListAppendItem -> "List append item"
         | ViewerNodeRole.ListItemAt -> "List item at"
+        | ViewerNodeRole.MapRemove -> "Map remove"
+        | ViewerNodeRole.MapContainsKey -> "Map contains key"
+        | ViewerNodeRole.MapGet -> "Map get"
         | ViewerNodeRole.ListSlice -> "List slice"
+        | ViewerNodeRole.MapInsert -> "Map insert"
         | ViewerNodeRole.ListConcat -> "List concat"
         | ViewerNodeRole.ListFold -> "List fold"
         | ViewerNodeRole.ListEffectFold -> "List effect fold"

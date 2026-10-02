@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
+- **Superseded in part:** 2026-10-03, Map added ([decision](map.md))
 - **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 11
 
 This decision settles order 11 of the post-M2 queue: how a program compares keys for Map-like replace-or-append. [Probe 3](../verification/rrawrlet-slice-probe3-20260928.md) (friction 1) replaced-or-appended in 3 places of rrawrlet's `usage_stats` core (statuses, extras and groups) and compared a 6-field `Option<String>` group key by hand. That meets the Map revisit condition in [task fields, list indexing, and Map revisited](task-fields-list-indexing-and-map.md#revisit-conditions). The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.

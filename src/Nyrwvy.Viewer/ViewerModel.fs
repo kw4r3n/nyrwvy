@@ -117,12 +117,20 @@ type ViewerNodeRole =
     | Bits32ShiftRight
     | Bits32ShiftLeft
     | ListEmpty
+    | MapEmpty
     | ListConstruct
     | ListLength
+    | MapValues
+    | MapKeys
+    | MapSize
     | ListReverse
     | ListAppendItem
     | ListItemAt
+    | MapRemove
+    | MapContainsKey
+    | MapGet
     | ListSlice
+    | MapInsert
     | ListConcat
     | ListFold
     | ListEffectFold
@@ -327,12 +335,20 @@ module ViewerProjection =
         | SemanticNodeKind.Bits32ShiftRight _ -> ViewerNodeRole.Bits32ShiftRight, []
         | SemanticNodeKind.Bits32ShiftLeft _ -> ViewerNodeRole.Bits32ShiftLeft, []
         | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
+        | SemanticNodeKind.MapEmpty _ -> ViewerNodeRole.MapEmpty, []
         | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
         | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
+        | SemanticNodeKind.MapValues _ -> ViewerNodeRole.MapValues, []
+        | SemanticNodeKind.MapKeys _ -> ViewerNodeRole.MapKeys, []
+        | SemanticNodeKind.MapSize _ -> ViewerNodeRole.MapSize, []
         | SemanticNodeKind.ListReverse _ -> ViewerNodeRole.ListReverse, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
+        | SemanticNodeKind.MapRemove _ -> ViewerNodeRole.MapRemove, []
+        | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
+        | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
+        | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
         | SemanticNodeKind.ListEffectFold _ -> ViewerNodeRole.ListEffectFold, []

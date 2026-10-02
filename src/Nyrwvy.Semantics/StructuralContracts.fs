@@ -164,6 +164,9 @@ module ValueDependency =
             itemNodeIds
             |> List.mapi (fun index nodeId -> create (ValueDependencyRole.ListItem index) nodeId)
         | SemanticNodeKind.ListLength sourceNodeId
+        | SemanticNodeKind.MapValues sourceNodeId
+        | SemanticNodeKind.MapKeys sourceNodeId
+        | SemanticNodeKind.MapSize sourceNodeId
         | SemanticNodeKind.ListReverse sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
@@ -202,10 +205,23 @@ module ValueDependency =
         | SemanticNodeKind.ListItemAt(sourceNodeId, indexNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Index indexNodeId ]
+        | SemanticNodeKind.MapRemove(sourceNodeId, keyNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index keyNodeId ]
+        | SemanticNodeKind.MapContainsKey(sourceNodeId, keyNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index keyNodeId ]
+        | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index keyNodeId ]
         | SemanticNodeKind.ListSlice(sourceNodeId, startNodeId, endNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
+        | SemanticNodeKind.MapInsert(sourceNodeId, keyNodeId, valueNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.SliceStart keyNodeId
+              create ValueDependencyRole.SliceEnd valueNodeId ]
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->
@@ -261,6 +277,7 @@ module ValueDependency =
         | SemanticNodeKind.Int64Literal _
         | SemanticNodeKind.Float64Literal _
         | SemanticNodeKind.ListEmpty _
+        | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.OptionNone _ -> []
 
 /// Literal payload of a summarized node, so reviews can tell sibling literals apart.
