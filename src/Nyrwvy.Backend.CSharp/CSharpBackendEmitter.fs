@@ -1229,6 +1229,9 @@ module CSharpBackend =
     let private capabilityParameter (parameter: ExecutionCapabilityParameter) =
         formatType parameter.Type + " " + CSharpBackendNames.capabilityParameterName parameter.Id
 
+    let private operationParameterList (operation: ExecutionCapabilityOperation) =
+        operation.Parameters |> List.map capabilityParameter |> String.concat ", "
+
     let private emitCapabilities (writer: SourceWriter) (program: ExecutionProgram) =
         for capability in program.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) do
             let capabilityName = CSharpBackendNames.capabilityName capability.Id
@@ -1236,10 +1239,7 @@ module CSharpBackend =
             writer.Line("{")
             writer.Push()
             for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
-                let parameters =
-                    operation.Parameters
-                    |> List.map capabilityParameter
-                    |> String.concat ", "
+                let parameters = operationParameterList operation
                 let methodName = CSharpBackendNames.capabilityOperationName operation.Id
                 writer.Line(formatType operation.ResultType + " " + methodName + "(" + parameters + ");")
             writer.Pop()
@@ -1249,17 +1249,10 @@ module CSharpBackend =
     let private hasCapabilityAdapter
         (context: CSharpBackendValidation.Context)
         (capability: ExecutionCapability) =
-        let allBound =
-            capability.Operations
-            |> List.forall (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
-        let anyBound =
-            capability.Operations
-            |> List.exists (fun operation -> Map.containsKey operation.Id context.BindingsByOperation)
-        allBound
-        && anyBound
-        && (capability.Operations
-            |> List.forall (fun operation ->
-                Map.find operation.Id context.BindingsByOperation = CSharpCapabilityBindingKind.SystemConsoleWriteLine))
+        not (List.isEmpty capability.Operations)
+        && capability.Operations
+           |> List.forall (fun operation ->
+               Map.tryFind operation.Id context.BindingsByOperation = Some CSharpCapabilityBindingKind.SystemConsoleWriteLine)
 
     let private emitAdapters
         (writer: SourceWriter)
@@ -1273,10 +1266,7 @@ module CSharpBackend =
                 writer.Line("{")
                 writer.Push()
                 for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
-                    let parameters =
-                        operation.Parameters
-                        |> List.map capabilityParameter
-                        |> String.concat ", "
+                    let parameters = operationParameterList operation
                     let methodName = CSharpBackendNames.capabilityOperationName operation.Id
                     writer.Line("public " + formatType operation.ResultType + " " + methodName + "(" + parameters + ")")
                     writer.Line("{")
@@ -1308,7 +1298,7 @@ module CSharpBackend =
                     for operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) do
                         let functionId = implementations |> List.find (fun (id, _) -> id = operation.Id) |> snd
                         let fn = Map.find functionId context.FunctionsById
-                        let parameters = operation.Parameters |> List.map capabilityParameter |> String.concat ", "
+                        let parameters = operationParameterList operation
                         // Declaration order defines the correspondence. Name each target parameter
                         // explicitly, independently of the operation parameter identities.
                         let arguments = List.zip fn.Parameters operation.Parameters |> List.map (fun (parameter, supplied) ->
@@ -1329,32 +1319,24 @@ module CSharpBackend =
     let private callbackName (functionId: FunctionId) =
         CSharpBackendNames.functionContainerName + "." + CSharpBackendNames.functionName functionId
 
-    let private renderNamedCallArguments (arguments: ExecutionCallArgument list) =
-        arguments
-        |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
-        |> List.map (fun argument ->
-            CSharpBackendNames.parameterName argument.TargetParameterId
-            + ": "
-            + valueName argument.ValueId)
+    let private renderNamedArguments
+        (idOf: 'item -> StableId<'kind>)
+        (nameOf: StableId<'kind> -> string)
+        (valueIdOf: 'item -> ExecutionValueId)
+        (items: 'item list) =
+        items
+        |> List.sortBy (idOf >> StableId.value)
+        |> List.map (fun item -> nameOf (idOf item) + ": " + valueName (valueIdOf item))
         |> String.concat ", "
 
-    let private renderCapabilityArguments (arguments: ExecutionCapabilityArgument list) =
-        arguments
-        |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId)
-        |> List.map (fun argument ->
-            CSharpBackendNames.capabilityParameterName argument.TargetCapabilityParameterId
-            + ": "
-            + valueName argument.ValueId)
-        |> String.concat ", "
+    let private renderNamedCallArguments arguments =
+        renderNamedArguments (fun (argument: ExecutionCallArgument) -> argument.TargetParameterId) CSharpBackendNames.parameterName (fun argument -> argument.ValueId) arguments
 
-    let private renderFieldArguments (fields: ExecutionFieldValue list) =
-        fields
-        |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
-        |> List.map (fun field ->
-            CSharpBackendNames.fieldName field.TargetFieldId
-            + ": "
-            + valueName field.ValueId)
-        |> String.concat ", "
+    let private renderCapabilityArguments arguments =
+        renderNamedArguments (fun (argument: ExecutionCapabilityArgument) -> argument.TargetCapabilityParameterId) CSharpBackendNames.capabilityParameterName (fun argument -> argument.ValueId) arguments
+
+    let private renderFieldArguments fields =
+        renderNamedArguments (fun (field: ExecutionFieldValue) -> field.TargetFieldId) CSharpBackendNames.fieldName (fun field -> field.ValueId) fields
 
     let private renderListItems (itemValueIds: ExecutionValueId list) =
         itemValueIds |> List.map valueName |> String.concat ", "
@@ -1837,8 +1819,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.FunctionInvoke(value, arguments) ->
             writer.Line(target + " = " + valueName value + "(" + (arguments |> List.map valueName |> String.concat ", ") + ");")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
-            let functionName = CSharpBackendNames.functionName functionId
-            writer.Line(target + " = NyFunctions." + functionName + "(" + renderNamedCallArguments arguments + ");")
+            writer.Line(target + " = " + callbackName functionId + "(" + renderNamedCallArguments arguments + ");")
         | ExecutionInstructionKind.CapabilityInvoke(capabilityValueId, operationId, arguments) ->
             let methodName = CSharpBackendNames.capabilityOperationName operationId
             writer.Line(target + " = " + valueName capabilityValueId + "." + methodName + "(" + renderCapabilityArguments arguments + ");")

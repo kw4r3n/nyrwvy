@@ -4,9 +4,6 @@ namespace Nyrwvy.Core
 module internal CSharpBackendValidation =
     type Context =
         { FunctionsById: Map<FunctionId, ExecutionFunction>
-          TypesById: Map<TypeId, ExecutionType>
-          VariantsById: Map<VariantId, TypeId * ExecutionVariant>
-          FieldsById: Map<FieldId, TypeId * VariantId option * ExecutionField>
           CapabilitiesById: Map<CapabilityId, ExecutionCapability>
           OperationsById: Map<CapabilityOperationId, CapabilityId * ExecutionCapabilityOperation>
           BindingsByOperation: Map<CapabilityOperationId, CSharpCapabilityBindingKind> }
@@ -36,12 +33,13 @@ module internal CSharpBackendValidation =
         |> List.distinct
         |> List.sortBy StableId.value
 
+    let private boundCapabilityIds (profile: CSharpBackendProfile) operationsById =
+        profile.CapabilityBindings
+        |> List.map (fun binding -> fst (Map.find binding.OperationId operationsById))
+        |> Set.ofList
+
     let private concurrentBindingProblem (program: ExecutionProgram) (profile: CSharpBackendProfile) operationsById =
-        let boundCapabilities =
-            profile.CapabilityBindings
-            |> List.map (fun binding -> fst (Map.find binding.OperationId operationsById))
-            |> Set.ofList
-        match Set.difference profile.ConcurrentCapabilityIds boundCapabilities |> Set.toList |> List.tryHead with
+        match Set.difference profile.ConcurrentCapabilityIds (boundCapabilityIds profile operationsById) |> Set.toList |> List.tryHead with
         | Some id -> Some(CSharpBackendError.InvalidConcurrentCapabilityBinding id)
         | None ->
             let workers =
@@ -85,37 +83,6 @@ module internal CSharpBackendValidation =
             program.Functions
             |> List.map (fun functionEntity -> functionEntity.SemanticFunctionId, functionEntity)
             |> Map.ofList
-
-        let typesById: Map<TypeId, ExecutionType> =
-            program.Types
-            |> List.map (fun typeEntity -> typeEntity.Id, typeEntity)
-            |> Map.ofList
-
-        let variantEntries: (VariantId * (TypeId * ExecutionVariant)) list =
-            program.Types
-            |> List.collect (fun typeEntity ->
-                match typeEntity.Kind with
-                | ExecutionTypeKind.Product _ -> []
-                | ExecutionTypeKind.Union variants ->
-                    variants |> List.map (fun variant -> variant.Id, (typeEntity.Id, variant)))
-
-        let variantsById = Map.ofList variantEntries
-
-        let fieldEntries: (FieldId * (TypeId * VariantId option * ExecutionField)) list =
-            program.Types
-            |> List.collect (fun typeEntity ->
-                match typeEntity.Kind with
-                | ExecutionTypeKind.Product fields ->
-                    fields
-                    |> List.map (fun field -> field.Id, (typeEntity.Id, None, field))
-                | ExecutionTypeKind.Union variants ->
-                    variants
-                    |> List.collect (fun variant ->
-                        variant.Fields
-                        |> List.map (fun field ->
-                            field.Id, (typeEntity.Id, Some variant.Id, field))))
-
-        let fieldsById = Map.ofList fieldEntries
 
         let capabilitiesById: Map<CapabilityId, ExecutionCapability> =
             program.Capabilities
@@ -167,14 +134,11 @@ module internal CSharpBackendValidation =
                         with
                         | Some operationId -> Error(CSharpBackendError.MissingCapabilityBinding operationId)
                         | None ->
-                            let boundCapabilityIds =
-                                orderedBindings
-                                |> List.map (fun binding -> fst (Map.find binding.OperationId operationsById))
-                                |> Set.ofList
+                            let boundCapabilities = boundCapabilityIds profile operationsById
 
                             let missingAdapterBinding =
                                 program.Capabilities
-                                |> List.filter (fun capability -> Set.contains capability.Id boundCapabilityIds)
+                                |> List.filter (fun capability -> Set.contains capability.Id boundCapabilities)
                                 |> List.sortBy (fun capability -> StableId.value capability.Id)
                                 |> List.collect (fun capability ->
                                     capability.Operations
@@ -223,9 +187,6 @@ module internal CSharpBackendValidation =
                                             | None ->
                                                 Ok
                                                     { FunctionsById = functionsById
-                                                      TypesById = typesById
-                                                      VariantsById = variantsById
-                                                      FieldsById = fieldsById
                                                       CapabilitiesById = capabilitiesById
                                                       OperationsById = operationsById
                                                       BindingsByOperation = bindingsByOperation }
