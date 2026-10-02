@@ -193,6 +193,9 @@ module NyasonTests =
         let records depth = String.replicate depth "r { f = " + "true" + String.replicate depth " }"
         let deepest = NyasonSyntax.parse (lists NyasonSyntax.maxDepth) |> unwrap
         Assert.Equal<NyasonValue>(deepest, NyasonSyntax.render deepest |> NyasonSyntax.parse |> unwrap)
+        Assert.False(NyasonSyntax.exceedsMaxDepth deepest)
+        Assert.True(NyasonSyntax.exceedsMaxDepth (NyasonValue.List [ deepest ]))
+        Assert.True(NyasonSyntax.exceedsMaxDepth (NyasonValue.Record("r", [ "f", deepest ])))
         NyasonSyntax.parse (records NyasonSyntax.maxDepth) |> unwrap |> ignore
         let reject (source: string) =
             match NyasonSyntax.parse source with
