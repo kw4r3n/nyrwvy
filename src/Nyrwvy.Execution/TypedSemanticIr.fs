@@ -174,6 +174,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
     | CancellationRequested
     | TaskScope of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -183,6 +184,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -341,6 +343,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
+        | TypedSemanticNodeKind.MapFold _
         | TypedSemanticNodeKind.ParallelAll _
         | TypedSemanticNodeKind.CancellationRequested
         | TypedSemanticNodeKind.TaskScope _
@@ -350,6 +353,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.UseResource _
         | TypedSemanticNodeKind.ListEffectFold _
         | TypedSemanticNodeKind.ListMap _
+        | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.ListAny _
@@ -470,11 +474,14 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapSize mapNodeId -> [ mapNodeId ]
         | TypedSemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
+        | TypedSemanticNodeKind.MapFromList(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
         | TypedSemanticNodeKind.ListSortBy(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.MapFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
@@ -805,6 +812,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
+                    | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, projectContext context))
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
@@ -820,6 +829,8 @@ module TypedSemanticIr =
                     | SemanticNodeKind.TaskCancel taskNodeId -> Ok(TypedSemanticNodeKind.TaskCancel taskNodeId)
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
+                    | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, projectContext context))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->

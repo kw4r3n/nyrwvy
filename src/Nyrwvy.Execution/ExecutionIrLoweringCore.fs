@@ -443,6 +443,12 @@ module ExecutionIr =
                             | Ok lowered ->
                                 lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
                                     ExecutionInstructionKind.ListFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceMapNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.MapFold(source, seed, folderFunctionId, lowered))
                         | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                             match lowerCallArguments context with
                             | Error error -> Error error
@@ -486,6 +492,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId keyOfFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.MapFromList(source, callback, lowered))
                         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListFilter(source, callback, lowered))

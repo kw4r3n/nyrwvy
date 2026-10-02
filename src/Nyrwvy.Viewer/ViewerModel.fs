@@ -133,6 +133,7 @@ type ViewerNodeRole =
     | MapInsert
     | ListConcat
     | ListFold
+    | MapFold
     | ListEffectFold
     | UseResource
     | ParallelAll
@@ -142,6 +143,7 @@ type ViewerNodeRole =
     | TaskWait of mode: TaskWaitMode
     | TaskCancel
     | ListMap
+    | MapFromList
     | ListFilter
     | ListSortBy
     | ListAny
@@ -351,6 +353,7 @@ module ViewerProjection =
         | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
+        | SemanticNodeKind.MapFold _ -> ViewerNodeRole.MapFold, []
         | SemanticNodeKind.ListEffectFold _ -> ViewerNodeRole.ListEffectFold, []
         | SemanticNodeKind.UseResource _ -> ViewerNodeRole.UseResource, []
         | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
@@ -360,6 +363,7 @@ module ViewerProjection =
         | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
+        | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []
         | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
         | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []

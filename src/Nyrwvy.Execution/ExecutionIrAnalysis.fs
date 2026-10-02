@@ -176,7 +176,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
+        | TypedSemanticNodeKind.MapFold _
         | TypedSemanticNodeKind.ListMap _
+        | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.ListAny _

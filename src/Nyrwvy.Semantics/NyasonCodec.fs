@@ -739,6 +739,8 @@ module NyasonCodec =
                   "right", encodeId "node" rightListNodeId ]
         | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             record "list-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
+            record "map-fold" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             record "list-effect-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
@@ -774,6 +776,8 @@ module NyasonCodec =
         | SemanticNodeKind.TaskCancel taskNodeId -> record "task-cancel" [ nodeId; "task", encodeId "node" taskNodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
+        | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
+            encodeListCallbackNode "map-from-list" nodeId sourceListNodeId keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
@@ -1370,6 +1374,10 @@ module NyasonCodec =
             let fields = recordFields "list-fold" [ "id"; "source"; "seed"; "folder" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListFold(decodeId<GraphNodeTag> "node" (require "source" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("map-fold", _) ->
+            let fields = recordFields "map-fold" [ "id"; "map"; "seed"; "folder" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapFold(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-effect-fold", _) ->
             let fields = recordFields "list-effect-fold" [ "id"; "source"; "seed"; "folder" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1419,6 +1427,8 @@ module NyasonCodec =
               Kind = SemanticNodeKind.TaskCancel(decodeId<GraphNodeTag> "node" (require "task" fields)) }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
+        | NyasonValue.Record("map-from-list", _) ->
+            decodeListCallbackNode "map-from-list" value (fun source callback context -> SemanticNodeKind.MapFromList(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->
             decodeListCallbackNode "list-filter" value (fun source callback context -> SemanticNodeKind.ListFilter(source, callback, context))
         | NyasonValue.Record("list-sort-by", _) ->

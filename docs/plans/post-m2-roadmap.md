@@ -188,6 +188,7 @@ The language/tool implementation queue lives in this document. Its orders came f
 | 42 | `StringToUpper` | [string-uppercase](../decisions/string-uppercase.md) |
 | 43 | Rounding half away from zero, and `Float64Round` | [rounding-half-away-from-zero](../decisions/rounding-half-away-from-zero.md) |
 | 44 | `Map<K, V>`, first eight operations | [map](../decisions/map.md) |
+| 45 | `MapFold` and `MapFromList` | [map](../decisions/map.md) |
 
 One change has no order number: after probe 11, a pure `ListEffectFold` whose folder returns `Result` stops at the first `Err` ([result-fold-short-circuit](../decisions/result-fold-short-circuit.md)).
 
@@ -401,7 +402,8 @@ Checked Int64 arithmetic had one observation (probe 20) and was an open candidat
 | 41 | **Done: shared `MatchUnion` arms** (owner choice of option D; `otherwise` taken as AI-facing shorthand) | Probes 7, 10, 17, 18 and 19 repeated one body across arms: 8 to 11% of each port (probe 19: 133 arms, 295 nodes) | An arm names one or more variants and has one body; a recipe `otherwise` expands to an explicit variant list; [design note](match-union-shared-arms.md), [decision](../decisions/match-union-shared-arms.md) |
 | 42 | **Done: uppercase** (owner choice: what one would ordinarily expect over Python; `ß` to `ẞ`) | None: found by the standard-operations review | `StringToUpper(text)`, the simple uppercase mapping per code point, the mirror of `StringToLower`; [decision](../decisions/string-uppercase.md) |
 | 43 | **Done: ordinary rounding** (owner choice: what one would ordinarily expect over Python) | Probes 15 (milliseconds) and 17 (`round(x, 1)`) rounded to decimal places by hand; order 34 followed Python's ties to even | `Float64RoundToInt64` rounds half away from zero, and `Float64Round(value, digits): Float64` rounds the shortest decimal text half away from zero; [decision](../decisions/rounding-half-away-from-zero.md) |
-| 44 | **Done: Map** (owner accepted the [design note](map.md)'s recommendations) | Probes 3, 7, 13, 14 and 16; probe 16's tree comparison was quadratic and over the run limit | `Map<K, V>` keyed by any equatable type, insertion order, `MapEmpty`/`Insert`/`Get`/`ContainsKey`/`Remove`/`Size`/`Keys`/`Values`; `MapFold` and `MapFromList` next; [decision](../decisions/map.md) |
+| 44 | **Done: Map** (owner accepted the [design note](map.md)'s recommendations) | Probes 3, 7, 13, 14 and 16; probe 16's tree comparison was quadratic and over the run limit | `Map<K, V>` keyed by any equatable type, insertion order, `MapEmpty`/`Insert`/`Get`/`ContainsKey`/`Remove`/`Size`/`Keys`/`Values`; [decision](../decisions/map.md) |
+| 45 | **Done: Map callbacks** | The same probes; `MapFromList` replaces the index-by-id folds, `MapFold` walks entries | `MapFold(map, seed, folder)` and `MapFromList(items, keyOf)`; [decision](../decisions/map.md) |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

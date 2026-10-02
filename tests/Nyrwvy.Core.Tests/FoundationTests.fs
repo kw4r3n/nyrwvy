@@ -131,6 +131,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.MapFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
@@ -140,6 +141,7 @@ module FoundationTests =
                 | SemanticNodeKind.TaskWait _
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
+                | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _

@@ -154,9 +154,11 @@ MapRemove(map, key)               Map<K, V>, unchanged when the key is absent
 MapSize(map)                      Int64
 MapKeys(map)                      List<K>, in iteration order
 MapValues(map)                    List<V>, in iteration order
+MapFold(map, seed, folder)        S, folder(state, key, value) over the entries in order
+MapFromList(items, keyOf)         Map<K, T>, items indexed by keyOf(item)
 ```
 
-Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapFold` and `MapFromList`, which take callbacks, follow in a later change. See the [decision](../decisions/map.md).
+Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapFold` and `MapFromList` take pure named callbacks with context, like `ListFold` and `ListMap`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. See the [decision](../decisions/map.md).
 
 ## Program-defined capability values
 

@@ -499,6 +499,15 @@ module internal WireSymbolic =
                 callback.Id,
                 callbackContext callback
             )
+        | "mapFold" ->
+            ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "function"; "context" ] [ "kind"; "map"; "seed"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            ExpressionRecipe.MapFold(
+                recipe declarations parameterContext (property "map" element),
+                recipe declarations parameterContext (property "seed" element),
+                callback.Id,
+                callbackContext callback
+            )
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
@@ -552,6 +561,7 @@ module internal WireSymbolic =
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
         | "listMap"
+        | "mapFromList"
         | "listSortBy"
         | "listFilter"
         | "listAny"
@@ -562,6 +572,7 @@ module internal WireSymbolic =
             let context = callbackContext callback
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
+            | "mapFromList" -> ExpressionRecipe.MapFromList(source, callback.Id, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)

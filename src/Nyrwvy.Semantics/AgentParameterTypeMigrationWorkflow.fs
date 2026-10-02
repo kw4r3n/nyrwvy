@@ -368,6 +368,10 @@ module internal SignatureMigrationCore =
                 two (fun (source, seed) -> source, seed) source seed
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListFold(source, seed, folder, context)))
+            | ExpressionRecipe.MapFold(source, seed, folder, context) ->
+                two (fun (source, seed) -> source, seed) source seed
+                |> Result.bind (fun (source, seed) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.MapFold(source, seed, folder, context)))
             | ExpressionRecipe.ListEffectFold(source, seed, folder, context) ->
                 two (fun (source, seed) -> source, seed) source seed
                 |> Result.bind (fun (source, seed) ->
@@ -390,6 +394,7 @@ module internal SignatureMigrationCore =
                 two (fun (tasks, limit) -> ExpressionRecipe.TaskWait(tasks, mode, Some limit)) tasks limit
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
+            | ExpressionRecipe.MapFromList(source, functionId, context) -> callback ExpressionRecipe.MapFromList source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.ListSortBy(source, functionId, context) -> callback ExpressionRecipe.ListSortBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context

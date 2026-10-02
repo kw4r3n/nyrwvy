@@ -154,6 +154,8 @@ module internal WireGraph =
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
         | SemanticNodeKind.ListFold(source, seed, folder, bindings) ->
             tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+        | SemanticNodeKind.MapFold(source, seed, folder, bindings) ->
+            tagged "mapFold" ([ "sourceMapNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.ListEffectFold(source, seed, folder, bindings) ->
             tagged "listEffectFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.UseResource(acquire, releaseCapability, releaseOperation, body, bindings) ->
@@ -175,6 +177,7 @@ module internal WireGraph =
                  @ (limit |> Option.map (fun limit -> "limitNodeId", identity limit) |> Option.toList))
         | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
+        | SemanticNodeKind.MapFromList(source, callback, bindings) -> traversal "mapFromList" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
