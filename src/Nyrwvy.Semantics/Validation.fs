@@ -1577,17 +1577,6 @@ module SnapshotValidator =
                                                     $"Pattern binding '{StableId.value fieldBinding.Binding.Id}' does not match its variant field type."
                                             | Some _
                                             | None -> ()
-
-                                        let armPatterns =
-                                            arm.FieldBindings
-                                            |> List.map (fun item -> item.Binding.Id)
-                                            |> Set.ofList
-
-                                        validateGraph
-                                            visibleNodes
-                                            (Set.union visiblePatterns armPatterns)
-                                            $"Union match arm '{StableId.value arm.VariantId}'"
-                                            arm.Body
                             | Some _
                             | None ->
                                 add
@@ -1604,6 +1593,18 @@ module SnapshotValidator =
                             add
                                 "MatchArmTypeMismatch"
                                 $"Union match node '{StableId.value node.Id}' arms do not produce one common type."
+
+                        for arm in arms do
+                            let armPatterns =
+                                arm.FieldBindings
+                                |> List.map (fun item -> item.Binding.Id)
+                                |> Set.ofList
+
+                            validateGraph
+                                visibleNodes
+                                (Set.union visiblePatterns armPatterns)
+                                $"Union match arm '{StableId.value arm.VariantId}'"
+                                arm.Body
                     | SemanticNodeKind.Bind(inputNodeId, body) ->
                         requireNodeType
                             "PatternBindingTypeMismatch"

@@ -186,6 +186,36 @@ module ValueGraphTests =
         SnapshotValidator.validate incomplete |> requireIssue "NonExhaustiveUnionMatch"
 
     [<Fact>]
+    let ``union match arm bodies are validated even when the arm names an unknown variant`` () =
+        let snapshot = unionMatchSnapshot true
+        let unknownVariantId = StableId.createForTesting<VariantTag> "variant-unknown"
+        let unknownBindingId = StableId.createForTesting<PatternBindingTag> "binding-unknown"
+        let referenceId = StableId.createForTesting<GraphNodeTag> "node-unknown-reference"
+        let unknownArm: UnionMatchArm =
+            { VariantId = unknownVariantId
+              FieldBindings = []
+              Body =
+                { Nodes =
+                    [ { Id = referenceId
+                        Kind = SemanticNodeKind.PatternReference unknownBindingId } ]
+                  ResultNodeId = referenceId } }
+
+        let updateNode (node: SemanticNode) =
+            match node.Kind with
+            | SemanticNodeKind.MatchUnion(inputNodeId, firstArm :: _) ->
+                { node with Kind = SemanticNodeKind.MatchUnion(inputNodeId, [ firstArm; unknownArm ]) }
+            | _ -> node
+
+        let functions =
+            snapshot.Functions
+            |> List.map (fun functionEntity ->
+                { functionEntity with Body = ValueGraph.mapNodes updateNode functionEntity.Body })
+
+        let issues = SnapshotValidator.validate { snapshot with Functions = functions }
+        issues |> requireIssue "NonExhaustiveUnionMatch"
+        issues |> requireIssue "UnknownPatternReference"
+
+    [<Fact>]
     let ``pattern bindings cannot escape their match arm`` () =
         let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.String ])
         let functionId = StableId.createForTesting<FunctionTag> "function-option-scope"
