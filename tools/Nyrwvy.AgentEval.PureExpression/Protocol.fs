@@ -4,20 +4,11 @@ open System
 open System.Collections.Generic
 open System.Text.Json
 open Nyrwvy.Core
+open Nyrwvy.AgentEval
 
 [<RequireQualifiedAccess>]
 module PureExpressionProtocol =
     let version = "pure-expression-control-flow-v1"
-
-module private Json =
-    let objectValue (pairs: (string * obj) list): obj =
-        let value = Dictionary<string, obj>(StringComparer.Ordinal)
-        for key, item in pairs do
-            value[key] <- item
-        box value
-
-    let arrayValue (items: obj list): obj = items |> List.toArray |> box
-    let serialize (value: obj): string = JsonSerializer.Serialize(value)
 
 module private Input =
     exception ProtocolInputException of string
@@ -181,7 +172,7 @@ module private Input =
           Replacement = recipe (property "replacement" root) }
 
 module private Encode =
-    open Json
+    open ArtifactJson
 
     let private optional (value: 'a option) (encode: 'a -> obj): obj =
         match value with
@@ -308,7 +299,7 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
                 let handle = proposalHandle ()
                 proposals <- Map.add handle proposal proposals
                 let review = AgentPureExpressionStructuralChangeProposal.review proposal
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "proposed"
                       "protocolVersion", box PureExpressionProtocol.version
                       "proposalHandle", box handle
@@ -317,12 +308,12 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
                       "readiness", Encode.readiness review.Readiness
                       "resultingChange", Encode.diff review.ResultingChange ]
             | Error(AgentStructuralWorkflowError.SimulationRejected diagnostics) ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box PureExpressionProtocol.version
                       "diagnostics", Encode.diagnostics diagnostics ]
             | Error error ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "error"
                       "protocolVersion", box PureExpressionProtocol.version
                       "detail", box (sprintf "%A" error) ]
@@ -336,7 +327,7 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
             let proposal = requireProposal handle
             match AgentPureExpressionStructuralWorkflow.commit workspace proposal with
             | AgentStructuralCommitResult.Rejected diagnostics ->
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "rejected"
                       "protocolVersion", box PureExpressionProtocol.version
                       "proposalHandle", box handle
@@ -344,7 +335,7 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
             | AgentStructuralCommitResult.Committed(nextWorkspace, publication) ->
                 workspace <- nextWorkspace
                 proposals <- Map.remove handle proposals
-                Json.objectValue
+                ArtifactJson.objectValue
                     [ "status", box "committed"
                       "protocolVersion", box PureExpressionProtocol.version
                       "proposalHandle", box handle
@@ -361,7 +352,7 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
             let nextWorkspace, receipt = AgentPureExpressionStructuralWorkflow.reject workspace proposal
             workspace <- nextWorkspace
             proposals <- Map.remove handle proposals
-            Json.objectValue
+            ArtifactJson.objectValue
                 [ "status", box "rejectedByAgent"
                   "protocolVersion", box PureExpressionProtocol.version
                   "proposalHandle", box handle
@@ -372,12 +363,12 @@ type PureExpressionSession internal (fixture: PureExpressionEvalFixture, initial
         try
             if String.IsNullOrWhiteSpace line then Input.fail "Input line must contain one JSON command."
             use document = Input.parseDocument line
-            Json.objectValue [ "ok", box true; "result", execute document.RootElement ] |> Json.serialize
+            ArtifactJson.objectValue [ "ok", box true; "result", execute document.RootElement ] |> ArtifactJson.serialize
         with Input.ProtocolInputException message ->
-            Json.objectValue
+            ArtifactJson.objectValue
                 [ "ok", box false
-                  "error", Json.objectValue [ "code", box "ProtocolError"; "message", box message ] ]
-            |> Json.serialize
+                  "error", ArtifactJson.objectValue [ "code", box "ProtocolError"; "message", box message ] ]
+            |> ArtifactJson.serialize
 
 [<RequireQualifiedAccess>]
 module PureExpressionSession =
