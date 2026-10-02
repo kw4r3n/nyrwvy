@@ -50,13 +50,13 @@ module internal CSharpBackendValidation =
                 |> List.collect (fun instruction -> ExecutionInstructionKind.callbackTargets instruction.Kind)
                 |> List.choose (fun (role, functionId) ->
                     match role with
-                    | ExecutionCallbackRole.Worker -> Some functionId
-                    | ExecutionCallbackRole.DirectCall
-                    | ExecutionCallbackRole.PureListCallback
-                    | ExecutionCallbackRole.EffectListCallback
-                    | ExecutionCallbackRole.Body
-                    | ExecutionCallbackRole.FunctionValue
-                    | ExecutionCallbackRole.CapabilityImplementation _ -> None)
+                    | FunctionReferenceRole.Worker -> Some functionId
+                    | FunctionReferenceRole.DirectCall
+                    | FunctionReferenceRole.PureListCallback
+                    | FunctionReferenceRole.EffectListCallback
+                    | FunctionReferenceRole.Body
+                    | FunctionReferenceRole.FunctionValue
+                    | FunctionReferenceRole.CapabilityImplementation _ -> None)
                 |> ExecutionCallGraph.reachable program
             program.Functions
             |> List.filter (fun fn -> Set.contains fn.SemanticFunctionId workers)
