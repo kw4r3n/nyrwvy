@@ -175,7 +175,6 @@ type ListMapStructuralHarness private
 
     member _.Config = config
     member _.Fixture = fixture
-    member _.Task = task
     member _.PerturbationApplied = perturbationApplied
 
     member _.RecordEvent(request: string, response: string) =
