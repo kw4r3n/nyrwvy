@@ -28,7 +28,6 @@ type StructuralVerificationReport =
       BaseSnapshotId: SnapshotId
       PublishedSnapshotId: SnapshotId
       EvidencePath: string
-      RunDirectory: string
       ActualOutput: string option
       ExpectedOutput: string option
       Error: string option
@@ -251,7 +250,6 @@ Console.WriteLine(NyFunctions.{callerName}().ToString("R", CultureInfo.Invariant
               BaseSnapshotId = publication.BaseSnapshotId
               PublishedSnapshotId = publication.PublishedSnapshotId
               EvidencePath = evidencePath
-              RunDirectory = runDirectory
               ActualOutput = actualOutput
               ExpectedOutput = expected
               Error = failure

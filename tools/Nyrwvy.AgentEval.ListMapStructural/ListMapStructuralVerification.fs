@@ -28,7 +28,6 @@ type ListMapStructuralVerificationReport =
       BaseSnapshotId: SnapshotId
       PublishedSnapshotId: SnapshotId
       EvidencePath: string
-      RunDirectory: string
       ActualOutput: string option
       ExpectedOutput: string option
       Error: string option
@@ -256,7 +255,6 @@ Console.WriteLine(NyFunctions.{callerName}() ? "true" : "false");
               BaseSnapshotId = publication.BaseSnapshotId
               PublishedSnapshotId = publication.PublishedSnapshotId
               EvidencePath = evidencePath
-              RunDirectory = runDirectory
               ActualOutput = actualOutput
               ExpectedOutput = expected
               Error = failure
