@@ -280,6 +280,7 @@ module internal WireSymbolic =
         | "stringParseFloat64" -> unary "string-parse-float64 recipe" ExpressionRecipe.StringParseFloat64
         | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
+        | "stringToUpper" -> unary "string-to-upper recipe" ExpressionRecipe.StringToUpper
         | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy
         | "float64RoundToInt64" -> unary "float64-round-to-int64 recipe" ExpressionRecipe.Float64RoundToInt64
         | "float64FloorToInt64" -> unary "float64-floor-to-int64 recipe" ExpressionRecipe.Float64FloorToInt64

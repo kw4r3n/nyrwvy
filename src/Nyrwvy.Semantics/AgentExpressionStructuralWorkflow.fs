@@ -32,6 +32,7 @@ type ExpressionRecipe =
     | StringParseFloat64 of ExpressionRecipe
     | StringCodePoints of ExpressionRecipe
     | StringToLower of ExpressionRecipe
+    | StringToUpper of ExpressionRecipe
     | StringDecodeUtf8Lossy of ExpressionRecipe
     | Float64RoundToInt64 of ExpressionRecipe
     | Float64FloorToInt64 of ExpressionRecipe
@@ -209,6 +210,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringParseFloat64 value -> ExpressionRecipe.StringParseFloat64(go value)
         | ExpressionRecipe.StringCodePoints value -> ExpressionRecipe.StringCodePoints(go value)
         | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
+        | ExpressionRecipe.StringToUpper value -> ExpressionRecipe.StringToUpper(go value)
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
         | ExpressionRecipe.Float64RoundToInt64 value -> ExpressionRecipe.Float64RoundToInt64(go value)
         | ExpressionRecipe.Float64FloorToInt64 value -> ExpressionRecipe.Float64FloorToInt64(go value)
@@ -474,6 +476,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringParseFloat64 child
         | ExpressionRecipe.StringCodePoints child
         | ExpressionRecipe.StringToLower child
+        | ExpressionRecipe.StringToUpper child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
@@ -1247,6 +1250,7 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringCodePoints value ->
                 unary "StringCodePoints" stringType (listType stringType) value
             | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
+            | ExpressionRecipe.StringToUpper value -> unary "StringToUpper" stringType stringType value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary "StringDecodeUtf8Lossy" stringType stringType value
             | ExpressionRecipe.Float64RoundToInt64 value ->
                 unary "Float64RoundToInt64" float64Type (optionType int64Type) value
@@ -2099,6 +2103,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringParseFloat64 value -> unary SemanticNodeKind.StringParseFloat64 value
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
         | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
+        | ExpressionRecipe.StringToUpper value -> unary SemanticNodeKind.StringToUpper value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value

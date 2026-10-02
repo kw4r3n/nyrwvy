@@ -63,6 +63,7 @@ ExpressionRecipe =
   | StringSplitLines(value, breaks)
   | StringJoin(list, separator)
   | StringToLower(expr)
+  | StringToUpper(expr)
   | StringUtf8ByteCount(expr)
   | StringDecodeUtf8Lossy(expr)
   | StringFromCodePoint(expr)
@@ -376,9 +377,9 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `StringSplitLines(value, breaks)` (wire `stringSplitLines` with `value`, `breaks`; Nyason `string-split-lines`) takes two Strings and produces `List<String>`: the lines of `value` split at any code point of `breaks`, with `"\r\n"` as one break when both are members, `""` giving `[]` and no trailing empty line after a final break. It never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-split-lines.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.breaks`); a persisted graph reports `StringIntrinsicTypeMismatch`.
 
-## StringToLower and StringUtf8ByteCount
+## StringToLower, StringToUpper and StringUtf8ByteCount
 
-`StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. Both use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+`StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringToUpper(text)` (wire `stringToUpper`, Nyason `string-to-upper`) is the uppercase counterpart, with `ß` mapped to `ẞ` ([decision](../decisions/string-uppercase.md)). `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. All three use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringDecodeUtf8Lossy
 

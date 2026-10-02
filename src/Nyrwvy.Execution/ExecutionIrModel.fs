@@ -91,6 +91,7 @@ type ExecutionInstructionKind =
     | StringParseFloat64 of ExecutionValueId
     | StringCodePoints of ExecutionValueId
     | StringToLower of ExecutionValueId
+    | StringToUpper of ExecutionValueId
     | StringDecodeUtf8Lossy of ExecutionValueId
     | Float64RoundToInt64 of ExecutionValueId
     | Float64FloorToInt64 of ExecutionValueId
@@ -272,6 +273,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.StringParseFloat64 _
         | ExecutionInstructionKind.StringCodePoints _
         | ExecutionInstructionKind.StringToLower _
+        | ExecutionInstructionKind.StringToUpper _
         | ExecutionInstructionKind.StringDecodeUtf8Lossy _
         | ExecutionInstructionKind.Float64RoundToInt64 _
         | ExecutionInstructionKind.Float64FloorToInt64 _

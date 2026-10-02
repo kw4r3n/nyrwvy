@@ -261,6 +261,8 @@ module ExecutionIrCodec =
             writeUnaryInstruction "stringCodePoints" valueId
         | ExecutionInstructionKind.StringToLower valueId ->
             writeUnaryInstruction "stringToLower" valueId
+        | ExecutionInstructionKind.StringToUpper valueId ->
+            writeUnaryInstruction "stringToUpper" valueId
         | ExecutionInstructionKind.StringDecodeUtf8Lossy valueId ->
             writeUnaryInstruction "stringDecodeUtf8Lossy" valueId
         | ExecutionInstructionKind.Float64RoundToInt64 valueId ->

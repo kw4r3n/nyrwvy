@@ -432,6 +432,9 @@ module SnapshotCodec =
         | SemanticNodeKind.StringToLower valueNodeId ->
             writer.WriteString("kind", "stringToLower")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringToUpper valueNodeId ->
+            writer.WriteString("kind", "stringToUpper")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writer.WriteString("kind", "stringDecodeUtf8Lossy")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -1253,6 +1256,9 @@ module SnapshotCodec =
             | "stringToLower" ->
                 ensureProperties "StringToLower node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringToLower(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringToUpper" ->
+                ensureProperties "StringToUpper node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringToUpper(readId<GraphNodeTag> "valueNodeId" element)
             | "stringDecodeUtf8Lossy" ->
                 ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)

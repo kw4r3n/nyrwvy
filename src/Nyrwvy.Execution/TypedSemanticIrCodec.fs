@@ -337,6 +337,8 @@ module TypedSemanticIrCodec =
             writeUnaryNode writer "stringCodePoints" valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId ->
             writeUnaryNode writer "stringToLower" valueNodeId
+        | TypedSemanticNodeKind.StringToUpper valueNodeId ->
+            writeUnaryNode writer "stringToUpper" valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writeUnaryNode writer "stringDecodeUtf8Lossy" valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->

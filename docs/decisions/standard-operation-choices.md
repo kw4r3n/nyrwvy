@@ -20,7 +20,7 @@ The [standard-operations decision](standard-operations.md) added the operations 
 
 Wire `int64Min` and `int64Max` (fields `left`, `right`) and `int64WrappingAbs` (field `value`); Nyason `int64-min`, `int64-max` and `int64-wrapping-abs`.
 
-**Still not added:** `StringToUpper`, because Python `upper()` changes length (`ß` to `SS`) and no consumer has needed it.
+**Still not added:** `StringToUpper`, because Python `upper()` changes length (`ß` to `SS`) and no consumer has needed it. Added later as order 42 with a one-to-one mapping ([decision](string-uppercase.md)).
 
 ## Reason
 

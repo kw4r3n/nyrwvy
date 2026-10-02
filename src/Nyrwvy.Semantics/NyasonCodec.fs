@@ -487,6 +487,8 @@ module NyasonCodec =
             record "string-code-points" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringToLower valueNodeId ->
             record "string-to-lower" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringToUpper valueNodeId ->
+            record "string-to-upper" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             record "string-decode-utf8-lossy" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
@@ -982,6 +984,10 @@ module NyasonCodec =
             let fields = recordFields "string-to-lower" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringToLower(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-to-upper", _) ->
+            let fields = recordFields "string-to-upper" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringToUpper(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("string-decode-utf8-lossy", _) ->
             let fields = recordFields "string-decode-utf8-lossy" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
