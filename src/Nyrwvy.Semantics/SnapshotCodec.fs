@@ -955,11 +955,23 @@ module SnapshotCodec =
         with :? InvalidOperationException when writer.CurrentDepth >= maxJsonDepth ->
             Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
 
+    /// Whether a function body nests graphs deeper than any encoding of `maxJsonDepth` can hold:
+    /// every graph level costs at least three containers (graph, node list, node). Checked before
+    /// validation, whose recursion over nested graphs would otherwise overflow the stack first.
+    /// The probe stops at the limit, so it cannot overflow itself.
+    let internal nestsBeyondMaxDepth (snapshot: Snapshot) =
+        let rec beyond remaining (graph: ValueGraph) =
+            remaining = 0
+            || graph.Nodes |> List.exists (fun node -> SemanticNodeShape.nestedGraphs node |> List.exists (beyond (remaining - 1)))
+        snapshot.Functions |> List.exists (fun fn -> beyond (maxJsonDepth / 3) fn.Body)
+
     let private serializeCached: Snapshot -> Result<string, SnapshotCodecError> =
         SnapshotComputationScope.Memoize("serialization", fun snapshot ->
-            match SnapshotValidator.validate snapshot with
-            | [] -> writeSnapshot None snapshot
-            | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
+            if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+            else
+                match SnapshotValidator.validate snapshot with
+                | [] -> writeSnapshot None snapshot
+                | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
 
@@ -985,11 +997,14 @@ module SnapshotCodec =
     /// Encode local declarations only after validating their resolved graph with the
     /// selected dependency. The dependency is never written into the local snapshot.
     let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
-        match SnapshotValidator.validate (resolveDependency dependency local) with
-        | issue :: rest -> Error(SnapshotCodecError.InvalidSnapshot(issue :: rest))
-        | [] ->
-            dependencyDigest dependency
-            |> Result.bind (fun digest -> writeSnapshot (Some(StableId.value dependency.Id, digest)) local)
+        let resolved = resolveDependency dependency local
+        if nestsBeyondMaxDepth resolved then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+        else
+            match SnapshotValidator.validate resolved with
+            | issue :: rest -> Error(SnapshotCodecError.InvalidSnapshot(issue :: rest))
+            | [] ->
+                dependencyDigest dependency
+                |> Result.bind (fun digest -> writeSnapshot (Some(StableId.value dependency.Id, digest)) local)
 
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element

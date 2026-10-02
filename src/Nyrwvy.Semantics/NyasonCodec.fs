@@ -9,6 +9,8 @@ type NyasonCodecError =
     | UnsupportedSchema of string
     | InvalidShape of string
     | InvalidSnapshot of ValidationIssue list
+    /// Encoding would nest deeper than `NyasonSyntax.maxDepth` (the payload).
+    | MaximumDepthExceeded of int
 
 exception private NyasonShapeException of string
 exception private NyasonSchemaException of string
@@ -1579,15 +1581,18 @@ module NyasonCodec =
           Obligations = decodeList decodeObligation (require "obligations" fields) }
 
     let serialize (snapshot: Snapshot): Result<string, NyasonCodecError> =
-        match SnapshotValidator.validate snapshot with
-        | issue :: rest -> Error(NyasonCodecError.InvalidSnapshot(issue :: rest))
-        | [] ->
-            let root =
-                record
-                    "nyason"
-                    [ "schema", text (if TaskTimeLimits.isUsed snapshot then timedWaitSchemaId elif FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
-                      "snapshot", encodeSnapshot snapshot ]
-            Ok(NyasonSyntax.render root)
+        let tooDeep = Error(NyasonCodecError.MaximumDepthExceeded NyasonSyntax.maxDepth)
+        if SnapshotCodec.nestsBeyondMaxDepth snapshot then tooDeep
+        else
+            match SnapshotValidator.validate snapshot with
+            | issue :: rest -> Error(NyasonCodecError.InvalidSnapshot(issue :: rest))
+            | [] ->
+                let root =
+                    record
+                        "nyason"
+                        [ "schema", text (if TaskTimeLimits.isUsed snapshot then timedWaitSchemaId elif FunctionAbort.isUsed snapshot then abortSchemaId elif CapabilityImplementations.isUsed snapshot then capabilitySchemaId else schemaId)
+                          "snapshot", encodeSnapshot snapshot ]
+                if NyasonSyntax.exceedsMaxDepth root then tooDeep else Ok(NyasonSyntax.render root)
 
     let deserialize (source: string): Result<Snapshot, NyasonCodecError> =
         match NyasonSyntax.parse source with

@@ -276,6 +276,18 @@ module NyasonSyntax =
             writeIndent builder indent
             builder.Append('}') |> ignore
 
+    /// Whether `value` nests more lists and records than `parse` accepts, so a document that
+    /// cannot be read back is never written.
+    let exceedsMaxDepth value =
+        let rec beyond remaining value =
+            match value with
+            | NyasonValue.List values -> remaining = 0 || values |> List.exists (beyond (remaining - 1))
+            | NyasonValue.Record(_, fields) -> remaining = 0 || fields |> List.exists (snd >> beyond (remaining - 1))
+            | NyasonValue.Atom _
+            | NyasonValue.Text _
+            | NyasonValue.Boolean _ -> false
+        beyond maxDepth value
+
     let render value =
         let builder = StringBuilder()
         writeValue builder 0 value
