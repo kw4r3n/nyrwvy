@@ -19,6 +19,7 @@ type ValueDependencyRole =
     | TaskScope
     | Limit
     | Index
+    | Key
     /// The Int64 rotation or shift amount of a Bits32 operation.
     | Amount
     | ListItem of int
@@ -207,21 +208,21 @@ module ValueDependency =
               create ValueDependencyRole.Index indexNodeId ]
         | SemanticNodeKind.MapRemove(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
-              create ValueDependencyRole.Index keyNodeId ]
+              create ValueDependencyRole.Key keyNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
-              create ValueDependencyRole.Index keyNodeId ]
+              create ValueDependencyRole.Key keyNodeId ]
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
-              create ValueDependencyRole.Index keyNodeId ]
+              create ValueDependencyRole.Key keyNodeId ]
         | SemanticNodeKind.ListSlice(sourceNodeId, startNodeId, endNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.MapInsert(sourceNodeId, keyNodeId, valueNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
-              create ValueDependencyRole.SliceStart keyNodeId
-              create ValueDependencyRole.SliceEnd valueNodeId ]
+              create ValueDependencyRole.Key keyNodeId
+              create ValueDependencyRole.Value valueNodeId ]
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) ->

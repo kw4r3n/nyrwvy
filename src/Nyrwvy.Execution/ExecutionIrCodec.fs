@@ -481,11 +481,11 @@ module ExecutionIrCodec =
               property "listValueId" (executionValueIdValue listValueId)
               property "startId" (executionValueIdValue startId)
               property "endId" (executionValueIdValue endId) ]
-        | ExecutionInstructionKind.MapInsert(mapValueId, startId, endId) ->
+        | ExecutionInstructionKind.MapInsert(mapValueId, keyValueId, valueValueId) ->
             [ property "kind" (quote "mapInsert")
               property "mapValueId" (executionValueIdValue mapValueId)
-              property "startId" (executionValueIdValue startId)
-              property "endId" (executionValueIdValue endId) ]
+              property "keyValueId" (executionValueIdValue keyValueId)
+              property "valueValueId" (executionValueIdValue valueValueId) ]
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
             [ property "kind" (quote "listAppendItem")
               property "listValueId" (executionValueIdValue listValueId)

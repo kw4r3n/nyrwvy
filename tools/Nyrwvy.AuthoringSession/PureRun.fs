@@ -812,6 +812,11 @@ module PureRun =
                 not (supportedScalar okType && supportedScalar errorType)
                 && supported 1 okType && supported 1 errorType
                 && valueType payload = (if isOk then okType else errorType)
+            | PureRunValue.MapValue(keyType, valueType', entries) ->
+                supported 1 keyType && supported 1 valueType'
+                && (entries |> List.forall (fun (key, item) -> valueType key = keyType && valueType item = valueType'))
+                // Keys compare in canonical form, so Product fields listed in another order are the same key.
+                && (entries |> List.map (fst >> canonicalValue) |> List.distinct |> List.length) = entries.Length
             | _ -> true
         local && (children value |> List.forall (validContainers supported))
 
@@ -995,7 +1000,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validUnion declarations.Types >> not) ->
             Error(diagnostic "RunUnionShapeMismatch" "Union arguments must name a variant of the declared Union and supply each field exactly once with its exact type, including nested Unions.")
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
-            Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item and Result payload types must be supported and match every payload; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
+            Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item, Map key and value, and Result payload types must be supported and match every payload, and Map keys must be distinct; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
         | Some fn when not (supported 0 fn.ResultType) ->
             Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
@@ -1096,7 +1101,7 @@ module PureRun =
                                     layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
                                     let key, value, accumulator = fresh (), fresh (), fresh ()
-                                    let pair = array [ encode keyType key depthBase (offset + 2); encode valueType value depthBase (offset + 2) ]
+                                    let pair = array [ encode keyType key depthBase (offset + 1); encode valueType value depthBase (offset + 1) ]
                                     layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {key}, {value}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Map result exceeds 4096 entries.\"); {accumulator}.Add({pair}); return {accumulator}; }})"
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
                                     let child = encode item (access + ".Value") depthBase (offset + 1)

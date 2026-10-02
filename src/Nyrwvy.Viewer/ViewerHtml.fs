@@ -93,6 +93,7 @@ module ViewerHtml =
         | ValueDependencyRole.TaskScope -> "task scope"
         | ValueDependencyRole.Limit -> "limit"
         | ValueDependencyRole.Index -> "index"
+        | ValueDependencyRole.Key -> "key"
         | ValueDependencyRole.Amount -> "amount"
         | ValueDependencyRole.SliceEnd -> "slice end"
         | ValueDependencyRole.SearchFrom -> "search from"

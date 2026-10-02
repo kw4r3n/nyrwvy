@@ -175,7 +175,15 @@ module MapTests =
                 $"""{{"kind":"mapGet","map":{parameter "m"},"key":{parameter "p"}}}"""
             let partMap =
                 $"""{{"kind":"map","keyType":{part},"valueType":{str},"entries":[{{"key":{partValue "m1" 0L},"value":{text "first"}}},{{"key":{partValue "m1" 1L},"value":{text "second"}}}]}}"""
-            expectRun session "byPart" [ partMap; partValue "m1" 1L ] """{"kind":"option","itemKind":"string","hasValue":true,"value":"second"}""")
+            expectRun session "byPart" [ partMap; partValue "m1" 1L ] """{"kind":"option","itemKind":"string","hasValue":true,"value":"second"}"""
+            // The same Product key with its fields listed in the other order is a duplicate key.
+            let swapped = $"""{{"kind":"product","type":"Part","fields":[{{"field":"index","value":{int64 0L}}},{{"field":"message","value":{text "m1"}}}]}}"""
+            let duplicate =
+                $"""{{"kind":"map","keyType":{part},"valueType":{str},"entries":[{{"key":{partValue "m1" 0L},"value":{text "a"}}},{{"key":{swapped},"value":{text "b"}}}]}}"""
+            Assert.Equal(
+                "RunContainerTypeMismatch",
+                rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"byPart","arguments":[{duplicate},{partValue "m1" 0L}]}}"""
+            ))
 
     [<Fact>]
     let ``Map key types must be equatable and operands must match the map`` () =
@@ -200,9 +208,14 @@ module MapTests =
                 "ValueEqualTypeNotEquatable",
                 simulateCode session [ "m", wordCounts ] (primitive "bool") $"""{{"kind":"valueEqual","left":{parameter "m"},"right":{parameter "m"}}}"""
             )
-            // A duplicate key in a run value is rejected before running.
+            // A key of the wrong type and a duplicate key in a run value are rejected before running.
+            let mistyped = $"""{{"kind":"map","keyType":{str},"valueType":{int64Type},"entries":[{{"key":{int64 1L},"value":{int64 2L}}}]}}"""
             define session "size" [ "m", wordCounts ] int64Type $"""{{"kind":"mapSize","value":{parameter "m"}}}"""
             Assert.Equal(
                 "ProtocolError",
                 rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{counts [ "a", 1L; "a", 2L ]}]}}"""
+            )
+            Assert.Equal(
+                "RunContainerTypeMismatch",
+                rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{mistyped}]}}"""
             ))
