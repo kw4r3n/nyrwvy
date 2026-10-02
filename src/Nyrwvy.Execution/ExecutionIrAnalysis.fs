@@ -178,26 +178,22 @@ module internal ExecutionIrAnalysis =
         (functionsById: Map<FunctionId, TypedSemanticFunction>)
         (node: TypedSemanticNode)
         : bool =
+        let functionHasEffects functionId =
+            functionsById
+            |> Map.tryFind functionId
+            |> Option.exists (fun (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects))
+
         match node.Kind with
         | TypedSemanticNodeKind.CapabilityInvoke _ -> true
-        | TypedSemanticNodeKind.ListEffectFold(_, _, functionId, _) ->
-            match Map.tryFind functionId functionsById with
-            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
-            | None -> false
+        | TypedSemanticNodeKind.ListEffectFold(_, _, functionId, _)
+        | TypedSemanticNodeKind.ParallelAll(_, functionId, _)
+        | TypedSemanticNodeKind.DirectCall(functionId, _) -> functionHasEffects functionId
         | TypedSemanticNodeKind.UseResource _ -> true
         | TypedSemanticNodeKind.CancellationRequested -> true
         | TypedSemanticNodeKind.TaskScope _
         | TypedSemanticNodeKind.TaskStart _
         | TypedSemanticNodeKind.TaskWait _
         | TypedSemanticNodeKind.TaskCancel _ -> true
-        | TypedSemanticNodeKind.ParallelAll(_, functionId, _) ->
-            match Map.tryFind functionId functionsById with
-            | Some (functionEntity: TypedSemanticFunction) -> not (List.isEmpty functionEntity.RequiredEffects)
-            | None -> false
-        | TypedSemanticNodeKind.DirectCall(functionId, _) ->
-            match Map.tryFind functionId functionsById with
-            | Some functionEntity -> not (List.isEmpty functionEntity.RequiredEffects)
-            | None -> false
         | TypedSemanticNodeKind.Conditional _
         | TypedSemanticNodeKind.BoolAnd _
         | TypedSemanticNodeKind.BoolOr _
@@ -332,14 +328,5 @@ module internal ExecutionIrAnalysis =
                 (fun result child -> result |> Result.bind (fun () -> validateEffectOrder functionId functionsById child))
                 (Ok())
 
-        match ordered with
-        | Error error -> Error error
-        | Ok () ->
-            let rec validateAll remaining =
-                match remaining with
-                | [] -> Ok ()
-                | (node: TypedSemanticNode) :: rest ->
-                    match validateChildren node with
-                    | Error error -> Error error
-                    | Ok () -> validateAll rest
-            validateAll graph.Nodes
+        graph.Nodes
+        |> List.fold (fun result node -> result |> Result.bind (fun () -> validateChildren node)) ordered

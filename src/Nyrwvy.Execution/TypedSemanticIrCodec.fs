@@ -314,71 +314,49 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "float64Literal")
             writer.WriteString("bits", Float64Bits.toHex bits)
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId ->
-            writer.WriteString("kind", "stringIsEmpty")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringIsEmpty" valueNodeId
         | TypedSemanticNodeKind.Int64ToString valueNodeId ->
-            writer.WriteString("kind", "int64ToString")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "int64ToString" valueNodeId
         | TypedSemanticNodeKind.Int64ToHexString valueNodeId ->
-            writer.WriteString("kind", "int64ToHexString")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "int64ToHexString" valueNodeId
         | TypedSemanticNodeKind.StringParseInt64 valueNodeId ->
-            writer.WriteString("kind", "stringParseInt64")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringParseInt64" valueNodeId
         | TypedSemanticNodeKind.StringParseInt64Hex valueNodeId ->
-            writer.WriteString("kind", "stringParseInt64Hex")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringParseInt64Hex" valueNodeId
         | TypedSemanticNodeKind.Float64ToString valueNodeId ->
-            writer.WriteString("kind", "float64ToString")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64ToString" valueNodeId
         | TypedSemanticNodeKind.StringParseFloat64 valueNodeId ->
-            writer.WriteString("kind", "stringParseFloat64")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringParseFloat64" valueNodeId
         | TypedSemanticNodeKind.StringCodePoints valueNodeId ->
-            writer.WriteString("kind", "stringCodePoints")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringCodePoints" valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId ->
-            writer.WriteString("kind", "stringToLower")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringToLower" valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
-            writer.WriteString("kind", "stringDecodeUtf8Lossy")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringDecodeUtf8Lossy" valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
-            writer.WriteString("kind", "float64RoundToInt64")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64RoundToInt64" valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
-            writer.WriteString("kind", "float64FloorToInt64")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64FloorToInt64" valueNodeId
         | TypedSemanticNodeKind.Float64Sqrt valueNodeId ->
-            writer.WriteString("kind", "float64Sqrt")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Sqrt" valueNodeId
         | TypedSemanticNodeKind.Float64Abs valueNodeId ->
-            writer.WriteString("kind", "float64Abs")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Abs" valueNodeId
         | TypedSemanticNodeKind.Float64Negate valueNodeId ->
-            writer.WriteString("kind", "float64Negate")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Negate" valueNodeId
         | TypedSemanticNodeKind.Float64Floor valueNodeId ->
-            writer.WriteString("kind", "float64Floor")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Floor" valueNodeId
         | TypedSemanticNodeKind.Float64Ceiling valueNodeId ->
-            writer.WriteString("kind", "float64Ceiling")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Ceiling" valueNodeId
         | TypedSemanticNodeKind.Float64Truncate valueNodeId ->
-            writer.WriteString("kind", "float64Truncate")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "float64Truncate" valueNodeId
         | TypedSemanticNodeKind.StringUtf8ByteCount valueNodeId ->
-            writer.WriteString("kind", "stringUtf8ByteCount")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringUtf8ByteCount" valueNodeId
         | TypedSemanticNodeKind.StringFromCodePoint valueNodeId ->
-            writer.WriteString("kind", "stringFromCodePoint")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringFromCodePoint" valueNodeId
         | TypedSemanticNodeKind.StringToCodePoint valueNodeId ->
-            writer.WriteString("kind", "stringToCodePoint")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringToCodePoint" valueNodeId
         | TypedSemanticNodeKind.StringLength valueNodeId ->
-            writer.WriteString("kind", "stringLength")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "stringLength" valueNodeId
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
             writer.WriteString("kind", "stringSlice")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -665,11 +643,9 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.OptionNone ->
             writer.WriteString("kind", "optionNone")
         | TypedSemanticNodeKind.OptionSome valueNodeId ->
-            writer.WriteString("kind", "optionSome")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "optionSome" valueNodeId
         | TypedSemanticNodeKind.ResultOk valueNodeId ->
-            writer.WriteString("kind", "resultOk")
-            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writeUnaryNode writer "resultOk" valueNodeId
         | TypedSemanticNodeKind.Abort errorNodeId ->
             writer.WriteString("kind", "abort")
             writer.WriteString("errorNodeId", StableId.value errorNodeId)

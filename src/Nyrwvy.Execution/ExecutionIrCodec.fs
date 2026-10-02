@@ -244,74 +244,51 @@ module ExecutionIrCodec =
             [ property "kind" (quote "float64Literal")
               property "bits" (quote (Float64Bits.toHex bits)) ]
         | ExecutionInstructionKind.StringIsEmpty valueId ->
-            [ property "kind" (quote "stringIsEmpty")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringIsEmpty" valueId
         | ExecutionInstructionKind.Int64ToString valueId ->
-            [ property "kind" (quote "int64ToString")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "int64ToString" valueId
         | ExecutionInstructionKind.Int64ToHexString valueId ->
-            [ property "kind" (quote "int64ToHexString")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "int64ToHexString" valueId
         | ExecutionInstructionKind.StringParseInt64 valueId ->
-            [ property "kind" (quote "stringParseInt64")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringParseInt64" valueId
         | ExecutionInstructionKind.StringParseInt64Hex valueId ->
-            [ property "kind" (quote "stringParseInt64Hex")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringParseInt64Hex" valueId
         | ExecutionInstructionKind.Float64ToString valueId ->
-            [ property "kind" (quote "float64ToString")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64ToString" valueId
         | ExecutionInstructionKind.StringParseFloat64 valueId ->
-            [ property "kind" (quote "stringParseFloat64")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringParseFloat64" valueId
         | ExecutionInstructionKind.StringCodePoints valueId ->
-            [ property "kind" (quote "stringCodePoints")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringCodePoints" valueId
         | ExecutionInstructionKind.StringToLower valueId ->
-            [ property "kind" (quote "stringToLower")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringToLower" valueId
         | ExecutionInstructionKind.StringDecodeUtf8Lossy valueId ->
-            [ property "kind" (quote "stringDecodeUtf8Lossy")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringDecodeUtf8Lossy" valueId
         | ExecutionInstructionKind.Float64RoundToInt64 valueId ->
-            [ property "kind" (quote "float64RoundToInt64")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64RoundToInt64" valueId
         | ExecutionInstructionKind.Float64FloorToInt64 valueId ->
-            [ property "kind" (quote "float64FloorToInt64")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64FloorToInt64" valueId
         | ExecutionInstructionKind.Float64Sqrt valueId ->
-            [ property "kind" (quote "float64Sqrt")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Sqrt" valueId
         | ExecutionInstructionKind.Float64Abs valueId ->
-            [ property "kind" (quote "float64Abs")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Abs" valueId
         | ExecutionInstructionKind.Float64Negate valueId ->
-            [ property "kind" (quote "float64Negate")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Negate" valueId
         | ExecutionInstructionKind.Float64Floor valueId ->
-            [ property "kind" (quote "float64Floor")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Floor" valueId
         | ExecutionInstructionKind.Float64Ceiling valueId ->
-            [ property "kind" (quote "float64Ceiling")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Ceiling" valueId
         | ExecutionInstructionKind.Float64Truncate valueId ->
-            [ property "kind" (quote "float64Truncate")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "float64Truncate" valueId
         | ExecutionInstructionKind.StringUtf8ByteCount valueId ->
-            [ property "kind" (quote "stringUtf8ByteCount")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringUtf8ByteCount" valueId
         | ExecutionInstructionKind.StringFromCodePoint valueId ->
-            [ property "kind" (quote "stringFromCodePoint")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringFromCodePoint" valueId
         | ExecutionInstructionKind.StringToCodePoint valueId ->
-            [ property "kind" (quote "stringToCodePoint")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringToCodePoint" valueId
         | ExecutionInstructionKind.StringLength valueId ->
-            [ property "kind" (quote "stringLength")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "stringLength" valueId
         | ExecutionInstructionKind.BoolNot valueId ->
-            [ property "kind" (quote "boolNot")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "boolNot" valueId
         | ExecutionInstructionKind.StringSlice(valueId, startId, endId) ->
             [ property "kind" (quote "stringSlice")
               property "valueId" (executionValueIdValue valueId)
@@ -584,11 +561,9 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.OptionNone ->
             [ property "kind" (quote "optionNone") ]
         | ExecutionInstructionKind.OptionSome valueId ->
-            [ property "kind" (quote "optionSome")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "optionSome" valueId
         | ExecutionInstructionKind.ResultOk valueId ->
-            [ property "kind" (quote "resultOk")
-              property "valueId" (executionValueIdValue valueId) ]
+            writeUnaryInstruction "resultOk" valueId
         | ExecutionInstructionKind.ResultErr errorValueId ->
             [ property "kind" (quote "resultErr")
               property "errorValueId" (executionValueIdValue errorValueId) ]
