@@ -84,11 +84,13 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `Map<K, V>` is the emitted `NyMap<K, V>`, a persistent map, so an old map stays valid after an insert. It holds an `ImmutableDictionary<K, (long Order, V Value)>` under `EqualityComparer<K>.Default`, which is structural for every equatable type (see [value equality](#value-equality)). It also holds an `ImmutableSortedDictionary<long, K>` from insertion number to key, and the next insertion number. `Insert` keeps an existing key's number and gives a new key the next one. `Remove` drops both entries. `Keys`, `Values` and `Fold` walk the sorted numbers, so the visible order is insertion order and never depends on hash codes. Lookup, insert and remove are O(log n).
 
-`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order. `Union` inserts the right items into the left set; `Intersection` and `Difference` remove items from the left set, so the kept items keep their order. `NyMap<K, V>.Filter` likewise removes the rejected entries.
+`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order. `Union` inserts the right items into the left set; `Intersection` and `Difference` remove items from the left set, so the kept items keep their order. `NyMap<K, V>.Filter` likewise removes the rejected entries. `NyMap<K, V>.MapValues` builds a map with the same keys and insertion numbers and the mapped values, so the order is unchanged, and `NyMap<K, V>.GetOrDefault` returns the stored value or the already evaluated default.
 
 ## List sorting
 
 `ListSortBy` emits `source.SortBy(lessThan)`, with the callback rendered like other List callbacks (a method group, or a lambda passing context and the two items by parameter name). `NyList<T>.SortBy` copies the items and runs the specified top-down merge sort: the left half is the first `length / 2` items, and the merge takes the right head only when `lessThan(rightHead, leftHead)` is true, so equal items keep their order. It does not use `Array.Sort` or `List<T>.Sort`, which are unstable introsorts whose result for an inconsistent comparer is unspecified and which may throw for one.
+
+`ListMinBy` emits `source.MinBy(lessThan)`. `NyList<T>.MinBy` returns `None` for the empty list; otherwise it keeps the first item and scans the rest left to right, replacing the kept item only when `lessThan(item, kept)` is true, so the first of equal items wins.
 
 ## Value equality
 

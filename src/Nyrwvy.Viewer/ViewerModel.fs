@@ -139,6 +139,7 @@ type ViewerNodeRole =
     | MapContainsKey
     | SetContains
     | MapGet
+    | MapGetOrDefault
     | ListSlice
     | MapInsert
     | ListConcat
@@ -157,6 +158,8 @@ type ViewerNodeRole =
     | ListFilter
     | MapFilter
     | ListSortBy
+    | ListMinBy
+    | MapMapValues
     | ListAny
     | ListAll
     | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
@@ -370,6 +373,7 @@ module ViewerProjection =
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
+        | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
         | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
@@ -388,6 +392,8 @@ module ViewerProjection =
         | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
         | SemanticNodeKind.MapFilter _ -> ViewerNodeRole.MapFilter, []
         | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
+        | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
+        | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
         | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->

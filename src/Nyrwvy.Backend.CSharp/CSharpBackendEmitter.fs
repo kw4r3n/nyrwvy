@@ -743,6 +743,7 @@ module CSharpBackend =
         writer.Line("public long Size => entries.Count;")
         writer.Line("public bool ContainsKey(K key) => entries.ContainsKey(key);")
         writer.Line("public NyOption<V> Get(K key) => entries.TryGetValue(key, out var entry) ? NyOption<V>.Some(entry.Value) : NyOption<V>.None();")
+        writer.Line("public V GetOrDefault(K key, V fallback) => entries.TryGetValue(key, out var entry) ? entry.Value : fallback;")
         writer.Line("public NyMap<K, V> Insert(K key, V value) =>")
         writer.Line("entries.TryGetValue(key, out var entry)")
         writer.Line("? new(entries.SetItem(key, (entry.Order, value)), order, next)")
@@ -762,6 +763,22 @@ module CSharpBackend =
         writer.Line("public static NyMap<K, V> FromList(NyList<V> items, System.Func<V, K> keyOf) => items.Fold(EmptyMap, (map, item) => map.Insert(keyOf(item), item));")
         // Removing the rejected entries keeps the others at their positions.
         writer.Line("public NyMap<K, V> Filter(System.Func<K, V, bool> keep) => Fold(this, (map, key, value) => keep(key, value) ? map : map.Remove(key));")
+        // Each value replaced by mapper(key, value), called in insertion order; keys and their
+        // insertion numbers are kept, so the order is unchanged.
+        writer.Line("public NyMap<K, U> MapValues<U>(System.Func<K, V, U> mapper)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var mapped = System.Collections.Immutable.ImmutableDictionary.CreateBuilder<K, (long Order, U Value)>(System.Collections.Generic.EqualityComparer<K>.Default);")
+        writer.Line("foreach (var key in order.Values)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var entry = entries[key];")
+        writer.Line("mapped.Add(key, (entry.Order, mapper(key, entry.Value)));")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return new NyMap<K, U>(mapped.ToImmutable(), order, next);")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyList<K> Keys()")
         writer.Line("{")
         writer.Push()
@@ -981,6 +998,18 @@ module CSharpBackend =
         writer.Line("while (left < middle) scratch[next++] = items[left++];")
         writer.Line("while (right < end) scratch[next++] = items[right++];")
         writer.Line("Array.Copy(scratch, start, items, start, length);")
+        writer.Pop()
+        writer.Line("}")
+        // ListMinBy: scan left to right from the first item, replacing the best only when
+        // lessThan(item, best) holds, so the first of equal items wins for any callback.
+        writer.Line("public NyOption<T> MinBy(Func<T, T, bool> lessThan)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (_count == 0) return NyOption<T>.None();")
+        writer.Line("var items = _store.Items;")
+        writer.Line("var best = items[0];")
+        writer.Line("for (var i = 1; i < _count; i++) if (lessThan(items[i], best)) best = items[i];")
+        writer.Line("return NyOption<T>.Some(best);")
         writer.Pop()
         writer.Line("}")
         writer.Line("public NyList<T> Filter(Func<T, bool> predicate)")
@@ -1900,6 +1929,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName setValueId + ".Contains(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
+        | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
+            writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
             writer.Line(target + " = " + valueName listValueId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
         | ExecutionInstructionKind.MapInsert(mapValueId, keyId, valueId) ->
@@ -2031,8 +2062,12 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.MapFilter(sourceMapValueId, keepFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".Filter(" + callback keepFunctionId context + ");")
+        | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceMapValueId + ".MapValues(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
+        | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".MinBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->

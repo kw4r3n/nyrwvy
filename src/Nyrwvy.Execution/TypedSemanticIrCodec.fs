@@ -595,6 +595,11 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
             writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "mapGetOrDefault")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
             writer.WriteString("kind", "listSlice")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -675,6 +680,13 @@ module TypedSemanticIrCodec =
             writeCallbackContext writer context
         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "mapMapValues")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->

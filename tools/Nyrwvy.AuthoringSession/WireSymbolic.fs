@@ -493,6 +493,13 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "key" element)
             )
+        | "mapGetOrDefault" ->
+            ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
+            ExpressionRecipe.MapGetOrDefault(
+                recipe declarations parameterContext (property "map" element),
+                recipe declarations parameterContext (property "key" element),
+                recipe declarations parameterContext (property "default" element)
+            )
         | "listSlice" ->
             ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
             ExpressionRecipe.ListSlice(
@@ -591,9 +598,14 @@ module internal WireSymbolic =
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
             ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "mapMapValues" ->
+            ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            ExpressionRecipe.MapMapValues(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
         | "listMap"
         | "mapFromList"
         | "listSortBy"
+        | "listMinBy"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
@@ -606,6 +618,7 @@ module internal WireSymbolic =
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, callback.Id, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
+            | "listMinBy" -> ExpressionRecipe.ListMinBy(source, callback.Id, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->

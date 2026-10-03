@@ -188,6 +188,7 @@ type ExecutionInstructionKind =
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
+    | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | MapInsert of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * valueValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
@@ -208,6 +209,9 @@ type ExecutionInstructionKind =
     | MapFilter of sourceMapValueId: ExecutionValueId * keepFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Stable top-down merge sort under a pure less-than callback (see SemanticNodeKind.ListSortBy).
     | ListSortBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
+    /// First smallest item under a pure less-than callback (see SemanticNodeKind.ListMinBy).
+    | ListMinBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
+    | MapMapValues of sourceMapValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Construct a stateless capability using named pure functions, one per operation.
@@ -267,6 +271,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.MapFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
+        | ExecutionInstructionKind.MapMapValues(_, functionId, _)
+        | ExecutionInstructionKind.ListMinBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
         | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback FunctionReferenceRole.PureListCallback functionId ]
         | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _) -> [ callback FunctionReferenceRole.EffectListCallback functionId ]
@@ -390,6 +396,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.MapGet _
+        | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _
         | ExecutionInstructionKind.MapInsert _
         | ExecutionInstructionKind.ListConcat _

@@ -191,6 +191,7 @@ The language/tool implementation queue lives in this document. Its orders came f
 | 45 | `MapFold` and `MapFromList` | [map](../decisions/map.md) |
 | 46 | `Set<T>` | [set](../decisions/set.md) |
 | 47 | Set algebra and `MapFilter` | [set](../decisions/set.md), [map](../decisions/map.md) |
+| 48 | `MapGetOrDefault`, `MapMapValues` and `ListMinBy` | [map](../decisions/map.md), [list-sort-and-string-ordering](../decisions/list-sort-and-string-ordering.md) |
 
 One change has no order number: after probe 11, a pure `ListEffectFold` whose folder returns `Result` stops at the first `Err` ([result-fold-short-circuit](../decisions/result-fold-short-circuit.md)).
 
@@ -202,9 +203,6 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | --- | --- | --- |
 | Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | [Design note](loops.md) proposed (2026-10-04): compile a self-call in tail position as a jump, as a guarantee; awaiting the owner's choice. The [real-time note](realtime-processors.md) recommends treating it as separate from `IndexFold` |
 | `IndexFold(count, seed, step)` | Not counted: proposed in the [real-time note](realtime-processors.md), which says probe 13's `while` and the `ListRange` observations may already be enough evidence | Proposed only. Ordinary-code use needs its own evidence or an owner choice. `ListFold` over `ListRange` (order 37) is a counted loop today, but builds the list first |
-| Map get-or-default | [Probe 21](../verification/map-set-probe21-20261004.md) (every accumulating write) | Owner choice to add small ordinary builtins ahead of further evidence |
-| Mapping a map's values | Probe 21 (1) | Owner choice, as above |
-| Smallest item of a list | Probe 21 (1) | Owner choice, as above |
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
@@ -411,6 +409,7 @@ Checked Int64 arithmetic had one observation (probe 20) and was an open candidat
 | 45 | **Done: Map callbacks** | The same probes; `MapFromList` replaces the index-by-id folds, `MapFold` walks entries | `MapFold(map, seed, folder)` and `MapFromList(items, keyOf)`; [decision](../decisions/map.md) |
 | 46 | **Done: Set** (Map design note, second slice) | Probes 13 (`set`) and 14 (constant sets as literal lists) | `Set<T>` with `SetEmpty`/`FromList`/`Insert`/`Contains`/`Remove`/`Size`/`ToList`, insertion order; [decision](../decisions/set.md) |
 | 47 | **Done: set algebra and `MapFilter`** (owner choice of 2026-10-04: operations one ordinarily expects, ahead of a consumer) | None counted; the [Map design note](map.md) left filtering for later and the [Set decision](../decisions/set.md) left union, intersection and difference for later | `SetUnion`, `SetIntersection` and `SetDifference` keep the left operand's order (union appends the right's new items), and `MapFilter(map, keep)` keeps entries in place; [set](../decisions/set.md), [map](../decisions/map.md) |
+| 48 | **Done: `MapGetOrDefault`, `MapMapValues` and `ListMinBy`** (owner choice of 2026-10-04, after probe 21: small ordinary builtins ahead of further evidence) | [Probe 21](../verification/map-set-probe21-20261004.md): get-or-default at every accumulating write, mapping a map's values once, the smallest item of a list once | `MapGetOrDefault(map, key, default)`, `MapMapValues(map, mapper)` keeping keys and order, and `ListMinBy(list, lessThan): Option<T>` keeping the first of equal items; [map](../decisions/map.md), [list-sort-and-string-ordering](../decisions/list-sort-and-string-ordering.md) |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

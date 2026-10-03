@@ -1,6 +1,6 @@
 # Map (design note)
 
-**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45; Set is order 46; set algebra and `MapFilter` are order 47. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
+**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45; Set is order 46; set algebra and `MapFilter` are order 47; `MapGetOrDefault` and `MapMapValues` are order 48. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
 
 ## Context
 
@@ -57,7 +57,7 @@ A first slice with the operations every map API has (`K` key, `V` value):
 
 Nyrwvy has no tuple type, so the slice takes no list of pairs. `MapFromList` with a key callback covers "index these records by id", which is the probes' common construction. `MapFold` covers walking the entries.
 
-Left for later, each until a consumer needs it: update-with-function (`MapGet` plus `MapInsert` does it), merging two maps, and a list of entries (it needs a pair type). Filtering was later added as `MapFilter` (order 47).
+Left for later, each until a consumer needs it: update-with-function (`MapGet` plus `MapInsert` does it), merging two maps, and a list of entries (it needs a pair type). Filtering was later added as `MapFilter` (order 47), and a get with a default and mapping the values as `MapGetOrDefault` and `MapMapValues` (order 48).
 
 ### 4. Is a Map itself equatable, and can it be a key?
 

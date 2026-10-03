@@ -315,3 +315,125 @@ module MapTests =
                 "PureExpressionOperandTypeMismatch",
                 simulateCode session [ "l", listOf str ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "l"},"function":"notA"}}"""
             ))
+
+    [<Fact>]
+    let ``MapGetOrDefault returns the value for a present key and the default for an absent one`` () =
+        withSession (fun session path ->
+            let m = parameter "m"
+            let k = parameter "k"
+            define
+                session
+                "countOf"
+                [ "m", wordCounts; "k", str; "d", int64Type ]
+                int64Type
+                $"""{{"kind":"mapGetOrDefault","map":{m},"key":{k},"default":{parameter "d"}}}"""
+            // Python: counts[word] = counts.get(word, 0) + 1.
+            define
+                session
+                "bump"
+                [ "m", wordCounts; "k", str ]
+                wordCounts
+                $"""{{"kind":"mapInsert","map":{m},"key":{k},"value":{{"kind":"int64WrappingAdd","left":{{"kind":"mapGetOrDefault","map":{m},"key":{k},"default":{{"kind":"int64Literal","value":0}}}},"right":{{"kind":"int64Literal","value":1}}}}}}"""
+            let ab = counts [ "a", 1L; "b", 2L ]
+            expectRun session "countOf" [ ab; text "b"; int64 0L ] (int64 2L)
+            expectRun session "countOf" [ ab; text "z"; int64 0L ] (int64 0L)
+            expectRun session "countOf" [ counts []; text "a"; int64 (-1L) ] (int64 (-1L))
+            expectRun session "bump" [ ab; text "a" ] (counts [ "a", 2L; "b", 2L ])
+            expectRun session "bump" [ ab; text "c" ] (counts [ "a", 1L; "b", 2L; "c", 1L ])
+
+            let snapshot = readSnapshot path
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            Assert.Contains("\"mapGetOrDefault\"", File.ReadAllText path)
+            let node =
+                snapshot.Functions
+                |> List.collect (fun fn -> fn.Body.Nodes)
+                |> List.find (fun node -> match node.Kind with SemanticNodeKind.MapGetOrDefault _ -> true | _ -> false)
+            Assert.Equal<ValueDependencyRole list>(
+                [ ValueDependencyRole.Source; ValueDependencyRole.Key; ValueDependencyRole.Value ],
+                ValueDependency.ofNode node |> List.map (fun dependency -> dependency.Role)
+            )
+            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            Assert.Contains("map-get-or-default", nyason)
+            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
+
+            // The default must have the map's value type, the key its key type, and the result is V.
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "m", wordCounts; "k", str ] int64Type $"""{{"kind":"mapGetOrDefault","map":{m},"key":{k},"default":{{"kind":"stringLiteral","value":"none"}}}}"""
+            )
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "m", wordCounts ] int64Type $"""{{"kind":"mapGetOrDefault","map":{m},"key":{{"kind":"int64Literal","value":1}},"default":{{"kind":"int64Literal","value":0}}}}"""
+            )
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "l", listOf str; "k", str ] int64Type $"""{{"kind":"mapGetOrDefault","map":{parameter "l"},"key":{k},"default":{{"kind":"int64Literal","value":0}}}}"""
+            )
+            Assert.Equal(
+                "FunctionCreationResultTypeMismatch",
+                simulateCode session [ "m", wordCounts; "k", str ] (optionOf int64Type) $"""{{"kind":"mapGetOrDefault","map":{m},"key":{k},"default":{{"kind":"int64Literal","value":0}}}}"""
+            ))
+
+    [<Fact>]
+    let ``MapMapValues replaces each value through its callback and keeps the keys in order`` () =
+        withSession (fun session path ->
+            let flags (entries: (string * bool) list) =
+                let items =
+                    entries
+                    |> List.map (fun (key, value) -> $"""{{"key":{text key},"value":{{"kind":"bool","value":{(if value then "true" else "false")}}}}}""")
+                    |> String.concat ","
+                $"""{{"kind":"map","keyType":{str},"valueType":{primitive "bool"},"entries":[{items}]}}"""
+            let labels (entries: (string * string) list) =
+                let items = entries |> List.map (fun (key, value) -> $"""{{"key":{text key},"value":{text value}}}""") |> String.concat ","
+                $"""{{"kind":"map","keyType":{str},"valueType":{str},"entries":[{items}]}}"""
+            // limit < v, with limit bound by context: Map<String, Int64> to Map<String, Bool>.
+            define session "above" [ "limit", int64Type; "k", str; "v", int64Type ] (primitive "bool") $"""{{"kind":"int64LessThan","left":{parameter "limit"},"right":{parameter "v"}}}"""
+            define
+                session
+                "aboveFlags"
+                [ "m", wordCounts; "n", int64Type ]
+                (mapOf str (primitive "bool"))
+                $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"above","context":[{{"parameter":"limit","value":{parameter "n"}}}]}}"""
+            // The key takes part: k + "=", a String value from an Int64 map.
+            define session "keyLabel" [ "k", str; "v", int64Type ] str $"""{{"kind":"stringConcat","left":{parameter "k"},"right":{{"kind":"stringLiteral","value":"="}}}}"""
+            define session "labelled" [ "m", wordCounts ] (mapOf str str) $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"keyLabel"}}"""
+            // Same value type: v + v.
+            define session "twice" [ "k", str; "v", int64Type ] int64Type $"""{{"kind":"int64WrappingAdd","left":{parameter "v"},"right":{parameter "v"}}}"""
+            define session "doubled" [ "m", wordCounts ] wordCounts $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"twice"}}"""
+
+            let input = counts [ "b", 2L; "a", 1L; "c", 3L ]
+            expectRun session "aboveFlags" [ input; int64 1L ] (flags [ "b", true; "a", false; "c", true ])
+            expectRun session "aboveFlags" [ counts []; int64 0L ] (flags [])
+            expectRun session "labelled" [ input ] (labels [ "b", "b="; "a", "a="; "c", "c=" ])
+            expectRun session "doubled" [ input ] (counts [ "b", 4L; "a", 2L; "c", 6L ])
+            expectRun session "doubled" [ counts [] ] (counts [])
+
+            let snapshot = readSnapshot path
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            Assert.Contains("\"mapMapValues\"", File.ReadAllText path)
+            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            Assert.Contains("map-map-values", nyason)
+            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
+
+            // A callback with one parameter, one whose inputs do not match (K, V), a non-Map source
+            // and a declared result other than Map<K, U> are rejected.
+            define session "oneArg" [ "k", str ] (primitive "bool") """{"kind":"boolLiteral","value":true}"""
+            Assert.Equal(
+                "PureExpressionListCallbackArityMismatch",
+                simulateCode session [ "m", wordCounts ] (mapOf str (primitive "bool")) $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"oneArg"}}"""
+            )
+            define session "intKeys" [ "k", int64Type; "v", int64Type ] int64Type (parameter "v")
+            Assert.Equal(
+                "PureExpressionListCallbackInputTypeMismatch",
+                simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"intKeys"}}"""
+            )
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "l", listOf str ] wordCounts $"""{{"kind":"mapMapValues","map":{parameter "l"},"function":"twice"}}"""
+            )
+            Assert.Equal(
+                "FunctionCreationResultTypeMismatch",
+                simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"keyLabel"}}"""
+            ))

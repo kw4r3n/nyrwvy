@@ -231,6 +231,7 @@ module ViewerHtml =
         | ViewerNodeRole.MapContainsKey -> "Map contains key"
         | ViewerNodeRole.SetContains -> "Set contains"
         | ViewerNodeRole.MapGet -> "Map get"
+        | ViewerNodeRole.MapGetOrDefault -> "Map get or default"
         | ViewerNodeRole.ListSlice -> "List slice"
         | ViewerNodeRole.MapInsert -> "Map insert"
         | ViewerNodeRole.ListConcat -> "List concat"
@@ -250,6 +251,8 @@ module ViewerHtml =
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.MapFilter -> "Map filter"
         | ViewerNodeRole.ListSortBy -> "List sort by"
+        | ViewerNodeRole.ListMinBy -> "List min by"
+        | ViewerNodeRole.MapMapValues -> "Map map values"
         | ViewerNodeRole.ListAny -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
         | ViewerNodeRole.CapabilityConstruct(capabilityId, implementations) ->
