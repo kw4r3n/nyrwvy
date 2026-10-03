@@ -8,7 +8,7 @@ open System.Text.Json
 /// Instruction order and signature/block-parameter order are preserved.
 [<RequireQualifiedAccess>]
 module ExecutionIrCodec =
-    let schemaVersion = 8
+    let schemaVersion = 9
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -761,6 +761,16 @@ module ExecutionIrCodec =
                   property "inputValueId" (executionValueIdValue inputValueId)
                   property "okBlock" (executionBlockIdValue okBlock)
                   property "errBlock" (executionBlockIdValue errBlock) ]
+        | ExecutionTerminator.TailCall(nodeId, arguments) ->
+            objectValue
+                [ property "kind" (quote "tailCall")
+                  property "originNodeId" (stableIdValue nodeId)
+                  property
+                      "arguments"
+                      (arguments
+                       |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
+                       |> List.map writeCallArgument
+                       |> arrayValue) ]
 
     let private writeBlock (block: ExecutionBlock): string =
         objectValue
@@ -803,7 +813,8 @@ module ExecutionIrCodec =
                     | ExecutionInstructionKind.TaskWait(_, _, Some _) -> true
                     | _ -> false))
         let hasAbort = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)
-        let version = if hasLimit then schemaVersion elif hasAbort then 7 else 6
+        let hasTailCall = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.TailCall _ -> true | _ -> false)
+        let version = if hasTailCall then schemaVersion elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
             [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)

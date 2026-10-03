@@ -1409,9 +1409,11 @@ module PureRun =
                             + fakeClasses
                         let frames = frameResolver artifact.Symbols
                         let stackOverflowMessage =
-                            "Stack overflow: recursion was too deep. Nested self or mutual DirectCall recursion runs on the runner's thread stack, "
-                            + "which holds only several thousand frames of a typical function; iterate a List with ListFold "
-                            + "(for text, over StringCodePoints) instead of recursing once per item."
+                            "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, "
+                            + "a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); "
+                            + "any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several "
+                            + "thousand frames of a typical function. Make the self call the last step of each continuing branch, "
+                            + "or iterate a List with ListFold (for text, over StringCodePoints)."
                         let runtimeFailure exceptionType message frameNames exhausted calls =
                             PureRunError.RuntimeFailure
                                 { SnapshotId = snapshotId

@@ -104,9 +104,10 @@ module PureRunProvenanceTests =
         let ws = create ws "shape" (TypeRef.Named shapeId) (TypeRef.Named shapeId) input
         let ws = create ws "check" intType (resultType itemType stringType)
                     (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.ProductConstruct(itemId, [ labelId, ExpressionRecipe.StringLiteral "ok"; tagsId, ExpressionRecipe.ListEmpty stringType ])))
-        // Unbounded self and mutual recursion are valid programs that fail only at run time.
+        // Unbounded self and mutual recursion are valid programs that fail only at run time. The self
+        // call is an operand (loop(x + 1) + 1), not a tail call, which would run as a loop instead.
         let ws = create ws "loop" intType intType input
-        let ws = replace ws "loop" (fun value -> call ws "loop" (next value))
+        let ws = replace ws "loop" (fun value -> next (call ws "loop" (next value)))
         let ws = create ws "ping" intType intType input
         let ws = create ws "pong" intType intType (call ws "ping" (next input))
         let ws = replace ws "ping" (fun value -> call ws "pong" (next value))
