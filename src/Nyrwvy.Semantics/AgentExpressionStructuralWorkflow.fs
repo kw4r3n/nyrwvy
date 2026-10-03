@@ -123,6 +123,9 @@ type ExpressionRecipe =
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
     | MapInsert of map: ExpressionRecipe * key: ExpressionRecipe * ``end``: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
+    | SetUnion of left: ExpressionRecipe * right: ExpressionRecipe
+    | SetIntersection of left: ExpressionRecipe * right: ExpressionRecipe
+    | SetDifference of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -139,6 +142,7 @@ type ExpressionRecipe =
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFromList of source: ExpressionRecipe * keyOfFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | MapFilter of source: ExpressionRecipe * keepFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListSortBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -319,6 +323,9 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
         | ExpressionRecipe.MapInsert(map, key, value) -> ExpressionRecipe.MapInsert(go map, go key, go value)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
+        | ExpressionRecipe.SetUnion(left, right) -> ExpressionRecipe.SetUnion(go left, go right)
+        | ExpressionRecipe.SetIntersection(left, right) -> ExpressionRecipe.SetIntersection(go left, go right)
+        | ExpressionRecipe.SetDifference(left, right) -> ExpressionRecipe.SetDifference(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.MapFold(source, seed, folder, context) -> ExpressionRecipe.MapFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -333,6 +340,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
         | ExpressionRecipe.MapFromList(source, callback, context) -> ExpressionRecipe.MapFromList(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
+        | ExpressionRecipe.MapFilter(source, callback, context) -> ExpressionRecipe.MapFilter(go source, callback, pairs context)
         | ExpressionRecipe.ListSortBy(source, callback, context) -> ExpressionRecipe.ListSortBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
@@ -623,7 +631,10 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapContainsKey(left, right)
         | ExpressionRecipe.SetContains(left, right)
         | ExpressionRecipe.MapGet(left, right)
-        | ExpressionRecipe.ListConcat(left, right) -> seq { yield left; yield right }
+        | ExpressionRecipe.ListConcat(left, right)
+        | ExpressionRecipe.SetUnion(left, right)
+        | ExpressionRecipe.SetIntersection(left, right)
+        | ExpressionRecipe.SetDifference(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.MapFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
@@ -638,6 +649,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.MapFromList(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
+        | ExpressionRecipe.MapFilter(source, _, context)
         | ExpressionRecipe.ListSortBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
         | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
@@ -1636,6 +1648,39 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok rightType when rightType <> leftType -> Error(typeMismatch "ListConcat" "right" leftType rightType)
                         | Ok _ -> Ok leftType
+            | ExpressionRecipe.SetUnion(left, right) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match setItemType leftType with
+                    | None -> Error(setMismatch "SetUnion" "left" leftType)
+                    | Some _ ->
+                        match infer frames right with
+                        | Error error -> Error error
+                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetUnion" "right" leftType rightType)
+                        | Ok _ -> Ok leftType
+            | ExpressionRecipe.SetIntersection(left, right) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match setItemType leftType with
+                    | None -> Error(setMismatch "SetIntersection" "left" leftType)
+                    | Some _ ->
+                        match infer frames right with
+                        | Error error -> Error error
+                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetIntersection" "right" leftType rightType)
+                        | Ok _ -> Ok leftType
+            | ExpressionRecipe.SetDifference(left, right) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match setItemType leftType with
+                    | None -> Error(setMismatch "SetDifference" "left" leftType)
+                    | Some _ ->
+                        match infer frames right with
+                        | Error error -> Error error
+                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetDifference" "right" leftType rightType)
+                        | Ok _ -> Ok leftType
             | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1695,6 +1740,29 @@ module AgentExpressionStructuralWorkflow =
                                         if PureFunctions.isPure snapshot folder.Id then Ok seedType
                                         else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"MapFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
                                     | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"MapFold folder {callbackName folder} must have type (accumulator, key, value) -> accumulator, here ({ty seedType}, {ty keyType}, {ty valueType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
+            | ExpressionRecipe.MapFilter(source, keepFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match mapEntryTypes sourceType with
+                    | None -> Error(mapMismatch "MapFilter" "map" sourceType)
+                    | Some(keyType, valueType) ->
+                        match Map.tryFind keepFunctionId functionsById with
+                        | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"MapFilter callback '{StableId.value keepFunctionId}' does not exist.")
+                        | Some keep ->
+                            match validateCallbackContext "MapFilter" keep context (infer frames) with
+                            | Error error -> Error error
+                            | Ok(unbound, _) when unbound.Length <> 2 ->
+                                Error(diagnostic "PureExpressionListCallbackArityMismatch" $"MapFilter callback {callbackName keep} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature keep} and context binds {List.length context}.")
+                            | Ok(unbound, substitution) ->
+                                let matched =
+                                    TypeParameters.matchType substitution unbound[0].Type keyType
+                                    |> Option.bind (fun current -> TypeParameters.matchType current unbound[1].Type valueType)
+                                match matched with
+                                | Some current when TypeParameters.substitute current keep.ResultType = boolType ->
+                                    if PureFunctions.isPure snapshot keep.Id then Ok sourceType
+                                    else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"MapFilter callback {callbackName keep} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"MapFilter callback {callbackName keep} must have type (key, value) -> Bool, here ({ty keyType}, {ty valueType}) -> Bool; the callback has type {callbackSignature keep}.")
             | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2477,6 +2545,9 @@ module AgentExpressionStructuralWorkflow =
             @ [ { Id = nodeId; Kind = SemanticNodeKind.MapInsert(listResult, startResult, stopResult) } ],
             nodeId
         | ExpressionRecipe.ListConcat(left, right) -> binary SemanticNodeKind.ListConcat left right
+        | ExpressionRecipe.SetUnion(left, right) -> binary SemanticNodeKind.SetUnion left right
+        | ExpressionRecipe.SetIntersection(left, right) -> binary SemanticNodeKind.SetIntersection left right
+        | ExpressionRecipe.SetDifference(left, right) -> binary SemanticNodeKind.SetDifference left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed
@@ -2529,6 +2600,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) -> listCallback SemanticNodeKind.MapFromList source keyOfFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
+        | ExpressionRecipe.MapFilter(source, keepFunctionId, context) -> listCallback SemanticNodeKind.MapFilter source keepFunctionId context
         | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
         | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context

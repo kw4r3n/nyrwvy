@@ -273,3 +273,45 @@ module MapTests =
                 "MapKeyTypeNotEquatable",
                 simulateCode session [ "rows", listOf row ] (mapOf (primitive "float64") row) $"""{{"kind":"mapFromList","source":{parameter "rows"},"function":"rowWeight"}}"""
             ))
+
+    [<Fact>]
+    let ``MapFilter keeps the entries its callback accepts in their insertion positions`` () =
+        withSession (fun session path ->
+            // limit < v, with limit bound by context.
+            define session "above" [ "limit", int64Type; "k", str; "v", int64Type ] (primitive "bool") $"""{{"kind":"int64LessThan","left":{parameter "limit"},"right":{parameter "v"}}}"""
+            define
+                session
+                "frequent"
+                [ "m", wordCounts; "n", int64Type ]
+                wordCounts
+                $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"above","context":[{{"parameter":"limit","value":{parameter "n"}}}]}}"""
+            expectRun session "frequent" [ counts [ "b", 2L; "a", 1L; "c", 3L; "d", 5L ]; int64 1L ] (counts [ "b", 2L; "c", 3L; "d", 5L ])
+            expectRun session "frequent" [ counts [ "b", 2L; "a", 1L ]; int64 9L ] (counts [])
+            expectRun session "frequent" [ counts [] ; int64 0L ] (counts [])
+            // Keys take part too: keep keys other than "a".
+            define session "notA" [ "k", str; "v", int64Type ] (primitive "bool") $"""{{"kind":"boolNot","value":{{"kind":"stringEqual","left":{parameter "k"},"right":{{"kind":"stringLiteral","value":"a"}}}}}}"""
+            define session "dropA" [ "m", wordCounts ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"notA"}}"""
+            expectRun session "dropA" [ counts [ "b", 2L; "a", 1L; "c", 3L ] ] (counts [ "b", 2L; "c", 3L ])
+
+            let snapshot = readSnapshot path
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            Assert.Contains("map-filter", nyason)
+            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
+
+            // A callback with one parameter, one not returning Bool, and a non-Map source are rejected.
+            define session "oneArg" [ "k", str ] (primitive "bool") """{"kind":"boolLiteral","value":true}"""
+            Assert.Equal(
+                "PureExpressionListCallbackArityMismatch",
+                simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"oneArg"}}"""
+            )
+            define session "valueOf" [ "k", str; "v", int64Type ] int64Type (parameter "v")
+            Assert.Equal(
+                "PureExpressionListCallbackInputTypeMismatch",
+                simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"valueOf"}}"""
+            )
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "l", listOf str ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "l"},"function":"notA"}}"""
+            ))

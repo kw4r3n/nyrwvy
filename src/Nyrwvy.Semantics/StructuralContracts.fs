@@ -154,7 +154,10 @@ module ValueDependency =
         | SemanticNodeKind.Bits32And(leftNodeId, rightNodeId)
         | SemanticNodeKind.Bits32Or(leftNodeId, rightNodeId)
         | SemanticNodeKind.Bits32Add(leftNodeId, rightNodeId)
-        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
             [ create ValueDependencyRole.LeftOperand leftNodeId
               create ValueDependencyRole.RightOperand rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
@@ -177,6 +180,7 @@ module ValueDependency =
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->

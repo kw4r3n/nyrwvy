@@ -740,6 +740,12 @@ module NyasonCodec =
                 [ nodeId
                   "set", encodeId "node" mapNodeId
                   "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId) ->
+            record "set-union" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
+        | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId) ->
+            record "set-intersection" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
+        | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+            record "set-difference" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
         | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             record
                 "map-contains-key"
@@ -813,6 +819,8 @@ module NyasonCodec =
             encodeListCallbackNode "map-from-list" nodeId sourceListNodeId keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+            record "map-filter" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "keep", encodeId "function" keepFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             encodeListCallbackNode "list-sort-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
@@ -1403,6 +1411,18 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "set" fields),
                     decodeId<GraphNodeTag> "node" (require "item" fields)
                 ) }
+        | NyasonValue.Record("set-union", _) ->
+            let fields = recordFields "set-union" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetUnion(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
+        | NyasonValue.Record("set-intersection", _) ->
+            let fields = recordFields "set-intersection" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetIntersection(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
+        | NyasonValue.Record("set-difference", _) ->
+            let fields = recordFields "set-difference" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetDifference(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
         | NyasonValue.Record("map-contains-key", _) ->
             let fields = recordFields "map-contains-key" [ "id"; "map"; "key" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1504,6 +1524,10 @@ module NyasonCodec =
             decodeListCallbackNode "map-from-list" value (fun source callback context -> SemanticNodeKind.MapFromList(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->
             decodeListCallbackNode "list-filter" value (fun source callback context -> SemanticNodeKind.ListFilter(source, callback, context))
+        | NyasonValue.Record("map-filter", _) ->
+            let fields = recordFields "map-filter" [ "id"; "map"; "keep" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapFilter(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "keep" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-sort-by", _) ->
             decodeListCallbackNode "list-sort-by" value (fun source callback context -> SemanticNodeKind.ListSortBy(source, callback, context))
         | NyasonValue.Record("list-any", _) ->

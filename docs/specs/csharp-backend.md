@@ -84,7 +84,7 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `Map<K, V>` is the emitted `NyMap<K, V>`, a persistent map, so an old map stays valid after an insert. It holds an `ImmutableDictionary<K, (long Order, V Value)>` under `EqualityComparer<K>.Default`, which is structural for every equatable type (see [value equality](#value-equality)). It also holds an `ImmutableSortedDictionary<long, K>` from insertion number to key, and the next insertion number. `Insert` keeps an existing key's number and gives a new key the next one. `Remove` drops both entries. `Keys`, `Values` and `Fold` walk the sorted numbers, so the visible order is insertion order and never depends on hash codes. Lookup, insert and remove are O(log n).
 
-`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order.
+`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order. `Union` inserts the right items into the left set; `Intersection` and `Difference` remove items from the left set, so the kept items keep their order. `NyMap<K, V>.Filter` likewise removes the rejected entries.
 
 ## List sorting
 

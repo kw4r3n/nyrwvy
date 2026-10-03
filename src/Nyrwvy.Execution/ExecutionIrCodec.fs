@@ -494,6 +494,18 @@ module ExecutionIrCodec =
             [ property "kind" (quote "setRemove")
               property "setValueId" (executionValueIdValue setValueId)
               property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.SetUnion(leftSetValueId, rightSetValueId) ->
+            [ property "kind" (quote "setUnion")
+              property "leftSetValueId" (executionValueIdValue leftSetValueId)
+              property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.SetIntersection(leftSetValueId, rightSetValueId) ->
+            [ property "kind" (quote "setIntersection")
+              property "leftSetValueId" (executionValueIdValue leftSetValueId)
+              property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.SetDifference(leftSetValueId, rightSetValueId) ->
+            [ property "kind" (quote "setDifference")
+              property "leftSetValueId" (executionValueIdValue leftSetValueId)
+              property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapContainsKey")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -579,6 +591,11 @@ module ExecutionIrCodec =
             writeListCallbackInstruction "mapFromList" sourceListValueId "keyOfFunctionId" keyOfFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listFilter" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.MapFilter(sourceMapValueId, keepFunctionId, context) ->
+            [ property "kind" (quote "mapFilter")
+              property "sourceMapValueId" (executionValueIdValue sourceMapValueId)
+              property "keepFunctionId" (stableIdValue keepFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->

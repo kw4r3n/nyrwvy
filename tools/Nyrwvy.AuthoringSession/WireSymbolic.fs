@@ -514,6 +514,9 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "item" element)
             )
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
+        | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
+        | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
+        | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
@@ -584,6 +587,10 @@ module internal WireSymbolic =
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
+        | "mapFilter" ->
+            ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
         | "listMap"
         | "mapFromList"
         | "listSortBy"

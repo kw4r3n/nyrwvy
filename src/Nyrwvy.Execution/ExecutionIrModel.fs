@@ -182,6 +182,9 @@ type ExecutionInstructionKind =
     | MapRemove of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetInsert of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | SetRemove of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | SetUnion of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | SetIntersection of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | SetDifference of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
@@ -202,6 +205,7 @@ type ExecutionInstructionKind =
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFromList of sourceListValueId: ExecutionValueId * keyOfFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    | MapFilter of sourceMapValueId: ExecutionValueId * keepFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Stable top-down merge sort under a pure less-than callback (see SemanticNodeKind.ListSortBy).
     | ListSortBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -261,6 +265,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.MapFromList(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
+        | ExecutionInstructionKind.MapFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
         | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback FunctionReferenceRole.PureListCallback functionId ]
@@ -379,6 +384,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.MapRemove _
         | ExecutionInstructionKind.SetInsert _
         | ExecutionInstructionKind.SetRemove _
+        | ExecutionInstructionKind.SetUnion _
+        | ExecutionInstructionKind.SetIntersection _
+        | ExecutionInstructionKind.SetDifference _
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.MapGet _

@@ -190,6 +190,7 @@ The language/tool implementation queue lives in this document. Its orders came f
 | 44 | `Map<K, V>`, first eight operations | [map](../decisions/map.md) |
 | 45 | `MapFold` and `MapFromList` | [map](../decisions/map.md) |
 | 46 | `Set<T>` | [set](../decisions/set.md) |
+| 47 | Set algebra and `MapFilter` | [set](../decisions/set.md), [map](../decisions/map.md) |
 
 One change has no order number: after probe 11, a pure `ListEffectFold` whose folder returns `Result` stops at the first `Err` ([result-fold-short-circuit](../decisions/result-fold-short-circuit.md)).
 
@@ -406,6 +407,7 @@ Checked Int64 arithmetic had one observation (probe 20) and was an open candidat
 | 44 | **Done: Map** (owner accepted the [design note](map.md)'s recommendations) | Probes 3, 7, 13, 14 and 16; probe 16's tree comparison was quadratic and over the run limit | `Map<K, V>` keyed by any equatable type, insertion order, `MapEmpty`/`Insert`/`Get`/`ContainsKey`/`Remove`/`Size`/`Keys`/`Values`; [decision](../decisions/map.md) |
 | 45 | **Done: Map callbacks** | The same probes; `MapFromList` replaces the index-by-id folds, `MapFold` walks entries | `MapFold(map, seed, folder)` and `MapFromList(items, keyOf)`; [decision](../decisions/map.md) |
 | 46 | **Done: Set** (Map design note, second slice) | Probes 13 (`set`) and 14 (constant sets as literal lists) | `Set<T>` with `SetEmpty`/`FromList`/`Insert`/`Contains`/`Remove`/`Size`/`ToList`, insertion order; [decision](../decisions/set.md) |
+| 47 | **Done: set algebra and `MapFilter`** (owner choice of 2026-10-04: operations one ordinarily expects, ahead of a consumer) | None counted; the [Map design note](map.md) left filtering for later and the [Set decision](../decisions/set.md) left union, intersection and difference for later | `SetUnion`, `SetIntersection` and `SetDifference` keep the left operand's order (union appends the right's new items), and `MapFilter(map, keep)` keeps entries in place; [set](../decisions/set.md), [map](../decisions/map.md) |
 
 Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
 

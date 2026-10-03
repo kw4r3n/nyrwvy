@@ -760,6 +760,8 @@ module CSharpBackend =
         // Items indexed by keyOf(item): a later item with an equal key replaces the value and keeps the
         // first item's position, as repeated Insert does.
         writer.Line("public static NyMap<K, V> FromList(NyList<V> items, System.Func<V, K> keyOf) => items.Fold(EmptyMap, (map, item) => map.Insert(keyOf(item), item));")
+        // Removing the rejected entries keeps the others at their positions.
+        writer.Line("public NyMap<K, V> Filter(System.Func<K, V, bool> keep) => Fold(this, (map, key, value) => keep(key, value) ? map : map.Remove(key));")
         writer.Line("public NyList<K> Keys()")
         writer.Line("{")
         writer.Push()
@@ -804,6 +806,11 @@ module CSharpBackend =
         writer.Line("public bool Contains(T item) => items.ContainsKey(item);")
         writer.Line("public NySet<T> Insert(T item) => items.ContainsKey(item) ? this : new(items.Add(item, next), order.Add(next, item), next + 1L);")
         writer.Line("public NySet<T> Remove(T item) => items.TryGetValue(item, out var number) ? new(items.Remove(item), order.Remove(number), next) : this;")
+        // Union appends the other set's new items after this set's; Intersection and Difference keep
+        // this set's order.
+        writer.Line("public NySet<T> Union(NySet<T> other) => other.Fold(this, (set, item) => set.Insert(item));")
+        writer.Line("public NySet<T> Intersection(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set : set.Remove(item));")
+        writer.Line("public NySet<T> Difference(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);")
         writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
         writer.Line("{")
         writer.Push()
@@ -1881,6 +1888,12 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName setValueId + ".Insert(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.SetRemove(setValueId, itemValueId) ->
             writer.Line(target + " = " + valueName setValueId + ".Remove(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.SetUnion(leftSetValueId, rightSetValueId) ->
+            writer.Line(target + " = " + valueName leftSetValueId + ".Union(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.SetIntersection(leftSetValueId, rightSetValueId) ->
+            writer.Line(target + " = " + valueName leftSetValueId + ".Intersection(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.SetDifference(leftSetValueId, rightSetValueId) ->
+            writer.Line(target + " = " + valueName leftSetValueId + ".Difference(" + valueName rightSetValueId + ");")
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".ContainsKey(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->
@@ -2016,6 +2029,8 @@ module CSharpBackend =
             writer.Line(target + " = " + formatType instruction.Result.Type + ".FromList(" + valueName sourceListValueId + ", " + callback keyOfFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.MapFilter(sourceMapValueId, keepFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceMapValueId + ".Filter(" + callback keepFunctionId context + ");")
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->

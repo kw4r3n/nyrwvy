@@ -451,6 +451,15 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                             lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId))
+                        | TypedSemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId) ->
+                            lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.SetUnion(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId) ->
+                            lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.SetIntersection(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+                            lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.SetDifference(leftValueId, rightValueId))
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
@@ -515,6 +524,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListFilter(source, callback, lowered))
+                        | TypedSemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+                            lowerListCallbackNode node sourceMapNodeId keepFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.MapFilter(source, callback, lowered))
                         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListSortBy(source, callback, lowered))

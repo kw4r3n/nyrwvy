@@ -151,6 +151,9 @@ module internal WireGraph =
         | SemanticNodeKind.MapRemove(map, key) -> tagged "mapRemove" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetInsert(map, key) -> tagged "setInsert" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.SetRemove(map, key) -> tagged "setRemove" [ "setNodeId", identity map; "itemNodeId", identity key ]
+        | SemanticNodeKind.SetUnion(left, right) -> binary "setUnion" left right
+        | SemanticNodeKind.SetIntersection(left, right) -> binary "setIntersection" left right
+        | SemanticNodeKind.SetDifference(left, right) -> binary "setDifference" left right
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
@@ -186,6 +189,8 @@ module internal WireGraph =
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.MapFromList(source, callback, bindings) -> traversal "mapFromList" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
+        | SemanticNodeKind.MapFilter(source, callback, bindings) ->
+            tagged "mapFilter" ([ "sourceMapNodeId", identity source; "keepFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
         | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings

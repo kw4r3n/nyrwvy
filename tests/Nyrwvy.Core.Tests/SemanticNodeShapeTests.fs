@@ -294,6 +294,7 @@ module SemanticNodeShapeTests =
               "MapFold", "PureListCallback"
               "MapFromList", "PureListCallback"
               "ListFilter", "PureListCallback"
+              "MapFilter", "PureListCallback"
               "ListSortBy", "PureListCallback"
               "ListAny", "PureListCallback"
               "ListAll", "PureListCallback"

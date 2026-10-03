@@ -177,6 +177,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MapRemove _
         | TypedSemanticNodeKind.SetInsert _
         | TypedSemanticNodeKind.SetRemove _
+        | TypedSemanticNodeKind.SetUnion _
+        | TypedSemanticNodeKind.SetIntersection _
+        | TypedSemanticNodeKind.SetDifference _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.MapGet _
@@ -187,6 +190,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
+        | TypedSemanticNodeKind.MapFilter _
         | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.ListAny _
         | TypedSemanticNodeKind.ListAll _

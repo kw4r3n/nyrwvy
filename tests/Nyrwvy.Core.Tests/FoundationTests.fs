@@ -132,6 +132,9 @@ module FoundationTests =
                 | SemanticNodeKind.MapRemove _
                 | SemanticNodeKind.SetInsert _
                 | SemanticNodeKind.SetRemove _
+                | SemanticNodeKind.SetUnion _
+                | SemanticNodeKind.SetIntersection _
+                | SemanticNodeKind.SetDifference _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.MapGet _
@@ -150,6 +153,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _
