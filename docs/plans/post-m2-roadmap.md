@@ -200,7 +200,7 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 
 | Candidate | Observed in | Status and what it waits on |
 | --- | --- | --- |
-| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | A design note is next, by owner choice (2026-10-04). The [real-time note](realtime-processors.md) recommends treating it as separate from `IndexFold` |
+| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | [Design note](loops.md) proposed (2026-10-04): compile a self-call in tail position as a jump, as a guarantee; awaiting the owner's choice. The [real-time note](realtime-processors.md) recommends treating it as separate from `IndexFold` |
 | `IndexFold(count, seed, step)` | Not counted: proposed in the [real-time note](realtime-processors.md), which says probe 13's `while` and the `ListRange` observations may already be enough evidence | Proposed only. Ordinary-code use needs its own evidence or an owner choice. `ListFold` over `ListRange` (order 37) is a counted loop today, but builds the list first |
 | Map get-or-default | [Probe 21](../verification/map-set-probe21-20261004.md) (every accumulating write) | Owner choice to add small ordinary builtins ahead of further evidence |
 | Mapping a map's values | Probe 21 (1) | Owner choice, as above |
