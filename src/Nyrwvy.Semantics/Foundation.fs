@@ -417,6 +417,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetInsert of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | SetRemove of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The left items in their order, then the right items not in left in theirs. Never fails.
+    | SetUnion of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// The left items that the right set contains, in left order. Never fails.
+    | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// The left items that the right set does not contain, in left order. Never fails.
+    | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
@@ -458,6 +464,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    /// The entries for which a pure `(key, value) -> Bool` callback returns true, keeping their
+    /// positions. Same Map<K, V> type as the input.
+    | MapFilter of sourceMapNodeId: GraphNodeId * keepFunctionId: FunctionId * context: ArgumentBinding list
     /// The source items in a stable order under a pure `(T, T) -> Bool` "less than" callback whose
     /// two unbound parameters receive (left, right). The result is fixed by a top-down merge sort:
     /// split at length / 2, sort both halves, and merge taking the right head only when
@@ -738,6 +747,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.MapFromList(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
+        | SemanticNodeKind.MapFilter(listNodeId, _, context)
         | SemanticNodeKind.ListSortBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
@@ -746,6 +756,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
+        | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
@@ -959,6 +972,12 @@ module SemanticNodeShape =
                 SemanticNodeKind.SetInsert(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) ->
                 SemanticNodeKind.SetRemove(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.SetUnion(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.SetIntersection(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.SetDifference(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) ->
@@ -1000,6 +1019,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapFromList(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListFilter(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListFilter(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.MapFilter(sourceMapNodeId, functionId, context) ->
+                SemanticNodeKind.MapFilter(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListAny(sourceListNodeId, functionId, context) ->
@@ -1169,6 +1190,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapRemove _
         | SemanticNodeKind.SetInsert _
         | SemanticNodeKind.SetRemove _
+        | SemanticNodeKind.SetUnion _
+        | SemanticNodeKind.SetIntersection _
+        | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
@@ -1186,6 +1210,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _
@@ -1367,6 +1392,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapRemove _
         | SemanticNodeKind.SetInsert _
         | SemanticNodeKind.SetRemove _
+        | SemanticNodeKind.SetUnion _
+        | SemanticNodeKind.SetIntersection _
+        | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
@@ -1386,6 +1414,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _
@@ -1430,6 +1459,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListMap(_, functionId, context)
         | SemanticNodeKind.MapFromList(_, functionId, context)
         | SemanticNodeKind.ListFilter(_, functionId, context)
+        | SemanticNodeKind.MapFilter(_, functionId, context)
         | SemanticNodeKind.ListSortBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
         | SemanticNodeKind.ListAll(_, functionId, context) ->
@@ -1549,6 +1579,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapRemove _
         | SemanticNodeKind.SetInsert _
         | SemanticNodeKind.SetRemove _
+        | SemanticNodeKind.SetUnion _
+        | SemanticNodeKind.SetIntersection _
+        | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
@@ -1701,6 +1734,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapRemove _
         | SemanticNodeKind.SetInsert _
         | SemanticNodeKind.SetRemove _
+        | SemanticNodeKind.SetUnion _
+        | SemanticNodeKind.SetIntersection _
+        | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
@@ -1713,6 +1749,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
+        | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _

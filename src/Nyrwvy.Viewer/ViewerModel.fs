@@ -133,6 +133,9 @@ type ViewerNodeRole =
     | MapRemove
     | SetInsert
     | SetRemove
+    | SetUnion
+    | SetIntersection
+    | SetDifference
     | MapContainsKey
     | SetContains
     | MapGet
@@ -152,6 +155,7 @@ type ViewerNodeRole =
     | ListMap
     | MapFromList
     | ListFilter
+    | MapFilter
     | ListSortBy
     | ListAny
     | ListAll
@@ -360,6 +364,9 @@ module ViewerProjection =
         | SemanticNodeKind.MapRemove _ -> ViewerNodeRole.MapRemove, []
         | SemanticNodeKind.SetInsert _ -> ViewerNodeRole.SetInsert, []
         | SemanticNodeKind.SetRemove _ -> ViewerNodeRole.SetRemove, []
+        | SemanticNodeKind.SetUnion _ -> ViewerNodeRole.SetUnion, []
+        | SemanticNodeKind.SetIntersection _ -> ViewerNodeRole.SetIntersection, []
+        | SemanticNodeKind.SetDifference _ -> ViewerNodeRole.SetDifference, []
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
@@ -379,6 +386,7 @@ module ViewerProjection =
         | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
         | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []
         | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
+        | SemanticNodeKind.MapFilter _ -> ViewerNodeRole.MapFilter, []
         | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
         | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []

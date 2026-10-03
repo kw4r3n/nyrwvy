@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
-- **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), order 46
+- **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), orders 46 and 47
 - **Design note:** [Map](../plans/map.md), question 5 (Set in a second slice)
 
 The [Map decision](map.md) put Set in a second slice on the same runtime structure. Probes 13 and 14 needed sets: membership in a constant set, and removing repeats. The owner asked for it on 2026-10-03.
@@ -14,7 +14,12 @@ The [Map decision](map.md) put Set in a second slice on the same runtime structu
   - `SetEmpty(itemType)`, `SetFromList(items)`, `SetInsert(set, item)`, `SetContains(set, item)`, `SetRemove(set, item)`, `SetSize(set)` and `SetToList(set)`.
   - `SetFromList` keeps first occurrences in order.
   - Inserting an item that is already present changes nothing.
-- **Left for later, until a consumer needs them:** union, intersection and difference, and a fold over a set (`SetToList` with `ListFold` covers it).
+- **Set algebra (order 47).** On 2026-10-04 the owner chose to add the set operations one ordinarily expects without waiting for a consumer:
+  - `SetUnion(left, right)`: the left items in their order, then the right items not in left, in right's order.
+  - `SetIntersection(left, right)`: the left items that right contains, in left's order.
+  - `SetDifference(left, right)`: the left items that right does not contain, in left's order.
+  - Both operands are sets of the same item type. None of them fails.
+- **Left for later, until a consumer needs it:** a fold over a set (`SetToList` with `ListFold` covers it).
 
 ## Consequences
 
@@ -25,4 +30,4 @@ The [Map decision](map.md) put Set in a second slice on the same runtime structu
 
 ## Revisit conditions
 
-- A consumer combines sets: add union, intersection and difference together, keeping insertion order defined (left operand's order first).
+- A consumer folds over large sets often enough that building the list first costs: add `SetFold`.

@@ -678,6 +678,18 @@ module SnapshotCodec =
             writer.WriteString("kind", "setRemove")
             writer.WriteString("setNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setUnion")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setIntersection")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setDifference")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
         | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -769,6 +781,11 @@ module SnapshotCodec =
             writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+            writer.WriteString("kind", "mapFilter")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
@@ -1628,6 +1645,15 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "setNodeId" element,
                     readId<GraphNodeTag> "itemNodeId" element
                 )
+            | "setUnion" ->
+                ensureProperties "SetUnion node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
+                SemanticNodeKind.SetUnion(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "setIntersection" ->
+                ensureProperties "SetIntersection node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
+                SemanticNodeKind.SetIntersection(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "setDifference" ->
+                ensureProperties "SetDifference node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
+                SemanticNodeKind.SetDifference(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
             | "mapContainsKey" ->
                 ensureProperties
                     "MapContainsKey node"
@@ -1762,6 +1788,9 @@ module SnapshotCodec =
             | "mapFromList" ->
                 readListCallbackNode "MapFromList node" "keyOfFunctionId" element (fun source callback context ->
                     SemanticNodeKind.MapFromList(source, callback, context))
+            | "mapFilter" ->
+                ensureProperties "MapFilter node" (set [ "id"; "kind"; "sourceMapNodeId"; "keepFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "keepFunctionId"; "context" ]) element
+                SemanticNodeKind.MapFilter(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "keepFunctionId" element, readCallbackContext element)
             | "listFilter" ->
                 readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListFilter(source, callback, context))

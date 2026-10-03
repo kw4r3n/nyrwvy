@@ -571,6 +571,18 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "setRemove")
             writer.WriteString("setNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setUnion")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | TypedSemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setIntersection")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setDifference")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -656,6 +668,11 @@ module TypedSemanticIrCodec =
             writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listFilter" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+            writer.WriteString("kind", "mapFilter")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->

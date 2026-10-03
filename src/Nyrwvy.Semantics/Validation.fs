@@ -604,6 +604,32 @@ module SnapshotValidator =
                             "ListPredicateResultTypeMismatch"
                             $"ListSortBy node '{StableId.value nodeId}' less-than callback must return Bool."
 
+            // Kept out of validateGraph so its recursive frame stays small.
+            let validateMapFilterCallback (nodeId: GraphNodeId) sourceMapNodeId keepFunctionId (context: ArgumentBinding list) =
+                match nodeType sourceMapNodeId with
+                | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])) ->
+                    match Map.tryFind keepFunctionId functionsById with
+                    | None -> add "UnknownListCallbackFunction" $"MapFilter node '{StableId.value nodeId}' references an unknown callback."
+                    | Some keep ->
+                        let unbound, contextSubstitution = validateCallbackContext nodeId keep context
+                        let mutable substitution = contextSubstitution
+                        match unbound with
+                        | [ key; value ] ->
+                            match
+                                TypeParameters.matchType substitution key.Type keyType
+                                |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
+                            with
+                            | Some extended -> substitution <- extended
+                            | None -> add "ListCallbackParameterTypeMismatch" "MapFilter callback input types must match the key and value types."
+                        | _ ->
+                            add "ListCallbackArityMismatch" "MapFilter callback must have exactly two parameters not bound by context (key, value)."
+                        if TypeParameters.substitute substitution keep.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
+                            add "ListPredicateResultTypeMismatch" "MapFilter callback must return Bool."
+                        if not (PureFunctions.isPure snapshot keep.Id) then
+                            add "ListCallbackEffectsNotAllowed" "MapFilter callback must be pure, including its transitive calls and ambient task or cancellation behavior."
+                | Some _ -> add "MapInputTypeMismatch" $"MapFilter node '{StableId.value nodeId}' requires a Map<K, V> input."
+                | None -> ()
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -1082,6 +1108,17 @@ module SnapshotValidator =
                                 itemType
                                 itemNodeId
                         | None -> ()
+                    | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId)
+                    | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId)
+                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+                        match requireSetInput node.Id leftSetNodeId with
+                        | Some itemType ->
+                            requireNodeType
+                                "SetInputTypeMismatch"
+                                $"Node '{StableId.value node.Id}' requires two sets of the same item type."
+                                (TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]))
+                                rightSetNodeId
+                        | None -> ()
                     | SemanticNodeKind.SetFromList sourceListNodeId ->
                         match nodeType sourceListNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
@@ -1230,6 +1267,8 @@ module SnapshotValidator =
                                     add "ListCallbackEffectsNotAllowed" "MapFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
                         | Some _, Some _ -> add "MapInputTypeMismatch" $"MapFold node '{StableId.value node.Id}' requires a Map<K, V> input."
                         | _ -> ()
+                    | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+                        validateMapFilterCallback node.Id sourceMapNodeId keepFunctionId context
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceListNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
@@ -2015,6 +2054,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.MapRemove _
                 | SemanticNodeKind.SetInsert _
                 | SemanticNodeKind.SetRemove _
+                | SemanticNodeKind.SetUnion _
+                | SemanticNodeKind.SetIntersection _
+                | SemanticNodeKind.SetDifference _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.MapGet _
@@ -2033,6 +2075,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
+                | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListAll _

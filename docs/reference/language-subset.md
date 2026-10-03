@@ -156,22 +156,26 @@ MapKeys(map)                      List<K>, in iteration order
 MapValues(map)                    List<V>, in iteration order
 MapFold(map, seed, folder)        S, folder(state, key, value) over the entries in order
 MapFromList(items, keyOf)         Map<K, T>, items indexed by keyOf(item)
+MapFilter(map, keep)              Map<K, V>, the entries where keep(key, value), in order
 ```
 
-Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapFold` and `MapFromList` take pure named callbacks with context, like `ListFold` and `ListMap`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. See the [decision](../decisions/map.md).
+Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapFold`, `MapFromList` and `MapFilter` take pure named callbacks with context, like `ListFold`, `ListMap` and `ListFilter`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. See the [decision](../decisions/map.md).
 
 ## Immutable insertion-ordered `Set<T>`
 
 `Set<T>` holds each item at most once. `T` must be equatable, as for `Map` keys, and items compare with `ValueEqual`. Like `Map`, a set is an immutable value visited in insertion order: inserting a present item changes nothing, and removing an item and inserting it again puts it last. A `Set` is not equatable.
 
 ```text
-SetEmpty(itemType)        Set<T>
-SetFromList(items)        Set<T>, the items without repeats in first-occurrence order
-SetInsert(set, item)      Set<T>
-SetContains(set, item)    Bool
-SetRemove(set, item)      Set<T>, unchanged when the item is absent
-SetSize(set)              Int64
-SetToList(set)            List<T>, in iteration order
+SetEmpty(itemType)           Set<T>
+SetFromList(items)           Set<T>, the items without repeats in first-occurrence order
+SetInsert(set, item)         Set<T>
+SetContains(set, item)       Bool
+SetRemove(set, item)         Set<T>, unchanged when the item is absent
+SetSize(set)                 Int64
+SetToList(set)               List<T>, in iteration order
+SetUnion(left, right)        Set<T>, left's items, then right's new items in right's order
+SetIntersection(left, right) Set<T>, left's items that right contains, in left's order
+SetDifference(left, right)   Set<T>, left's items that right does not contain, in left's order
 ```
 
 Insert, contains and remove are O(log n). None of them fails. See the [decision](../decisions/set.md).

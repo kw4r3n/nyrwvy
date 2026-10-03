@@ -174,6 +174,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetInsert of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | SetRemove of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | SetUnion of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
@@ -193,6 +196,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | MapFilter of sourceMapNodeId: GraphNodeId * keepFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -350,6 +354,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapRemove _
         | TypedSemanticNodeKind.SetInsert _
         | TypedSemanticNodeKind.SetRemove _
+        | TypedSemanticNodeKind.SetUnion _
+        | TypedSemanticNodeKind.SetIntersection _
+        | TypedSemanticNodeKind.SetDifference _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.MapGet _
@@ -369,6 +376,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
+        | TypedSemanticNodeKind.MapFilter _
         | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.ListAny _
         | TypedSemanticNodeKind.ListAll _
@@ -472,7 +480,10 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId)
-        | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
+        | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Float64IsNaN valueNodeId
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
@@ -494,6 +505,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.MapFromList(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
+        | TypedSemanticNodeKind.MapFilter(listNodeId, _, context)
         | TypedSemanticNodeKind.ListSortBy(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
@@ -833,6 +845,12 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.SetInsert(mapNodeId, itemNodeId))
                     | SemanticNodeKind.SetRemove(mapNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.SetRemove(mapNodeId, itemNodeId))
+                    | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId) ->
+                        Ok(TypedSemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId))
+                    | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId) ->
+                        Ok(TypedSemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId))
+                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+                        Ok(TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId))
                     | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId))
                     | SemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->
@@ -868,6 +886,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, projectContext context))
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, projectContext context))
                     | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, projectContext context))
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->

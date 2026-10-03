@@ -207,6 +207,9 @@ module internal WireRecipe =
             ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
             ExpressionRecipe.ListAppendItem(recipe (property "list" element), recipe (property "item" element))
         | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
+        | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
+        | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
+        | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))
@@ -269,6 +272,9 @@ module internal WireRecipe =
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe (property "task" element))
+        | "mapFilter" ->
+            ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
+            ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listMap"
         | "mapFromList"
         | "listSortBy"

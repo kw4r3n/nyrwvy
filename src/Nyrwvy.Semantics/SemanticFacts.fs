@@ -264,6 +264,11 @@ module SemanticFacts =
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ valueType ]))
                         | Some _
                         | None -> None
+                    | SemanticNodeKind.MapFilter(sourceMapNodeId, _, _) ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; _ ]) as mapType) -> Some mapType
+                        | Some _
+                        | None -> None
                     | SemanticNodeKind.MapKeys sourceMapNodeId ->
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; _ ])) ->
@@ -279,7 +284,10 @@ module SemanticFacts =
                     | SemanticNodeKind.SetEmpty itemType ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]))
                     | SemanticNodeKind.SetInsert(sourceSetNodeId, _)
-                    | SemanticNodeKind.SetRemove(sourceSetNodeId, _) ->
+                    | SemanticNodeKind.SetRemove(sourceSetNodeId, _)
+                    | SemanticNodeKind.SetUnion(sourceSetNodeId, _)
+                    | SemanticNodeKind.SetIntersection(sourceSetNodeId, _)
+                    | SemanticNodeKind.SetDifference(sourceSetNodeId, _) ->
                         match tryNodeType nextVisiting sourceSetNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ _ ]) as setType) -> Some setType
                         | Some _

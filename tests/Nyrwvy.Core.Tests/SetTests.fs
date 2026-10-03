@@ -7,7 +7,7 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// Set<T> (post-M2 order 46): equatable items compared with ValueEqual, insertion order, immutable
+/// Set<T> (post-M2 order 46; union, intersection and difference order 47): equatable items compared with ValueEqual, insertion order, immutable
 /// values, over the maintained JSONL protocol and runPure.
 module SetTests =
     let private execute session (line: string) = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
@@ -138,3 +138,53 @@ module SetTests =
             )
             define session "size" [ "s", words ] (primitive "int64") $"""{{"kind":"setSize","value":{parameter "s"}}}"""
             Assert.Equal("RunContainerTypeMismatch", rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{set [ "a"; "a" ]}]}}"""))
+
+    [<Fact>]
+    let ``Set union, intersection and difference keep the left order`` () =
+        withSession (fun session path ->
+            let l, r = parameter "l", parameter "r"
+            define session "union" [ "l", words; "r", words ] words $"""{{"kind":"setUnion","left":{l},"right":{r}}}"""
+            define session "intersection" [ "l", words; "r", words ] words $"""{{"kind":"setIntersection","left":{l},"right":{r}}}"""
+            define session "difference" [ "l", words; "r", words ] words $"""{{"kind":"setDifference","left":{l},"right":{r}}}"""
+            define session "differenceThenAdd" [ "l", words; "r", words ] words $"""{{"kind":"setInsert","set":{{"kind":"setDifference","left":{l},"right":{r}}},"item":{{"kind":"stringLiteral","value":"z"}}}}"""
+
+            let left, right = set [ "c"; "a"; "b" ], set [ "d"; "b"; "e"; "c" ]
+            expectRun session "union" [ left; right ] (set [ "c"; "a"; "b"; "d"; "e" ])
+            expectRun session "union" [ right; left ] (set [ "d"; "b"; "e"; "c"; "a" ])
+            expectRun session "intersection" [ left; right ] (set [ "c"; "b" ])
+            expectRun session "intersection" [ right; left ] (set [ "b"; "c" ])
+            expectRun session "difference" [ left; right ] (set [ "a" ])
+            expectRun session "difference" [ right; left ] (set [ "d"; "e" ])
+            expectRun session "union" [ set []; set [] ] (set [])
+            expectRun session "intersection" [ left; set [] ] (set [])
+            expectRun session "difference" [ left; set [] ] left
+            // Items removed by the difference leave no gap: an insert still goes last.
+            expectRun session "differenceThenAdd" [ left; right ] (set [ "a"; "z" ])
+            let big = set [ for index in 1 .. 3000 -> $"w{index}" ]
+            let odd = set [ for index in 1 .. 3000 do if index % 2 = 1 then $"w{index}" ]
+            let even = set [ for index in 1 .. 3000 do if index % 2 = 0 then $"w{index}" ]
+            expectRun session "difference" [ big; odd ] even
+            expectRun session "intersection" [ big; even ] even
+            expectRun session "union" [ odd; even ] (set ([ for index in 1 .. 3000 do if index % 2 = 1 then $"w{index}" ] @ [ for index in 1 .. 3000 do if index % 2 = 0 then $"w{index}" ]))
+
+            let snapshot =
+                match SnapshotCodec.deserialize (File.ReadAllText path) with
+                | Ok snapshot -> snapshot
+                | Error error -> failwithf "Workspace did not decode: %A" error
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            Assert.Contains("set-union", nyason)
+            Assert.Contains("set-intersection", nyason)
+            Assert.Contains("set-difference", nyason)
+            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
+
+            // Both operands must be sets of the same item type.
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "l", words; "r", setOf (primitive "int64") ] words $"""{{"kind":"setUnion","left":{l},"right":{r}}}"""
+            )
+            Assert.Equal(
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "l", listOf str; "r", words ] words $"""{{"kind":"setDifference","left":{l},"right":{r}}}"""
+            ))
