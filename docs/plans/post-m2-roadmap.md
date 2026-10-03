@@ -196,12 +196,15 @@ One change has no order number: after probe 11, a pure `ListEffectFold` whose fo
 
 ### Open candidates
 
-Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19) and [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20) records, or from the sections and records named in the row. None is queued.
+Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20) and [probe 21](../verification/map-set-probe21-20261004.md#candidate-hit-counts-after-probe-21) records, or from the sections and records named in the row. None is queued.
 
 | Candidate | Observed in | Status and what it waits on |
 | --- | --- | --- |
-| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately | A consumer that needs it again, or an owner choice. The [real-time note](realtime-processors.md) recommends treating it as separate from `IndexFold` |
+| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | A design note is next, by owner choice (2026-10-04). The [real-time note](realtime-processors.md) recommends treating it as separate from `IndexFold` |
 | `IndexFold(count, seed, step)` | Not counted: proposed in the [real-time note](realtime-processors.md), which says probe 13's `while` and the `ListRange` observations may already be enough evidence | Proposed only. Ordinary-code use needs its own evidence or an owner choice. `ListFold` over `ListRange` (order 37) is a counted loop today, but builds the list first |
+| Map get-or-default | [Probe 21](../verification/map-set-probe21-20261004.md) (every accumulating write) | Owner choice to add small ordinary builtins ahead of further evidence |
+| Mapping a map's values | Probe 21 (1) | Owner choice, as above |
+| Smallest item of a list | Probe 21 (1) | Owner choice, as above |
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
