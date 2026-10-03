@@ -764,6 +764,13 @@ module NyasonCodec =
                 [ nodeId
                   "map", encodeId "node" mapNodeId
                   "key", encodeId "node" keyNodeId ]
+        | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
+            record
+                "map-get-or-default"
+                [ nodeId
+                  "map", encodeId "node" mapNodeId
+                  "key", encodeId "node" keyNodeId
+                  "default", encodeId "node" defaultNodeId ]
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
             record
                 "list-append-item"
@@ -821,8 +828,12 @@ module NyasonCodec =
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
             record "map-filter" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "keep", encodeId "function" keepFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
+            record "map-map-values" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "mapper", encodeId "function" mapperFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             encodeListCallbackNode "list-sort-by" nodeId sourceListNodeId lessThanFunctionId context
+        | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
+            encodeListCallbackNode "list-min-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
@@ -1447,6 +1458,15 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "map" fields),
                     decodeId<GraphNodeTag> "node" (require "key" fields)
                 ) }
+        | NyasonValue.Record("map-get-or-default", _) ->
+            let fields = recordFields "map-get-or-default" [ "id"; "map"; "key"; "default" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.MapGetOrDefault(
+                    decodeId<GraphNodeTag> "node" (require "map" fields),
+                    decodeId<GraphNodeTag> "node" (require "key" fields),
+                    decodeId<GraphNodeTag> "node" (require "default" fields)
+                ) }
         | NyasonValue.Record("list-append-item", _) ->
             let fields = recordFields "list-append-item" [ "id"; "list"; "item" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1528,8 +1548,14 @@ module NyasonCodec =
             let fields = recordFields "map-filter" [ "id"; "map"; "keep" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.MapFilter(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "keep" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("map-map-values", _) ->
+            let fields = recordFields "map-map-values" [ "id"; "map"; "mapper" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapMapValues(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-sort-by", _) ->
             decodeListCallbackNode "list-sort-by" value (fun source callback context -> SemanticNodeKind.ListSortBy(source, callback, context))
+        | NyasonValue.Record("list-min-by", _) ->
+            decodeListCallbackNode "list-min-by" value (fun source callback context -> SemanticNodeKind.ListMinBy(source, callback, context))
         | NyasonValue.Record("list-any", _) ->
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-all", _) ->

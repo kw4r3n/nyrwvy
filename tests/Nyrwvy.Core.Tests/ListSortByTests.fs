@@ -280,3 +280,103 @@ module ListSortByTests =
                         | other -> failwithf "%A" other)
                 | other -> failwithf "%A" other
             Assert.Equal<(string * int64) list>(expected, run sortRows [ rows input ] |> pairs))
+
+    /// `ListMinBy(list, lessThan, context): Option<T>` (order 48): the first smallest item.
+    [<Fact>]
+    let ``ListMinBy checks its operands and callbacks in recipes and persisted graphs`` () =
+        withSession (fun session path ->
+            let fns = callbacks session
+            let minBy source (callback: SemanticFunction) = ExpressionRecipe.ListMinBy(source, callback.Id, [])
+            let optionOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])
+            let named = create session "minText" [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) fns.TextLess)
+            // The result is Option<T>, not T or List<T>; the source must be a List whose items both
+            // callback parameters accept.
+            rejects session [ "items", listOf textType ] textType (minBy (slot 0) fns.TextLess) |> ignore
+            rejects session [ "items", listOf textType ] (listOf textType) (minBy (slot 0) fns.TextLess) |> ignore
+            Assert.Contains("PureExpressionOperandTypeMismatch", rejects session [ "items", textType ] (optionOf textType) (minBy (slot 0) fns.TextLess))
+            Assert.Contains("PureExpressionListCallbackInputTypeMismatch", rejects session [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.TextLess))
+            let single = create session "single" [ "value", textType ] boolType (ExpressionRecipe.StringIsEmpty(slot 0))
+            let lengthDiff =
+                create session "lengthDiff" [ "left", textType; "right", textType ] intType
+                    (ExpressionRecipe.Int64WrappingSubtract(ExpressionRecipe.StringLength(slot 0), ExpressionRecipe.StringLength(slot 1)))
+            Assert.Contains("PureExpressionListCallbackArityMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) single))
+            Assert.Contains("PureExpressionListCallbackResultTypeMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) lengthDiff))
+            let unknown = StableId.createForTesting<FunctionTag> "function-missing"
+            Assert.Contains("PureExpressionListCallbackNotFound", rejects session [ "items", listOf textType ] (optionOf textType) (ExpressionRecipe.ListMinBy(slot 0, unknown, [])))
+
+            // The persisted node keeps its kind through every codec and projection.
+            let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
+            let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
+            Assert.Equal(ViewerNodeRole.ListMinBy, node.Role)
+            Assert.Contains("List min by", ViewerHtml.renderFocusDocument viewer)
+            session.Close()
+            let encoded = File.ReadAllText path
+            Assert.Contains("\"kind\":\"listMinBy\"", encoded)
+            let graph = SnapshotCodec.deserialize encoded |> unwrap
+            Assert.Empty(SnapshotValidator.validate graph)
+            Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
+            let nyason = NyasonCodec.serialize graph |> unwrap
+            Assert.Contains("list-min-by", nyason)
+            let restored = NyasonCodec.deserialize nyason |> unwrap
+            Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
+            let typed = TypedSemanticIr.project restored |> unwrap
+            Assert.Contains("\"kind\":\"listMinBy\"", TypedSemanticIrCodec.serialize typed)
+            let executionJson = ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize
+            Assert.Contains("\"kind\":\"listMinBy\"", executionJson)
+
+            // Persisted graphs report the same codes as ListSortBy.
+            let entry = graph.Functions |> List.find (fun fn -> fn.Id = named.Id)
+            let withCallback callbackId =
+                let nodes =
+                    entry.Body.Nodes
+                    |> List.map (fun item ->
+                        match item.Kind with
+                        | SemanticNodeKind.ListMinBy(source, _, context) -> { item with Kind = SemanticNodeKind.ListMinBy(source, callbackId, context) }
+                        | _ -> item)
+                let changed = { entry with Body = { entry.Body with Nodes = nodes } }
+                SnapshotValidator.validate { graph with Functions = graph.Functions |> List.map (fun fn -> if fn.Id = entry.Id then changed else fn) }
+                |> List.map (fun issue -> issue.Code)
+            Assert.Contains("ListCallbackArityMismatch", withCallback single.Id)
+            Assert.Contains("ListPredicateResultTypeMismatch", withCallback lengthDiff.Id)
+            Assert.Contains("ListCallbackParameterTypeMismatch", withCallback fns.IntGreater.Id)
+            Assert.Contains("UnknownListCallbackFunction", withCallback unknown))
+
+    [<Fact>]
+    let ``ListMinBy keeps the first smallest item and runs through runPure`` () =
+        withSession (fun session path ->
+            let fns = callbacks session
+            let optionOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])
+            let minBy source (callback: SemanticFunction) = ExpressionRecipe.ListMinBy(source, callback.Id, [])
+            let minText = create session "minText" [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) fns.TextLess)
+            let shortest = create session "shortest" [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) fns.ShorterText)
+            // A maximum is the minimum under the swapped comparison.
+            let largest = create session "largest" [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.IntGreater)
+            let minAlwaysTrue = create session "minAlwaysTrue" [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.AlwaysTrue)
+            let minAlwaysFalse = create session "minAlwaysFalse" [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.AlwaysFalse)
+            // Context binds the target; the item closest to it wins, the first on a tie.
+            let distance a b = ExpressionRecipe.Int64WrappingAbs(ExpressionRecipe.Int64WrappingSubtract(a, b))
+            let closer =
+                create session "closer" [ "target", intType; "left", intType; "right", intType ] boolType
+                    (ExpressionRecipe.Int64LessThan(distance (slot 1) (slot 0), distance (slot 2) (slot 0)))
+            let target = (closer.Parameters |> List.head).Id
+            let closest =
+                create session "closest" [ "items", listOf intType; "target", intType ] (optionOf intType)
+                    (ExpressionRecipe.ListMinBy(slot 0, closer.Id, [ target, slot 1 ]))
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> unwrap
+            let run (fn: SemanticFunction) arguments = (PureRun.run reopened fn.Id arguments None |> unwrap).Actual
+            let texts items = PureRunValue.StringList items
+            let ints items = PureRunValue.Int64List items
+            Assert.Equal(PureRunValue.StringOption None, run minText [ texts [] ])
+            Assert.Equal(PureRunValue.StringOption(Some "only"), run minText [ texts [ "only" ] ])
+            Assert.Equal(PureRunValue.StringOption(Some "apple"), run minText [ texts [ "pear"; "apple"; "fig"; "apple" ] ])
+            // Ties: the first of the equally short items wins.
+            Assert.Equal(PureRunValue.StringOption(Some "bb"), run shortest [ texts [ "ccc"; "bb"; "aa"; "dddd"; "ee" ] ])
+            Assert.Equal(PureRunValue.Int64Option(Some 9L), run largest [ ints [ 1L; 5L; -2L; 9L; 0L; 9L ] ])
+            Assert.Equal(PureRunValue.Int64Option None, run largest [ ints [] ])
+            // Any callback gives a deterministic result: always true keeps replacing, so the last
+            // item wins; always false never replaces, so the first item wins.
+            Assert.Equal(PureRunValue.Int64Option(Some 5L), run minAlwaysTrue [ ints [ 1L; 2L; 3L; 4L; 5L ] ])
+            Assert.Equal(PureRunValue.Int64Option(Some 3L), run minAlwaysFalse [ ints [ 3L; 1L; 2L ] ])
+            Assert.Equal(PureRunValue.Int64Option(Some 8L), run closest [ ints [ 1L; 8L; 12L; 15L ]; PureRunValue.Int64 10L ])
+            Assert.Equal(PureRunValue.Int64Option(Some 12L), run closest [ ints [ 1L; 12L; 8L; 15L ]; PureRunValue.Int64 10L ]))

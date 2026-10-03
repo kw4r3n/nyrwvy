@@ -258,6 +258,22 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; _ ]) as mapType) -> Some mapType
                         | Some _
                         | None -> None
+                    | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, _, _) ->
+                        match tryNodeType nextVisiting sourceMapNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) -> Some valueType
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceMapNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; callbackResult nextVisiting mapper context [ keyType; valueType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.ListMinBy(listNodeId, _, _) ->
+                        match tryNodeType nextVisiting listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
+                        | Some _
+                        | None -> None
                     | SemanticNodeKind.MapGet(sourceMapNodeId, _) ->
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) ->

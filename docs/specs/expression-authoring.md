@@ -112,7 +112,8 @@ ExpressionRecipe =
   | MapInsert(map, key, value) | MapGet(map, key) | MapContainsKey(map, key) | MapRemove(map, key)
   | MapSize(map) | MapKeys(map) | MapValues(map)
   | MapFold(map, seed, folderFunctionId, context) | MapFromList(source, keyOfFunctionId, context)
-  | MapFilter(map, keepFunctionId, context)
+  | MapFilter(map, keepFunctionId, context) | MapGetOrDefault(map, key, default)
+  | MapMapValues(map, mapperFunctionId, context)
   | SetEmpty(itemType) | SetFromList(list) | SetInsert(set, item) | SetContains(set, item)
   | SetRemove(set, item) | SetSize(set) | SetToList(set)
   | SetUnion(left, right) | SetIntersection(left, right) | SetDifference(left, right)
@@ -128,6 +129,7 @@ ExpressionRecipe =
   | ListMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId, context)
   | ListSortBy(source, lessThanFunctionId, context)
+  | ListMinBy(source, lessThanFunctionId, context)
   | ListAny(source, predicateFunctionId, context)
   | ListAll(source, predicateFunctionId, context)
   | ProductConstruct(typeId, fieldBindings)
@@ -306,7 +308,7 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
@@ -314,6 +316,7 @@ For a source `List<T>`:
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionListCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionListCallbackInputTypeMismatch`, a non-Bool result `PureExpressionListCallbackResultTypeMismatch`, and required effects `PureExpressionListCallbackEffectsNotAllowed`; persisted graphs report `ListCallbackArityMismatch`, `ListCallbackParameterTypeMismatch`, `ListPredicateResultTypeMismatch` and `ListCallbackEffectsNotAllowed`;
+- `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
@@ -350,7 +353,7 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 
 ## Map
 
-`MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. `MapFold(map, seed, folderFunctionId, context)` (wire `mapFold`: `map`, `seed`, `function` or `functionId`, `context`) takes a pure folder with three parameters not bound by context, `(S, K, V) -> S`, and yields `S`. `MapFromList(source, keyOfFunctionId, context)` (wire `mapFromList`: `source`, `function` or `functionId`, `context`) takes a pure `T -> K` callback over a `List<T>` and yields `Map<K, T>`; `K` must be equatable (`MapKeyTypeNotEquatable`). `MapFilter(map, keepFunctionId, context)` (wire `mapFilter`: `map`, `function` or `functionId`, `context`) takes a pure `(K, V) -> Bool` callback with two parameters not bound by context and yields the same `Map<K, V>`. Callback problems report the same `PureExpressionListCallback*` codes as the List callbacks. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
+`MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. `MapFold(map, seed, folderFunctionId, context)` (wire `mapFold`: `map`, `seed`, `function` or `functionId`, `context`) takes a pure folder with three parameters not bound by context, `(S, K, V) -> S`, and yields `S`. `MapFromList(source, keyOfFunctionId, context)` (wire `mapFromList`: `source`, `function` or `functionId`, `context`) takes a pure `T -> K` callback over a `List<T>` and yields `Map<K, T>`; `K` must be equatable (`MapKeyTypeNotEquatable`). `MapFilter(map, keepFunctionId, context)` (wire `mapFilter`: `map`, `function` or `functionId`, `context`) takes a pure `(K, V) -> Bool` callback with two parameters not bound by context and yields the same `Map<K, V>`. `MapMapValues(map, mapperFunctionId, context)` (wire `mapMapValues`: `map`, `function` or `functionId`, `context`; Nyason `map-map-values`) takes a pure `(K, V) -> U` callback with two parameters not bound by context and yields `Map<K, U>`. `MapGetOrDefault(map, key, default)` (wire `mapGetOrDefault`: `map`, `key`, `default`; Nyason `map-get-or-default`) takes a key of the key type and a default of the value type and yields `V`; its operands carry the `Source`, `Key` and `Value` dependency roles. Callback problems report the same `PureExpressionListCallback*` codes as the List callbacks. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
 
 `runPure` takes and returns a map as `{"kind": "map", "keyType", "valueType", "entries": [{"key", "value"}]}` in iteration order; an input that names a key twice is a `ProtocolError`, and a map holds at most 4,096 entries.
 

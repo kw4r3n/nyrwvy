@@ -183,6 +183,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.MapGet _
+        | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
@@ -192,6 +193,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.MapFilter _
         | TypedSemanticNodeKind.ListSortBy _
+        | TypedSemanticNodeKind.MapMapValues _
+        | TypedSemanticNodeKind.ListMinBy _
         | TypedSemanticNodeKind.ListAny _
         | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.ProductConstruct _

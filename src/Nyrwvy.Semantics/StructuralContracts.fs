@@ -182,6 +182,8 @@ module ValueDependency =
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
+        | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
+        | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
             create ValueDependencyRole.Source sourceNodeId
@@ -233,6 +235,10 @@ module ValueDependency =
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
+        | SemanticNodeKind.MapGetOrDefault(sourceNodeId, keyNodeId, defaultNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Key keyNodeId
+              create ValueDependencyRole.Value defaultNodeId ]
         | SemanticNodeKind.ListSlice(sourceNodeId, startNodeId, endNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId

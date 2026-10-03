@@ -442,6 +442,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))
+                        | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
+                            lowerTernaryNode node mapNodeId keyNodeId defaultNodeId (fun mapValueId keyValueId defaultValueId ->
+                                ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId))
                         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                             lowerTernaryNode node listNodeId startNodeId endNodeId (fun listValueId startId endId ->
                                 ExecutionInstructionKind.ListSlice(listValueId, startId, endId))
@@ -530,6 +533,12 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListSortBy(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListMinBy(source, callback, lowered))
+                        | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceMapNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.MapMapValues(source, callback, lowered))
                         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAny(source, callback, lowered))

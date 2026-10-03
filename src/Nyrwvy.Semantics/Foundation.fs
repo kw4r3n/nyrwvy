@@ -426,6 +426,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    /// The value for key, or the default (of the map's value type) when the key is absent. All
+    /// three operands are evaluated. Never fails.
+    | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     /// The items at zero-based Int64 positions [start, end), both bounds clamped to [0, length]
     /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
     /// empty list). Same List<T> type as the input; never fails.
@@ -467,12 +470,20 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The entries for which a pure `(key, value) -> Bool` callback returns true, keeping their
     /// positions. Same Map<K, V> type as the input.
     | MapFilter of sourceMapNodeId: GraphNodeId * keepFunctionId: FunctionId * context: ArgumentBinding list
+    /// The same keys in the same insertion order, each value replaced by a pure `(key, value) -> U`
+    /// callback's result. Map<K, V> to Map<K, U>; never fails.
+    | MapMapValues of sourceMapNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     /// The source items in a stable order under a pure `(T, T) -> Bool` "less than" callback whose
     /// two unbound parameters receive (left, right). The result is fixed by a top-down merge sort:
     /// split at length / 2, sort both halves, and merge taking the right head only when
     /// lessThan(rightHead, leftHead) holds. A consistent strict order gives the stable sort; any
     /// other callback still yields a deterministic permutation of the source. Never fails.
     | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: ArgumentBinding list
+    /// The smallest item under the same kind of pure "less than" callback as ListSortBy, as
+    /// Option<T>: None for the empty list; otherwise a left-to-right scan that starts from the first
+    /// item and replaces the current best with an item only when lessThan(item, best) holds, so
+    /// the first of equal items wins and any callback gives a deterministic result. Never fails.
+    | ListMinBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: ArgumentBinding list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
@@ -553,7 +564,7 @@ type Snapshot =
 type FunctionReferenceRole =
     /// DirectCall: called with the node's argument bindings.
     | DirectCall
-    /// ListFold, ListMap, ListFilter, ListSortBy, ListAny or ListAll: a callback validation requires to be pure.
+    /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListAny or ListAll: a callback validation requires to be pure.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
@@ -749,6 +760,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
         | SemanticNodeKind.MapFilter(listNodeId, _, context)
         | SemanticNodeKind.ListSortBy(listNodeId, _, context)
+        | SemanticNodeKind.MapMapValues(listNodeId, _, context)
+        | SemanticNodeKind.ListMinBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
@@ -762,6 +775,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
+        | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
@@ -984,6 +998,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.SetContains(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
+            | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
+                SemanticNodeKind.MapGetOrDefault(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId defaultNodeId)
             | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.ListSlice(mapNodeId listNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
             | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
@@ -1023,6 +1039,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapFilter(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.MapMapValues(sourceMapNodeId, functionId, context) ->
+                SemanticNodeKind.MapMapValues(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListMinBy(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListMinBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListAny(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListAny(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListAll(sourceListNodeId, functionId, context) ->
@@ -1196,6 +1216,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.MapFold _
@@ -1212,6 +1233,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.MapMapValues _
+        | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _
@@ -1398,6 +1421,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
@@ -1416,6 +1440,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.MapMapValues _
+        | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _
@@ -1461,6 +1487,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter(_, functionId, context)
         | SemanticNodeKind.MapFilter(_, functionId, context)
         | SemanticNodeKind.ListSortBy(_, functionId, context)
+        | SemanticNodeKind.MapMapValues(_, functionId, context)
+        | SemanticNodeKind.ListMinBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
         | SemanticNodeKind.ListAll(_, functionId, context) ->
             [ reference FunctionReferenceRole.PureListCallback context functionId ], []
@@ -1585,6 +1613,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
@@ -1740,6 +1769,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
@@ -1751,6 +1781,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.MapMapValues _
+        | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _

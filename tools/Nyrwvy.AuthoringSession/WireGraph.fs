@@ -157,6 +157,8 @@ module internal WireGraph =
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
+        | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
+            tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->
             tagged "listSlice" [ "listNodeId", identity list; "startNodeId", identity start; "endNodeId", identity stop ]
         | SemanticNodeKind.MapInsert(map, key, value) ->
@@ -192,6 +194,9 @@ module internal WireGraph =
         | SemanticNodeKind.MapFilter(source, callback, bindings) ->
             tagged "mapFilter" ([ "sourceMapNodeId", identity source; "keepFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
+        | SemanticNodeKind.ListMinBy(source, callback, bindings) -> traversal "listMinBy" source callback bindings
+        | SemanticNodeKind.MapMapValues(source, callback, bindings) ->
+            tagged "mapMapValues" ([ "sourceMapNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
         | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->

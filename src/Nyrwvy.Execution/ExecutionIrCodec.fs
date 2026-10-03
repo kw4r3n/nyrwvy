@@ -518,6 +518,11 @@ module ExecutionIrCodec =
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)
               property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
+            [ property "kind" (quote "mapGetOrDefault")
+              property "mapValueId" (executionValueIdValue mapValueId)
+              property "keyValueId" (executionValueIdValue keyValueId)
+              property "defaultValueId" (executionValueIdValue defaultValueId) ]
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
             [ property "kind" (quote "listSlice")
               property "listValueId" (executionValueIdValue listValueId)
@@ -598,6 +603,13 @@ module ExecutionIrCodec =
             @ writeCallbackContext context
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
+        | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
+            writeListCallbackInstruction "listMinBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
+        | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
+            [ property "kind" (quote "mapMapValues")
+              property "sourceMapValueId" (executionValueIdValue sourceMapValueId)
+              property "mapperFunctionId" (stableIdValue mapperFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->

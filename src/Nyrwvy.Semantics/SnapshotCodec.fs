@@ -702,6 +702,11 @@ module SnapshotCodec =
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
             writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "mapGetOrDefault")
+            writer.WriteString("mapNodeId", StableId.value mapNodeId)
+            writer.WriteString("keyNodeId", StableId.value keyNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
             writer.WriteString("kind", "listSlice")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -786,8 +791,15 @@ module SnapshotCodec =
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "mapMapValues")
+            writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
@@ -1684,6 +1696,17 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "mapNodeId" element,
                     readId<GraphNodeTag> "keyNodeId" element
                 )
+            | "mapGetOrDefault" ->
+                ensureProperties
+                    "MapGetOrDefault node"
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId"; "defaultNodeId" ])
+                    (set [ "id"; "kind"; "mapNodeId"; "keyNodeId"; "defaultNodeId" ])
+                    element
+                SemanticNodeKind.MapGetOrDefault(
+                    readId<GraphNodeTag> "mapNodeId" element,
+                    readId<GraphNodeTag> "keyNodeId" element,
+                    readId<GraphNodeTag> "defaultNodeId" element
+                )
             | "listSlice" ->
                 ensureProperties
                     "ListSlice node"
@@ -1797,6 +1820,12 @@ module SnapshotCodec =
             | "listSortBy" ->
                 readListCallbackNode "ListSortBy node" "lessThanFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListSortBy(source, callback, context))
+            | "listMinBy" ->
+                readListCallbackNode "ListMinBy node" "lessThanFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListMinBy(source, callback, context))
+            | "mapMapValues" ->
+                ensureProperties "MapMapValues node" (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.MapMapValues(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
             | "listAny" ->
                 readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAny(source, callback, context))

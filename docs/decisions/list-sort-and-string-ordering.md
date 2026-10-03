@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
-- **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 12
+- **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 12; `ListMinBy` is order 48 (owner choice of 2026-10-04)
 
 This decision settles order 12 of the post-M2 queue: how a program sorts a list and orders Strings. [Probe 3](../verification/rrawrlet-slice-probe3-20260928.md) (friction 2) sorted rrawrlet's `usage_stats` rows by `(role, -count)` and sorted values for medians with 7 functions and 72 recipe nodes: insertion sorts built from two `ListFilter`s per insert (`leX`, `gtX`, `insertSorted`, `rowNotAfter`, `rowAfter`, `insertRow`), and a fixed role-rank table (`roleRank`), because there was no String ordering. A role outside the table would sort differently from Python. The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
 
@@ -17,6 +17,8 @@ This decision settles order 12 of the post-M2 queue: how a program sorts a list 
 - the halves are merged by taking the right head when `lessThan(rightHead, leftHead)` holds, and the left head otherwise.
 
 For a strict weak order this is the stable sort: items the callback does not order keep their input order. For any other callback it is still a deterministic permutation of the input, the same on every backend. For example, a callback that is always true reverses the list. The callback runs at most `n log2 n` times, and the sort never fails. Recipe and wire name `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. Callback errors use the existing List callback codes: arity (two unbound parameters), parameter types (both the item type), a Bool result, and no required effects.
+
+**`ListMinBy(list, lessThan, context): Option<T>` (order 48).** On 2026-10-04, after [probe 21](../verification/map-set-probe21-20261004.md), the owner chose to add the smallest item of a list ahead of further evidence. It takes the same pure less-than callback as `ListSortBy`. The result is `None` for the empty list. Otherwise one left-to-right scan defines it: `best` starts as the first item, and an item replaces `best` only when `lessThan(item, best)` holds. Among equal items the first wins, and any callback gives a deterministic result; one that is always true gives the last item. The callback runs at most `n - 1` times, and the operation never fails. The largest item is the smallest under the swapped comparison. Recipe and wire name `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same callback codes as `ListSortBy`.
 
 **No key-based sort and no three-way `StringCompare`.**
 
@@ -43,8 +45,8 @@ The Bool less-than shape was chosen over an Int64 comparator because a stable me
 
 ## Consequences
 
-- `StringLessThan` and `ListSortBy` follow the usual path through the semantic graph, validation, snapshot and Nyason codecs, typed semantic IR, execution IR, the C# backend, the viewer (`string less than` with left and right operand dependencies; `List sort by` with a callback relation) and both recipe wire forms. The sort callback counts as a call target for purity, effect and call-graph analysis, as `ListFilter`'s does.
-- The C# backend emits `NyText.LessThan`, which decodes code points itself instead of calling `string.CompareOrdinal`, and `NyList<T>.SortBy`, the specified merge sort over a copy. See the [C# backend](../specs/csharp-backend.md#string-ordering).
+- `StringLessThan`, `ListSortBy` and `ListMinBy` follow the usual path through the semantic graph, validation, snapshot and Nyason codecs, typed semantic IR, execution IR, the C# backend, the viewer (`string less than` with left and right operand dependencies; `List sort by` with a callback relation) and both recipe wire forms. The sort callback counts as a call target for purity, effect and call-graph analysis, as `ListFilter`'s does.
+- The C# backend emits `NyText.LessThan`, which decodes code points itself instead of calling `string.CompareOrdinal`, `NyList<T>.SortBy`, the specified merge sort over a copy, and `NyList<T>.MinBy`, the specified scan. See the [C# backend](../specs/csharp-backend.md#string-ordering).
 - `runPure` cannot carry an unpaired surrogate in a String argument, because its JSON transport replaces it. The code-point rule for unpaired surrogates is therefore defined and implemented, but not exercised end to end.
 - A sort by a derived key recomputes the key in each comparison. That costs `O(n log n)` key computations instead of `n`.
 

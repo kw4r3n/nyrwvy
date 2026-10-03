@@ -231,6 +231,9 @@ module internal WireRecipe =
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))
+        | "mapGetOrDefault" ->
+            ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
+            ExpressionRecipe.MapGetOrDefault(recipe (property "map" element), recipe (property "key" element), recipe (property "default" element))
         | "listSlice" ->
             ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
             ExpressionRecipe.ListSlice(recipe (property "list" element), recipe (property "start" element), recipe (property "end" element))
@@ -275,9 +278,13 @@ module internal WireRecipe =
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "mapMapValues" ->
+            ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
+            ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listMap"
         | "mapFromList"
         | "listSortBy"
+        | "listMinBy"
         | "listFilter"
         | "listAny"
         | "listAll" as kind ->
@@ -290,6 +297,7 @@ module internal WireRecipe =
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, functionId, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
+            | "listMinBy" -> ExpressionRecipe.ListMinBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)
         | "productConstruct" ->
