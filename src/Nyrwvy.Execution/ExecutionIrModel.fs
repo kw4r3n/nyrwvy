@@ -458,6 +458,9 @@ type ExecutionTerminator =
     | MatchUnion of inputValueId: ExecutionValueId * ExecutionUnionTarget list
     | MatchOption of inputValueId: ExecutionValueId * someBlock: ExecutionBlockId * noneBlock: ExecutionBlockId
     | MatchResult of inputValueId: ExecutionValueId * okBlock: ExecutionBlockId * errBlock: ExecutionBlockId
+    /// A self DirectCall in tail position: assigns every parameter of the enclosing function in
+    /// parallel and continues at its entry block, so the call never grows the stack.
+    | TailCall of originNodeId: GraphNodeId * arguments: ExecutionCallArgument list
 
 type ExecutionBlock =
     { Id: ExecutionBlockId

@@ -1559,13 +1559,16 @@ module CSharpBackend =
     /// A callback with context becomes a lambda that passes context values and the iteration values
     /// by parameter name; without context the method group is emitted unchanged.
     /// Calls a callback with its context values and the given iteration values, all by parameter name.
-    let private renderInvocation (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (functionId: FunctionId) (context: ExecutionCallArgument list) (iterationValues: string list) =
-        let bound = context |> List.map (fun argument -> argument.TargetParameterId) |> Set.ofList
+    let private renderInvocationOf (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (functionId: FunctionId) (context: (ParameterId * string) list) (iterationValues: string list) =
+        let bound = context |> List.map fst |> Set.ofList
         let iteration = parametersOf functionId |> List.map fst |> List.filter (fun parameterId -> not (Set.contains parameterId bound))
         let arguments =
-            (context |> List.map (fun argument -> CSharpBackendNames.parameterName argument.TargetParameterId + ": " + valueName argument.ValueId))
+            (context |> List.map (fun (parameterId, value) -> CSharpBackendNames.parameterName parameterId + ": " + value))
             @ (List.map2 (fun parameterId value -> CSharpBackendNames.parameterName parameterId + ": " + value) iteration iterationValues)
         callbackName functionId + "(" + String.concat ", " arguments + ")"
+
+    let private renderInvocation parametersOf functionId (context: ExecutionCallArgument list) iterationValues =
+        renderInvocationOf parametersOf functionId (context |> List.map (fun argument -> argument.TargetParameterId, valueName argument.ValueId)) iterationValues
 
     let private renderCallback (parametersOf: FunctionId -> (ParameterId * TypeRef) list) (target: string) (functionId: FunctionId) (context: ExecutionCallArgument list) =
         let generic = parametersOf functionId |> List.exists (fun (_, parameterType) -> not (List.isEmpty (TypeParameters.occurring parameterType)))
@@ -1997,7 +2000,21 @@ module CSharpBackend =
             writer.Pop()
             writer.Line("}")
         | ExecutionInstructionKind.TaskStart(scopeValueId, workerFunctionId, context, itemValueId) ->
-            writer.Line(target + " = " + valueName scopeValueId + ".Start(() => " + renderInvocation parametersOf workerFunctionId context [ valueName itemValueId ] + ");")
+            // The worker runs after this instruction, so its lambda must not capture value locals: a tail
+            // call reassigns them for the next turn while the task may still be starting. Block-scoped
+            // copies are fresh variables each time the block is entered, so each task keeps its own values.
+            let captured index = target + "_c" + string index
+            writer.Line("{")
+            writer.Push()
+            for index, argument in context |> List.indexed do
+                writer.Line("var " + captured index + " = " + valueName argument.ValueId + ";")
+            let item = target + "_item"
+            writer.Line("var " + item + " = " + valueName itemValueId + ";")
+            let copiedContext = context |> List.mapi (fun index argument -> argument.TargetParameterId, captured index)
+            let invocation = renderInvocationOf parametersOf workerFunctionId copiedContext [ item ]
+            writer.Line(target + " = " + valueName scopeValueId + ".Start(() => " + invocation + ");")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.TaskWait(tasksValueId, mode, limitValueId) ->
             let any = match mode with TaskWaitMode.Any -> "true" | TaskWaitMode.All -> "false"
             let limit = limitValueId |> Option.map valueName |> Option.defaultValue "NyOption<long>.None()"
@@ -2116,23 +2133,46 @@ module CSharpBackend =
         | ExecutionInstructionKind.ExtractResultErr inputValueId ->
             writer.Line(target + " = " + valueName inputValueId + ".ErrorValue;")
 
+    /// The two-phase copy of a jump or tail call: every source is read into a temporary before
+    /// any target is written, so targets that feed one another (`f(a: b, b: a)`) swap correctly.
+    let private emitParallelAssignment (writer: SourceWriter) (blockId: ExecutionBlockId) (assignments: (ExecutionValueId * ExecutionValueId) list) =
+        for index, (_, sourceValueId) in assignments |> List.indexed do
+            writer.Line(CSharpBackendNames.jumpTemporaryName blockId index + " = " + valueName sourceValueId + ";")
+        for index, (targetValueId, _) in assignments |> List.indexed do
+            writer.Line(valueName targetValueId + " = " + CSharpBackendNames.jumpTemporaryName blockId index + ";")
+
+    /// The parameter value local each tail-call argument assigns, in argument order.
+    let private tailCallAssignments (functionEntity: ExecutionFunction) (arguments: ExecutionCallArgument list) =
+        arguments
+        |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
+        |> List.map (fun argument ->
+            let parameter =
+                functionEntity.Parameters
+                |> List.find (fun parameter -> parameter.SemanticParameterId = argument.TargetParameterId)
+            parameter.Value, argument.ValueId)
+
     let private emitTerminator
-        (resultType: TypeRef)
+        (functionEntity: ExecutionFunction)
         (writer: SourceWriter)
         (block: ExecutionBlock)
         (terminator: ExecutionTerminator) =
+        let resultType = functionEntity.ResultType
         match terminator with
+        | ExecutionTerminator.TailCall(_, arguments) ->
+            // The prologue copied the C# parameters into these value locals once; reassigning them and
+            // jumping back to the entry block reruns the body without a new stack frame.
+            tailCallAssignments functionEntity arguments
+            |> List.map (fun (parameterValue, sourceValueId) -> parameterValue.Id, sourceValueId)
+            |> emitParallelAssignment writer block.Id
+            writer.Line("goto " + CSharpBackendNames.executionBlockLabel functionEntity.EntryBlockId + ";")
         | ExecutionTerminator.Abort(_, errorValueId) ->
             writer.Line("return " + formatType resultType + ".Err(" + valueName errorValueId + ");")
         | ExecutionTerminator.Return resultValueId ->
             writer.Line("return " + valueName resultValueId + ";")
         | ExecutionTerminator.Jump(targetBlockId, arguments) ->
-            for index, argument in arguments |> List.indexed do
-                let temporary = CSharpBackendNames.jumpTemporaryName block.Id index
-                writer.Line(temporary + " = " + valueName argument.ValueId + ";")
-            for index, argument in arguments |> List.indexed do
-                let temporary = CSharpBackendNames.jumpTemporaryName block.Id index
-                writer.Line(valueName argument.TargetValueId + " = " + temporary + ";")
+            arguments
+            |> List.map (fun argument -> argument.TargetValueId, argument.ValueId)
+            |> emitParallelAssignment writer block.Id
             writer.Line("goto " + CSharpBackendNames.executionBlockLabel targetBlockId + ";")
         | ExecutionTerminator.Branch(conditionValueId, whenTrue, whenFalse) ->
             writer.Line("if (" + valueName conditionValueId + ") goto " + CSharpBackendNames.executionBlockLabel whenTrue + ";")
@@ -2215,6 +2255,10 @@ module CSharpBackend =
                         block.Id,
                         index,
                         Map.find argument.TargetValueId valueTypes)
+                | ExecutionTerminator.TailCall(_, arguments) ->
+                    tailCallAssignments functionEntity arguments
+                    |> List.indexed
+                    |> List.map (fun (index, (parameterValue, _)) -> block.Id, index, parameterValue.Type)
                 | ExecutionTerminator.Abort _
                 | ExecutionTerminator.Return _
                 | ExecutionTerminator.Branch _
@@ -2237,7 +2281,7 @@ module CSharpBackend =
             writer.Push()
             for instruction in block.Instructions do
                 emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
-            emitTerminator functionEntity.ResultType writer block block.Terminator
+            emitTerminator functionEntity writer block block.Terminator
             writer.Line("")
 
         writer.Pop()

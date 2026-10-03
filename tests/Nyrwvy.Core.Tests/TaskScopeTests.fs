@@ -346,7 +346,8 @@ module TaskScopeTests =
             Assert.Contains("nayamnyam.snapshot.v8", nyason)
             Assert.True(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v8", "nayamnyam.snapshot.v7")) |> Result.isError)
             Assert.Contains("\"schemaVersion\":9", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"schemaVersion\":8", ExecutionIrCodec.serialize execution)
+            // The task loops end in tail self calls, so Execution IR carries TailCall (version 9).
+            Assert.Contains("\"schemaVersion\":9", ExecutionIrCodec.serialize execution)
             Assert.Equal("TaskCancelInputTypeMismatch", reject [ "task", stringType ] unitType (ExpressionRecipe.TaskCancel(slot 0)))
             // The body's free parameter must be the scope.
             Assert.Equal("TaskScopeBodyMismatch", reject capabilities outcomeType (ExpressionRecipe.TaskScope(memberWorker.Id, context)))

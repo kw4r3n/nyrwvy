@@ -1,6 +1,6 @@
 # Loops (design note)
 
-**Status:** Proposed 2026-10-04, awaiting the owner's choice. Nothing is implemented.
+**Status:** Decided 2026-10-04: the owner accepted all three recommendations below (option 1 as a stated guarantee, `BoolAnd`/`BoolOr` right operands as tail positions, mutual recursion left out), implemented as order 49 ([decision](../decisions/tail-self-calls.md)). The analysis below is kept as written.
 
 ## Context
 
@@ -42,6 +42,8 @@ The only thing wrong with it is depth. A minimal tail self-call (`sumTo(n, acc)`
 Nothing else is. A call whose value is wrapped (`ResultOk`, `OptionSome`, a Product field) or used as an operand is an ordinary call. A call inside a callback (`ListFold`, `UseResource`, `TaskScope`, `ParallelAll`, …) is in that callback's own function: it is a tail call there if it calls that function, and never a tail call of the outer function. The rule applies to effectful functions too, which is what probe 15's event loop needs.
 
 **Not covered:** mutual recursion (a placeholder callee is still needed to write it, and no probe has looped through two functions) and non-tail recursion such as a tree walk, which keeps its depth bound.
+
+*Added with the decision:* mutual recursion is also a larger change in kind. A self-call can jump back to the start of its own C# method, but C# has no jump between methods, so a loop through two functions would need a dispatch method that holds every member's body, or a trampoline that returns thunks. The [decision record](../decisions/tail-self-calls.md#if-mutual-recursion-is-needed-later) lists the planned steps if a probe needs it.
 
 **Infinite loops** are already possible with recursion in principle; today they end as a stack overflow, and afterwards they end at the `runPure` time limit (5 s) or run until cancelled. A loop inside a `ParallelAll` worker or task should still check `CancellationRequested`, as now. No totality check is added.
 

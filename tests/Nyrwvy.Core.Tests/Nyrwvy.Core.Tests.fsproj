@@ -117,6 +117,7 @@
     <Compile Include="Bits32Tests.fs" />
     <Compile Include="ProductUpdateTests.fs" />
     <Compile Include="SelfCallTests.fs" />
+    <Compile Include="TailSelfCallTests.fs" />
     <Compile Include="ScopeDepthDiagnosticsTests.fs" />
     <Compile Include="StructuralDiagnosticTextTests.fs" />
     <Compile Include="JsonDepthBoundTests.fs" />

@@ -106,9 +106,43 @@ module ExecutionIr =
                 block.Instructions.Add instruction
                 value
 
+            /// The node of a graph in tail position, when it leads to a self DirectCall in tail
+            /// position (the call itself, or a structured node with such a call in an arm or body).
+            /// The graph's result must be one of its own nodes that no other node of the graph uses;
+            /// otherwise something still runs after it and it is not a tail position.
+            let rec tailSelfCallNode (graph: TypedSemanticGraph): TypedSemanticNode option =
+                graph.Nodes
+                |> List.tryFind (fun (node: TypedSemanticNode) -> node.OriginNodeId = graph.ResultNodeId)
+                |> Option.filter (fun (result: TypedSemanticNode) ->
+                    leadsToTailSelfCall result
+                    && graph.Nodes
+                       |> List.forall (fun (other: TypedSemanticNode) ->
+                           other.OriginNodeId = result.OriginNodeId
+                           || not (List.contains result.OriginNodeId (ExecutionIrAnalysis.dependencies other))))
+
+            and leadsToTailSelfCall (node: TypedSemanticNode): bool =
+                let any (graphs: TypedSemanticGraph list) = graphs |> List.exists (tailSelfCallNode >> Option.isSome)
+                match node.Kind with
+                | TypedSemanticNodeKind.DirectCall(target, _) -> target = functionEntity.Id
+                | TypedSemanticNodeKind.Bind(_, body) -> any [ body.Body ]
+                | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) -> any [ whenTrue; whenFalse ]
+                | TypedSemanticNodeKind.BoolAnd(_, right)
+                | TypedSemanticNodeKind.BoolOr(_, right) -> any [ right ]
+                | TypedSemanticNodeKind.MatchUnion(_, arms) -> arms |> List.map (fun (arm: TypedSemanticUnionArm) -> arm.Body) |> any
+                | TypedSemanticNodeKind.MatchOption(_, someArm, noneBody) -> any [ someArm.Body; noneBody ]
+                | TypedSemanticNodeKind.MatchResult(_, okArm, errArm) -> any [ okArm.Body; errArm.Body ]
+                | _ -> false
+
+            /// `isTail`: the graph's result is the function's result (the body, or an arm or Bind
+            /// body of a structured node in tail position). Its tail node is lowered after every
+            /// other node of the graph, none of which uses it, and a self call there becomes a
+            /// `TailCall`. Moving it last keeps effect and abort order: effect-order validation
+            /// orders every observable node against an effectful call by dependency, and a pure
+            /// call has no order against the graph's other nodes.
             let rec lowerGraph
                 (startBlock: MutableBlock)
                 (initialEnvironment: LoweringEnvironment)
+                (isTail: bool)
                 (graph: TypedSemanticGraph)
                 : Result<(MutableBlock * ExecutionValueId) option, ExecutionIrError> =
                 let mutable currentBlock = startBlock
@@ -124,6 +158,10 @@ module ExecutionIr =
                     |> Map.ofList
                 let mutable failure: ExecutionIrError option = None
                 let mutable stopped = false
+                let tailNodeId: GraphNodeId option =
+                    if isTail then tailSelfCallNode graph |> Option.map (fun (node: TypedSemanticNode) -> node.OriginNodeId)
+                    else None
+                let isTailNode (node: TypedSemanticNode) = tailNodeId = Some node.OriginNodeId
 
                 let bindNode (nodeId: GraphNodeId) (valueId: ExecutionValueId) =
                     environment <-
@@ -137,6 +175,8 @@ module ExecutionIr =
                     |> List.filter (fun (node: TypedSemanticNode) ->
                         Map.find node.OriginNodeId dependenciesById
                         |> List.forall (fun dependencyId -> Map.containsKey dependencyId environment.NodeValues))
+                    // The tail node waits until it is the last pending node.
+                    |> List.filter (fun (node: TypedSemanticNode) -> not (isTailNode node) || Map.count pending = 1)
                     |> List.sortBy (fun node -> StableId.value node.OriginNodeId)
 
                 let lowerFieldValues
@@ -632,6 +672,19 @@ module ExecutionIr =
                         currentBlock <- block
                         bindNode node.OriginNodeId value.Id
 
+                /// Connects the arm endpoints to the merge and continues there. When no arm reaches the
+                /// merge, because each one aborts or ends in a tail call, the merge block is dropped and
+                /// the graph stops here, as it does after an abort.
+                let finishArms (node: TypedSemanticNode) (merge: (ExecutionValue * MutableBlock) option) endpoints =
+                    match merge with
+                    | Some(_, block) when endpoints |> List.forall Option.isNone ->
+                        blocks.Remove block.Id |> ignore
+                        stopped <- true
+                    | _ ->
+                        for endpoint in endpoints do
+                            connect endpoint merge
+                        continueAt node merge
+
                 let lowerBind (node: TypedSemanticNode) inputNodeId (body: TypedSemanticValueArm) =
                     match requireNodeValue environment inputNodeId with
                     | Error error -> failure <- Some error
@@ -647,12 +700,9 @@ module ExecutionIr =
                         let bodyEnvironment: LoweringEnvironment =
                             { environment with
                                 PatternValues = Map.add body.ValueBinding.Id boundValue.Id environment.PatternValues }
-                        match lowerGraph bodyBlock bodyEnvironment body.Body with
+                        match lowerGraph bodyBlock bodyEnvironment (isTailNode node) body.Body with
                         | Error error -> failure <- Some error
-                        | Ok endpoint ->
-                            let merge = makeMerge node
-                            connect endpoint merge
-                            continueAt node merge
+                        | Ok endpoint -> finishArms node (makeMerge node) [ endpoint ]
 
                 let lowerConditional
                     (node: TypedSemanticNode)
@@ -666,11 +716,9 @@ module ExecutionIr =
                         let falseBlock = addBlock (ExecutionIrIds.nodeBlock node.OriginNodeId "when-false") []
                         let merge = makeMerge node
                         setTerminator currentBlock (ExecutionTerminator.Branch(conditionValueId, trueBlock.Id, falseBlock.Id))
-                        match lowerGraph trueBlock environment whenTrue, lowerGraph falseBlock environment whenFalse with
-                        | Ok trueEnd, Ok falseEnd ->
-                            connect trueEnd merge
-                            connect falseEnd merge
-                            continueAt node merge
+                        let armsTail = isTailNode node
+                        match lowerGraph trueBlock environment armsTail whenTrue, lowerGraph falseBlock environment armsTail whenFalse with
+                        | Ok trueEnd, Ok falseEnd -> finishArms node merge [ trueEnd; falseEnd ]
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
@@ -691,11 +739,8 @@ module ExecutionIr =
                         let trueBlock, falseBlock =
                             if evaluateRightWhen then rightBlock, decidedBlock else decidedBlock, rightBlock
                         setTerminator currentBlock (ExecutionTerminator.Branch(leftValueId, trueBlock.Id, falseBlock.Id))
-                        match lowerGraph rightBlock environment right with
-                        | Ok rightEnd ->
-                            connect rightEnd merge
-                            connect (Some(decidedBlock, leftValueId)) merge
-                            continueAt node merge
+                        match lowerGraph rightBlock environment (isTailNode node) right with
+                        | Ok rightEnd -> finishArms node merge [ rightEnd; Some(decidedBlock, leftValueId) ]
                         | Error error -> failure <- Some error
 
                 let lowerUnionMatch
@@ -719,6 +764,7 @@ module ExecutionIr =
                                     { VariantId = variantId
                                       BlockId = block.Id }))
                         setTerminator currentBlock (ExecutionTerminator.MatchUnion(inputValueId, targets))
+                        let endpoints = ResizeArray<(MutableBlock * ExecutionValueId) option>()
 
                         for (arm: TypedSemanticUnionArm), (block: MutableBlock) in armBlocks do
                             if Option.isNone failure then
@@ -733,12 +779,12 @@ module ExecutionIr =
                                     patternValues <- Map.add fieldBinding.Binding.Id extracted.Id patternValues
                                 let armEnvironment: LoweringEnvironment =
                                     { environment with PatternValues = patternValues }
-                                match lowerGraph block armEnvironment arm.Body with
-                                | Ok endpoint -> connect endpoint merge
+                                match lowerGraph block armEnvironment (isTailNode node) arm.Body with
+                                | Ok endpoint -> endpoints.Add endpoint
                                 | Error error -> failure <- Some error
 
                         if Option.isNone failure then
-                            continueAt node merge
+                            finishArms node merge (List.ofSeq endpoints)
 
                 let lowerOptionMatch
                     (node: TypedSemanticNode)
@@ -757,11 +803,9 @@ module ExecutionIr =
                         let someEnvironment: LoweringEnvironment =
                             { environment with
                                 PatternValues = Map.add someArm.ValueBinding.Id extracted.Id environment.PatternValues }
-                        match lowerGraph someBlock someEnvironment someArm.Body, lowerGraph noneBlock environment noneBody with
-                        | Ok someEnd, Ok noneEnd ->
-                            connect someEnd merge
-                            connect noneEnd merge
-                            continueAt node merge
+                        let armsTail = isTailNode node
+                        match lowerGraph someBlock someEnvironment armsTail someArm.Body, lowerGraph noneBlock environment armsTail noneBody with
+                        | Ok someEnd, Ok noneEnd -> finishArms node merge [ someEnd; noneEnd ]
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
@@ -785,11 +829,9 @@ module ExecutionIr =
                             { environment with PatternValues = Map.add okArm.ValueBinding.Id okExtracted.Id environment.PatternValues }
                         let errEnvironment: LoweringEnvironment =
                             { environment with PatternValues = Map.add errArm.ErrorBinding.Id errExtracted.Id environment.PatternValues }
-                        match lowerGraph okBlock okEnvironment okArm.Body, lowerGraph errBlock errEnvironment errArm.Body with
-                        | Ok okEnd, Ok errEnd ->
-                            connect okEnd merge
-                            connect errEnd merge
-                            continueAt node merge
+                        let armsTail = isTailNode node
+                        match lowerGraph okBlock okEnvironment armsTail okArm.Body, lowerGraph errBlock errEnvironment armsTail errArm.Body with
+                        | Ok okEnd, Ok errEnd -> finishArms node merge [ okEnd; errEnd ]
                         | Error error, _
                         | _, Error error -> failure <- Some error
 
@@ -818,6 +860,14 @@ module ExecutionIr =
                             lowerOptionMatch node inputNodeId someArm noneBody
                         | TypedSemanticNodeKind.MatchResult(inputNodeId, okArm, errArm) ->
                             lowerResultMatch node inputNodeId okArm errArm
+                        | TypedSemanticNodeKind.DirectCall(_, arguments) when isTailNode node ->
+                            // `tailSelfCallNode` admits only a self call here. Nothing in the graph uses
+                            // its value, so it binds none; the block ends and the graph stops.
+                            match lowerCallArguments arguments with
+                            | Error error -> failure <- Some error
+                            | Ok lowered ->
+                                setTerminator currentBlock (ExecutionTerminator.TailCall(node.OriginNodeId, lowered))
+                                stopped <- true
                         // Every other kind is a leaf. `lowerSimpleNode` enumerates every kind and rejects
                         // the structured ones above, so a new kind is a compile error there, not here.
                         | _ -> lowerSimpleNode node
@@ -834,7 +884,7 @@ module ExecutionIr =
                 { NodeValues = Map.empty
                   PatternValues = Map.empty }
 
-            match lowerGraph entry initialEnvironment functionEntity.Body with
+            match lowerGraph entry initialEnvironment true functionEntity.Body with
             | Error error -> Error error
             | Ok endpoint ->
                 match endpoint with
