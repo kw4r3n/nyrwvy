@@ -175,6 +175,8 @@ module ValueDependency =
         | SemanticNodeKind.SetFromList sourceNodeId
         | SemanticNodeKind.SetSize sourceNodeId
         | SemanticNodeKind.ListReverse sourceNodeId
+        | SemanticNodeKind.ListLast sourceNodeId
+        | SemanticNodeKind.ListDropLast sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)

@@ -30,6 +30,8 @@ module StandardOperationTests =
         | "ceiling" -> ExpressionRecipe.Float64Ceiling value
         | "truncate" -> ExpressionRecipe.Float64Truncate value
         | "reverse" -> ExpressionRecipe.ListReverse value
+        | "dropLast" -> ExpressionRecipe.ListDropLast value
+        | "last" -> ExpressionRecipe.ListLast value
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
@@ -40,12 +42,18 @@ module StandardOperationTests =
     [<InlineData("ceiling", "float64Ceiling", "float64-ceiling", "System.Math.Ceiling(")>]
     [<InlineData("truncate", "float64Truncate", "float64-truncate", "System.Math.Truncate(")>]
     [<InlineData("reverse", "listReverse", "list-reverse", ".Reverse()")>]
+    [<InlineData("dropLast", "listDropLast", "list-drop-last", ".DropLast()")>]
+    [<InlineData("last", "listLast", "list-last", ".Last()")>]
     let ``Standard operations type check, persist, and lower through every layer``
         (mode: string, wireKind: string, nyasonKind: string, csharpCall: string) =
         // ListReverse keeps its List<T> type, so a List<String> stands in for every item type.
         let valueType, wrongType, issueCode =
             if mode = "reverse" then listOf textType, textType, "ListReverseInputTypeMismatch"
+            elif mode = "dropLast" then listOf textType, textType, "ListDropLastInputTypeMismatch"
+            elif mode = "last" then listOf textType, textType, "ListLastInputTypeMismatch"
             else floatType, intType, "Float64OperandTypeMismatch"
+        // ListLast gives Option<T>; every other operation keeps its operand type.
+        let resultType = if mode = "last" then TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ textType ]) else valueType
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
@@ -60,9 +68,9 @@ module StandardOperationTests =
             | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) -> diagnostic.Code
             | other -> failwithf "Mistyped operation was accepted: %A" other
         let body = recipeOf mode (ExpressionRecipe.ParameterSlot 0)
-        Assert.NotEqual<string>("", rejects (request wrongType valueType body))
+        Assert.NotEqual<string>("", rejects (request wrongType resultType body))
         Assert.NotEqual<string>("", rejects (request valueType wrongType body))
-        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request valueType valueType body) |> unwrap "simulate"
+        let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request valueType resultType body) |> unwrap "simulate"
         let committed =
             match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws proposal with
             | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> AgentWorkspace.snapshotForStructuralEditing next

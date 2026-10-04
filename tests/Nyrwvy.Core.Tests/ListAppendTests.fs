@@ -56,6 +56,12 @@ static class Runner
         var t2 = t.AppendItem("z");
         var tt2 = tt.Concat(t);
         Console.WriteLine(Show(t) + Show(tt) + Show(t2) + Show(tt2) + Show(tt.AppendItem("y")));
+        // DropLast shares the store; appending to the shorter list must copy, not rewrite the slot.
+        var st = Build("k", 3);
+        var popped = st.DropLast();
+        var pushed = popped.AppendItem("n");
+        var again = popped.AppendItem("m");
+        Console.WriteLine(Show(st) + Show(popped) + Show(pushed) + Show(again) + " " + st.Last().Value + " " + pushed.Last().Value + " " + NyList<NyStr>.Empty().Last().HasValue + " " + Show(NyList<NyStr>.Empty().DropLast()) + Show(NyList<NyStr>.Create("q").DropLast()) + " " + popped.Equals(st.Slice(0, 2)));
         // Many threads extend one base concurrently; exactly one may take the spare slot, and
         // every result must still hold the base followed by its own items.
         var failures = 0;
@@ -103,6 +109,7 @@ static class Runner
                   "[a,b,g][b,c,h][a,b,c]"
                   "[a,b,p][a,b,q,r][a,b][a,b]"
                   "[a,b][a,b,a,b][a,b,z][a,b,a,b,a,b][a,b,a,b,y]"
+                  "[k0,k1,k2][k0,k1][k0,k1,n][k0,k1,m] k2 n False [][] True"
                   "concurrent failures 0" ]
             Assert.Equal(String.concat "\n" expected, output.Replace("\r\n", "\n").Trim())
         finally

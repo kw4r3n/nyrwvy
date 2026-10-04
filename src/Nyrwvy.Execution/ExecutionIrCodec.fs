@@ -478,6 +478,12 @@ module ExecutionIrCodec =
         | ExecutionInstructionKind.ListReverse listValueId ->
             [ property "kind" (quote "listReverse")
               property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.ListLast listValueId ->
+            [ property "kind" (quote "listLast")
+              property "listValueId" (executionValueIdValue listValueId) ]
+        | ExecutionInstructionKind.ListDropLast listValueId ->
+            [ property "kind" (quote "listDropLast")
+              property "listValueId" (executionValueIdValue listValueId) ]
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             [ property "kind" (quote "listItemAt")
               property "listValueId" (executionValueIdValue listValueId)

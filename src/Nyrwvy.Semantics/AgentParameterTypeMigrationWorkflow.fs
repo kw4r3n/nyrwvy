@@ -311,6 +311,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.SetFromList value -> one ExpressionRecipe.SetFromList value
             | ExpressionRecipe.SetSize value -> one ExpressionRecipe.SetSize value
             | ExpressionRecipe.ListReverse value -> one ExpressionRecipe.ListReverse value
+            | ExpressionRecipe.ListLast value -> one ExpressionRecipe.ListLast value
+            | ExpressionRecipe.ListDropLast value -> one ExpressionRecipe.ListDropLast value
             | ExpressionRecipe.OptionSome value -> one ExpressionRecipe.OptionSome value
             | ExpressionRecipe.StringContains(left, right) -> two ExpressionRecipe.StringContains left right
             | ExpressionRecipe.StringIndexOf(value, substring, from) -> three ExpressionRecipe.StringIndexOf value substring from

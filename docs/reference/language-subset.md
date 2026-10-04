@@ -117,6 +117,8 @@ ListItemAt
 ListSlice
 ListRange
 ListReverse
+ListLast
+ListDropLast
 ListAppendItem
 ListConcat
 ListFold
@@ -133,6 +135,8 @@ ListAll
 ```
 
 `ListAppendItem` onto the list the previous append produced is amortised constant time, so a `ListFold` that appends one item per step builds its list in linear time, and `StringJoin` of such a list is a linear text builder. `StringConcat` onto the String the previous concatenation produced is likewise amortised in the length of its right operand, so a `ListFold` that concatenates one piece per step is also linear. Values are unaffected: appending or concatenating onto an older value, or twice onto the same one, gives independent values.
+
+`ListLast(list)` gives the last item as `Option<T>` (`None` for the empty list), and `ListDropLast(list)` gives the list without its last item (the empty list stays empty); neither fails. With `ListAppendItem` they make a list a stack: peek, pop and push. Both take constant time, because `ListDropLast` shares the items with the original list. A push onto a popped list copies the list once, since the original still holds that slot, so a loop that alternates pops and pushes on a deep stack still copies; one that only pushes and pops, or pushes again only after a further push, does not ([decision](../decisions/list-last-and-drop-last.md)).
 
 Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Purity here is the same transitive rule as for [function values](#pure-function-values): a callback has no required effects and neither it nor any function it reaches invokes a capability, uses a resource, starts, waits for or cancels a task, runs `ParallelAll`, or reads `CancellationRequested`. Generic lambdas/closures are not part of the current subset.
 
@@ -344,6 +348,8 @@ ListItemAt
 ListSlice
 ListRange
 ListReverse
+ListLast
+ListDropLast
 ListAppendItem
 ListConcat
 ListFold

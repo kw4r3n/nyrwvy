@@ -662,6 +662,12 @@ module SnapshotCodec =
         | SemanticNodeKind.ListReverse listNodeId ->
             writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.ListLast listNodeId ->
+            writer.WriteString("kind", "listLast")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | SemanticNodeKind.ListDropLast listNodeId ->
+            writer.WriteString("kind", "listDropLast")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             writer.WriteString("kind", "listItemAt")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1617,6 +1623,12 @@ module SnapshotCodec =
             | "listReverse" ->
                 ensureProperties "ListReverse node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
                 SemanticNodeKind.ListReverse(readId<GraphNodeTag> "listNodeId" element)
+            | "listLast" ->
+                ensureProperties "ListLast node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
+                SemanticNodeKind.ListLast(readId<GraphNodeTag> "listNodeId" element)
+            | "listDropLast" ->
+                ensureProperties "ListDropLast node" (set [ "id"; "kind"; "listNodeId" ]) (set [ "id"; "kind"; "listNodeId" ]) element
+                SemanticNodeKind.ListDropLast(readId<GraphNodeTag> "listNodeId" element)
             | "listItemAt" ->
                 ensureProperties
                     "ListItemAt node"

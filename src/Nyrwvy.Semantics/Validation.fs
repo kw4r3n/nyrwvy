@@ -1159,6 +1159,22 @@ module SnapshotValidator =
                                 "ListReverseInputTypeMismatch"
                                 $"ListReverse node '{StableId.value node.Id}' requires List<T> input."
                         | None -> ()
+                    | SemanticNodeKind.ListLast listNodeId ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])) -> ()
+                        | Some _ ->
+                            add
+                                "ListLastInputTypeMismatch"
+                                $"ListLast node '{StableId.value node.Id}' requires List<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ListDropLast listNodeId ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])) -> ()
+                        | Some _ ->
+                            add
+                                "ListDropLastInputTypeMismatch"
+                                $"ListDropLast node '{StableId.value node.Id}' requires List<T> input."
+                        | None -> ()
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                         match nodeType listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
@@ -2065,6 +2081,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetFromList _
                 | SemanticNodeKind.SetSize _
                 | SemanticNodeKind.ListReverse _
+                | SemanticNodeKind.ListLast _
+                | SemanticNodeKind.ListDropLast _
                 | SemanticNodeKind.ListSlice _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _

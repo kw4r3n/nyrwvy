@@ -121,6 +121,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.SetFromList _
                 | TypedSemanticNodeKind.SetSize _
                 | TypedSemanticNodeKind.ListReverse _
+                | TypedSemanticNodeKind.ListLast _
+                | TypedSemanticNodeKind.ListDropLast _
                 | TypedSemanticNodeKind.ListSlice _
                 | TypedSemanticNodeKind.MapInsert _
                 | TypedSemanticNodeKind.ListItemAt _

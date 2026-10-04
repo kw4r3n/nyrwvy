@@ -323,7 +323,8 @@ module SemanticFacts =
                     | SemanticNodeKind.ListEmpty itemType
                     | SemanticNodeKind.ListConstruct(itemType, _) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]))
-                    | SemanticNodeKind.ListItemAt(listNodeId, _) ->
+                    | SemanticNodeKind.ListItemAt(listNodeId, _)
+                    | SemanticNodeKind.ListLast listNodeId ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
@@ -332,6 +333,7 @@ module SemanticFacts =
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
                     | SemanticNodeKind.ListSlice(listNodeId, _, _)
                     | SemanticNodeKind.ListReverse listNodeId
+                    | SemanticNodeKind.ListDropLast listNodeId
                     | SemanticNodeKind.ListFilter(listNodeId, _, _)
                     | SemanticNodeKind.ListSortBy(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with
