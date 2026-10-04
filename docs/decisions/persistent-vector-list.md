@@ -22,10 +22,11 @@ One Linux machine through `runPure`, warm calls, the same build path before and 
 | Probe 23 cycle path, closed chain of 40,000 / 300,000 | 0.69 / 3.46 s | 0.64 / 3.72 s |
 | Probe 23 components, comb of 4,000 / 10,000 / 20,000 | 0.89 / 2.92 s / over | 0.90 / 2.70 s / over |
 | Linear Kahn, chain of 100,000 | 1.84 s | 1.86 s |
+| Probe 22 reachability (`ListConcat` each turn), chain of 100,000 / 300,000 | 0.97 / 2.64 s (probe 22) | 0.98 / 2.83 s |
 | Amortised append benchmark, 1,048,576 code points ([method](../verification/list-amortised-append-20260930.md#measurements)) | 0.215 s | 0.292 s |
 | A tiny function: first call (build) / warm call, median of five | 0.198 / 0.060 s | 0.199 / 0.059 s |
 
-The comb search is now linear and the build cost is unchanged. 1M appends cost about 80 ms more, still under the design note's 0.4 s bound: rebuilding a 1M list from a code-point array now splits it into leaves, and each 32nd append copies a trie path. The chain search is about 7% slower at 300,000, the cost of the trie walk in `ItemAt`.
+The comb search is now linear and the build cost is unchanged. 1M appends cost about 80 ms more, still under the design note's 0.4 s bound: rebuilding a 1M list from a code-point array now splits it into leaves, and each 32nd append copies a trie path. The chain search and the reachability are about 7% slower at 300,000, the cost of the trie walk in `ItemAt` and of appending a concatenation item by item. Probe 23's 1,800 cases still match their reference on the new runtime.
 
 The components still exceed the limit on a comb of 20,000. Their remaining per-pop steps are linear in the depth: `ListIndexOf` scans the component stack from the front to find a one-name component at the top, and `SetDifference(onStack, component)` folds over the whole on-stack set. Both are outside this decision; see [Revisit conditions](#revisit-conditions).
 
