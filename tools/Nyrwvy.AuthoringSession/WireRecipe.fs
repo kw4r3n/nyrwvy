@@ -230,6 +230,9 @@ module internal WireRecipe =
         | "setContains" ->
             ensureFields "set-contains recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
             ExpressionRecipe.SetContains(recipe (property "set" element), recipe (property "item" element))
+        | "listIndexOf" ->
+            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
+            ExpressionRecipe.ListIndexOf(recipe (property "list" element), recipe (property "item" element))
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))
@@ -289,6 +292,7 @@ module internal WireRecipe =
         | "listMinBy"
         | "listFilter"
         | "listAny"
+        | "listFindIndex"
         | "listAll" as kind ->
             ensureFields $"{kind} recipe" [ "kind"; "source"; "functionId"; "context" ] [ "kind"; "source"; "functionId" ] element
             let source = recipe (property "source" element)
@@ -301,6 +305,7 @@ module internal WireRecipe =
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
             | "listMinBy" -> ExpressionRecipe.ListMinBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
+            | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)
         | "productConstruct" ->
             ensureFields "product-construct recipe" [ "kind"; "typeId"; "fields" ] [ "kind"; "typeId"; "fields" ] element

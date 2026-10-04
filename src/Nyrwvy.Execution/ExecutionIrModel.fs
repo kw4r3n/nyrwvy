@@ -189,6 +189,7 @@ type ExecutionInstructionKind =
     | SetDifference of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
@@ -215,6 +216,7 @@ type ExecutionInstructionKind =
     | ListMinBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapMapValues of sourceMapValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListFindIndex of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Construct a stateless capability using named pure functions, one per operation.
     | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
@@ -276,6 +278,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.MapMapValues(_, functionId, _)
         | ExecutionInstructionKind.ListMinBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
+        | ExecutionInstructionKind.ListFindIndex(_, functionId, _)
         | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback FunctionReferenceRole.PureListCallback functionId ]
         | ExecutionInstructionKind.ListEffectFold(_, _, functionId, _) -> [ callback FunctionReferenceRole.EffectListCallback functionId ]
         | ExecutionInstructionKind.ParallelAll(_, functionId, _) ->
@@ -399,6 +402,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.SetDifference _
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
+        | ExecutionInstructionKind.ListIndexOf _
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _

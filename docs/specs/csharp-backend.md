@@ -92,6 +92,8 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `ListMinBy` emits `source.MinBy(lessThan)`. `NyList<T>.MinBy` returns `None` for the empty list; otherwise it keeps the first item and scans the rest left to right, replacing the kept item only when `lessThan(item, kept)` is true, so the first of equal items wins.
 
+`ListFindIndex` emits `source.FindIndex(predicate)` and `ListIndexOf` emits `list.IndexOf(item)`. Both scan left to right and return `NyOption<long>.Some` of the first matching position; `IndexOf` compares with `NyEquality.Equal`, as `ValueEqual` does.
+
 ## Value equality
 
 `ProductUpdate` emits a C# `with` expression on the source record, `source with { F_a = …, F_b = … }`, assigning the updated fields in stable field-ID order; every operand is already a computed value, so the order is not observable. Kept fields are copied by the record's generated copy, so a reference-held field such as a task handle or a list is shared, not copied.

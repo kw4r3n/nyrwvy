@@ -762,6 +762,12 @@ module NyasonCodec =
                 [ nodeId
                   "set", encodeId "node" mapNodeId
                   "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
+            record
+                "list-index-of"
+                [ nodeId
+                  "list", encodeId "node" mapNodeId
+                  "item", encodeId "node" itemNodeId ]
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             record
                 "map-get"
@@ -840,6 +846,8 @@ module NyasonCodec =
             encodeListCallbackNode "list-min-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
+        | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
+            encodeListCallbackNode "list-find-index" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-all" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
@@ -1462,6 +1470,14 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "set" fields),
                     decodeId<GraphNodeTag> "node" (require "item" fields)
                 ) }
+        | NyasonValue.Record("list-index-of", _) ->
+            let fields = recordFields "list-index-of" [ "id"; "list"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListIndexOf(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "item" fields)
+                ) }
         | NyasonValue.Record("map-get", _) ->
             let fields = recordFields "map-get" [ "id"; "map"; "key" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1570,6 +1586,8 @@ module NyasonCodec =
             decodeListCallbackNode "list-min-by" value (fun source callback context -> SemanticNodeKind.ListMinBy(source, callback, context))
         | NyasonValue.Record("list-any", _) ->
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
+        | NyasonValue.Record("list-find-index", _) ->
+            decodeListCallbackNode "list-find-index" value (fun source callback context -> SemanticNodeKind.ListFindIndex(source, callback, context))
         | NyasonValue.Record("list-all", _) ->
             decodeListCallbackNode "list-all" value (fun source callback context -> SemanticNodeKind.ListAll(source, callback, context))
         | NyasonValue.Record("capability-construct", _) ->

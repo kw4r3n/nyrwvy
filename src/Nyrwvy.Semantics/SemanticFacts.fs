@@ -250,6 +250,9 @@ module SemanticFacts =
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.SetContains _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.ListFindIndex _
+                    | SemanticNodeKind.ListIndexOf _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                     | SemanticNodeKind.MapEmpty(keyType, valueType) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
                     | SemanticNodeKind.MapInsert(sourceMapNodeId, _, _)

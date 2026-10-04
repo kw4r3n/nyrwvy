@@ -429,6 +429,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// `Some` zero-based position of the first item equal to the item (ValueEqual), else `None`; never fails.
+    | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// The value for key, or the default (of the map's value type) when the key is absent. All
     /// three operands are evaluated. Never fails.
@@ -489,6 +491,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// the first of equal items wins and any callback gives a deterministic result. Never fails.
     | ListMinBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: ArgumentBinding list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    | ListFindIndex of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
     /// Construct a stateless capability using named pure functions, one per operation.
@@ -769,6 +772,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapMapValues(listNodeId, _, context)
         | SemanticNodeKind.ListMinBy(listNodeId, _, context)
         | SemanticNodeKind.ListAny(listNodeId, _, context)
+        | SemanticNodeKind.ListFindIndex(listNodeId, _, context)
         | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
@@ -780,6 +784,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
+        | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
@@ -1004,6 +1009,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) ->
                 SemanticNodeKind.SetContains(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) ->
+                SemanticNodeKind.ListIndexOf(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
@@ -1053,6 +1060,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListMinBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListAny(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListAny(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListFindIndex(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListFindIndex(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListAll(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListAll(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.FunctionInvoke(value, arguments) ->
@@ -1225,6 +1234,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
+        | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
@@ -1246,6 +1256,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListFindIndex _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _
         | SemanticNodeKind.CapabilityConstruct _
@@ -1432,6 +1443,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
+        | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
@@ -1455,6 +1467,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListFindIndex _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _
         | SemanticNodeKind.CapabilityConstruct _
@@ -1502,6 +1515,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapMapValues(_, functionId, context)
         | SemanticNodeKind.ListMinBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
+        | SemanticNodeKind.ListFindIndex(_, functionId, context)
         | SemanticNodeKind.ListAll(_, functionId, context) ->
             [ reference FunctionReferenceRole.PureListCallback context functionId ], []
         | SemanticNodeKind.ListEffectFold(_, _, functionId, context) ->
@@ -1626,6 +1640,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
+        | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
@@ -1784,6 +1799,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
+        | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
@@ -1800,6 +1816,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
+        | SemanticNodeKind.ListFindIndex _
         | SemanticNodeKind.ListAll _
         | SemanticNodeKind.DirectCall _
         | SemanticNodeKind.CapabilityConstruct _

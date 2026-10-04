@@ -187,6 +187,7 @@ module ValueDependency =
         | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
         | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
+        | SemanticNodeKind.ListFindIndex(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
             create ValueDependencyRole.Source sourceNodeId
             :: contextDependencies context
@@ -232,6 +233,9 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
         | SemanticNodeKind.SetContains(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.ListIndexOf(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->

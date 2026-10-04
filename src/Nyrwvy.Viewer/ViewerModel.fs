@@ -140,6 +140,7 @@ type ViewerNodeRole =
     | SetDifference
     | MapContainsKey
     | SetContains
+    | ListIndexOf
     | MapGet
     | MapGetOrDefault
     | ListSlice
@@ -163,6 +164,7 @@ type ViewerNodeRole =
     | ListMinBy
     | MapMapValues
     | ListAny
+    | ListFindIndex
     | ListAll
     | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
     | FunctionReference
@@ -376,6 +378,7 @@ module ViewerProjection =
         | SemanticNodeKind.SetDifference _ -> ViewerNodeRole.SetDifference, []
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
+        | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
@@ -399,6 +402,7 @@ module ViewerProjection =
         | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
         | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
+        | SemanticNodeKind.ListFindIndex _ -> ViewerNodeRole.ListFindIndex, []
         | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
             ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations), []

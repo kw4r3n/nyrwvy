@@ -130,6 +130,8 @@ ListMap
 ListFilter
 ListSortBy
 ListMinBy
+ListIndexOf
+ListFindIndex
 ListAny
 ListAll
 ```
@@ -145,6 +147,8 @@ Higher-order operations reference callbacks by stable `FunctionId`. The accepted
 `ListSortBy(source, lessThan, context)` returns the items of a `List<T>` in sorted order. `lessThan` is a pure callback whose two parameters not bound by the optional context receive two items `(left, right)` and return Bool: true when `left` must come before `right`. The sort is stable: items the callback does not order keep their input order. Descending order swaps the comparison, and a composite key compares the first key and falls through to the next on equality. For example, Python's `rows.sort(key=lambda r: (r.role, -r.count))` is `ListSortBy(rows, rowBefore)` with `rowBefore(a, b) = Conditional(StringEqual(a.role, b.role), Int64GreaterThan(a.count, b.count), StringLessThan(a.role, b.role))`. The result is defined by one algorithm, a top-down merge sort: a list of 0 or 1 items is returned as is; otherwise the first `length / 2` (rounded down) items and the rest are sorted, and then merged by repeatedly taking the head of the right half when `lessThan(rightHead, leftHead)` holds and the head of the left half otherwise. A callback that is a strict weak order yields the stable sorted order. Any other callback still yields a deterministic permutation of the source; for example, one that is always true reverses the list. It calls the callback at most `n log2 n` times and never fails.
 
 `ListMinBy(source, lessThan, context)` returns the smallest item as `Option<T>`, under the same kind of callback. The empty list gives `None`. Otherwise it scans left to right: the first item is the best so far, and a later item replaces it only when `lessThan(item, best)` holds. Among equal items the first wins, and any callback gives a deterministic result. The largest item is the smallest under the swapped comparison. It calls the callback at most `n - 1` times and never fails.
+
+`ListIndexOf(list, item)` gives the zero-based index of the first item equal to `item` (as `ValueEqual`) as `Option<Int64>`, `None` when there is none; the item type must be equatable. `ListFindIndex(source, predicate, context)` gives the index of the first item for which a pure `T -> Bool` callback is true, scanning left to right and stopping there. Neither fails ([decision](../decisions/list-index.md)).
 
 ## Immutable insertion-ordered `Map<K, V>`
 
@@ -365,6 +369,8 @@ ListMap
 ListFilter
 ListSortBy
 ListMinBy
+ListIndexOf
+ListFindIndex
 ListAny
 ListAll
 ProductConstruct

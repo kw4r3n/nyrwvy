@@ -181,6 +181,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
@@ -204,6 +205,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMinBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListFindIndex of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     /// Construct a stateless capability using named pure functions, one per operation.
     | CapabilityConstruct of CapabilityId * implementations: (CapabilityOperationId * FunctionId) list
@@ -366,6 +368,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetDifference _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
+        | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListSlice _
@@ -389,6 +392,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapMapValues _
         | TypedSemanticNodeKind.ListMinBy _
         | TypedSemanticNodeKind.ListAny _
+        | TypedSemanticNodeKind.ListFindIndex _
         | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _
@@ -522,6 +526,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapMapValues(listNodeId, _, context)
         | TypedSemanticNodeKind.ListMinBy(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
+        | TypedSemanticNodeKind.ListFindIndex(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
@@ -546,6 +551,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetRemove(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
@@ -874,6 +880,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId))
                     | SemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId))
+                    | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId))
                     | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
                     | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
@@ -917,6 +925,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, projectContext context))
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, projectContext context))
+                    | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, projectContext context))
                     | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) -> Ok(TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations))

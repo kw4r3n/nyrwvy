@@ -132,6 +132,8 @@ ExpressionRecipe =
   | ListFilter(source, predicateFunctionId, context)
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
+  | ListIndexOf(list, item)
+  | ListFindIndex(source, predicateFunctionId, context)
   | ListAny(source, predicateFunctionId, context)
   | ListAll(source, predicateFunctionId, context)
   | ProductConstruct(typeId, fieldBindings)
@@ -310,7 +312,7 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
@@ -319,6 +321,8 @@ For a source `List<T>`:
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionListCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionListCallbackInputTypeMismatch`, a non-Bool result `PureExpressionListCallbackResultTypeMismatch`, and required effects `PureExpressionListCallbackEffectsNotAllowed`; persisted graphs report `ListCallbackArityMismatch`, `ListCallbackParameterTypeMismatch`, `ListPredicateResultTypeMismatch` and `ListCallbackEffectsNotAllowed`;
 - `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;
+- `ListFindIndex(source, predicate)` (wire `listFindIndex`, Nyason `list-find-index`) takes the same callback as `ListAny` and produces `Option<Int64>`: the zero-based index of the first item for which the predicate is true, or `None`.
+- `ListIndexOf(list, item)` (wire `listIndexOf` with the fields `list` and `item`, Nyason `list-index-of`) takes no callback: it produces the index of the first item equal to `item` as `ValueEqual` compares, or `None`. The item must have the list's item type (`ListIndexOfItemTypeMismatch`), and that type must be equatable (`ListIndexOfItemTypeNotEquatable`; a Float64 list uses `ListFindIndex`).
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 

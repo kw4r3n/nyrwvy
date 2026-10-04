@@ -184,6 +184,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.SetDifference _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
+        | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListAppendItem _
@@ -198,6 +199,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MapMapValues _
         | TypedSemanticNodeKind.ListMinBy _
         | TypedSemanticNodeKind.ListAny _
+        | TypedSemanticNodeKind.ListFindIndex _
         | TypedSemanticNodeKind.ListAll _
         | TypedSemanticNodeKind.ProductConstruct _
         | TypedSemanticNodeKind.FieldAccess _

@@ -138,7 +138,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 <a id="immediate-execution-queue"></a>
 
-The language/tool implementation queue lives in this document. Its orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-50 are all done; order 51 (after [probe 22](#queue-from-the-2026-10-05-probe-22-owner-choice)) is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
+The language/tool implementation queue lives in this document. Its orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-51 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
 
 ### Orders 1-39
 
@@ -208,7 +208,7 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
 | Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | **Done as order 50** (`ListLast`, `ListDropLast`); a push after a pop still copies, and a persistent-vector list waits for a program that exceeds a run limit because of it ([decision](../decisions/list-last-and-drop-last.md)) |
-| Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | **Queued as order 51** (owner choice of 2026-10-05) |
+| Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | **Done as order 51** (`ListIndexOf`, `ListFindIndex`; [decision](../decisions/list-index.md)) |
 
 ### Queue from the 2026-09-25 probe
 
@@ -437,7 +437,7 @@ The owner queued both probe 22 costs in this order. For order 50 the owner accep
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
 | 50 | **Done: `ListLast` and `ListDropLast`** (owner choice of the smaller change) | Probe 22's depth-first search: 117 nodes, and quadratic because dropping the last item and appending copies the stack every turn | `ListLast(list): Option<T>` and `ListDropLast(list)`, a pop that shares the store; probe 22's search rewritten with them ran 40,000 frames in 0.66 s. The persistent vector is deferred; [decision](../decisions/list-last-and-drop-last.md) |
-| 51 | **Queued: position of an item** | Probe 22 took the stack from a node to the top with a 16-node fold | `ListIndexOf(list, item): Option<Int64>` for an equatable item type and `ListFindIndex(list, predicate): Option<Int64>` with a `ListFilter`-style callback; both give the first match |
+| 51 | **Done: `ListIndexOf` and `ListFindIndex`** | Probe 22 took the stack from a node to the top with a 16-node fold | `ListIndexOf(list, item): Option<Int64>` for an equatable item type and `ListFindIndex(list, predicate): Option<Int64>` with a `ListFilter`-style callback; both give the first match; [decision](../decisions/list-index.md) |
 
 ## Evidence and authority pointers
 
