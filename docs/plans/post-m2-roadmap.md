@@ -198,7 +198,7 @@ One change has no order number: after probe 11, a pure `ListEffectFold` whose fo
 
 ### Open candidates
 
-Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20), [probe 21](../verification/map-set-probe21-20261004.md#candidate-hit-counts-after-probe-21) and [probe 22](../verification/map-set-probe22-20261005.md#candidate-hit-counts-after-probe-22) records, or from the sections and records named in the row. None is queued.
+Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20), [probe 21](../verification/map-set-probe21-20261004.md#candidate-hit-counts-after-probe-21), [probe 22](../verification/map-set-probe22-20261005.md#candidate-hit-counts-after-probe-22) and [probe 23](../verification/map-set-probe23-20261005.md#candidate-hit-counts-after-probe-23) records, or from the sections and records named in the row. None is queued.
 
 | Candidate | Observed in | Status and what it waits on |
 | --- | --- | --- |
@@ -207,8 +207,9 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
-| Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | **Done as order 50** (`ListLast`, `ListDropLast`); a push after a pop still copies, and a persistent-vector list waits for a program that exceeds a run limit because of it ([decision](../decisions/list-last-and-drop-last.md)) |
+| Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | **Done as order 50** (`ListLast`, `ListDropLast`); a push after a pop still copies, and a persistent-vector list waits for a program that exceeds a run limit because of it ([decision](../decisions/list-last-and-drop-last.md)). [Probe 23](../verification/map-set-probe23-20261005.md) (2): on a constructed comb, where every push follows a pop, the cycle path exceeds the 5 s limit at 40,000 nodes and Tarjan's components at 20,000; whether a constructed input meets the revisit condition is the owner's call |
 | Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | **Done as order 51** (`ListIndexOf`, `ListFindIndex`; [decision](../decisions/list-index.md)) |
+| Self-call naming only the changed arguments | [Probe 23](../verification/map-set-probe23-20261005.md) (1): `tarjanLoop` passes 47 of its 70 self-call arguments through unchanged, about 23% of its 208 nodes | A recipe shorthand expanding to the full `DirectCall`, as `otherwise` expands to a variant list; a state Product with `ProductUpdate` is the untried alternative today. First observation |
 
 ### Queue from the 2026-09-25 probe
 
@@ -438,6 +439,10 @@ The owner queued both probe 22 costs in this order. For order 50 the owner accep
 | --- | --- | --- | --- |
 | 50 | **Done: `ListLast` and `ListDropLast`** (owner choice of the smaller change) | Probe 22's depth-first search: 117 nodes, and quadratic because dropping the last item and appending copies the stack every turn | `ListLast(list): Option<T>` and `ListDropLast(list)`, a pop that shares the store; probe 22's search rewritten with them ran 40,000 frames in 0.66 s. The persistent vector is deferred; [decision](../decisions/list-last-and-drop-last.md) |
 | 51 | **Done: `ListIndexOf` and `ListFindIndex`** | Probe 22 took the stack from a node to the top with a 16-node fold | `ListIndexOf(list, item): Option<Int64>` for an equatable item type and `ListFindIndex(list, predicate): Option<Int64>` with a `ListFilter`-style callback; both give the first match; [decision](../decisions/list-index.md) |
+
+### Findings from the 2026-10-05 probe 23
+
+[Probe 23](../verification/map-set-probe23-20261005.md) authored probe 22's planner on orders 50 and 51, plus a linear Kahn's algorithm and Tarjan's strongly connected components: 1,800/1,800 against a JavaScript reference, every function accepted first time, nothing blocked. The cycle path is linear on a chain (40,000 frames in 0.68 s, 300,000 in 3.6 s), and the linear Kahn's algorithm orders 100,000 names in 1.8 s with no language change. A push after a pop still copies the stack: on a constructed comb both searches exceed the run limit, which bears on the order 50 decision's revisit condition. The new cost is loop state threaded through every self-call. Both are listed in the [open candidates](#open-candidates).
 
 ## Evidence and authority pointers
 
