@@ -138,7 +138,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 <a id="immediate-execution-queue"></a>
 
-The language/tool implementation queue lives in this document. Its orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-39 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
+The language/tool implementation queue lives in this document. Its orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-49 are all done; orders 50 and 51 (after [probe 22](#queue-from-the-2026-10-05-probe-22-owner-choice)) are pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
 
 ### Orders 1-39
 
@@ -207,8 +207,8 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
-| Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | First observation. The recursive form is not a tail call and stays bounded by the stack |
-| Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | First observation |
+| Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | **Queued as order 50** (owner choice of 2026-10-05); [design note](list-stack-operations.md) |
+| Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | **Queued as order 51** (owner choice of 2026-10-05) |
 
 ### Queue from the 2026-09-25 probe
 
@@ -428,7 +428,16 @@ The earlier #152 cleanup suggestion is historical planning context; this probe d
 
 ### Findings from the 2026-10-05 probe 22
 
-[Probe 22](../verification/map-set-probe22-20261005.md) authored probe 21's planner again on orders 48 and 49, plus parallel levels and a cycle path by depth-first search: 1,400/1,400 against a JavaScript reference, every function accepted first time, nothing blocked. Probe 21's scope took 175 nodes instead of 212 and two types instead of four; tail self-calls replaced both counted folds and ran 300,000 turns. The new costs are the explicit stack of the depth-first search and finding an item's position, both first observations and listed in the [open candidates](#open-candidates). No order is queued.
+[Probe 22](../verification/map-set-probe22-20261005.md) authored probe 21's planner again on orders 48 and 49, plus parallel levels and a cycle path by depth-first search: 1,400/1,400 against a JavaScript reference, every function accepted first time, nothing blocked. Probe 21's scope took 175 nodes instead of 212 and two types instead of four; tail self-calls replaced both counted folds and ran 300,000 turns. The new costs are the explicit stack of the depth-first search and finding an item's position, both first observations and listed in the [open candidates](#open-candidates).
+
+### Queue from the 2026-10-05 probe 22 owner choice
+
+The owner queued both probe 22 costs in this order. For order 50 the owner accepted a large runtime change in principle and asked for its other risks first; they are in the [design note](list-stack-operations.md).
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 50 | **Proposed: stack operations** (risks under review) | Probe 22's depth-first search: 117 nodes, and quadratic because dropping the last item and appending copies the stack every turn | `ListLast(list): Option<T>` and `ListDropLast(list)`, with `NyList<T>` as a persistent vector so that append, drop-last and indexing share structure; [design note](list-stack-operations.md) |
+| 51 | **Queued: position of an item** | Probe 22 took the stack from a node to the top with a 16-node fold | `ListIndexOf(list, item): Option<Int64>` for an equatable item type and `ListFindIndex(list, predicate): Option<Int64>` with a `ListFilter`-style callback; both give the first match |
 
 ## Evidence and authority pointers
 
