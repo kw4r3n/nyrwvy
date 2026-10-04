@@ -1117,6 +1117,23 @@ module SnapshotValidator =
                                 "ListIndexOfListTypeMismatch"
                                 $"ListIndexOf node '{StableId.value node.Id}' requires List<T> as its list input."
                         | None -> ()
+                    | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            if not (EquatableTypes.isEquatable snapshot.Types itemType) then
+                                add
+                                    "ListLastIndexOfItemTypeNotEquatable"
+                                    $"ListLastIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                            requireNodeType
+                                "ListLastIndexOfItemTypeMismatch"
+                                $"ListLastIndexOf node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListLastIndexOfListTypeMismatch"
+                                $"ListLastIndexOf node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
                     | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) ->
@@ -2113,6 +2130,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
+                | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _

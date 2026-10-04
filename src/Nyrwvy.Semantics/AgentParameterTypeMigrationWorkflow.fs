@@ -367,6 +367,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapContainsKey(map, key) -> two ExpressionRecipe.MapContainsKey map key
             | ExpressionRecipe.SetContains(map, key) -> two ExpressionRecipe.SetContains map key
             | ExpressionRecipe.ListIndexOf(map, key) -> two ExpressionRecipe.ListIndexOf map key
+            | ExpressionRecipe.ListLastIndexOf(map, key) -> two ExpressionRecipe.ListLastIndexOf map key
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value

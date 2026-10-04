@@ -708,6 +708,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "listIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listLastIndexOf")
+            writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -1711,6 +1715,16 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
                     element
                 SemanticNodeKind.ListIndexOf(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listLastIndexOf" ->
+                ensureProperties
+                    "ListLastIndexOf node"
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListLastIndexOf(
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "itemNodeId" element
                 )

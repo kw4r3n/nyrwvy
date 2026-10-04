@@ -133,6 +133,7 @@ ExpressionRecipe =
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
   | ListIndexOf(list, item)
+  | ListLastIndexOf(list, item)
   | ListFindIndex(source, predicateFunctionId, context)
   | ListAny(source, predicateFunctionId, context)
   | ListAll(source, predicateFunctionId, context)
@@ -323,6 +324,7 @@ For a source `List<T>`:
 - `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;
 - `ListFindIndex(source, predicate)` (wire `listFindIndex`, Nyason `list-find-index`) takes the same callback as `ListAny` and produces `Option<Int64>`: the zero-based index of the first item for which the predicate is true, or `None`.
 - `ListIndexOf(list, item)` (wire `listIndexOf` with the fields `list` and `item`, Nyason `list-index-of`) takes no callback: it produces the index of the first item equal to `item` as `ValueEqual` compares, or `None`. The item must have the list's item type (`ListIndexOfItemTypeMismatch`), and that type must be equatable (`ListIndexOfItemTypeNotEquatable`; a Float64 list uses `ListFindIndex`).
+- `ListLastIndexOf(list, item)` (wire `listLastIndexOf` with the fields `list` and `item`, Nyason `list-last-index-of`) is `ListIndexOf` scanning from the end: the index of the last equal item, or `None`, with the same rules and the diagnostics `ListLastIndexOfItemTypeMismatch` and `ListLastIndexOfItemTypeNotEquatable`.
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 

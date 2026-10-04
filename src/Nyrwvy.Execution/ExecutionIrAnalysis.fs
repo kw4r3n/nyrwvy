@@ -185,6 +185,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
+        | TypedSemanticNodeKind.ListLastIndexOf _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListAppendItem _

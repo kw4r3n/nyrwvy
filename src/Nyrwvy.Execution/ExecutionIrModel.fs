@@ -190,6 +190,7 @@ type ExecutionInstructionKind =
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListLastIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
@@ -403,6 +404,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.ListIndexOf _
+        | ExecutionInstructionKind.ListLastIndexOf _
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _

@@ -613,6 +613,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "MapContainsKey"
               "SetContains"
               "ListIndexOf"
+              "ListLastIndexOf"
               "MapGet"
               "MapGetOrDefault"
               "ListSlice"

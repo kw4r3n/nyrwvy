@@ -495,6 +495,12 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "list" element),
                 recipe declarations parameterContext (property "item" element)
             )
+        | "listLastIndexOf" ->
+            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
+            ExpressionRecipe.ListLastIndexOf(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "item" element)
+            )
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(

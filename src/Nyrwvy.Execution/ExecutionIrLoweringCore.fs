@@ -486,6 +486,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
                             lowerBinaryNode node mapNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListIndexOf(listValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
+                            lowerBinaryNode node mapNodeId itemNodeId (fun listValueId itemValueId ->
+                                ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId))
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))

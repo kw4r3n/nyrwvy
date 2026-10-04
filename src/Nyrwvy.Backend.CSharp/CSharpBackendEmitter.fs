@@ -336,6 +336,17 @@ module CSharpBackend =
           "        return NyOption<long>.None();"
           "    }"
           "    public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));"
+          "    // LastIndexOf scans right to left, so an item near the end, as on a stack, is found in time proportional to its distance from the end."
+          "    public NyOption<long> LastIndexOf(T item)"
+          "    {"
+          "        if (_count == 0) return NyOption<long>.None();"
+          "        for (var start = TrieCount; start >= 0; start -= Width)"
+          "        {"
+          "            var chunk = Chunk(start);"
+          "            for (var i = chunk.Length - 1; i >= 0; i--) if (NyEquality.Equal(chunk[i], item)) return NyOption<long>.Some(start + i);"
+          "        }"
+          "        return NyOption<long>.None();"
+          "    }"
           "    public bool Any(Func<T, bool> predicate)"
           "    {"
           "        for (var start = 0; start < _count; start += Width)"
@@ -1113,7 +1124,9 @@ module CSharpBackend =
         // this set's order.
         writer.Line("public NySet<T> Union(NySet<T> other) => other.Fold(this, (set, item) => set.Insert(item));")
         writer.Line("public NySet<T> Intersection(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set : set.Remove(item));")
-        writer.Line("public NySet<T> Difference(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);")
+        // Difference removes the other set's items one by one when the other set is smaller; Remove keeps
+        // the remaining items' insertion numbers, so either way gives the same set in the same order.
+        writer.Line("public NySet<T> Difference(NySet<T> other) => other.Size < Size ? other.Fold(this, (set, item) => set.Remove(item)) : Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);")
         writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
         writer.Line("{")
         writer.Push()
@@ -1994,6 +2007,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName setValueId + ".Contains(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListIndexOf(listValueId, itemValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".IndexOf(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".LastIndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->

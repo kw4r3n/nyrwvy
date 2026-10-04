@@ -159,6 +159,7 @@ module internal WireGraph =
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
+        | SemanticNodeKind.ListLastIndexOf(map, key) -> tagged "listLastIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]

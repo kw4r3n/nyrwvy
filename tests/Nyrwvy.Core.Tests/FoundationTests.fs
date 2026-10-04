@@ -140,6 +140,7 @@ module FoundationTests =
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
+                | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _

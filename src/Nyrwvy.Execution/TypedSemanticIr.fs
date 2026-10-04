@@ -182,6 +182,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
@@ -369,6 +370,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
+        | TypedSemanticNodeKind.ListLastIndexOf _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListSlice _
@@ -552,6 +554,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
@@ -882,6 +885,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId))
                     | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId))
+                    | SemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId))
                     | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
                     | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
