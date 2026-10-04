@@ -122,6 +122,7 @@ type ExpressionRecipe =
     | MapContainsKey of map: ExpressionRecipe * key: ExpressionRecipe
     | SetContains of map: ExpressionRecipe * key: ExpressionRecipe
     | ListIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
+    | ListLastIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
@@ -329,6 +330,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapContainsKey(map, key) -> ExpressionRecipe.MapContainsKey(go map, go key)
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
         | ExpressionRecipe.ListIndexOf(map, key) -> ExpressionRecipe.ListIndexOf(go map, go key)
+        | ExpressionRecipe.ListLastIndexOf(map, key) -> ExpressionRecipe.ListLastIndexOf(go map, go key)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -648,6 +650,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapContainsKey(left, right)
         | ExpressionRecipe.SetContains(left, right)
         | ExpressionRecipe.ListIndexOf(left, right)
+        | ExpressionRecipe.ListLastIndexOf(left, right)
         | ExpressionRecipe.MapGet(left, right)
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)
@@ -1644,6 +1647,19 @@ module AgentExpressionStructuralWorkflow =
                                 $"ListIndexOf compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
                         )
                     | Some itemType -> operands "ListIndexOf" (optionType int64Type) [ "item", itemType, item ]
+            | ExpressionRecipe.ListLastIndexOf(list, item) ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok listResultType ->
+                    match listItemType listResultType with
+                    | None -> Error(listMismatch "ListLastIndexOf" "list" listResultType)
+                    | Some itemType when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
+                        Error(
+                            diagnostic
+                                "ListLastIndexOfItemTypeNotEquatable"
+                                $"ListLastIndexOf compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                        )
+                    | Some itemType -> operands "ListLastIndexOf" (optionType int64Type) [ "item", itemType, item ]
             | ExpressionRecipe.SetContains(set, item) ->
                 match infer frames set with
                 | Error error -> Error error
@@ -2629,6 +2645,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapContainsKey(map, key) -> binary SemanticNodeKind.MapContainsKey map key
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
         | ExpressionRecipe.ListIndexOf(map, key) -> binary SemanticNodeKind.ListIndexOf map key
+        | ExpressionRecipe.ListLastIndexOf(map, key) -> binary SemanticNodeKind.ListLastIndexOf map key
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map

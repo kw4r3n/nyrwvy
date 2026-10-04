@@ -601,6 +601,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "listIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listLastIndexOf")
+            writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)

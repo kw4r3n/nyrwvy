@@ -141,6 +141,7 @@ type ViewerNodeRole =
     | MapContainsKey
     | SetContains
     | ListIndexOf
+    | ListLastIndexOf
     | MapGet
     | MapGetOrDefault
     | ListSlice
@@ -379,6 +380,7 @@ module ViewerProjection =
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []
+        | SemanticNodeKind.ListLastIndexOf _ -> ViewerNodeRole.ListLastIndexOf, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []

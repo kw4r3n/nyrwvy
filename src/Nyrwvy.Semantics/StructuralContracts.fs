@@ -238,6 +238,9 @@ module ValueDependency =
         | SemanticNodeKind.ListIndexOf(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.ListLastIndexOf(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]

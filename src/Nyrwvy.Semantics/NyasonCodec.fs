@@ -768,6 +768,12 @@ module NyasonCodec =
                 [ nodeId
                   "list", encodeId "node" mapNodeId
                   "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
+            record
+                "list-last-index-of"
+                [ nodeId
+                  "list", encodeId "node" mapNodeId
+                  "item", encodeId "node" itemNodeId ]
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             record
                 "map-get"
@@ -1475,6 +1481,14 @@ module NyasonCodec =
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind =
                 SemanticNodeKind.ListIndexOf(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "item" fields)
+                ) }
+        | NyasonValue.Record("list-last-index-of", _) ->
+            let fields = recordFields "list-last-index-of" [ "id"; "list"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListLastIndexOf(
                     decodeId<GraphNodeTag> "node" (require "list" fields),
                     decodeId<GraphNodeTag> "node" (require "item" fields)
                 ) }

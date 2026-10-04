@@ -160,6 +160,8 @@ module SetTests =
             expectRun session "difference" [ left; set [] ] left
             // Items removed by the difference leave no gap: an insert still goes last.
             expectRun session "differenceThenAdd" [ left; right ] (set [ "a"; "z" ])
+            // A smaller right set is removed item by item (order 53); the result and its order are the same.
+            expectRun session "differenceThenAdd" [ right; left ] (set [ "d"; "e"; "z" ])
             let big = set [ for index in 1 .. 3000 -> $"w{index}" ]
             let odd = set [ for index in 1 .. 3000 do if index % 2 = 1 then $"w{index}" ]
             let even = set [ for index in 1 .. 3000 do if index % 2 = 0 then $"w{index}" ]

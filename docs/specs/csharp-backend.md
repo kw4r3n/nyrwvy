@@ -84,7 +84,7 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `Map<K, V>` is the emitted `NyMap<K, V>`, a persistent map, so an old map stays valid after an insert. It holds an `ImmutableDictionary<K, (long Order, V Value)>` under `EqualityComparer<K>.Default`, which is structural for every equatable type (see [value equality](#value-equality)). It also holds an `ImmutableSortedDictionary<long, K>` from insertion number to key, and the next insertion number. `Insert` keeps an existing key's number and gives a new key the next one. `Remove` drops both entries. `Keys`, `Values` and `Fold` walk the sorted numbers, so the visible order is insertion order and never depends on hash codes. Lookup, insert and remove are O(log n).
 
-`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order. `Union` inserts the right items into the left set; `Intersection` and `Difference` remove items from the left set, so the kept items keep their order. `NyMap<K, V>.Filter` likewise removes the rejected entries. `NyMap<K, V>.MapValues` builds a map with the same keys and insertion numbers and the mapped values, so the order is unchanged, and `NyMap<K, V>.GetOrDefault` returns the stored value or the already evaluated default.
+`Set<T>` is the emitted `NySet<T>`: an `ImmutableDictionary<T, long>` from item to insertion number and an `ImmutableSortedDictionary<long, T>` for the order, with the same structural equality and the same guarantee that hash codes never affect the visible order. `Union` inserts the right items into the left set; `Intersection` and `Difference` remove items from the left set, so the kept items keep their order. When the right set is smaller, `Difference` removes the right set's items one by one instead of testing every left item, so its cost follows the smaller set; removal keeps the other items' insertion numbers, so the result is the same. `NyMap<K, V>.Filter` likewise removes the rejected entries. `NyMap<K, V>.MapValues` builds a map with the same keys and insertion numbers and the mapped values, so the order is unchanged, and `NyMap<K, V>.GetOrDefault` returns the stored value or the already evaluated default.
 
 ## List sorting
 
@@ -92,7 +92,7 @@ The concrete .NET storage class is not a language-semantic fact. The generated i
 
 `ListMinBy` emits `source.MinBy(lessThan)`. `NyList<T>.MinBy` returns `None` for the empty list; otherwise it keeps the first item and scans the rest left to right, replacing the kept item only when `lessThan(item, kept)` is true, so the first of equal items wins.
 
-`ListFindIndex` emits `source.FindIndex(predicate)` and `ListIndexOf` emits `list.IndexOf(item)`. Both scan left to right and return `NyOption<long>.Some` of the first matching position; `IndexOf` compares with `NyEquality.Equal`, as `ValueEqual` does.
+`ListFindIndex` emits `source.FindIndex(predicate)`, `ListIndexOf` emits `list.IndexOf(item)` and `ListLastIndexOf` emits `list.LastIndexOf(item)`, which scans from the last item backwards. Both scan left to right and return `NyOption<long>.Some` of the first matching position; `IndexOf` compares with `NyEquality.Equal`, as `ValueEqual` does.
 
 ## Value equality
 

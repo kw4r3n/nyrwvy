@@ -233,6 +233,9 @@ module internal WireRecipe =
         | "listIndexOf" ->
             ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
             ExpressionRecipe.ListIndexOf(recipe (property "list" element), recipe (property "item" element))
+        | "listLastIndexOf" ->
+            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
+            ExpressionRecipe.ListLastIndexOf(recipe (property "list" element), recipe (property "item" element))
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))

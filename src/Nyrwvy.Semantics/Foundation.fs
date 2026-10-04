@@ -431,6 +431,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some` zero-based position of the first item equal to the item (ValueEqual), else `None`; never fails.
     | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// The value for key, or the default (of the map's value type) when the key is absent. All
     /// three operands are evaluated. Never fails.
@@ -785,6 +786,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
+        | SemanticNodeKind.ListLastIndexOf(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
@@ -1011,6 +1013,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.SetContains(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) ->
                 SemanticNodeKind.ListIndexOf(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListLastIndexOf(sourceSetNodeId, itemNodeId) ->
+                SemanticNodeKind.ListLastIndexOf(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
@@ -1235,6 +1239,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
+        | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
@@ -1444,6 +1449,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
+        | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
@@ -1641,6 +1647,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
+        | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
@@ -1800,6 +1807,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
+        | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _

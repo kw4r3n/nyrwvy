@@ -524,6 +524,10 @@ module ExecutionIrCodec =
             [ property "kind" (quote "listIndexOf")
               property "listValueId" (executionValueIdValue listValueId)
               property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId) ->
+            [ property "kind" (quote "listLastIndexOf")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)
