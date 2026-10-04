@@ -571,7 +571,7 @@ type Snapshot =
 type FunctionReferenceRole =
     /// DirectCall: called with the node's argument bindings.
     | DirectCall
-    /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListAny or ListAll: a callback validation requires to be pure.
+    /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny or ListAll: a callback validation requires to be pure.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
