@@ -128,6 +128,8 @@ type ViewerNodeRole =
     | SetFromList
     | SetSize
     | ListReverse
+    | ListLast
+    | ListDropLast
     | ListAppendItem
     | ListItemAt
     | MapRemove
@@ -362,6 +364,8 @@ module ViewerProjection =
         | SemanticNodeKind.SetFromList _ -> ViewerNodeRole.SetFromList, []
         | SemanticNodeKind.SetSize _ -> ViewerNodeRole.SetSize, []
         | SemanticNodeKind.ListReverse _ -> ViewerNodeRole.ListReverse, []
+        | SemanticNodeKind.ListLast _ -> ViewerNodeRole.ListLast, []
+        | SemanticNodeKind.ListDropLast _ -> ViewerNodeRole.ListDropLast, []
         | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
         | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
         | SemanticNodeKind.MapRemove _ -> ViewerNodeRole.MapRemove, []

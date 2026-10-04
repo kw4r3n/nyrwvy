@@ -146,6 +146,8 @@ module internal WireGraph =
         | SemanticNodeKind.SetFromList value -> unary "setFromList" value
         | SemanticNodeKind.SetSize value -> unary "setSize" value
         | SemanticNodeKind.ListReverse value -> unary "listReverse" value
+        | SemanticNodeKind.ListLast value -> unary "listLast" value
+        | SemanticNodeKind.ListDropLast value -> unary "listDropLast" value
         | SemanticNodeKind.ListAppendItem(list, item) -> tagged "listAppendItem" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.ListItemAt(list, index) -> tagged "listItemAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
         | SemanticNodeKind.MapRemove(map, key) -> tagged "mapRemove" [ "mapNodeId", identity map; "keyNodeId", identity key ]

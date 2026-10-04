@@ -103,6 +103,8 @@ ExpressionRecipe =
   | ListConstruct(itemType, items)
   | ListLength(list)
   | ListReverse(list)
+  | ListLast(list)
+  | ListDropLast(list)
   | ListRange(start, end)
   | ListItemAt(list, index)
   | ListSlice(list, start, end)
@@ -432,6 +434,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## ListReverse
 
 `ListReverse(list)` (wire `listReverse` with the field `value`, Nyason `list-reverse`) takes any `List<T>` and produces the same `List<T>` with its items in reverse order. It never fails. A source that is not a List reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `ListReverseInputTypeMismatch`.
+
+## ListLast and ListDropLast
+
+`ListLast(list)` (wire `listLast` with the field `value`, Nyason `list-last`) takes any `List<T>` and produces `Option<T>`: `Some` last item, or `None` for the empty list. `ListDropLast(list)` (wire `listDropLast`, Nyason `list-drop-last`) produces the same `List<T>` without its last item; the empty list stays empty. Neither fails. A source that is not a List reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `ListLastInputTypeMismatch` or `ListDropLastInputTypeMismatch`.
 
 ## Standard operations with an owner choice
 

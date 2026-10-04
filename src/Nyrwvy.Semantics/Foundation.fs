@@ -411,6 +411,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetSize of setNodeId: GraphNodeId
     /// The items of the List<T> in reverse order, as Python list(reversed(list)). Never fails.
     | ListReverse of listNodeId: GraphNodeId
+    /// `Some` last item of the List<T>, or `None` for the empty list; never fails.
+    | ListLast of listNodeId: GraphNodeId
+    /// The List<T> without its last item; the empty list stays empty. Never fails.
+    | ListDropLast of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
@@ -755,6 +759,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetFromList sourceSetNodeId -> [ sourceSetNodeId ]
         | SemanticNodeKind.SetSize sourceSetNodeId -> [ sourceSetNodeId ]
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListMap(listNodeId, _, context)
         | SemanticNodeKind.MapFromList(listNodeId, _, context)
         | SemanticNodeKind.ListFilter(listNodeId, _, context)
@@ -976,6 +982,8 @@ module SemanticNodeShape =
             | SemanticNodeKind.SetFromList sourceSetNodeId -> SemanticNodeKind.SetFromList(mapNodeId sourceSetNodeId)
             | SemanticNodeKind.SetSize sourceSetNodeId -> SemanticNodeKind.SetSize(mapNodeId sourceSetNodeId)
             | SemanticNodeKind.ListReverse listNodeId -> SemanticNodeKind.ListReverse(mapNodeId listNodeId)
+            | SemanticNodeKind.ListLast listNodeId -> SemanticNodeKind.ListLast(mapNodeId listNodeId)
+            | SemanticNodeKind.ListDropLast listNodeId -> SemanticNodeKind.ListDropLast(mapNodeId listNodeId)
             | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                 SemanticNodeKind.ListAppendItem(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
@@ -1203,6 +1211,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetFromList _
         | SemanticNodeKind.SetSize _
         | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListLast _
+        | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.MapInsert _
@@ -1410,6 +1420,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetFromList _
         | SemanticNodeKind.SetSize _
         | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListLast _
+        | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.MapRemove _
@@ -1602,6 +1614,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetFromList _
         | SemanticNodeKind.SetSize _
         | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListLast _
+        | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.MapRemove _
@@ -1758,6 +1772,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetFromList _
         | SemanticNodeKind.SetSize _
         | SemanticNodeKind.ListReverse _
+        | SemanticNodeKind.ListLast _
+        | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.MapRemove _

@@ -555,6 +555,12 @@ module TypedSemanticIrCodec =
         | TypedSemanticNodeKind.ListReverse listNodeId ->
             writer.WriteString("kind", "listReverse")
             writer.WriteString("listNodeId", StableId.value listNodeId)
+        | TypedSemanticNodeKind.ListLast listNodeId ->
+            writer.WriteString("kind", "listLast")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+        | TypedSemanticNodeKind.ListDropLast listNodeId ->
+            writer.WriteString("kind", "listDropLast")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             writer.WriteString("kind", "listItemAt")
             writer.WriteString("listNodeId", StableId.value listNodeId)

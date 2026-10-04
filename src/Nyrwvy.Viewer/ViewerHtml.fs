@@ -220,6 +220,8 @@ module ViewerHtml =
         | ViewerNodeRole.SetFromList -> "Set from list"
         | ViewerNodeRole.SetSize -> "Set size"
         | ViewerNodeRole.ListReverse -> "List reverse"
+        | ViewerNodeRole.ListLast -> "List last"
+        | ViewerNodeRole.ListDropLast -> "List drop last"
         | ViewerNodeRole.ListAppendItem -> "List append item"
         | ViewerNodeRole.ListItemAt -> "List item at"
         | ViewerNodeRole.MapRemove -> "Map remove"

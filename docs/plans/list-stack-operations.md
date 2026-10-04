@@ -1,6 +1,6 @@
 # List stack operations
 
-**Status:** Proposed 2026-10-05. After [probe 22](../verification/map-set-probe22-20261005.md) the owner queued its two costs as orders 50 (stack operations) and 51 (`ListIndexOf` and `ListFindIndex`). For order 50 the owner accepted a large change in principle and asked for its other risks first; this note records them. Order 51 is decided and needs no note.
+**Status:** Decided 2026-10-05: after reading the risks below, the owner chose the smaller change, `ListLast` and a store-sharing `ListDropLast`, implemented as order 50 ([decision](../decisions/list-last-and-drop-last.md)). The persistent vector is deferred until a program exceeds a run limit because pushes after pops copy a deep stack; the analysis below is kept as written for that day.
 
 ## The cost
 

@@ -169,6 +169,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | SetFromList of setNodeId: GraphNodeId
     | SetSize of setNodeId: GraphNodeId
     | ListReverse of listNodeId: GraphNodeId
+    | ListLast of listNodeId: GraphNodeId
+    | ListDropLast of listNodeId: GraphNodeId
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
@@ -352,6 +354,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetFromList _
         | TypedSemanticNodeKind.SetSize _
         | TypedSemanticNodeKind.ListReverse _
+        | TypedSemanticNodeKind.ListLast _
+        | TypedSemanticNodeKind.ListDropLast _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.MapRemove _
@@ -508,6 +512,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetFromList mapNodeId -> [ mapNodeId ]
         | TypedSemanticNodeKind.SetSize mapNodeId -> [ mapNodeId ]
         | TypedSemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.MapFromList(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
@@ -844,6 +850,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.SetSize mapNodeId)
                     | SemanticNodeKind.ListReverse listNodeId ->
                         Ok(TypedSemanticNodeKind.ListReverse listNodeId)
+                    | SemanticNodeKind.ListLast listNodeId ->
+                        Ok(TypedSemanticNodeKind.ListLast listNodeId)
+                    | SemanticNodeKind.ListDropLast listNodeId ->
+                        Ok(TypedSemanticNodeKind.ListDropLast listNodeId)
                     | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId))
                     | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->

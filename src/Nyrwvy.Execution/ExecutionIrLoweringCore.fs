@@ -461,6 +461,10 @@ module ExecutionIr =
                             lowerUnaryNode node mapNodeId ExecutionInstructionKind.SetSize
                         | TypedSemanticNodeKind.ListReverse listNodeId ->
                             lowerUnaryNode node listNodeId ExecutionInstructionKind.ListReverse
+                        | TypedSemanticNodeKind.ListLast listNodeId ->
+                            lowerUnaryNode node listNodeId ExecutionInstructionKind.ListLast
+                        | TypedSemanticNodeKind.ListDropLast listNodeId ->
+                            lowerUnaryNode node listNodeId ExecutionInstructionKind.ListDropLast
                         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
                             lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
                                 ExecutionInstructionKind.ListItemAt(listValueId, indexValueId))

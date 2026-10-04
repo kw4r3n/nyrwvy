@@ -716,6 +716,10 @@ module NyasonCodec =
             record "set-size" [ nodeId; "set", encodeId "node" mapNodeId ]
         | SemanticNodeKind.ListReverse listNodeId ->
             record "list-reverse" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.ListLast listNodeId ->
+            record "list-last" [ nodeId; "list", encodeId "node" listNodeId ]
+        | SemanticNodeKind.ListDropLast listNodeId ->
+            record "list-drop-last" [ nodeId; "list", encodeId "node" listNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) ->
             record
                 "list-item-at"
@@ -1364,6 +1368,14 @@ module NyasonCodec =
             let fields = recordFields "list-reverse" [ "id"; "list" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ListReverse(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("list-last", _) ->
+            let fields = recordFields "list-last" [ "id"; "list" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListLast(decodeId<GraphNodeTag> "node" (require "list" fields)) }
+        | NyasonValue.Record("list-drop-last", _) ->
+            let fields = recordFields "list-drop-last" [ "id"; "list" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListDropLast(decodeId<GraphNodeTag> "node" (require "list" fields)) }
         | NyasonValue.Record("string-join", _) ->
             let fields = recordFields "string-join" [ "id"; "list"; "separator" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

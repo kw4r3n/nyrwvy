@@ -603,6 +603,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "SetFromList"
               "SetSize"
               "ListReverse"
+              "ListLast"
+              "ListDropLast"
               "ListAppendItem"
               "ListItemAt"
               "MapRemove"

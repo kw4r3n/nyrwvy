@@ -177,6 +177,8 @@ type ExecutionInstructionKind =
     | SetFromList of setValueId: ExecutionValueId
     | SetSize of setValueId: ExecutionValueId
     | ListReverse of listValueId: ExecutionValueId
+    | ListLast of listValueId: ExecutionValueId
+    | ListDropLast of listValueId: ExecutionValueId
     | ListAppendItem of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListItemAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | MapRemove of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
@@ -385,6 +387,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.SetFromList _
         | ExecutionInstructionKind.SetSize _
         | ExecutionInstructionKind.ListReverse _
+        | ExecutionInstructionKind.ListLast _
+        | ExecutionInstructionKind.ListDropLast _
         | ExecutionInstructionKind.ListAppendItem _
         | ExecutionInstructionKind.ListItemAt _
         | ExecutionInstructionKind.MapRemove _

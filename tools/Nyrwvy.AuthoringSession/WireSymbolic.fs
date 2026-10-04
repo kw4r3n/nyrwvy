@@ -451,6 +451,8 @@ module internal WireSymbolic =
         | "setFromList" -> unary "set-from-list recipe" ExpressionRecipe.SetFromList
         | "setSize" -> unary "set-size recipe" ExpressionRecipe.SetSize
         | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
+        | "listLast" -> unary "list-last recipe" ExpressionRecipe.ListLast
+        | "listDropLast" -> unary "list-drop-last recipe" ExpressionRecipe.ListDropLast
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(

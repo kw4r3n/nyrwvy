@@ -876,6 +876,10 @@ module CSharpBackend =
         writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
         writer.Line("public long Length => _count;")
         writer.Line("public NyOption<T> ItemAt(long index) => index >= 0L && index < _count ? NyOption<T>.Some(_store.Items[index]) : NyOption<T>.None();")
+        writer.Line("public NyOption<T> Last() => _count > 0 ? NyOption<T>.Some(_store.Items[_count - 1]) : NyOption<T>.None();")
+        // DropLast shares the store: the shorter list reads below its own count, and a later append to it
+        // loses the compare-exchange (Used is still the longer count) and copies, so no slot is rewritten.
+        writer.Line("public NyList<T> DropLast() => _count > 1 ? new NyList<T>(_store, _count - 1) : Empty();")
         // Read-only view for runtime helpers.
         writer.Line("internal ReadOnlySpan<T> Items => new(_store.Items, 0, _count);")
         // Doubling the capacity makes a chain of appends amortised O(1) per item.
@@ -1912,6 +1916,10 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName setValueId + ".Size;")
         | ExecutionInstructionKind.ListReverse listValueId ->
             writer.Line(target + " = " + valueName listValueId + ".Reverse();")
+        | ExecutionInstructionKind.ListLast listValueId ->
+            writer.Line(target + " = " + valueName listValueId + ".Last();")
+        | ExecutionInstructionKind.ListDropLast listValueId ->
+            writer.Line(target + " = " + valueName listValueId + ".DropLast();")
         | ExecutionInstructionKind.ListItemAt(listValueId, indexValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".ItemAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.MapRemove(mapValueId, keyValueId) ->

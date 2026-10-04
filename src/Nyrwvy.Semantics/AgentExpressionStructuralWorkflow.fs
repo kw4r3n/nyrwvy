@@ -112,6 +112,8 @@ type ExpressionRecipe =
     | SetFromList of ExpressionRecipe
     | SetSize of ExpressionRecipe
     | ListReverse of ExpressionRecipe
+    | ListLast of ExpressionRecipe
+    | ListDropLast of ExpressionRecipe
     | ListAppendItem of list: ExpressionRecipe * item: ExpressionRecipe
     | ListItemAt of list: ExpressionRecipe * index: ExpressionRecipe
     | MapRemove of map: ExpressionRecipe * key: ExpressionRecipe
@@ -315,6 +317,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetFromList value -> ExpressionRecipe.SetFromList(go value)
         | ExpressionRecipe.SetSize value -> ExpressionRecipe.SetSize(go value)
         | ExpressionRecipe.ListReverse value -> ExpressionRecipe.ListReverse(go value)
+        | ExpressionRecipe.ListLast value -> ExpressionRecipe.ListLast(go value)
+        | ExpressionRecipe.ListDropLast value -> ExpressionRecipe.ListDropLast(go value)
         | ExpressionRecipe.ListAppendItem(list, item) -> ExpressionRecipe.ListAppendItem(go list, go item)
         | ExpressionRecipe.ListItemAt(list, index) -> ExpressionRecipe.ListItemAt(go list, go index)
         | ExpressionRecipe.MapRemove(map, key) -> ExpressionRecipe.MapRemove(go map, go key)
@@ -573,6 +577,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetFromList child
         | ExpressionRecipe.SetSize child
         | ExpressionRecipe.ListReverse child
+        | ExpressionRecipe.ListLast child
+        | ExpressionRecipe.ListDropLast child
         | ExpressionRecipe.FieldAccess(child, _)
         | ExpressionRecipe.OptionSome child
         | ExpressionRecipe.ResultOk(_, child)
@@ -1570,6 +1576,20 @@ module AgentExpressionStructuralWorkflow =
                     match listItemType actual with
                     | Some _ -> Ok actual
                     | None -> Error(listMismatch "ListReverse" "value" actual)
+            | ExpressionRecipe.ListLast list ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok actual ->
+                    match listItemType actual with
+                    | Some itemType -> Ok(optionType itemType)
+                    | None -> Error(listMismatch "ListLast" "value" actual)
+            | ExpressionRecipe.ListDropLast list ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok actual ->
+                    match listItemType actual with
+                    | Some _ -> Ok actual
+                    | None -> Error(listMismatch "ListDropLast" "value" actual)
             | ExpressionRecipe.ListItemAt(list, index) ->
                 match infer frames list with
                 | Error error -> Error error
@@ -2570,6 +2590,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetFromList map -> unary SemanticNodeKind.SetFromList map
         | ExpressionRecipe.SetSize map -> unary SemanticNodeKind.SetSize map
         | ExpressionRecipe.ListReverse list -> unary SemanticNodeKind.ListReverse list
+        | ExpressionRecipe.ListLast list -> unary SemanticNodeKind.ListLast list
+        | ExpressionRecipe.ListDropLast list -> unary SemanticNodeKind.ListDropLast list
         | ExpressionRecipe.ListAppendItem(list, item) -> binary SemanticNodeKind.ListAppendItem list item
         | ExpressionRecipe.ListItemAt(list, index) -> binary SemanticNodeKind.ListItemAt list index
         | ExpressionRecipe.MapRemove(map, key) -> binary SemanticNodeKind.MapRemove map key
