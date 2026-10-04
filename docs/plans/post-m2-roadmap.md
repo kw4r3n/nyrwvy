@@ -198,15 +198,17 @@ One change has no order number: after probe 11, a pure `ListEffectFold` whose fo
 
 ### Open candidates
 
-Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20) and [probe 21](../verification/map-set-probe21-20261004.md#candidate-hit-counts-after-probe-21) records, or from the sections and records named in the row. None is queued.
+Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probe18-20261001.md#candidate-hit-counts-after-probe-18), [probe 19](../verification/rrawrlet-slice-probe19-20261001.md#candidate-hit-counts-after-probe-19), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20), [probe 21](../verification/map-set-probe21-20261004.md#candidate-hit-counts-after-probe-21) and [probe 22](../verification/map-set-probe22-20261005.md#candidate-hit-counts-after-probe-22) records, or from the sections and records named in the row. None is queued.
 
 | Candidate | Observed in | Status and what it waits on |
 | --- | --- | --- |
-| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | **Done for self-calls** (order 49): a self `DirectCall` in tail position runs as a jump, as a language guarantee ([decision](../decisions/tail-self-calls.md)). No loop construct is added; mutual recursion stays out until a probe loops through two functions. `IndexFold` below remains the processor-side candidate of the [real-time note](realtime-processors.md) |
+| Tail self-call compiled as a loop, or a loop construct | Probe 15 (1). Probe 13 recorded the missing `while` for bounded loops separately. [Probe 21](../verification/map-set-probe21-20261004.md) (2): reachability and a topological order ran as counted folds that could not stop early | **Done for self-calls** (order 49): a self `DirectCall` in tail position runs as a jump, as a language guarantee ([decision](../decisions/tail-self-calls.md)). No loop construct is added; mutual recursion stays out until a probe loops through two functions. `IndexFold` below remains the processor-side candidate of the [real-time note](realtime-processors.md). [Probe 22](../verification/map-set-probe22-20261005.md) wrote probe 21's loops and a depth-first search as tail self-calls: they stop when done, ran 300,000 turns, and needed no loop construct or mutual recursion |
 | `IndexFold(count, seed, step)` | Not counted: proposed in the [real-time note](realtime-processors.md), which says probe 13's `while` and the `ListRange` observations may already be enough evidence | Proposed only, as the processor-side counted loop bounded by the block size. Ordinary code loops with a tail self-call since order 49, so ordinary-code use needs its own evidence or an owner choice. `ListFold` over `ListRange` (order 37) is a counted loop today, but builds the list first |
 | Unbounded integers | Probes 18 and 19 (2, small). Earlier probes recorded integers beyond Int64 as known divergences only | Not queued; a bounded Int64 is a deliberate subset choice ([probe 19](../verification/rrawrlet-slice-probe19-20261001.md#costs-ranked-by-impact)) |
 | Transcendental Float64 functions | Probe 20 (1) | A further observation; whether results are bit-exact across backends is the open question (#284) |
 | UTF-8 decode with `strict` or `surrogateescape` | Probe 16 (1, per the [UTF-8 decode decision](../decisions/utf8-decode.md)). Probe 15 also wrote strict decoding with `surrogatepass` by hand, and probe 19 checked strict validity with the order 33 builtin | The [decision's revisit conditions](../decisions/utf8-decode.md#revisit-conditions) |
+| Last item or non-copying stack operations | [Probe 22](../verification/map-set-probe22-20261005.md) (1): a depth-first search with an explicit stack was 117 nodes and quadratic, since peeking, popping and replacing the top each copy or index from `ListLength − 1` | First observation. The recursive form is not a tail call and stays bounded by the stack |
+| Position of an item in a list (`ListIndexOf` or `ListFindIndex`) | Probe 22 (1): a 16-node fold took the stack from a node to the top | First observation |
 
 ### Queue from the 2026-09-25 probe
 
@@ -423,6 +425,10 @@ Preserve these constraints:
 4. **Keep the workload boundary explicit.** Create implementation issues from the new plan's concrete gaps and completion criteria, not an assumed application architecture. Check current branches/PRs first. Dependency-tool exposure, retained pins, multiple/transitive dependencies, and reviewed upgrades are implemented; use the maintained roadmap rather than the original PR #214 review-date status.
 
 The earlier #152 cleanup suggestion is historical planning context; this probe does not establish that issue/PR's current disposition or make it a prerequisite for using the maintained surface. Reassess any useful remainder separately against the then-current checkout.
+
+### Findings from the 2026-10-05 probe 22
+
+[Probe 22](../verification/map-set-probe22-20261005.md) authored probe 21's planner again on orders 48 and 49, plus parallel levels and a cycle path by depth-first search: 1,400/1,400 against a JavaScript reference, every function accepted first time, nothing blocked. Probe 21's scope took 175 nodes instead of 212 and two types instead of four; tail self-calls replaced both counted folds and ran 300,000 turns. The new costs are the explicit stack of the depth-first search and finding an item's position, both first observations and listed in the [open candidates](#open-candidates). No order is queued.
 
 ## Evidence and authority pointers
 
