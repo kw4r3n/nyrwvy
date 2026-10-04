@@ -1,6 +1,6 @@
 # List stack operations
 
-**Status:** Decided 2026-10-05: after reading the risks below, the owner chose the smaller change, `ListLast` and a store-sharing `ListDropLast`, implemented as order 50 ([decision](../decisions/list-last-and-drop-last.md)). The persistent vector is deferred until a program exceeds a run limit because pushes after pops copy a deep stack; the analysis below is kept as written for that day.
+**Status:** Decided 2026-10-05: after reading the risks below, the owner chose the smaller change, `ListLast` and a store-sharing `ListDropLast`, implemented as order 50 ([decision](../decisions/list-last-and-drop-last.md)). The persistent vector is deferred until a program exceeds a run limit because pushes after pops copy a deep stack; the analysis below is kept as written for that day. **Revisited 2026-10-05:** [probe 23](../verification/map-set-probe23-20261005.md)'s comb exceeded the run limit, and the owner queued the persistent vector as [order 52](post-m2-roadmap.md#queue-from-the-2026-10-05-probe-23-owner-choice).
 
 ## The cost
 
