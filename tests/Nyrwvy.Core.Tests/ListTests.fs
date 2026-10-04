@@ -343,7 +343,8 @@ module ListTests =
     let ``C# source uses an immutable-style dedicated NyList runtime`` () =
         let artifact = createFixture () |> emit
         Assert.Contains("public sealed class NyList<T>", artifact.Source)
-        Assert.Contains("private readonly Store _store;", artifact.Source)
+        Assert.Contains("private readonly object[]? _root;", artifact.Source)
+        Assert.Contains("private readonly Store _tail;", artifact.Source)
         Assert.Contains("private readonly int _count;", artifact.Source)
         Assert.Contains("public long Length => _count;", artifact.Source)
         Assert.Contains("AppendItem(T item)", artifact.Source)

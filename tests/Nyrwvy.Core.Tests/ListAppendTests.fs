@@ -21,6 +21,8 @@ module ListAppendTests =
     // Drives the emitted runtime directly: shared buffers are invisible to programs by design.
     let private driver = """
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Nyrwvy.Generated;
 
@@ -32,6 +34,49 @@ static class Runner
         var list = NyList<NyStr>.Empty();
         for (var i = 0; i < count; i++) list = list.AppendItem(prefix + i);
         return list;
+    }
+    static List<long> Items(NyList<long> list) => list.Fold(new List<long>(), (items, item) => { items.Add(item); return items; });
+    // Random operation sequences against List<T>, at sizes that cross 32, 1,024 and 32,768 items, so
+    // pushes, pops and prefix slices reach every trie boundary; every earlier list must stay unchanged.
+    static int RandomSequences()
+    {
+        var random = new Random(52);
+        var failures = 0;
+        foreach (var limit in new[] { 40, 1100, 33000, 70000 })
+        {
+            var lists = new List<(NyList<long> List, List<long> Expected)> { (NyList<long>.Empty(), new List<long>()) };
+            for (var step = 0; step < 3000; step++)
+            {
+                var (list, expected) = lists[random.Next(lists.Count)];
+                NyList<long> next;
+                List<long> wanted;
+                switch (random.Next(10))
+                {
+                    case < 4: var item = random.NextInt64(); next = list.AppendItem(item); wanted = new List<long>(expected) { item }; break;
+                    case < 6: next = list.DropLast(); wanted = expected.Take(Math.Max(expected.Count - 1, 0)).ToList(); break;
+                    case 6:
+                        var a = random.Next(-2, expected.Count + 3); var b = random.Next(-2, expected.Count + 3);
+                        var from = Math.Clamp(a, 0, expected.Count); var to = Math.Clamp(b, 0, expected.Count);
+                        next = list.Slice(a, b); wanted = to <= from ? new List<long>() : expected.GetRange(from, to - from); break;
+                    case 7: var k = random.Next(0, expected.Count + 1); next = list.Slice(0, k); wanted = expected.Take(k).ToList(); break;
+                    case 8: var other = lists[random.Next(lists.Count)]; next = list.Concat(other.List); wanted = expected.Concat(other.Expected).ToList(); break;
+                    default:
+                        var count = random.Next(0, limit); next = NyList<long>.Empty(); wanted = new List<long>();
+                        for (var i = 0; i < count; i++) { next = next.AppendItem(i); wanted.Add(i); }
+                        break;
+                }
+                if (wanted.Count > limit) continue;
+                var copy = NyList<long>.Create(wanted.ToArray());
+                var index = wanted.Count / 3;
+                if (next.Length != wanted.Count || !Items(next).SequenceEqual(wanted) || !next.Equals(copy) || next.GetHashCode() != copy.GetHashCode()
+                    || (wanted.Count > 0 && (next.ItemAt(index).Value != wanted[index] || next.Last().Value != wanted[^1])) || next.ItemAt(wanted.Count).HasValue)
+                    failures++;
+                lists.Add((next, wanted));
+                if (lists.Count > 60) lists.RemoveAt(1);
+            }
+            foreach (var (list, expected) in lists) if (!Items(list).SequenceEqual(expected)) failures++;
+        }
+        return failures;
     }
     static void Main()
     {
@@ -56,7 +101,7 @@ static class Runner
         var t2 = t.AppendItem("z");
         var tt2 = tt.Concat(t);
         Console.WriteLine(Show(t) + Show(tt) + Show(t2) + Show(tt2) + Show(tt.AppendItem("y")));
-        // DropLast shares the store; appending to the shorter list must copy, not rewrite the slot.
+        // DropLast shares the tail; appending to the shorter list must copy it, not rewrite the slot.
         var st = Build("k", 3);
         var popped = st.DropLast();
         var pushed = popped.AppendItem("n");
@@ -67,7 +112,7 @@ static class Runner
         var failures = 0;
         for (var round = 0; round < 200; round++)
         {
-            var shared = Build("s", 1 + round % 40);
+            var shared = Build("s", 1 + round % 70);
             var before = Show(shared);
             var results = new NyList<NyStr>[32];
             Parallel.For(0, results.Length, i =>
@@ -83,6 +128,7 @@ static class Runner
             if (Show(shared) != before) failures++;
         }
         Console.WriteLine("concurrent failures " + failures);
+        Console.WriteLine("random sequence failures " + RandomSequences());
     }
 }
 """
@@ -110,7 +156,8 @@ static class Runner
                   "[a,b,p][a,b,q,r][a,b][a,b]"
                   "[a,b][a,b,a,b][a,b,z][a,b,a,b,a,b][a,b,a,b,y]"
                   "[k0,k1,k2][k0,k1][k0,k1,n][k0,k1,m] k2 n False [][] True"
-                  "concurrent failures 0" ]
+                  "concurrent failures 0"
+                  "random sequence failures 0" ]
             Assert.Equal(String.concat "\n" expected, output.Replace("\r\n", "\n").Trim())
         finally
             if Directory.Exists root then Directory.Delete(root, true)

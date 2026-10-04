@@ -87,6 +87,292 @@ module CSharpBackend =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"C# backend received List with {arguments.Length} type arguments."
 
+    let private listRuntime =
+        [ "public sealed class NyList<T> : IEquatable<NyList<T>>"
+          "{"
+          "    // A list is a persistent vector, as Clojure's vectors are: a 32-way trie of full leaves holds the"
+          "    // first items, a multiple of 32, and a tail holds the last 1 to 32. A new list shares every node of"
+          "    // the old one and copies only the nodes on one path, so AppendItem, DropLast, Last, ItemAt and a"
+          "    // Slice from 0 take O(log32 n) and never copy the list; a push after a pop copies at most the tail."
+          "    // DropLast and a Slice from 0 may leave nodes past the new count in the trie. No reader looks past"
+          "    // _count, and pushing a leaf copies every trie node on its path, so a trie node is never written"
+          "    // after a list containing it exists."
+          "    // A store's Used count only grows. AppendItem writes a tail slot in place only after a"
+          "    // compare-exchange moves Used from exactly the list's tail count, so each slot is written once, by"
+          "    // the one caller whose list ends at Used, and before any list that contains it is constructed. A"
+          "    // caller that loses the race copies the tail. A leaf is a full store (Used is its length), so no"
+          "    // append writes into it. Lists reach other threads through task starts and results, which order"
+          "    // those writes before the reads."
+          "    private const int Bits = 5;"
+          "    private const int Width = 1 << Bits;"
+          "    private const int Mask = Width - 1;"
+          "    private sealed class Store"
+          "    {"
+          "        internal readonly T[] Items;"
+          "        internal int Used;"
+          "        internal Store(T[] items, int used) { Items = items; Used = used; }"
+          "    }"
+          "    private static readonly NyList<T> EmptyList = new(0, Bits, null, new Store(Array.Empty<T>(), 0));"
+          "    private readonly int _count;"
+          "    // _shift is Bits times the trie's height above its leaves; the root's children are leaves at Bits."
+          "    private readonly int _shift;"
+          "    // Interior nodes are object[Width] whose children are interior nodes or leaf stores; null when empty."
+          "    private readonly object[]? _root;"
+          "    private readonly Store _tail;"
+          "    private NyList(int count, int shift, object[]? root, Store tail) { _count = count; _shift = shift; _root = root; _tail = tail; }"
+          "    private int TailCount => _count == 0 ? 0 : ((_count - 1) & Mask) + 1;"
+          "    private int TrieCount => _count - TailCount;"
+          "    internal static NyList<T> FromOwnedArray(T[] items) => FromOwned(items, items.Length);"
+          "    // A buffer of at most Width items becomes the tail as it is; a longer one is split into leaves."
+          "    private static NyList<T> FromOwned(T[] items, int count) =>"
+          "        count == 0 ? EmptyList : items.Length <= Width ? new(count, Bits, null, new Store(items, count)) : FromSpan(new ReadOnlySpan<T>(items, 0, count));"
+          "    private static NyList<T> FromSpan(ReadOnlySpan<T> items)"
+          "    {"
+          "        if (items.Length == 0) return EmptyList;"
+          "        var trieCount = (items.Length - 1) & ~Mask;"
+          "        object[]? root = null;"
+          "        var shift = Bits;"
+          "        for (var start = 0; start < trieCount; start += Width) root = PushLeaf(root, ref shift, start, new Store(items.Slice(start, Width).ToArray(), Width));"
+          "        return new(items.Length, shift, root, new Store(items.Slice(trieCount).ToArray(), items.Length - trieCount));"
+          "    }"
+          "    public static NyList<T> Empty() => EmptyList;"
+          "    public static NyList<T> Create(params T[] items) => FromSpan(items);"
+          "    public long Length => _count;"
+          "    private Store LeafFor(int index)"
+          "    {"
+          "        object node = _root!;"
+          "        for (var level = _shift; level > Bits; level -= Bits) node = ((object[])node)[(index >> level) & Mask];"
+          "        return (Store)((object[])node)[(index >> Bits) & Mask];"
+          "    }"
+          "    // Chunk is the leaf or the tail holding the items from start, a multiple of Width, onward."
+          "    private ReadOnlySpan<T> Chunk(int start) =>"
+          "        start >= TrieCount ? new(_tail.Items, 0, TailCount) : new(LeafFor(start).Items, 0, Width);"
+          "    private static object[] PushLeaf(object[]? root, ref int shift, int trieCount, Store leaf)"
+          "    {"
+          "        if (root is null) return NewPath(Bits, leaf);"
+          "        if (trieCount == 1 << (shift + Bits))"
+          "        {"
+          "            var grown = new object[Width];"
+          "            grown[0] = root;"
+          "            grown[1] = NewPath(shift, leaf);"
+          "            shift += Bits;"
+          "            return grown;"
+          "        }"
+          "        return SetLeaf(root, shift, trieCount, leaf);"
+          "    }"
+          "    private static object[] NewPath(int level, Store leaf)"
+          "    {"
+          "        var node = new object[Width];"
+          "        node[0] = level == Bits ? leaf : NewPath(level - Bits, leaf);"
+          "        return node;"
+          "    }"
+          "    private static object[] SetLeaf(object[] node, int level, int index, Store leaf)"
+          "    {"
+          "        var copy = (object[])node.Clone();"
+          "        var slot = (index >> level) & Mask;"
+          "        copy[slot] = level == Bits ? leaf : node[slot] is object[] child ? SetLeaf(child, level - Bits, index, leaf) : NewPath(level - Bits, leaf);"
+          "        return copy;"
+          "    }"
+          "    public NyOption<T> ItemAt(long index)"
+          "    {"
+          "        if (index < 0L || index >= _count) return NyOption<T>.None();"
+          "        var at = (int)index;"
+          "        var trieCount = TrieCount;"
+          "        return NyOption<T>.Some(at >= trieCount ? _tail.Items[at - trieCount] : LeafFor(at).Items[at & Mask]);"
+          "    }"
+          "    public NyOption<T> Last() => _count > 0 ? NyOption<T>.Some(_tail.Items[TailCount - 1]) : NyOption<T>.None();"
+          "    public NyList<T> DropLast() => _count > 1 ? Take(_count - 1) : Empty();"
+          "    // Take shares the trie and the store that holds its last item; 0 < count < _count."
+          "    private NyList<T> Take(int count)"
+          "    {"
+          "        var trieCount = TrieCount;"
+          "        if (count > trieCount) return new(count, _shift, _root, _tail);"
+          "        var leafStart = (count - 1) & ~Mask;"
+          "        var leaf = LeafFor(leafStart);"
+          "        return leafStart == 0 ? new(count, Bits, null, leaf) : new(count, _shift, _root, leaf);"
+          "    }"
+          "    internal T[] ToArray() => CopyRange(0, _count);"
+          "    private T[] CopyRange(int from, int to)"
+          "    {"
+          "        var result = new T[to - from];"
+          "        for (var start = from & ~Mask; start < to; start += Width)"
+          "        {"
+          "            var chunk = Chunk(start);"
+          "            var first = System.Math.Max(from - start, 0);"
+          "            var end = System.Math.Min(to - start, chunk.Length);"
+          "            chunk[first..end].CopyTo(result.AsSpan(start + first - from));"
+          "        }"
+          "        return result;"
+          "    }"
+          "    // Slice clamps both bounds to [0, Length] like StringSlice; end <= start gives the empty list."
+          "    // A slice from 0 shares the list's nodes; any other slice copies its items."
+          "    public NyList<T> Slice(long start, long end)"
+          "    {"
+          "        var from = System.Math.Clamp(start, 0L, (long)_count);"
+          "        var to = System.Math.Clamp(end, 0L, (long)_count);"
+          "        if (to <= from) return Empty();"
+          "        if (from == 0L) return to == _count ? this : Take((int)to);"
+          "        return FromOwnedArray(CopyRange((int)from, (int)to));"
+          "    }"
+          "    // Reverse copies the items into a new list in the opposite order; 0 or 1 items return the list itself."
+          "    public NyList<T> Reverse()"
+          "    {"
+          "        if (_count < 2) return this;"
+          "        var items = ToArray();"
+          "        Array.Reverse(items);"
+          "        return FromOwnedArray(items);"
+          "    }"
+          "    public NyList<T> AppendItem(T item)"
+          "    {"
+          "        var tail = _tail;"
+          "        var tailCount = TailCount;"
+          "        if (tailCount < Width)"
+          "        {"
+          "            if (tailCount < tail.Items.Length && System.Threading.Interlocked.CompareExchange(ref tail.Used, tailCount + 1, tailCount) == tailCount)"
+          "            {"
+          "                tail.Items[tailCount] = item;"
+          "                return new(_count + 1, _shift, _root, tail);"
+          "            }"
+          "            var next = new T[Width];"
+          "            Array.Copy(tail.Items, next, tailCount);"
+          "            next[tailCount] = item;"
+          "            return new(_count + 1, _shift, _root, new Store(next, tailCount + 1));"
+          "        }"
+          "        var shift = _shift;"
+          "        var root = PushLeaf(_root, ref shift, _count - Width, tail);"
+          "        var fresh = new T[Width];"
+          "        fresh[0] = item;"
+          "        return new(_count + 1, shift, root, new Store(fresh, 1));"
+          "    }"
+          "    public NyList<T> Concat(NyList<T> other)"
+          "    {"
+          "        if (other._count == 0) return this;"
+          "        if (_count == 0) return other;"
+          "        var result = this;"
+          "        for (var start = 0; start < other._count; start += Width)"
+          "            foreach (var item in other.Chunk(start)) result = result.AppendItem(item);"
+          "        return result;"
+          "    }"
+          "    public S Fold<S>(S seed, Func<S, T, S> folder)"
+          "    {"
+          "        var state = seed;"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start)) state = folder(state, item);"
+          "        return state;"
+          "    }"
+          "    // ListEffectFold's Result mode: stops iterating once `proceed` is false (after the first Err)."
+          "    public S FoldWhile<S>(S seed, Func<S, T, S> folder, Func<S, bool> proceed)"
+          "    {"
+          "        var state = seed;"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start))"
+          "            {"
+          "                if (!proceed(state)) return state;"
+          "                state = folder(state, item);"
+          "            }"
+          "        return state;"
+          "    }"
+          "    public NyList<U> Map<U>(Func<T, U> mapper)"
+          "    {"
+          "        var next = new U[_count];"
+          "        for (var start = 0; start < _count; start += Width)"
+          "        {"
+          "            var chunk = Chunk(start);"
+          "            for (var i = 0; i < chunk.Length; i++) next[start + i] = mapper(chunk[i]);"
+          "        }"
+          "        return NyList<U>.FromOwnedArray(next);"
+          "    }"
+          "    // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when"
+          "    // lessThan(right, left) holds. The algorithm fixes the result for any callback, so an"
+          "    // inconsistent callback still yields a deterministic permutation; a strict order is stable."
+          "    public NyList<T> SortBy(Func<T, T, bool> lessThan)"
+          "    {"
+          "        var items = ToArray();"
+          "        if (items.Length > 1) SortRange(items, new T[items.Length], 0, items.Length, lessThan);"
+          "        return FromOwnedArray(items);"
+          "    }"
+          "    private static void SortRange(T[] items, T[] scratch, int start, int end, Func<T, T, bool> lessThan)"
+          "    {"
+          "        var length = end - start;"
+          "        if (length < 2) return;"
+          "        var middle = start + length / 2;"
+          "        SortRange(items, scratch, start, middle, lessThan);"
+          "        SortRange(items, scratch, middle, end, lessThan);"
+          "        int left = start, right = middle, next = start;"
+          "        while (left < middle && right < end) scratch[next++] = lessThan(items[right], items[left]) ? items[right++] : items[left++];"
+          "        while (left < middle) scratch[next++] = items[left++];"
+          "        while (right < end) scratch[next++] = items[right++];"
+          "        Array.Copy(scratch, start, items, start, length);"
+          "    }"
+          "    // ListMinBy: scan left to right from the first item, replacing the best only when"
+          "    // lessThan(item, best) holds, so the first of equal items wins for any callback."
+          "    public NyOption<T> MinBy(Func<T, T, bool> lessThan)"
+          "    {"
+          "        if (_count == 0) return NyOption<T>.None();"
+          "        var best = Chunk(0)[0];"
+          "        for (var start = 0; start < _count; start += Width)"
+          "        {"
+          "            var chunk = Chunk(start);"
+          "            for (var i = start == 0 ? 1 : 0; i < chunk.Length; i++) if (lessThan(chunk[i], best)) best = chunk[i];"
+          "        }"
+          "        return NyOption<T>.Some(best);"
+          "    }"
+          "    public NyList<T> Filter(Func<T, bool> predicate)"
+          "    {"
+          "        var buffer = new T[_count];"
+          "        var count = 0;"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start)) if (predicate(item)) buffer[count++] = item;"
+          "        return FromOwned(buffer, count);"
+          "    }"
+          "    // FindIndex and IndexOf give the zero-based position of the first match, scanning left to right."
+          "    public NyOption<long> FindIndex(Func<T, bool> predicate)"
+          "    {"
+          "        for (var start = 0; start < _count; start += Width)"
+          "        {"
+          "            var chunk = Chunk(start);"
+          "            for (var i = 0; i < chunk.Length; i++) if (predicate(chunk[i])) return NyOption<long>.Some(start + i);"
+          "        }"
+          "        return NyOption<long>.None();"
+          "    }"
+          "    public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));"
+          "    public bool Any(Func<T, bool> predicate)"
+          "    {"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start)) if (predicate(item)) return true;"
+          "        return false;"
+          "    }"
+          "    public bool All(Func<T, bool> predicate)"
+          "    {"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start)) if (!predicate(item)) return false;"
+          "        return true;"
+          "    }"
+          "    // Two lists of one count split into chunks at the same positions, since the tail count follows the count."
+          "    public bool Equals(NyList<T>? other)"
+          "    {"
+          "        if (other is null || other._count != _count) return false;"
+          "        if (ReferenceEquals(other, this)) return true;"
+          "        var comparer = System.Collections.Generic.EqualityComparer<T>.Default;"
+          "        for (var start = 0; start < _count; start += Width)"
+          "        {"
+          "            var mine = Chunk(start);"
+          "            var theirs = other.Chunk(start);"
+          "            for (var i = 0; i < mine.Length; i++) if (!comparer.Equals(mine[i], theirs[i])) return false;"
+          "        }"
+          "        return true;"
+          "    }"
+          "    public override bool Equals(object? obj) => obj is NyList<T> other && Equals(other);"
+          "    public override int GetHashCode()"
+          "    {"
+          "        var hash = new HashCode();"
+          "        hash.Add(_count);"
+          "        for (var start = 0; start < _count; start += Width)"
+          "            foreach (var item in Chunk(start)) hash.Add(item);"
+          "        return hash.ToHashCode();"
+          "    }"
+          "}" ]
+
     let private emitRuntime (writer: SourceWriter) =
         writer.Line("public readonly record struct NyUnit")
         writer.Line("{")
@@ -484,7 +770,7 @@ module CSharpBackend =
         writer.Line("public static NyStr Join(NyList<NyStr> list, string separator)")
         writer.Line("{")
         writer.Push()
-        writer.Line("var items = list.Items;")
+        writer.Line("var items = list.ToArray();")
         writer.Line("var total = 0L;")
         writer.Line("for (var i = 0; i < items.Length; i++) total += items[i].Length + (i > 0 ? separator.Length : 0);")
         writer.Line("if (total > int.MaxValue) throw new OutOfMemoryException();")
@@ -848,253 +1134,8 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("")
-        writer.Line("public sealed class NyList<T> : IEquatable<NyList<T>>")
-        writer.Line("{")
-        writer.Push()
-        // A list is the first _count items of a store that several lists may share, like a Go slice.
-        // The store's Used count only grows. AppendItem and Concat write past _count only after a
-        // compare-exchange moves Used from exactly _count, so each slot is written once, by the one
-        // caller whose list ends at Used, and before any list that contains it is constructed. Every
-        // reader looks only below its own _count, whose slots were written before that list existed
-        // and never change again; a caller that loses the race copies into a new store. Lists reach
-        // other threads through task starts and results, which order those writes before the reads.
-        writer.Line("private sealed class Store")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("internal readonly T[] Items;")
-        writer.Line("internal int Used;")
-        writer.Line("internal Store(T[] items, int used) { Items = items; Used = used; }")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("private static readonly NyList<T> EmptyList = new(Array.Empty<T>());")
-        writer.Line("private readonly Store _store;")
-        writer.Line("private readonly int _count;")
-        writer.Line("private NyList(Store store, int count) { _store = store; _count = count; }")
-        writer.Line("private NyList(T[] items) : this(new Store(items, items.Length), items.Length) { }")
-        writer.Line("internal static NyList<T> FromOwnedArray(T[] items) => new(items);")
-        writer.Line("public static NyList<T> Empty() => EmptyList;")
-        writer.Line("public static NyList<T> Create(params T[] items) => new((T[])items.Clone());")
-        writer.Line("public long Length => _count;")
-        writer.Line("public NyOption<T> ItemAt(long index) => index >= 0L && index < _count ? NyOption<T>.Some(_store.Items[index]) : NyOption<T>.None();")
-        writer.Line("public NyOption<T> Last() => _count > 0 ? NyOption<T>.Some(_store.Items[_count - 1]) : NyOption<T>.None();")
-        // DropLast shares the store: the shorter list reads below its own count, and a later append to it
-        // loses the compare-exchange (Used is still the longer count) and copies, so no slot is rewritten.
-        writer.Line("public NyList<T> DropLast() => _count > 1 ? new NyList<T>(_store, _count - 1) : Empty();")
-        // Read-only view for runtime helpers.
-        writer.Line("internal ReadOnlySpan<T> Items => new(_store.Items, 0, _count);")
-        // Doubling the capacity makes a chain of appends amortised O(1) per item.
-        writer.Line("private static int Grow(long needed) => needed > Array.MaxLength ? throw new OutOfMemoryException() : (int)System.Math.Min(System.Math.Max(needed * 2L, 4L), Array.MaxLength);")
-        // Slice clamps both bounds to [0, Length] like StringSlice; end <= start gives the empty list.
-        writer.Line("public NyList<T> Slice(long start, long end)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var from = System.Math.Clamp(start, 0L, (long)_count);")
-        writer.Line("var to = System.Math.Clamp(end, 0L, (long)_count);")
-        writer.Line("if (to <= from) return Empty();")
-        writer.Line("if (from == 0L && to == _count) return this;")
-        writer.Line("var next = new T[to - from];")
-        writer.Line("Array.Copy(_store.Items, from, next, 0L, to - from);")
-        writer.Line("return new NyList<T>(next);")
-        writer.Pop()
-        writer.Line("}")
-        // Reverse copies the items into a new store in the opposite order; 0 or 1 items return the list itself.
-        writer.Line("public NyList<T> Reverse()")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("if (_count < 2) return this;")
-        writer.Line("var next = new T[_count];")
-        writer.Line("Array.Copy(_store.Items, next, _count);")
-        writer.Line("Array.Reverse(next);")
-        writer.Line("return new NyList<T>(next);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public NyList<T> AppendItem(T item)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var store = _store;")
-        writer.Line("if (_count < store.Items.Length && System.Threading.Interlocked.CompareExchange(ref store.Used, _count + 1, _count) == _count)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("store.Items[_count] = item;")
-        writer.Line("return new NyList<T>(store, _count + 1);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("var next = new T[Grow(_count + 1L)];")
-        writer.Line("Array.Copy(store.Items, next, _count);")
-        writer.Line("next[_count] = item;")
-        writer.Line("return new NyList<T>(new Store(next, _count + 1), _count + 1);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public NyList<T> Concat(NyList<T> other)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("if (other._count == 0) return this;")
-        writer.Line("if (_count == 0) return other;")
-        writer.Line("var total = (long)_count + other._count;")
-        writer.Line("var store = _store;")
-        // When other shares this store its items lie below _count, so the copy cannot overlap them.
-        writer.Line("if (total <= store.Items.Length && System.Threading.Interlocked.CompareExchange(ref store.Used, (int)total, _count) == _count)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("Array.Copy(other._store.Items, 0, store.Items, _count, other._count);")
-        writer.Line("return new NyList<T>(store, (int)total);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("var next = new T[Grow(total)];")
-        writer.Line("Array.Copy(store.Items, 0, next, 0, _count);")
-        writer.Line("Array.Copy(other._store.Items, 0, next, _count, other._count);")
-        writer.Line("return new NyList<T>(new Store(next, (int)total), (int)total);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public S Fold<S>(S seed, Func<S, T, S> folder)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var state = seed;")
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++) state = folder(state, items[i]);")
-        writer.Line("return state;")
-        writer.Pop()
-        writer.Line("}")
-        // ListEffectFold's Result mode: stops iterating once `proceed` is false (after the first Err).
-        writer.Line("public S FoldWhile<S>(S seed, Func<S, T, S> folder, Func<S, bool> proceed)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var state = seed;")
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count && proceed(state); i++) state = folder(state, items[i]);")
-        writer.Line("return state;")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public NyList<U> Map<U>(Func<T, U> mapper)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = _store.Items;")
-        writer.Line("var next = new U[_count];")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Push()
-        writer.Line("next[i] = mapper(items[i]);")
-        writer.Pop()
-        writer.Line("return NyList<U>.FromOwnedArray(next);")
-        writer.Pop()
-        writer.Line("}")
-        // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when
-        // lessThan(right, left) holds. The algorithm fixes the result for any callback, so an
-        // inconsistent callback still yields a deterministic permutation; a strict order is stable.
-        writer.Line("public NyList<T> SortBy(Func<T, T, bool> lessThan)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = new T[_count];")
-        writer.Line("Array.Copy(_store.Items, items, _count);")
-        writer.Line("if (items.Length > 1) SortRange(items, new T[items.Length], 0, items.Length, lessThan);")
-        writer.Line("return new NyList<T>(items);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("private static void SortRange(T[] items, T[] scratch, int start, int end, Func<T, T, bool> lessThan)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var length = end - start;")
-        writer.Line("if (length < 2) return;")
-        writer.Line("var middle = start + length / 2;")
-        writer.Line("SortRange(items, scratch, start, middle, lessThan);")
-        writer.Line("SortRange(items, scratch, middle, end, lessThan);")
-        writer.Line("int left = start, right = middle, next = start;")
-        writer.Line("while (left < middle && right < end) scratch[next++] = lessThan(items[right], items[left]) ? items[right++] : items[left++];")
-        writer.Line("while (left < middle) scratch[next++] = items[left++];")
-        writer.Line("while (right < end) scratch[next++] = items[right++];")
-        writer.Line("Array.Copy(scratch, start, items, start, length);")
-        writer.Pop()
-        writer.Line("}")
-        // ListMinBy: scan left to right from the first item, replacing the best only when
-        // lessThan(item, best) holds, so the first of equal items wins for any callback.
-        writer.Line("public NyOption<T> MinBy(Func<T, T, bool> lessThan)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("if (_count == 0) return NyOption<T>.None();")
-        writer.Line("var items = _store.Items;")
-        writer.Line("var best = items[0];")
-        writer.Line("for (var i = 1; i < _count; i++) if (lessThan(items[i], best)) best = items[i];")
-        writer.Line("return NyOption<T>.Some(best);")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public NyList<T> Filter(Func<T, bool> predicate)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = _store.Items;")
-        writer.Line("var buffer = new T[_count];")
-        writer.Line("var count = 0;")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("if (!predicate(items[i])) continue;")
-        writer.Line("buffer[count++] = items[i];")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("return new NyList<T>(new Store(buffer, count), count);")
-        writer.Pop()
-        writer.Line("}")
-        // FindIndex and IndexOf give the zero-based position of the first match, scanning left to right.
-        writer.Line("public NyOption<long> FindIndex(Func<T, bool> predicate)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Push()
-        writer.Line("if (predicate(items[i])) return NyOption<long>.Some(i);")
-        writer.Pop()
-        writer.Line("return NyOption<long>.None();")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));")
-        writer.Line("public bool Any(Func<T, bool> predicate)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Push()
-        writer.Line("if (predicate(items[i])) return true;")
-        writer.Pop()
-        writer.Line("return false;")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public bool All(Func<T, bool> predicate)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Push()
-        writer.Line("if (!predicate(items[i])) return false;")
-        writer.Pop()
-        writer.Line("return true;")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public bool Equals(NyList<T>? other)")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("if (other is null || other._count != _count) return false;")
-        writer.Line("if (ReferenceEquals(other._store, _store)) return true;")
-        writer.Line("var comparer = System.Collections.Generic.EqualityComparer<T>.Default;")
-        writer.Line("var items = _store.Items;")
-        writer.Line("var otherItems = other._store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++)")
-        writer.Push()
-        writer.Line("if (!comparer.Equals(items[i], otherItems[i])) return false;")
-        writer.Pop()
-        writer.Line("return true;")
-        writer.Pop()
-        writer.Line("}")
-        writer.Line("public override bool Equals(object? obj) => obj is NyList<T> other && Equals(other);")
-        writer.Line("public override int GetHashCode()")
-        writer.Line("{")
-        writer.Push()
-        writer.Line("var hash = new HashCode();")
-        writer.Line("hash.Add(_count);")
-        writer.Line("var items = _store.Items;")
-        writer.Line("for (var i = 0; i < _count; i++) hash.Add(items[i]);")
-        writer.Line("return hash.ToHashCode();")
-        writer.Pop()
-        writer.Line("}")
-        writer.Pop()
-        writer.Line("}")
+        for line in listRuntime do
+            writer.Line(line)
         writer.Line("")
 
     let private fieldParameter (field: ExecutionField) =
