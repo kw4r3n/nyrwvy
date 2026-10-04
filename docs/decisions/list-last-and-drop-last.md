@@ -29,4 +29,4 @@
 
 ## Revisit conditions
 
-- **A program exceeds a run limit because pushes after pops copy a deep stack.** Then make `NyList<T>` a persistent vector, following the [design note](../plans/list-stack-operations.md)'s risks and acceptance criteria. **Met on 2026-10-05** by [probe 23](../verification/map-set-probe23-20261005.md)'s comb, a constructed input of realistic shape; queued as [order 52](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-23-owner-choice).
+- **A program exceeds a run limit because pushes after pops copy a deep stack.** Then make `NyList<T>` a persistent vector, following the [design note](../plans/list-stack-operations.md)'s risks and acceptance criteria. **Met on 2026-10-05** by [probe 23](../verification/map-set-probe23-20261005.md)'s comb, a constructed input of realistic shape; done as order 52 ([decision](persistent-vector-list.md)).
