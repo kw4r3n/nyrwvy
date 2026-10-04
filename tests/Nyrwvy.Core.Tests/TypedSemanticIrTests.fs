@@ -134,6 +134,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.SetDifference _
                 | TypedSemanticNodeKind.MapContainsKey _
                 | TypedSemanticNodeKind.SetContains _
+                | TypedSemanticNodeKind.ListIndexOf _
                 | TypedSemanticNodeKind.MapGet _
                 | TypedSemanticNodeKind.MapGetOrDefault _
                 | TypedSemanticNodeKind.ListAppendItem _
@@ -156,6 +157,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.MapMapValues _
                 | TypedSemanticNodeKind.ListMinBy _
                 | TypedSemanticNodeKind.ListAny _
+                | TypedSemanticNodeKind.ListFindIndex _
                 | TypedSemanticNodeKind.ListAll _
                 | TypedSemanticNodeKind.CapabilityConstruct _
                 | TypedSemanticNodeKind.FunctionReference _

@@ -158,6 +158,7 @@ module internal WireGraph =
         | SemanticNodeKind.SetDifference(left, right) -> binary "setDifference" left right
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
+        | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
@@ -200,6 +201,7 @@ module internal WireGraph =
         | SemanticNodeKind.MapMapValues(source, callback, bindings) ->
             tagged "mapMapValues" ([ "sourceMapNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
+        | SemanticNodeKind.ListFindIndex(source, callback, bindings) -> traversal "listFindIndex" source callback bindings
         | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
             tagged "capabilityConstruct"

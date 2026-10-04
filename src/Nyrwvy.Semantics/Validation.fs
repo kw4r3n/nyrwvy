@@ -1100,6 +1100,23 @@ module SnapshotValidator =
                     | SemanticNodeKind.SetSize sourceSetNodeId
                     | SemanticNodeKind.SetToList sourceSetNodeId ->
                         requireSetInput node.Id sourceSetNodeId |> ignore
+                    | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            if not (EquatableTypes.isEquatable snapshot.Types itemType) then
+                                add
+                                    "ListIndexOfItemTypeNotEquatable"
+                                    $"ListIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                            requireNodeType
+                                "ListIndexOfItemTypeMismatch"
+                                $"ListIndexOf node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListIndexOfListTypeMismatch"
+                                $"ListIndexOf node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
                     | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) ->
@@ -1464,6 +1481,7 @@ module SnapshotValidator =
                         validateLessThanCallback "ListMinBy" node.Id sourceListNodeId lessThanFunctionId context
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
+                    | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId predicateFunctionId context true
                     | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
@@ -2094,6 +2112,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetDifference _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
+                | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
@@ -2116,6 +2135,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListFindIndex _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _

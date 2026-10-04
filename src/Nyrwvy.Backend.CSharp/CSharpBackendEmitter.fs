@@ -1032,6 +1032,19 @@ module CSharpBackend =
         writer.Line("return new NyList<T>(new Store(buffer, count), count);")
         writer.Pop()
         writer.Line("}")
+        // FindIndex and IndexOf give the zero-based position of the first match, scanning left to right.
+        writer.Line("public NyOption<long> FindIndex(Func<T, bool> predicate)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var items = _store.Items;")
+        writer.Line("for (var i = 0; i < _count; i++)")
+        writer.Push()
+        writer.Line("if (predicate(items[i])) return NyOption<long>.Some(i);")
+        writer.Pop()
+        writer.Line("return NyOption<long>.None();")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));")
         writer.Line("public bool Any(Func<T, bool> predicate)")
         writer.Line("{")
         writer.Push()
@@ -1938,6 +1951,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName mapValueId + ".ContainsKey(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->
             writer.Line(target + " = " + valueName setValueId + ".Contains(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListIndexOf(listValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".IndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
@@ -2095,6 +2110,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".MinBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
+        | ExecutionInstructionKind.ListFindIndex(sourceListValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".FindIndex(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".All(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.CapabilityConstruct _ ->

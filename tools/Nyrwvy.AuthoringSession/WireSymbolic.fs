@@ -489,6 +489,12 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "set" element),
                 recipe declarations parameterContext (property "item" element)
             )
+        | "listIndexOf" ->
+            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
+            ExpressionRecipe.ListIndexOf(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "item" element)
+            )
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(
@@ -610,6 +616,7 @@ module internal WireSymbolic =
         | "listMinBy"
         | "listFilter"
         | "listAny"
+        | "listFindIndex"
         | "listAll" as kind ->
             ensureFields $"{kind} recipe" [ "kind"; "source"; "function"; "context" ] [ "kind"; "source"; "function" ] element
             let source = recipe declarations parameterContext (property "source" element)
@@ -622,6 +629,7 @@ module internal WireSymbolic =
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
             | "listMinBy" -> ExpressionRecipe.ListMinBy(source, callback.Id, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)
+            | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, callback.Id, context)
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->
             ensureFields "product-construct recipe" [ "kind"; "type"; "fields" ] [ "kind"; "type"; "fields" ] element

@@ -121,6 +121,7 @@ type ExpressionRecipe =
     | SetRemove of map: ExpressionRecipe * key: ExpressionRecipe
     | MapContainsKey of map: ExpressionRecipe * key: ExpressionRecipe
     | SetContains of map: ExpressionRecipe * key: ExpressionRecipe
+    | ListIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
@@ -150,6 +151,7 @@ type ExpressionRecipe =
     | ListSortBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMinBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListFindIndex of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ProductConstruct of typeId: TypeId * fields: (FieldId * ExpressionRecipe) list
     | FieldAccess of source: ExpressionRecipe * fieldId: FieldId
@@ -326,6 +328,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetRemove(map, key) -> ExpressionRecipe.SetRemove(go map, go key)
         | ExpressionRecipe.MapContainsKey(map, key) -> ExpressionRecipe.MapContainsKey(go map, go key)
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
+        | ExpressionRecipe.ListIndexOf(map, key) -> ExpressionRecipe.ListIndexOf(go map, go key)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -353,6 +356,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapMapValues(source, callback, context) -> ExpressionRecipe.MapMapValues(go source, callback, pairs context)
         | ExpressionRecipe.ListMinBy(source, callback, context) -> ExpressionRecipe.ListMinBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
+        | ExpressionRecipe.ListFindIndex(source, callback, context) -> ExpressionRecipe.ListFindIndex(go source, callback, pairs context)
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
         | ExpressionRecipe.ProductConstruct(typeId, fields) -> ExpressionRecipe.ProductConstruct(typeId, pairs fields)
         | ExpressionRecipe.FieldAccess(source, fieldId) -> ExpressionRecipe.FieldAccess(go source, fieldId)
@@ -643,6 +647,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetRemove(left, right)
         | ExpressionRecipe.MapContainsKey(left, right)
         | ExpressionRecipe.SetContains(left, right)
+        | ExpressionRecipe.ListIndexOf(left, right)
         | ExpressionRecipe.MapGet(left, right)
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)
@@ -667,6 +672,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapMapValues(source, _, context)
         | ExpressionRecipe.ListMinBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
+        | ExpressionRecipe.ListFindIndex(source, _, context)
         | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
         | ExpressionRecipe.ProductConstruct(_, fields)
@@ -1625,6 +1631,19 @@ module AgentExpressionStructuralWorkflow =
                     match mapEntryTypes mapResultType with
                     | None -> Error(mapMismatch "MapContainsKey" "map" mapResultType)
                     | Some(keyType, _) -> operands "MapContainsKey" boolType [ "key", keyType, key ]
+            | ExpressionRecipe.ListIndexOf(list, item) ->
+                match infer frames list with
+                | Error error -> Error error
+                | Ok listResultType ->
+                    match listItemType listResultType with
+                    | None -> Error(listMismatch "ListIndexOf" "list" listResultType)
+                    | Some itemType when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
+                        Error(
+                            diagnostic
+                                "ListIndexOfItemTypeNotEquatable"
+                                $"ListIndexOf compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                        )
+                    | Some itemType -> operands "ListIndexOf" (optionType int64Type) [ "item", itemType, item ]
             | ExpressionRecipe.SetContains(set, item) ->
                 match infer frames set with
                 | Error error -> Error error
@@ -2033,6 +2052,16 @@ module AgentExpressionStructuralWorkflow =
                         match validateListCallback "ListAny" predicateFunctionId context sourceItemType true (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok boolType
+            | ExpressionRecipe.ListFindIndex(source, predicateFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListFindIndex" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListFindIndex" predicateFunctionId context sourceItemType true (infer frames) with
+                        | Error error -> Error error
+                        | Ok _ -> Ok(optionType int64Type)
             | ExpressionRecipe.ListAll(source, predicateFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2599,6 +2628,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetRemove(map, key) -> binary SemanticNodeKind.SetRemove map key
         | ExpressionRecipe.MapContainsKey(map, key) -> binary SemanticNodeKind.MapContainsKey map key
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
+        | ExpressionRecipe.ListIndexOf(map, key) -> binary SemanticNodeKind.ListIndexOf map key
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map
@@ -2685,6 +2715,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListMinBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListMinBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
+        | ExpressionRecipe.ListFindIndex(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFindIndex source predicateFunctionId context
         | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context
         | ExpressionRecipe.ProductConstruct(typeId, fields) ->
             let expectedFields =

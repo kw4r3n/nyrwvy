@@ -232,6 +232,7 @@ module ViewerHtml =
         | ViewerNodeRole.SetDifference -> "Set difference"
         | ViewerNodeRole.MapContainsKey -> "Map contains key"
         | ViewerNodeRole.SetContains -> "Set contains"
+        | ViewerNodeRole.ListIndexOf -> "Set contains"
         | ViewerNodeRole.MapGet -> "Map get"
         | ViewerNodeRole.MapGetOrDefault -> "Map get or default"
         | ViewerNodeRole.ListSlice -> "List slice"
@@ -256,6 +257,7 @@ module ViewerHtml =
         | ViewerNodeRole.ListMinBy -> "List min by"
         | ViewerNodeRole.MapMapValues -> "Map map values"
         | ViewerNodeRole.ListAny -> "List any"
+        | ViewerNodeRole.ListFindIndex -> "List any"
         | ViewerNodeRole.ListAll -> "List all"
         | ViewerNodeRole.CapabilityConstruct(capabilityId, implementations) ->
             "capability construction " + StableId.value capabilityId + " (" +

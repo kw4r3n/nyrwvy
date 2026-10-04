@@ -247,6 +247,7 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
             [ "ListMap", fun source -> ExecutionInstructionKind.ListMap(source, unknown, [])
               "ListFilter", fun source -> ExecutionInstructionKind.ListFilter(source, unknown, [])
               "ListAny", fun source -> ExecutionInstructionKind.ListAny(source, unknown, [])
+              "ListFindIndex", fun source -> ExecutionInstructionKind.ListFindIndex(source, unknown, [])
               "ListAll", fun source -> ExecutionInstructionKind.ListAll(source, unknown, []) ]
 
         for label, makeKind in cases do

@@ -597,6 +597,10 @@ module TypedSemanticIrCodec =
             writer.WriteString("kind", "setContains")
             writer.WriteString("setNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listIndexOf")
+            writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -695,6 +699,8 @@ module TypedSemanticIrCodec =
             writeCallbackContext writer context
         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | TypedSemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listFindIndex" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | TypedSemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->

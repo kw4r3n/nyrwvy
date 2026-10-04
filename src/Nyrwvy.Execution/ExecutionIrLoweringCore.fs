@@ -483,6 +483,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->
                             lowerBinaryNode node mapNodeId itemNodeId (fun setValueId itemValueId ->
                                 ExecutionInstructionKind.SetContains(setValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
+                            lowerBinaryNode node mapNodeId itemNodeId (fun listValueId itemValueId ->
+                                ExecutionInstructionKind.ListIndexOf(listValueId, itemValueId))
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))
@@ -586,6 +589,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAny(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListFindIndex(source, callback, lowered))
                         | TypedSemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAll(source, callback, lowered))

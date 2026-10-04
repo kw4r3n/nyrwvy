@@ -704,6 +704,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "setContains")
             writer.WriteString("setNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listIndexOf")
+            writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -808,6 +812,8 @@ module SnapshotCodec =
             writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
+        | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
+            writeListCallbackNode writer "listFindIndex" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListAll(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAll" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
@@ -1698,6 +1704,16 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "setNodeId" element,
                     readId<GraphNodeTag> "itemNodeId" element
                 )
+            | "listIndexOf" ->
+                ensureProperties
+                    "ListIndexOf node"
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListIndexOf(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
             | "mapGet" ->
                 ensureProperties
                     "MapGet node"
@@ -1841,6 +1857,9 @@ module SnapshotCodec =
             | "listAny" ->
                 readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAny(source, callback, context))
+            | "listFindIndex" ->
+                readListCallbackNode "ListFindIndex node" "predicateFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListFindIndex(source, callback, context))
             | "listAll" ->
                 readListCallbackNode "ListAll node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAll(source, callback, context))

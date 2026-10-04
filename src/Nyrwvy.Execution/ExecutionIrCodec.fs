@@ -520,6 +520,10 @@ module ExecutionIrCodec =
             [ property "kind" (quote "setContains")
               property "setValueId" (executionValueIdValue setValueId)
               property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListIndexOf(listValueId, itemValueId) ->
+            [ property "kind" (quote "listIndexOf")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -618,6 +622,8 @@ module ExecutionIrCodec =
             @ writeCallbackContext context
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAny" sourceListValueId "predicateFunctionId" predicateFunctionId context
+        | ExecutionInstructionKind.ListFindIndex(sourceListValueId, predicateFunctionId, context) ->
+            writeListCallbackInstruction "listFindIndex" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.ListAll(sourceListValueId, predicateFunctionId, context) ->
             writeListCallbackInstruction "listAll" sourceListValueId "predicateFunctionId" predicateFunctionId context
         | ExecutionInstructionKind.CapabilityConstruct(capabilityId, implementations) ->

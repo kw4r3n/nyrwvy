@@ -67,6 +67,7 @@ module ListCallbackPurityTests =
             [ "ListMap", (fun name -> validate (fun source _ -> SemanticNodeKind.ListMap(source, id name, [])) (listOf boolType)), "pure", [ "ambient"; "indirect" ]
               "ListFilter", unary SemanticNodeKind.ListFilter, "pure", [ "ambient"; "indirect" ]
               "ListAny", (fun name -> validate (fun source _ -> SemanticNodeKind.ListAny(source, id name, [])) boolType), "pure", [ "ambient"; "indirect" ]
+              "ListFindIndex", (fun name -> validate (fun source _ -> SemanticNodeKind.ListFindIndex(source, id name, [])) (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))), "pure", [ "ambient"; "indirect" ]
               "ListAll", (fun name -> validate (fun source _ -> SemanticNodeKind.ListAll(source, id name, [])) boolType), "pure", [ "ambient"; "indirect" ]
               "ListSortBy", unary SemanticNodeKind.ListSortBy, "pureLess", [ "ambientLess" ]
               "ListFold", (fun name -> validate (fun source seed -> SemanticNodeKind.ListFold(source, seed, id name, [])) boolType), "pureFolder", [ "ambientFolder" ] ]

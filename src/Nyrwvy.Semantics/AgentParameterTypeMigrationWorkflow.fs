@@ -366,6 +366,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.SetRemove(map, key) -> two ExpressionRecipe.SetRemove map key
             | ExpressionRecipe.MapContainsKey(map, key) -> two ExpressionRecipe.MapContainsKey map key
             | ExpressionRecipe.SetContains(map, key) -> two ExpressionRecipe.SetContains map key
+            | ExpressionRecipe.ListIndexOf(map, key) -> two ExpressionRecipe.ListIndexOf map key
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
@@ -414,6 +415,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapMapValues(source, functionId, context) -> callback ExpressionRecipe.MapMapValues source functionId context
             | ExpressionRecipe.ListMinBy(source, functionId, context) -> callback ExpressionRecipe.ListMinBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
+            | ExpressionRecipe.ListFindIndex(source, functionId, context) -> callback ExpressionRecipe.ListFindIndex source functionId context
             | ExpressionRecipe.ListAll(source, functionId, context) -> callback ExpressionRecipe.ListAll source functionId context
             | ExpressionRecipe.ProductConstruct(typeId, fields) ->
                 rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, fields))

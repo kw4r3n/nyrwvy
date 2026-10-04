@@ -139,6 +139,7 @@ module FoundationTests =
                 | SemanticNodeKind.SetDifference _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
+                | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
@@ -161,6 +162,7 @@ module FoundationTests =
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _
+                | SemanticNodeKind.ListFindIndex _
                 | SemanticNodeKind.ListAll _
                 | SemanticNodeKind.CapabilityInvoke _
                 | SemanticNodeKind.ProductConstruct _
