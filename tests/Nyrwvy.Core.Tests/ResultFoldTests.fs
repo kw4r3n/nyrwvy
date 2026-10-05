@@ -94,12 +94,12 @@ module ResultFoldTests =
             let context = [ parameter count "text", slot 1 ]
             // ListFold keeps requiring the seed type, and names ListEffectFold for a Result folder.
             let hint = rejection session "bad" [ "items", stringList; "text", stringType ] countType (ExpressionRecipe.ListFold(slot 0, ExpressionRecipe.Int64Literal 0L, count.Id, context))
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch", hint.Code)
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch", hint.Code)
             Assert.Contains("ListEffectFold", hint.Message)
             // Mismatched shapes: a seed that is neither S nor matches Result<S, E>'s S, and a Result seed.
             let fold seed = ExpressionRecipe.ListEffectFold(slot 0, seed, count.Id, context)
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch", (rejection session "bad" [ "items", stringList; "text", stringType ] countType (fold (str "0"))).Code)
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch",
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch", (rejection session "bad" [ "items", stringList; "text", stringType ] countType (fold (str "0"))).Code)
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch",
                 (rejection session "bad" [ "items", stringList; "text", stringType ] countType (fold (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.Int64Literal 0L)))).Code)
             // The declared result must be the Result, not the seed type.
             Assert.NotNull(rejection session "bad" [ "items", stringList; "text", stringType ] intType (fold (ExpressionRecipe.Int64Literal 0L)))

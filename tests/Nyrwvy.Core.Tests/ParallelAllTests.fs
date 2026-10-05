@@ -260,7 +260,7 @@ module ParallelAllTests =
                 | other -> failwithf "Invalid ParallelAll accepted: %A" other
             let parameters = [ "names", listOf stringType; "jobs", TypeRef.Capability fixture.Jobs.Id ]
             Assert.Equal("ExpressionCallMissingEffectRequirement", reject [] parameters (ExpressionRecipe.ParallelAll(ExpressionRecipe.ParameterSlot 0, runJob.Id, context)))
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch", reject [ fixture.Effect.Id ] parameters (ExpressionRecipe.ParallelAll(ExpressionRecipe.ParameterSlot 0, runJob.Id, [])))
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch", reject [ fixture.Effect.Id ] parameters (ExpressionRecipe.ParallelAll(ExpressionRecipe.ParameterSlot 0, runJob.Id, [])))
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText fixture.Path) |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
             let effects name = EffectRequirements.derive snapshot (fixture.Function name)

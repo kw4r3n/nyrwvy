@@ -166,7 +166,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapKeys of mapNodeId: GraphNodeId
     | SetToList of setNodeId: GraphNodeId
     | MapSize of mapNodeId: GraphNodeId
-    | SetFromList of setNodeId: GraphNodeId
+    | SetFromList of sourceListNodeId: GraphNodeId
     | SetSize of setNodeId: GraphNodeId
     | ListReverse of listNodeId: GraphNodeId
     | ListLast of listNodeId: GraphNodeId

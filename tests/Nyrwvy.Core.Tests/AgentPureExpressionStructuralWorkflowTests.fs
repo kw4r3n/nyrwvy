@@ -462,35 +462,35 @@ module AgentPureExpressionStructuralWorkflowTests =
         let missingCallback = StableId.createForTesting<FunctionTag> "function-pure-structural-missing-callback"
         request fixture fixture.BoolTargetId (PureExpressionRecipe.ListAny(intList [ 1L ], missingCallback, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
-        |> assertRejectedCode "PureExpressionListCallbackNotFound"
+        |> assertRejectedCode "PureExpressionCallbackNotFound"
 
         request
             fixture
             fixture.BoolTargetId
             (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
-        |> assertRejectedCode "PureExpressionListCallbackArityMismatch"
+        |> assertRejectedCode "PureExpressionCallbackArityMismatch"
 
         request
             fixture
             fixture.BoolTargetId
             (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
-        |> assertRejectedCode "PureExpressionListCallbackInputTypeMismatch"
+        |> assertRejectedCode "PureExpressionCallbackInputTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
             (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
-        |> assertRejectedCode "PureExpressionListCallbackResultTypeMismatch"
+        |> assertRejectedCode "PureExpressionCallbackResultTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
             (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId, []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
-        |> assertRejectedCode "PureExpressionListCallbackEffectsNotAllowed"
+        |> assertRejectedCode "PureExpressionCallbackEffectsNotAllowed"
 
     [<Fact>]
     let ``pure expression request exposes construction intent without raw graph authority`` () =

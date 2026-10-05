@@ -5,13 +5,18 @@ namespace Nyrwvy.Core
 [<RequireQualifiedAccess>]
 module internal GraphOrder =
     let tryUnorderedPair (dependencies: Map<GraphNodeId, GraphNodeId list>) (observable: GraphNodeId list) =
+        // A worklist rather than recursion: a dependency chain can be as long as the graph.
         let dependsOn nodeId targetId =
             let visited = System.Collections.Generic.HashSet<GraphNodeId>()
-            let rec visit currentId =
-                if currentId = targetId then true
-                elif not (visited.Add currentId) then false
-                else Map.tryFind currentId dependencies |> Option.exists (List.exists visit)
-            visit nodeId
+            let pending = System.Collections.Generic.Stack<GraphNodeId>()
+            pending.Push nodeId
+            let mutable found = false
+            while not found && pending.Count > 0 do
+                let currentId = pending.Pop()
+                if currentId = targetId then found <- true
+                elif visited.Add currentId then
+                    Map.tryFind currentId dependencies |> Option.iter (List.iter pending.Push)
+            found
         let rec pairs = function
             | [] -> None
             | first :: rest ->
@@ -20,15 +25,16 @@ module internal GraphOrder =
                 | None -> pairs rest
         observable |> List.sortBy StableId.value |> pairs
 
-    /// Legacy effect-only graphs retain their existing lowering-time readiness check.
-    /// A new local exit must also pass ordering before it can be published or reopened.
+    /// Only functions with a local exit (Abort) are ordered here, so that such a function cannot be
+    /// published or reopened unordered; graphs without one are ordered by the same rule at lowering
+    /// (`ExecutionIrAnalysis.validateEffectOrder`).
     let tryAbortOrderConflict (functions: Map<FunctionId, SemanticFunction>) (fn: SemanticFunction) =
         let all = ValueGraph.collectNodes fn.Body
         if not (all |> List.exists (fun node -> match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false)) then None
         else
             let functionHasEffects id = Map.tryFind id functions |> Option.exists (fun target -> not (List.isEmpty target.RequiredEffects))
             // Bodies and TaskStart workers belong to kinds that are observable on their own above.
-            // Pure list callbacks are not checked here, as before: validation requires them pure.
+            // Pure callbacks carry no effects (validation requires them pure), so they never make a node observable.
             let carriesCalleeEffects role =
                 match role with
                 | FunctionReferenceRole.DirectCall

@@ -31,6 +31,7 @@ Five probes (3, 7, 13, 14 and 16) paid for the missing keyed collection. Probe 1
   - `MapKeyTypeNotEquatable`, for any `Map` type and for `MapEmpty`;
   - in persisted graphs, `MapInputTypeMismatch`, `MapKeyTypeMismatch` and `MapValueTypeMismatch`.
 - `EquatableTypes` treats `Map` as not equatable.
+- A type parameter is never equatable (nothing constrains a type argument; see the [value equality decision](value-equality-and-map.md)), so a `Map` key type is always concrete: a generic function cannot take or return `Map<T, _>`. `MapKeyTypeNotEquatable` says so for a type parameter.
 
 ## Revisit conditions
 

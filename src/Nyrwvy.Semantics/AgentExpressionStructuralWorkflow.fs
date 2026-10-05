@@ -329,8 +329,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetRemove(map, key) -> ExpressionRecipe.SetRemove(go map, go key)
         | ExpressionRecipe.MapContainsKey(map, key) -> ExpressionRecipe.MapContainsKey(go map, go key)
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
-        | ExpressionRecipe.ListIndexOf(map, key) -> ExpressionRecipe.ListIndexOf(go map, go key)
-        | ExpressionRecipe.ListLastIndexOf(map, key) -> ExpressionRecipe.ListLastIndexOf(go map, go key)
+        | ExpressionRecipe.ListIndexOf(list, item) -> ExpressionRecipe.ListIndexOf(go list, go item)
+        | ExpressionRecipe.ListLastIndexOf(list, item) -> ExpressionRecipe.ListLastIndexOf(go list, go item)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -1072,7 +1072,7 @@ module AgentExpressionStructuralWorkflow =
                                 | None ->
                                     Error(
                                         diagnostic
-                                            "PureExpressionListCallbackContextTypeMismatch"
+                                            "PureExpressionCallbackContextTypeMismatch"
                                             $"{role} context value for parameter {StableId.describe parameter.DisplayName parameterId} of callback {callbackName callback} has type {ty actual}, but the parameter expects {ty parameter.Type}."
                                     ))) (Ok Map.empty)
                 |> Result.map (fun substitution ->
@@ -1085,7 +1085,7 @@ module AgentExpressionStructuralWorkflow =
             | None ->
                 Error(
                     diagnostic
-                        "PureExpressionListCallbackNotFound"
+                        "PureExpressionCallbackNotFound"
                         $"{role} callback function '{StableId.value callbackFunctionId}' does not exist."
                 )
             | Some callback ->
@@ -1094,7 +1094,7 @@ module AgentExpressionStructuralWorkflow =
                 | Ok(unbound, _) when List.length unbound <> 1 ->
                     Error(
                         diagnostic
-                            "PureExpressionListCallbackArityMismatch"
+                            "PureExpressionCallbackArityMismatch"
                             $"{role} callback function {callbackName callback} must have exactly one parameter not bound by context; it has type {callbackSignature callback} and context binds {List.length context}."
                     )
                 | Ok(unbound, substitution) ->
@@ -1102,19 +1102,19 @@ module AgentExpressionStructuralWorkflow =
                     | None ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackInputTypeMismatch"
+                                "PureExpressionCallbackInputTypeMismatch"
                                 $"{role} callback function {callbackName callback} input type does not match the source list item type {ty sourceItemType}; the callback has type {callbackSignature callback}."
                         )
                     | Some substitution when predicateResultRequired && TypeParameters.substitute substitution callback.ResultType <> boolType ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackResultTypeMismatch"
+                                "PureExpressionCallbackResultTypeMismatch"
                                 $"{role} predicate {callbackName callback} must return Bool; it has type {callbackSignature callback}."
                         )
                     | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackEffectsNotAllowed"
+                                "PureExpressionCallbackEffectsNotAllowed"
                                 $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
                         )
                     | Some substitution -> Ok(callback, substitution)
@@ -1126,7 +1126,7 @@ module AgentExpressionStructuralWorkflow =
             | None ->
                 Error(
                     diagnostic
-                        "PureExpressionListCallbackNotFound"
+                        "PureExpressionCallbackNotFound"
                         $"{role} callback function '{StableId.value callbackFunctionId}' does not exist."
                 )
             | Some callback ->
@@ -1135,7 +1135,7 @@ module AgentExpressionStructuralWorkflow =
                 | Ok(unbound, _) when List.length unbound <> 2 ->
                     Error(
                         diagnostic
-                            "PureExpressionListCallbackArityMismatch"
+                            "PureExpressionCallbackArityMismatch"
                             $"{role} callback function {callbackName callback} must have exactly two parameters not bound by context (left, right); it has type {callbackSignature callback} and context binds {List.length context}."
                     )
                 | Ok(unbound, substitution) ->
@@ -1146,19 +1146,19 @@ module AgentExpressionStructuralWorkflow =
                     | None ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackInputTypeMismatch"
+                                "PureExpressionCallbackInputTypeMismatch"
                                 $"{role} callback function {callbackName callback} input types must both match the source list item type {ty sourceItemType}; the callback has type {callbackSignature callback}."
                         )
                     | Some substitution when TypeParameters.substitute substitution callback.ResultType <> boolType ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackResultTypeMismatch"
+                                "PureExpressionCallbackResultTypeMismatch"
                                 $"{role} less-than callback {callbackName callback} must return Bool; it has type {callbackSignature callback}."
                         )
                     | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
                         Error(
                             diagnostic
-                                "PureExpressionListCallbackEffectsNotAllowed"
+                                "PureExpressionCallbackEffectsNotAllowed"
                                 $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
                         )
                     | Some substitution -> Ok(callback, substitution)
@@ -1783,12 +1783,12 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok seedType ->
                             match Map.tryFind folderFunctionId functionsById with
-                            | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ListFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ListFold folder '{StableId.value folderFunctionId}' does not exist.")
                             | Some folder ->
                                 match validateCallbackContext "ListFold" folder context (infer frames) with
                                 | Error error -> Error error
                                 | Ok(unbound, _) when unbound.Length <> 2 ->
-                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" $"ListFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
+                                    Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                     let matched =
                                         TypeParameters.matchType substitution unbound.Head.Type seedType
@@ -1796,14 +1796,14 @@ module AgentExpressionStructuralWorkflow =
                                     match matched with
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
                                         if PureFunctions.isPure snapshot folder.Id then Ok seedType
-                                        else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"ListFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                        else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"ListFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
                                     | Some current when
                                         (match TypeParameters.substitute current folder.ResultType with
                                          | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> okType = seedType
                                          | _ -> false) ->
                                         // Same shape as ListEffectFold's Result mode: point there instead of a pass-through arm.
-                                        Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must return the accumulator type {ty seedType}; the folder has type {callbackSignature folder}. To stop at the first Err, use ListEffectFold with the same seed and folder: it accepts a pure folder returning Result<S, E> and yields Result<S, E>.")
-                                    | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
+                                        Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must return the accumulator type {ty seedType}; the folder has type {callbackSignature folder}. To stop at the first Err, use ListEffectFold with the same seed and folder: it accepts a pure folder returning Result<S, E> and yields Result<S, E>.")
+                                    | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
             | ExpressionRecipe.MapFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1815,12 +1815,12 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok seedType ->
                             match Map.tryFind folderFunctionId functionsById with
-                            | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"MapFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"MapFold folder '{StableId.value folderFunctionId}' does not exist.")
                             | Some folder ->
                                 match validateCallbackContext "MapFold" folder context (infer frames) with
                                 | Error error -> Error error
                                 | Ok(unbound, _) when unbound.Length <> 3 ->
-                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" $"MapFold folder {callbackName folder} must have exactly three parameters not bound by context (accumulator, key, value); it has type {callbackSignature folder} and context binds {List.length context}.")
+                                    Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapFold folder {callbackName folder} must have exactly three parameters not bound by context (accumulator, key, value); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                     let matched =
                                         TypeParameters.matchType substitution unbound[0].Type seedType
@@ -1829,8 +1829,8 @@ module AgentExpressionStructuralWorkflow =
                                     match matched with
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
                                         if PureFunctions.isPure snapshot folder.Id then Ok seedType
-                                        else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"MapFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
-                                    | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"MapFold folder {callbackName folder} must have type (accumulator, key, value) -> accumulator, here ({ty seedType}, {ty keyType}, {ty valueType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
+                                        else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"MapFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                    | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"MapFold folder {callbackName folder} must have type (accumulator, key, value) -> accumulator, here ({ty seedType}, {ty keyType}, {ty valueType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
             | ExpressionRecipe.MapFilter(source, keepFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1839,12 +1839,12 @@ module AgentExpressionStructuralWorkflow =
                     | None -> Error(mapMismatch "MapFilter" "map" sourceType)
                     | Some(keyType, valueType) ->
                         match Map.tryFind keepFunctionId functionsById with
-                        | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"MapFilter callback '{StableId.value keepFunctionId}' does not exist.")
+                        | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"MapFilter callback '{StableId.value keepFunctionId}' does not exist.")
                         | Some keep ->
                             match validateCallbackContext "MapFilter" keep context (infer frames) with
                             | Error error -> Error error
                             | Ok(unbound, _) when unbound.Length <> 2 ->
-                                Error(diagnostic "PureExpressionListCallbackArityMismatch" $"MapFilter callback {callbackName keep} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature keep} and context binds {List.length context}.")
+                                Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapFilter callback {callbackName keep} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature keep} and context binds {List.length context}.")
                             | Ok(unbound, substitution) ->
                                 let matched =
                                     TypeParameters.matchType substitution unbound[0].Type keyType
@@ -1852,8 +1852,8 @@ module AgentExpressionStructuralWorkflow =
                                 match matched with
                                 | Some current when TypeParameters.substitute current keep.ResultType = boolType ->
                                     if PureFunctions.isPure snapshot keep.Id then Ok sourceType
-                                    else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"MapFilter callback {callbackName keep} must be pure, including its transitive calls and ambient task or cancellation behavior.")
-                                | _ -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"MapFilter callback {callbackName keep} must have type (key, value) -> Bool, here ({ty keyType}, {ty valueType}) -> Bool; the callback has type {callbackSignature keep}.")
+                                    else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"MapFilter callback {callbackName keep} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"MapFilter callback {callbackName keep} must have type (key, value) -> Bool, here ({ty keyType}, {ty valueType}) -> Bool; the callback has type {callbackSignature keep}.")
             | ExpressionRecipe.MapMapValues(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1862,12 +1862,12 @@ module AgentExpressionStructuralWorkflow =
                     | None -> Error(mapMismatch "MapMapValues" "map" sourceType)
                     | Some(keyType, valueType) ->
                         match Map.tryFind mapperFunctionId functionsById with
-                        | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"MapMapValues callback '{StableId.value mapperFunctionId}' does not exist.")
+                        | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"MapMapValues callback '{StableId.value mapperFunctionId}' does not exist.")
                         | Some mapper ->
                             match validateCallbackContext "MapMapValues" mapper context (infer frames) with
                             | Error error -> Error error
                             | Ok(unbound, _) when unbound.Length <> 2 ->
-                                Error(diagnostic "PureExpressionListCallbackArityMismatch" $"MapMapValues callback {callbackName mapper} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature mapper} and context binds {List.length context}.")
+                                Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapMapValues callback {callbackName mapper} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature mapper} and context binds {List.length context}.")
                             | Ok(unbound, substitution) ->
                                 let matched =
                                     TypeParameters.matchType substitution unbound[0].Type keyType
@@ -1875,8 +1875,8 @@ module AgentExpressionStructuralWorkflow =
                                 match matched with
                                 | Some current ->
                                     if PureFunctions.isPure snapshot mapper.Id then Ok(mapOf keyType (TypeParameters.substitute current mapper.ResultType))
-                                    else Error(diagnostic "PureExpressionListCallbackEffectsNotAllowed" $"MapMapValues callback {callbackName mapper} must be pure, including its transitive calls and ambient task or cancellation behavior.")
-                                | None -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"MapMapValues callback {callbackName mapper} must have type (key, value) -> U, here ({ty keyType}, {ty valueType}) -> U; the callback has type {callbackSignature mapper}.")
+                                    else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"MapMapValues callback {callbackName mapper} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                | None -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"MapMapValues callback {callbackName mapper} must have type (key, value) -> U, here ({ty keyType}, {ty valueType}) -> U; the callback has type {callbackSignature mapper}.")
             | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1888,18 +1888,18 @@ module AgentExpressionStructuralWorkflow =
                         | Error error -> Error error
                         | Ok seedType ->
                             match Map.tryFind folderFunctionId functionsById with
-                            | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ListEffectFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ListEffectFold folder '{StableId.value folderFunctionId}' does not exist.")
                             | Some folder ->
                                 match validateCallbackContext "ListEffectFold" folder context (infer frames) with
                                 | Error error -> Error error
                                 | Ok(unbound, _) when unbound.Length <> 2 ->
-                                    Error(diagnostic "PureExpressionListCallbackArityMismatch" $"ListEffectFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
+                                    Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListEffectFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                   match
                                       TypeParameters.matchType substitution unbound.Head.Type seedType
                                       |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
                                   with
-                                  | None -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must take (accumulator, item), here ({ty seedType}, {ty itemType}); the folder has type {callbackSignature folder}.")
+                                  | None -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must take (accumulator, item), here ({ty seedType}, {ty itemType}); the folder has type {callbackSignature folder}.")
                                   | Some current ->
                                     match missingEffect folder.RequiredEffects with
                                     | Some effectId -> Error(missingEffectError $"ListEffectFold folder {callbackName folder}" effectId)
@@ -1908,14 +1908,14 @@ module AgentExpressionStructuralWorkflow =
                                         | resultType when resultType = seedType -> Ok seedType
                                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) as resultType when okType = seedType -> Ok resultType
                                         | _ ->
-                                            Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must return the accumulator type S or Result<S, E>, here {ty seedType} or Result<{ty seedType}, E>; the folder has type {callbackSignature folder}.")
+                                            Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must return the accumulator type S or Result<S, E>, here {ty seedType} or Result<{ty seedType}, E>; the folder has type {callbackSignature folder}.")
             | ExpressionRecipe.UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context) ->
                 let fail code message = Error(diagnostic code message)
                 match infer frames acquire with
                 | Error error -> Error error
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])) ->
                     match Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
-                    | None, _ -> fail "PureExpressionListCallbackNotFound" $"UseResource body '{StableId.value bodyFunctionId}' does not exist."
+                    | None, _ -> fail "PureExpressionCallbackNotFound" $"UseResource body '{StableId.value bodyFunctionId}' does not exist."
                     | _, None -> fail "ExpressionCapabilityOperationNotFound" $"UseResource references unknown release operation '{StableId.value releaseOperationId}'."
                     | Some body, Some(ownerCapabilityId, operation) ->
                         match validateCallbackContext "UseResource" body context (infer frames), infer frames releaseCapability with
@@ -1945,7 +1945,7 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.CancellationRequested -> Ok boolType
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
                 match Map.tryFind bodyFunctionId functionsById with
-                | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"TaskScope body '{StableId.value bodyFunctionId}' does not exist.")
+                | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"TaskScope body '{StableId.value bodyFunctionId}' does not exist.")
                 | Some body ->
                     match validateCallbackContext "TaskScope" body context (infer frames) with
                     | Error error -> Error error
@@ -1968,7 +1968,7 @@ module AgentExpressionStructuralWorkflow =
                     Error(diagnostic "TaskStartScopeTypeMismatch" $"TaskStart scope must be a TaskScope, not {ty scopeType}.")
                 | Ok _, Ok itemType ->
                     match Map.tryFind workerFunctionId functionsById with
-                    | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"TaskStart worker '{StableId.value workerFunctionId}' does not exist.")
+                    | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"TaskStart worker '{StableId.value workerFunctionId}' does not exist.")
                     | Some worker ->
                         match validateCallbackContext "TaskStart" worker context (infer frames) with
                         | Error error -> Error error
@@ -1976,14 +1976,14 @@ module AgentExpressionStructuralWorkflow =
                             let matched = match unbound with [ parameter ] -> TypeParameters.matchType substitution parameter.Type itemType | _ -> None
                             match matched, missingEffect worker.RequiredEffects with
                             | None, _ ->
-                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"TaskStart worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
+                                Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"TaskStart worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
                             | _, Some effectId ->
                                 Error(missingEffectError $"TaskStart worker {StableId.describe worker.DisplayName worker.Id}" effectId)
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result ->
                                     Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]))
-                                | other -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"TaskStart worker {callbackName worker} must return Result<U, E>, not {ty other}.")
+                                | other -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"TaskStart worker {callbackName worker} must return Result<U, E>, not {ty other}.")
             | ExpressionRecipe.TaskWait(tasks, _, limit) ->
                 let limitType =
                     match limit |> Option.map (infer frames) with
@@ -2008,7 +2008,7 @@ module AgentExpressionStructuralWorkflow =
                 | Ok sourceType ->
                     match listItemType sourceType, Map.tryFind workerFunctionId functionsById with
                     | None, _ -> Error(listMismatch "ParallelAll" "source" sourceType)
-                    | _, None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"ParallelAll worker '{StableId.value workerFunctionId}' does not exist.")
+                    | _, None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ParallelAll worker '{StableId.value workerFunctionId}' does not exist.")
                     | Some itemType, Some worker ->
                         match validateCallbackContext "ParallelAll" worker context (infer frames) with
                         | Error error -> Error error
@@ -2016,14 +2016,14 @@ module AgentExpressionStructuralWorkflow =
                             let matched = match unbound with [ item ] -> TypeParameters.matchType substitution item.Type itemType | _ -> None
                             match matched, missingEffect worker.RequiredEffects with
                             | None, _ ->
-                                Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
+                                Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must have exactly one parameter not bound by context, of the item type {ty itemType}; the worker has type {callbackSignature worker}.")
                             | _, Some effectId ->
                                 Error(missingEffectError $"ParallelAll worker {StableId.describe worker.DisplayName worker.Id}" effectId)
                             | Some current, None ->
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
                                     Ok(resultType (listType okType) errorType)
-                                | other -> Error(diagnostic "PureExpressionListCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must return Result<U, E>, not {ty other}.")
+                                | other -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ParallelAll worker {callbackName worker} must return Result<U, E>, not {ty other}.")
             | ExpressionRecipe.ListMap(source, mapperFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2656,7 +2656,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapKeys map -> unary SemanticNodeKind.MapKeys map
         | ExpressionRecipe.SetToList map -> unary SemanticNodeKind.SetToList map
         | ExpressionRecipe.MapSize map -> unary SemanticNodeKind.MapSize map
-        | ExpressionRecipe.SetFromList map -> unary SemanticNodeKind.SetFromList map
+        | ExpressionRecipe.SetFromList list -> unary SemanticNodeKind.SetFromList list
         | ExpressionRecipe.SetSize map -> unary SemanticNodeKind.SetSize map
         | ExpressionRecipe.ListReverse list -> unary SemanticNodeKind.ListReverse list
         | ExpressionRecipe.ListLast list -> unary SemanticNodeKind.ListLast list
@@ -2668,8 +2668,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetRemove(map, key) -> binary SemanticNodeKind.SetRemove map key
         | ExpressionRecipe.MapContainsKey(map, key) -> binary SemanticNodeKind.MapContainsKey map key
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
-        | ExpressionRecipe.ListIndexOf(map, key) -> binary SemanticNodeKind.ListIndexOf map key
-        | ExpressionRecipe.ListLastIndexOf(map, key) -> binary SemanticNodeKind.ListLastIndexOf map key
+        | ExpressionRecipe.ListIndexOf(list, item) -> binary SemanticNodeKind.ListIndexOf list item
+        | ExpressionRecipe.ListLastIndexOf(list, item) -> binary SemanticNodeKind.ListLastIndexOf list item
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map

@@ -74,7 +74,7 @@ module ListCallbackPurityTests =
         for construct, check, pureName, impureNames in cases do
             Assert.True(List.isEmpty (check pureName), $"{construct} rejected a pure callback: %A{check pureName}")
             for impure in impureNames do
-                Assert.True(List.contains "ListCallbackEffectsNotAllowed" (check impure), $"{construct} accepted {impure}: %A{check impure}")
+                Assert.True(List.contains "CallbackEffectsNotAllowed" (check impure), $"{construct} accepted {impure}: %A{check impure}")
 
     [<Fact>]
     let ``authored List callbacks reject ambient cancellation behavior`` () =
@@ -99,7 +99,7 @@ module ListCallbackPurityTests =
             let ambient = create "ambient" [ "value", textType ] boolType ExpressionRecipe.CancellationRequested
             let ambientLess = create "ambientLess" [ "left", textType; "right", textType ] boolType ExpressionRecipe.CancellationRequested
             let ambientFolder = create "ambientFolder" [ "seen", boolType; "value", textType ] boolType ExpressionRecipe.CancellationRequested
-            let code = "PureExpressionListCallbackEffectsNotAllowed"
+            let code = "PureExpressionCallbackEffectsNotAllowed"
             Assert.Contains(code, rejects (listOf boolType) (ExpressionRecipe.ListMap(slot 0, ambient.Id, [])))
             Assert.Contains(code, rejects (listOf textType) (ExpressionRecipe.ListFilter(slot 0, ambient.Id, [])))
             Assert.Contains(code, rejects boolType (ExpressionRecipe.ListAny(slot 0, ambient.Id, [])))

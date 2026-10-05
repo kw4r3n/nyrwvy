@@ -111,7 +111,7 @@ module ListEffectFoldTests =
                 | other -> failwithf "Invalid effect fold accepted: %A" other
             let fold = ExpressionRecipe.ListEffectFold(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.Int64Literal 0L, saveOne.Id, context)
             Assert.Equal("ExpressionCallMissingEffectRequirement", reject countType [] fold)
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch",
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch",
                 reject countType [ fixture.Effect.Id ] (ExpressionRecipe.ListEffectFold(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.StringLiteral "", saveOne.Id, context)))
             // The pure ListFold keeps rejecting effectful folders.
             let logOne = fixture.Function "logOne"
@@ -121,7 +121,7 @@ module ListEffectFoldTests =
                         [ (logOne.Parameters |> List.find (fun item -> item.DisplayName = "log")).Id, ExpressionRecipe.ParameterSlot 1 ]))
             match session.SimulateCreateFunction pureFold with
             | Error(AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected(diagnostic :: _))) ->
-                Assert.Equal("PureExpressionListCallbackEffectsNotAllowed", diagnostic.Code)
+                Assert.Equal("PureExpressionCallbackEffectsNotAllowed", diagnostic.Code)
             | other -> failwithf "Effectful folder accepted by ListFold: %A" other
             let json = File.ReadAllText fixture.Path
             Assert.Contains("\"listEffectFold\"", json)

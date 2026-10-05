@@ -153,7 +153,7 @@ Higher-order operations reference callbacks by stable `FunctionId`. The accepted
 
 ## Immutable insertion-ordered `Map<K, V>`
 
-`Map<K, V>` maps keys to values. `K` must be equatable, the set [`ValueEqual`](#structured-values-and-control) accepts: String, Int64, Bool, Unit, `List`, `Option` and `Result` of equatable types, and declared Products and Unions of equatable fields. Float64, functions, tasks, capabilities and maps are not keys, and a `Map` itself is not equatable. Keys compare with `ValueEqual`.
+`Map<K, V>` maps keys to values. `K` must be equatable, the set [`ValueEqual`](#structured-values-and-control) accepts: String, Int64, Bool, Unit, `List`, `Option` and `Result` of equatable types, and declared Products and Unions of equatable fields. Float64, functions, tasks, capabilities and maps are not keys, and a `Map` itself is not equatable. Keys compare with `ValueEqual`. A type parameter is not equatable either (no `T : equality` constraint exists), so a key type is always concrete and a generic function cannot take or return `Map<T, _>`; `MapKeyTypeNotEquatable` reports it.
 
 A map is an immutable value. `MapInsert` and `MapRemove` return a new map and leave the old one unchanged. Entries are visited in the order their keys were first inserted, as with Python's `dict` and JavaScript's `Map`. Replacing a key's value keeps its position, and removing a key and inserting it again puts it last. The order never depends on hash values, so it is the same on every run and backend.
 
@@ -177,7 +177,7 @@ Insert, get, contains and remove are O(log n), and size is O(1). None of them fa
 
 ## Immutable insertion-ordered `Set<T>`
 
-`Set<T>` holds each item at most once. `T` must be equatable, as for `Map` keys, and items compare with `ValueEqual`. Like `Map`, a set is an immutable value visited in insertion order: inserting a present item changes nothing, and removing an item and inserting it again puts it last. A `Set` is not equatable.
+`Set<T>` holds each item at most once. `T` must be equatable, as for `Map` keys, and items compare with `ValueEqual`. Like `Map`, a set is an immutable value visited in insertion order: inserting a present item changes nothing, and removing an item and inserting it again puts it last. A `Set` is not equatable, and as for `Map` keys its item type is always concrete: a generic function cannot take or return `Set<T>` (`SetItemTypeNotEquatable`).
 
 ```text
 SetEmpty(itemType)           Set<T>
