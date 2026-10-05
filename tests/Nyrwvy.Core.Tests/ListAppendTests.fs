@@ -133,7 +133,7 @@ static class Runner
 }
 """
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``appends and concatenations keep every list value independent`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-list-append-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

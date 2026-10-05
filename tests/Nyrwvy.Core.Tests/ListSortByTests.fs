@@ -341,7 +341,7 @@ module ListSortByTests =
             Assert.Contains("ListCallbackParameterTypeMismatch", withCallback fns.IntGreater.Id)
             Assert.Contains("UnknownListCallbackFunction", withCallback unknown))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``ListMinBy keeps the first smallest item and runs through runPure`` () =
         withSession (fun session path ->
             let fns = callbacks session

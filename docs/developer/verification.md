@@ -26,7 +26,13 @@ It also syntax-checks every tracked `.fish` file and runs the offline
 `test-extended.fish` wrapper stays out of per-push CI; the separate
 [`extended.yml`](../../.github/workflows/extended.yml) workflow runs it weekly and
 on demand (`workflow_dispatch`) after a Release solution build, together with the
-suite partition audit. The CI job has a 20-minute timeout, so a hung transport
+suite partition audit. Per-push CI skips changes that touch only `docs/` or
+`README.md`, and installs fish in the background beside the F# build. Tests that compile and run
+generated C# many times for a finished feature (the `runPure` behaviour tests
+of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
+are Extended; the fast suite keeps their checking and persistence tests and one
+compiled smoke test per runtime path. Run the Extended workflow on demand when
+a change touches the C# backend runtime. The CI job has a 20-minute timeout, so a hung transport
 test cannot hold a runner for the default six hours. Exploratory/live runner and preflight
 scripts, freeze-ref materialization, and historical evaluation helpers are
 syntax-checked only; discovering a `.fish` file does not authorize executing a

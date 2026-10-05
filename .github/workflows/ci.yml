@@ -1,10 +1,17 @@
 name: CI
 
+# A change that touches only documentation runs no CI: nothing here reads docs/ or README.md.
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -28,6 +35,27 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Set up Node for authoring tool contracts
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Bun for adapter unit tests
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+
+      - name: Install locked adapter and typechecking dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Installing fish waits mostly on the network and dpkg, so it runs beside the build, which
+      # needs every core (running the Node checks there too made the build slower by as much as
+      # they took). It writes its log and exit status; the step after the build waits for them.
+      - name: Start fish installation beside the build
+        run: |
+          ( set +e; { sudo apt-get update && sudo apt-get install --yes fish; } > "$RUNNER_TEMP/fish.log" 2>&1; echo $? > "$RUNNER_TEMP/fish.status" ) < /dev/null > /dev/null 2>&1 &
+
       - name: Restore fast test graph
         run: dotnet restore tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj
 
@@ -35,21 +63,7 @@ jobs:
         run: dotnet build tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-restore
 
       - name: Install fish for maintained verification entry points
-        run: sudo apt-get update && sudo apt-get install --yes fish
-
-      - name: Check fish syntax and offline script contracts
-        run: |
-          git ls-files -z '*.fish' | xargs -0 -r -n 1 fish --no-execute
-          fish scripts/tests/m2-listmap-evaluation-summary.test.fish
-
-      - name: Set up Node for authoring tool contracts
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install locked adapter and typechecking dependencies
-        run: npm ci --no-audit --no-fund
+        run: scripts/ci-wait.sh fish
 
       - name: Typecheck maintained adapters and Bun tests
         run: npm run typecheck
@@ -57,13 +71,13 @@ jobs:
       - name: Test shared schemas and typechecking contracts
         run: npm run test:adapters
 
-      - name: Set up Bun for adapter unit tests
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.4.2'
-
       - name: Test Bun adapter contracts without live models
         run: npm run test:bun
+
+      - name: Check fish syntax and offline script contracts
+        run: |
+          git ls-files -z '*.fish' | xargs -0 -r -n 1 fish --no-execute
+          fish scripts/tests/m2-listmap-evaluation-summary.test.fish
 
       - name: Test fast suite and authoring tools through the maintained entry point
         run: fish scripts/test-fast.fish --no-build --no-restore
