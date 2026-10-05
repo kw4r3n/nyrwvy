@@ -9,8 +9,10 @@ import { createGraphTools } from "../../tools/nyrwvy-agent/graph-tools.mjs"
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url))
 const replay = process.argv[2] === "--replay"
+const evolve = process.argv[2] === "--v2"
 if (replay && !process.argv[3]) throw new Error("Usage: run.mjs --replay <bundle-directory>")
-const output = replay ? resolve(process.argv[3]) : process.argv[2] ? resolve(process.argv[2]) : await mkdtemp(join(tmpdir(), "nyrwvy-file-batch-"))
+const requestedOutput = replay || evolve ? process.argv[3] : process.argv[2]
+const output = requestedOutput ? resolve(requestedOutput) : await mkdtemp(join(tmpdir(), "nyrwvy-file-batch-"))
 const original = join(output, "original"), moved = join(output, "moved")
 if (!replay) {
   await mkdir(output, { recursive: true })
@@ -246,6 +248,10 @@ try {
   await call("close")
   await call("open", { mode: "open", snapshot: join(original, "batch.json") })
   await runSaved(original)
+  if (evolve) {
+    const { evolveV2 } = await import("./evolve-v2.mjs")
+    await evolveV2({ directory: original, library, call, exchange, publish, writeHost, runSaved })
+  }
   await call("close")
   await cp(original, moved, { recursive: true, errorOnExist: true, force: false })
   await rename(library, library + ".unavailable")
