@@ -25,9 +25,8 @@ module AuthoringDependencyTests =
         | Ok(session: AuthoringSession) -> session.Close(); failwith "Unexpected successful dependency selection"
         | Error error -> failwithf "Expected DependencyFailure, got %A" error
 
-    let private assertLockReleased path =
-        use handle = new FileStream(path + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None)
-        Assert.True(handle.CanWrite)
+    // A released lock leaves no file behind, so a failed open or a clean close is invisible afterwards.
+    let private assertLockReleased path = Assert.False(File.Exists(path + ".lock"))
 
     [<Theory>]
     [<InlineData("{\"path\":null,\"snapshotId\":\"x\",\"fingerprint\":\"x\"}")>]
