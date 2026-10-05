@@ -390,7 +390,7 @@ module FunctionAbortTests =
             let saved = File.ReadAllText path
             use invalid = AuthoringProtocol.executeLine session ($"""{{"id":"invalid","op":"simulateReplaceTarget","functionId":"{id}","targetNodeId":"{StableId.value scalar.Id}","replacement":{{"kind":"abort","error":{{"kind":"stringLiteral","value":"invalid"}}}}}}""") |> JsonDocument.Parse
             Assert.False(invalid.RootElement.GetProperty("ok").GetBoolean())
-            Assert.Contains("Abort", invalid.RootElement.GetRawText())
+            Assert.Contains("TargetedExpressionAbruptValueUse", invalid.RootElement.GetRawText())
             Assert.Equal(saved, File.ReadAllText path)
             use toAbort = replace """{"kind":"abort","error":{"kind":"stringLiteral","value":"changed"}}"""
             publishWire session toAbort
