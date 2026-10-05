@@ -1,12 +1,13 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import childProcess, { spawn } from "node:child_process"
+import fsPromises from "node:fs/promises"
 import { syncBuiltinESMExports } from "node:module"
 import { randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { AuthoringClient, openAuthoring, closeAuthoring } from "../lib/nyrwvy-authoring.ts"
+import { AuthoringClient, openAuthoring, closeAuthoring, requestAuthoring } from "../lib/nyrwvy-authoring.ts"
 
 function child(source) {
   return spawn(process.execPath, ["-e", source], { stdio: ["pipe", "pipe", "pipe"] })
@@ -290,16 +291,26 @@ test("an unreaped child keeps its authoring slot even when the SIGKILL wait expi
   await closeAuthoring(context)
 })
 
-function mockRespondingSpawn(t) {
+function mockRespondingSpawn(t, { silentFirst = false, onSpawn = () => {} } = {}) {
   const actualSpawn = childProcess.spawn
   const children = []
   t.mock.method(childProcess, "spawn", () => {
+    const silent = silentFirst && children.length === 0
     const runner = actualSpawn(process.execPath, ["-e", `
+      if (${silent}) {
+        process.on('SIGTERM', () => {});
+        setInterval(() => {}, 1000);
+      }
       require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
-        process.stdout.write(JSON.stringify({ id: JSON.parse(line).id, ok: true }) + '\\n');
+        const request = JSON.parse(line);
+        if (${silent}) process.stderr.write(request.op + '\\n');
+        else process.stdout.write(JSON.stringify({ id: request.id, ok: true }) + '\\n');
       });
     `], { stdio: ["pipe", "pipe", "pipe"] })
-    children.push({ runner, closed: new Promise(resolve => runner.once("close", resolve)) })
+    const entry = { runner, requested: silent ? once(runner.stderr, "data") : undefined,
+      closed: new Promise(resolve => runner.once("close", resolve)) }
+    children.push(entry)
+    onSpawn(entry)
     return runner
   })
   syncBuiltinESMExports()
@@ -340,4 +351,90 @@ test("a close racing an open closes the child that open starts", { timeout: 5000
   assert.equal(children.length, 1)
   await Promise.all(children.map(entry => entry.closed))
   assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
+})
+
+test("close bounds a silent initial status, settles open and close, and permits reopening", { timeout: 20000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  let observeSpawn
+  const spawned = new Promise(resolve => { observeSpawn = resolve })
+  const children = mockRespondingSpawn(t, { silentFirst: true, onSpawn: observeSpawn })
+  const opened = Promise.allSettled([openAuthoring("create", "first.json", context)])
+  const first = await spawned
+  assert.equal((await first.requested)[0].toString(), "status\n")
+  const closing = closeAuthoring(context)
+  const closed = Promise.allSettled([closing, closeAuthoring(context)])
+  // Reopen from close's own completion, without waiting for the old open's cleanup.
+  const reopened = closing.then(() => assert.fail("Silent close must fail"), async error => {
+    assert.match(error.message, /queue did not drain within 5000ms/)
+    const replacement = openAuthoring("create", "second.json", context)
+    // Let the old open's finally run while the replacement is still starting.
+    await Promise.resolve()
+    await assert.rejects(openAuthoring("create", "duplicate-new.json", context), /already open/)
+    await replacement
+  })
+  const reopenedResult = Promise.allSettled([reopened])
+  await assert.rejects(openAuthoring("create", "duplicate.json", context), /already open/)
+  for (const result of [...await opened, ...await closed]) {
+    assert.equal(result.status, "rejected")
+    assert.match(result.reason.message, /queue did not drain within 5000ms/)
+    assert.match(result.reason.message, /never replayed/)
+  }
+  await first.closed
+  assert.equal(first.runner.signalCode, "SIGKILL")
+  assert.equal((await reopenedResult)[0].status, "fulfilled")
+  assert.equal(children.length, 2)
+  assert.equal(JSON.parse(await requestAuthoring({ op: "status" }, context)).ok, true)
+  assert.match(await closeAuthoring(context), /closed/)
+  await children[1].closed
+  assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
+})
+
+test("a close before spawn waits for the owned child and keeps duplicate opens out", { timeout: 5000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const actualStat = fsPromises.stat
+  let releaseStat, observeStat, results
+  const gate = new Promise(resolve => { releaseStat = resolve })
+  const inspecting = new Promise(resolve => { observeStat = resolve })
+  // Release a failed test's startup wait before the spawn helper reaps its children.
+  t.after(async () => { releaseStat(); await results })
+  const children = mockRespondingSpawn(t)
+  t.mock.method(fsPromises, "stat", async (...args) => {
+    observeStat()
+    await gate
+    return actualStat(...args)
+  })
+  syncBuiltinESMExports()
+  const opened = openAuthoring("create", "first.json", context)
+  await inspecting
+  let closeFinished = false
+  const closed = closeAuthoring(context).then(value => { closeFinished = true; return value })
+  results = Promise.allSettled([opened, closed])
+  await assert.rejects(openAuthoring("create", "duplicate.json", context), /already open/)
+  assert.equal(children.length, 0)
+  assert.equal(closeFinished, false)
+  releaseStat()
+  const [openResult, closeResult] = await results
+  assert.equal(openResult.status, "fulfilled")
+  assert.equal(closeResult.status, "fulfilled")
+  assert.match(closeResult.value, /closed/)
+  assert.equal(children.length, 1)
+  await children[0].closed
+  assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
+})
+
+test("a close racing a failure before spawn releases the reservation for reopening", { timeout: 5000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const children = mockRespondingSpawn(t)
+  const [opened, closed] = await Promise.allSettled([
+    openAuthoring("create", "unused.json", context, join(tmpdir(), "missing-authoring-" + randomUUID())),
+    closeAuthoring(context),
+  ])
+  assert.equal(opened.status, "rejected")
+  assert.match(opened.reason.message, /workspace directory does not exist/)
+  assert.equal(closed.status, "fulfilled")
+  assert.equal(closed.value, "No active Nyrwvy authoring session.")
+  assert.equal(children.length, 0)
+  await openAuthoring("create", "second.json", context)
+  assert.equal(children.length, 1)
+  assert.match(await closeAuthoring(context), /closed/)
 })
