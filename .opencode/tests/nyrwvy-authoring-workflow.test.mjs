@@ -126,7 +126,7 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
     await publish(context, fn("plan_verification", named("ChangeRequest"), named("VerificationLevel"), conditional(extended,
       conditional(live, construct("FastExtendedLive"), construct("FastExtended")),
       conditional(live, construct("FastLive"), construct("FastOnly")))))
-    const labels = ["fast tests のみ", "fast + extended", "fast + live", "fast + extended + live"]
+    const labels = ["fast tests only", "fast + extended", "fast + live", "fast + extended + live"]
     await publish(context, fn("verification_label", named("VerificationLevel"), primitive("string"), match("VerificationLevel",
       levels.map((variant, index) => ({ variant, body: { kind: "stringLiteral", value: labels[index] } })))))
 

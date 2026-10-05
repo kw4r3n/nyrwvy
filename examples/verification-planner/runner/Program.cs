@@ -27,7 +27,7 @@ internal static class Program {
             bool agent=(flags&1)!=0, environment=(flags&2)!=0, regression=(flags&4)!=0;
             bool extended = Names.Where((_,i)=>(mask&(1<<i))!=0).Any(n=>n is "Semantics" or "Backend" or "Persistence" || (maintained && n=="EvaluationHarness"));
             bool live=agent||environment;
-            string expected = (extended,live) switch { (true,true)=>"fast + extended + live", (true,false)=>"fast + extended", (false,true)=>"fast + live", _=>"fast tests のみ" };
+            string expected = (extended,live) switch { (true,true)=>"fast + extended + live", (true,false)=>"fast + extended", (false,true)=>"fast + live", _=>"fast tests only" };
             string actual=Run(mask,agent,environment,regression);
             if(actual!=expected) throw new Exception($"mask={mask}, flags={flags}: {actual} != {expected}");
             count++;

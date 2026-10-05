@@ -4,7 +4,7 @@ Nyrwvy keeps routine validation small and separates broader execution checks fro
 
 ## fast
 
-Run during ordinary development (and by the on-demand CI workflow). The fish wrapper is a convenience; fish is needed only for the wrapper scripts and the one fish test below, and the direct `dotnet test` / `node --test` commands in the [README](../README.md#build-and-verify) are the equivalent without it:
+Run during ordinary development (the on-demand `CI` workflow runs the same checks when the maintainer starts it). The fish wrapper is a convenience; fish is needed only for the wrapper scripts and the one fish test below, and the direct `dotnet test` / `node --test` commands in the [README](../README.md#build-and-verify) are the equivalent without it:
 
 ```fish
 ./scripts/test-fast.fish

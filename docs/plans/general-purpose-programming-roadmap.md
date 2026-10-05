@@ -10,7 +10,7 @@
 
 Nyrwvy is the layer whose program is a persistent typed semantic graph, and which builds and changes programs without editing source text directly. Generated code is a projection and has no authority over semantics.
 
-rrawrlet is a subject for discovering gaps; this plan does not add product-specific concepts such as Leader, Member, attempt or Apply to the core. External libraries may be used, but language gaps must not be hidden by moving the application's decisions and control as a whole into host functions. Asynchronous processing and execution control are also expressed through general-purpose features.
+rrawrlet, a separate Python application by the same author (an OpenCode-based agent-team tool, not published with this repository), is a subject for discovering gaps; this plan does not add product-specific concepts such as Leader, Member, attempt or Apply to the core. External libraries may be used, but language gaps must not be hidden by moving the application's decisions and control as a whole into host functions. Asynchronous processing and execution control are also expressed through general-purpose features.
 
 This document covers the current state and the next work. The limits at the start of the plan, the PR states of that time, the per-stage implementation records and the investigation evidence were moved to the [history](../../docs-archive/2026-09-general-purpose-programming/roadmap.md). Something marked "not implemented" in the history is not a current remaining item.
 

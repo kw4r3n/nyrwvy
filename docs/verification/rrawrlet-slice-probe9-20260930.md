@@ -8,7 +8,7 @@ The first version had to emulate code point conversion with a literal table of t
 
 Baseline: nyrwvy `10b5e11` (main after #260, clean); rrawrlet `ee03576`. The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`, once from the baseline and once with order 28. The oracle ran rrawrlet's real `TeamToolBridge.handle`, `respond` and `Team.dispatch` with Python 3.11.
 
-The method was probe 8's: the `Nyrwvy.AuthoringSession` JSON-lines protocol (`simulateCreateTypesByName`, `simulateCreateTypeByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `simulateReplaceBodyByName`, `commit` and `runPureByName`) and no `declarations` call. One thing was new on the client side. Recipes were written with pattern references that name their frame (`let(value, lambda v: …)`), and the client computed `scopeDepth` when sending. Scripts, cases and transcripts are kept outside the repository in the project's shared files (`rrawrlet-probe9/`).
+The method was probe 8's: the `Nyrwvy.AuthoringSession` JSON-lines protocol (`simulateCreateTypesByName`, `simulateCreateTypeByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `simulateReplaceBodyByName`, `commit` and `runPureByName`) and no `declarations` call. One thing was new on the client side. Recipes were written with pattern references that name their frame (`let(value, lambda v: …)`), and the client computed `scopeDepth` when sending. Scripts, cases and transcripts are kept outside the repository in private files outside the repository (`rrawrlet-probe9/`).
 
 ## Why this part
 

@@ -43,7 +43,7 @@ On probe 14's own inputs (the 39-byte mixed UTF-8 sample repeated `n` times, wit
 
 The first-draft decode now runs 3.12 MB in 1.91 s, against 1.56 MB in 0.85 s for the list-and-join form that probe 14 settled on. So the list-and-join rewrite is no longer needed for speed. Probe 14's final port, re-run on the new build, still matches the real Python on 310/310 cases.
 
-Scripts and raw results are in `/mnt/project-files/rrawrlet-probe14/order31/` (`scale3.py`, `scale4.py` and their `-before`/`-after` JSON).
+Scripts and raw results are in private files outside the repository (`rrawrlet-probe14/order31/`) (`scale3.py`, `scale4.py` and their `-before`/`-after` JSON).
 
 ## Verification
 

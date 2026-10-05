@@ -8,7 +8,7 @@ The one measured cost is scanning, not language surface. Written as in Python, `
 
 Baseline: nyrwvy `d58e709` (main after #262, clean); rrawrlet `ee03576`. The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with Python 3.11.
 
-The method was probe 9's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests (`simulateCreateTypesByName`, `simulateCreateTypeByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `simulateReplaceBodyByName`, `commit` and `runPureByName`) and no `declarations` call. Scripts, cases and transcripts are kept outside the repository in the project's shared files (`rrawrlet-probe10/`).
+The method was probe 9's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests (`simulateCreateTypesByName`, `simulateCreateTypeByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `simulateReplaceBodyByName`, `commit` and `runPureByName`) and no `declarations` call. Scripts, cases and transcripts are kept outside the repository in private files outside the repository (`rrawrlet-probe10/`).
 
 ## Why this part
 

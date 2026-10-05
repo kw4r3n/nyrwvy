@@ -16,7 +16,7 @@ Archive material should be grouped one level deeper by coherent phase, event, or
 
 - [`2026-08-pre-reorg/`](2026-08-pre-reorg/) — the complete documentation tree immediately before Issue #30 reorganized current documentation by purpose.
 
-- [`2026-09-general-purpose-programming/`](2026-09-general-purpose-programming/) — the original general-purpose roadmap and staged implementation history, separated from the maintained current status on 2026-09-26.
+- [`2026-09-general-purpose-programming/`](2026-09-general-purpose-programming/) — the original general-purpose roadmap and staged implementation history (Japanese; the original working document, superseded by the English [general-purpose programming roadmap](../docs/plans/general-purpose-programming-roadmap.md)), separated from the maintained current status on 2026-09-26.
 
 ## Retention
 

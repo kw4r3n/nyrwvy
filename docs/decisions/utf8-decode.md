@@ -18,7 +18,7 @@ This decision settles order 33 of the post-M2 queue. The language has no bytes t
 
 ## Reason
 
-**It replaces the decoder every byte-handling port rewrote.** The hand-written decoder was 228 nodes; the builtin is one node. Checked through `runPure` against Python on 5,024 inputs (24 edge cases, 2,500 random byte strings and 2,500 mutated or truncated UTF-8 strings), it matched every one, and the non-byte rule matched Python on bytes with 0xFF substituted (`rrawrlet-probe14/order33/dec.py` in the project's shared files). Decoding 60,000 bytes took 0.43 s of `runPure` wall time, against 0.49 s for probe 18's run of the hand-written decoder on 60,000 random bytes; at this size both are dominated by the run's fixed cost rather than by decoding.
+**It replaces the decoder every byte-handling port rewrote.** The hand-written decoder was 228 nodes; the builtin is one node. Checked through `runPure` against Python on 5,024 inputs (24 edge cases, 2,500 random byte strings and 2,500 mutated or truncated UTF-8 strings), it matched every one, and the non-byte rule matched Python on bytes with 0xFF substituted (`rrawrlet-probe14/order33/dec.py` in private files outside the repository). Decoding 60,000 bytes took 0.43 s of `runPure` wall time, against 0.49 s for probe 18's run of the hand-written decoder on 60,000 random bytes; at this size both are dominated by the run's fixed cost rather than by decoding.
 
 **The latin-1 String stays the bytes representation.** A `Bytes` type would add nothing else these ports needed: offsets, slicing, searching and line splitting already work on the latin-1 form, and probe 14 found no case that diverged on a byte position. The builtin fits that representation instead of replacing it.
 
