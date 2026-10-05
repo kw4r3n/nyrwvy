@@ -1,0 +1,119 @@
+using System;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using Nyrwvy.Generated;
+
+namespace BatchExample;
+
+// Only file I/O and JSON-to-typed-data decoding. Retry, validation, formatting,
+// result aggregation and cancellation policy are in the Nyrwvy graph.
+public class Files : @@FILES@@
+{
+    private readonly ConcurrentDictionary<string, FileStream> handles = new();
+    private static readonly object traceGate = new();
+
+    protected static void Trace(string root, string message)
+    {
+        lock (traceGate) File.AppendAllText(Path.Combine(root, "trace.txt"), message + "\n");
+    }
+
+    public NyResult<NyStr, NyStr> @@OPEN@@(NyStr rootValue)
+    {
+        string root = rootValue;
+        try
+        {
+            var stream = new FileStream(Path.Combine(root, "lease.tmp"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            if (!handles.TryAdd(root, stream)) { stream.Dispose(); throw new InvalidOperationException("Handle already open"); }
+            try
+            {
+                Trace(root, "open");
+                return NyResult<NyStr, NyStr>.Ok(root);
+            }
+            catch (Exception primary)
+            {
+                // Acquire has not returned a handle: UseResource cannot release it.
+                handles.TryRemove(new System.Collections.Generic.KeyValuePair<string, FileStream>(root, stream));
+                try { stream.Dispose(); }
+                catch (Exception cleanup) { primary.Data["acquireCleanupFailure"] = cleanup; }
+                throw; // Keep the original trace failure, including its path and stack.
+            }
+        }
+        catch (DirectoryNotFoundException) { return NyResult<NyStr, NyStr>.Err("directory missing"); }
+    }
+
+    public NyResult<@@CONFIG@@, NyStr> @@READCONFIG@@(NyStr handle)
+    {
+        string root = handle;
+        Trace(root, "readConfig");
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "config.json")));
+            var settings = document.RootElement;
+            return NyResult<@@CONFIG@@, NyStr>.Ok(new @@CONFIG@@(
+                @@CONFIG_ARGUMENTS@@));
+        }
+        catch (FileNotFoundException) { return NyResult<@@CONFIG@@, NyStr>.Err("config missing"); }
+    }
+
+    public virtual NyResult<NyStr, NyStr> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    {
+        string root = handle;
+        Trace(root, $"fetch {request} {attempt}");
+        try
+        {
+            return NyResult<NyStr, NyStr>.Ok(File.ReadAllText(Path.Combine(root, "responses", $"{request}.{attempt}.txt")));
+        }
+        catch (FileNotFoundException) { return NyResult<NyStr, NyStr>.Err("missing"); }
+    }
+
+    public NyResult<NyUnit, NyStr> @@SAVE@@(NyStr handle, NyStr path, NyStr contents)
+    {
+        string root = handle;
+        Trace(root, $"save {path}");
+        File.WriteAllText(Path.Combine(root, (string)path), (string)contents);
+        return NyResult<NyUnit, NyStr>.Ok(NyUnit.Value);
+    }
+
+    public NyUnit @@CLOSE@@(NyStr handle)
+    {
+        string root = handle;
+        if (!handles.TryRemove(root, out var stream)) throw new InvalidOperationException("Handle is not open");
+        stream.Dispose();
+        if (stream.CanWrite) throw new InvalidOperationException("Stream was not disposed");
+        Trace(root, "close disposed");
+        return NyUnit.Value;
+    }
+}
+
+// Offline cancellation fixture only. Its event synchronizes a request entering
+// the I/O boundary with the graph's TaskCancel; there are no timing sleeps.
+public sealed class WaitingFiles : Files
+{
+    internal static readonly ManualResetEventSlim RequestEntered = new(false);
+
+    public override NyResult<NyStr, NyStr> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    {
+        Trace(handle, $"fetch {request} {attempt}");
+        RequestEntered.Set();
+        NyRuntime.WaitForCancellation();
+        return NyResult<NyStr, NyStr>.Err("cancelled");
+    }
+}
+
+public sealed class Control : @@CONTROL@@
+{
+    public NyUnit @@AWAITREQUEST@@()
+    {
+        // The deterministic runner schedules one task at a time. Report this
+        // fixture wait to its existing clock so the request task can start.
+        var entered = NyRuntime.Clock is { } clock
+            ? clock.Block(() => WaitingFiles.RequestEntered.IsSet, 2000)
+            : WaitingFiles.RequestEntered.Wait(TimeSpan.FromSeconds(2));
+        if (!entered)
+            throw new TimeoutException("Offline request did not start");
+        return NyUnit.Value;
+    }
+}
