@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server"
 import { serveStdio } from "@modelcontextprotocol/server/stdio"
 import * as z from "zod/v4"
 import { randomUUID } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
@@ -25,8 +26,11 @@ if (values.help) {
   /** @type {Promise<void> | undefined} */
   let shutdownPromise
 
+  /** @type {{ version: string }} */
+  const manifest = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"))
+
   function createServer() {
-    const server = new McpServer({ name: "nyrwvy", version: "0.1.0" }, {
+    const server = new McpServer({ name: "nyrwvy", version: manifest.version }, {
       instructions: "Use nyrwvy_open to create or open a persistent semantic graph. Relative snapshot paths normally belong to the active project cwd; pass nyrwvy_open.workspace only when this host starts MCP elsewhere. Use nyrwvy_recipe_reference when an ExpressionRecipe shape is unfamiliar. Inspect structure and proposal reviews before explicitly committing. Never edit snapshot JSON or generated source. Use nyrwvy_request for exact-ID operations. A lost/cancelled response requires reopening and inspecting committed state, not replaying a mutation.",
     })
     /**
