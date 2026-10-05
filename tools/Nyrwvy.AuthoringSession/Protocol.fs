@@ -575,6 +575,15 @@ module AuthoringProtocol =
         { CallerFunctionId = id<FunctionTag> "callerFunctionId" item
           Replacement = recipe (property "replacement" item) }
 
+    let private semanticQueryFailure requestId (error: SemanticQueryError) =
+        let message =
+            match error with
+            | SemanticQueryError.FunctionNotFound functionId -> $"No function has the ID '{StableId.value functionId}'."
+            | SemanticQueryError.TypeNotFound typeId -> $"No type has the ID '{StableId.value typeId}'."
+            | SemanticQueryError.NodeNotFound(functionId, nodeId) ->
+                $"Function '{StableId.value functionId}' has no node '{StableId.value nodeId}'."
+        failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box message ])
+
     /// The `InternalError` message: exception names and messages stay off the wire.
     let internalErrorMessage = "Unexpected internal failure; this request was not applied and the session is unchanged."
 
@@ -651,12 +660,7 @@ module AuthoringProtocol =
                     root
                 match session.FocusFunction(id<FunctionTag> "functionId" root) with
                 | Ok focus -> success requestId (WireEncode.focus focus)
-                | Error error ->
-                    failure
-                        requestId
-                        (objectValue
-                            [ "code", box "SemanticQueryFailure"
-                              "message", box (sprintf "%A" error) ])
+                | Error error -> semanticQueryFailure requestId error
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
@@ -671,8 +675,7 @@ module AuthoringProtocol =
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
                 | Ok focus -> success requestId (WireGraph.focus focus)
-                | Error error ->
-                    failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box (sprintf "%A" error) ])
+                | Error error -> semanticQueryFailure requestId error
             | "viewFunction" ->
                 ensureFields
                     "viewFunction request"
@@ -687,8 +690,7 @@ module AuthoringProtocol =
                     | _ -> WireInput.fail "viewFunction requires exactly one of function and functionId."
                 let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
                 match session.FocusFunction functionId with
-                | Error error ->
-                    failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box (sprintf "%A" error) ])
+                | Error error -> semanticQueryFailure requestId error
                 | Ok focus ->
                     match ViewerFile.writeFocus session.Path output focus with
                     | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
