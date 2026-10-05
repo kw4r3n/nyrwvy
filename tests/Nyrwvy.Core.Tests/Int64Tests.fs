@@ -277,8 +277,8 @@ module Int64Tests =
         requireMatch "Execution Int64GreaterThan" (function ExecutionInstructionKind.Int64GreaterThan _ -> true | _ -> false) executionKinds
         requireMatch "Execution Int64GreaterThanOrEqual" (function ExecutionInstructionKind.Int64GreaterThanOrEqual _ -> true | _ -> false) executionKinds
 
-        let typedJson = TypedSemanticIrCodec.serialize typed
-        let executionJson = ExecutionIrCodec.serialize execution
+        let typedJson = TypedSemanticIrSerializer.serialize typed
+        let executionJson = ExecutionIrSerializer.serialize execution
         Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"primitiveInt64\"", typedJson)
         Assert.Contains("\"int64WrappingAdd\"", executionJson)

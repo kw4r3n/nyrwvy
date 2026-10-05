@@ -98,8 +98,8 @@ module StringConcatTests =
             let execution = ExecutionIr.lower typed |> function
                 | Ok value -> value
                 | Error error -> failwithf "Lowering failed: %A" error
-            Assert.Contains("\"stringConcat\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"stringConcat\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"stringConcat\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"stringConcat\"", ExecutionIrSerializer.serialize execution)
             let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> function
                 | Ok value -> value
                 | Error error -> failwithf "Emission failed: %A" error

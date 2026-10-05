@@ -197,7 +197,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
         )
 
         let execution, artifact = lowerAndEmit fixture reloaded
-        let executionJson = ExecutionIrCodec.serialize execution
+        let executionJson = ExecutionIrSerializer.serialize execution
         Assert.Contains("\"listMap\"", executionJson)
         Assert.Contains("\"listFilter\"", executionJson)
         Assert.Contains(StableId.value fixture.ValidateFunctionId, executionJson)

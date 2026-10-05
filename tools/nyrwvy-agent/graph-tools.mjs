@@ -82,10 +82,14 @@ export function createGraphTools(schema) {
       },
     }),
     view: defineTool({
-      description: "Write a human-readable HTML page for one committed function (Function Focus: signature, effects, typed nodes and their dependencies) and return its path, for a person to open in a browser. Nothing is returned to read; use inspect for the graph. Pass exactly one function name or functionId. output is an optional .html path (relative paths use the project); by default the page goes to nyrwvy-views/ beside the snapshot. The page is a projection and is never read back.",
-      args: { function: schema.string().optional(), functionId: schema.string().optional(), output: schema.string().optional() },
-      /** @param {{ function?: string; functionId?: string; output?: string }} args */
-      execute: (args, context) => requestAuthoring({ op: "viewFunction", ...args }, context),
+      description: "Write a human-readable HTML page and return its path, for a person to open in a browser. With a function name or functionId: Function Focus of the committed function (signature, effects, typed nodes and their dependencies). With proposalId: Change Review of a pending proposal before commit or reject (committed and proposed focus of each function it creates or rewrites, created declarations, and the engine review). Pass exactly one of function, functionId and proposalId. Nothing is returned to read; use inspect or the proposal review for that. output is an optional .html path (relative paths use the project); by default the page goes to nyrwvy-views/ beside the snapshot. The page is a projection and is never read back.",
+      args: { function: schema.string().optional(), functionId: schema.string().optional(), proposalId: schema.string().optional(), output: schema.string().optional() },
+      /** @param {{ function?: string; functionId?: string; proposalId?: string; output?: string }} args */
+      execute(args, context) {
+        if (args.proposalId === undefined) return requestAuthoring({ op: "viewFunction", ...args }, context)
+        if (args.function !== undefined || args.functionId !== undefined) throw new Error("Pass exactly one of function, functionId and proposalId.")
+        return requestAuthoring({ op: "viewProposal", ...args }, context)
+      },
     }),
     recipe_reference: defineTool({
       description: "Read the maintained name-resolved ExpressionRecipe wire shapes used by create_function and replace. No snapshot or authoring session is required. Omit every argument for the categorized index of kind names. Pass category for one-line signatures of its kinds, kind for one exact shape with notes, or kinds to read several shapes in one call; pass at most one of them.",

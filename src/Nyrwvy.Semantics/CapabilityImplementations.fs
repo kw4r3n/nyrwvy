@@ -3,11 +3,6 @@ namespace Nyrwvy.Core
 /// One contract shared by recipe validation and the full snapshot oracle.
 [<RequireQualifiedAccess>]
 module CapabilityImplementations =
-    let isUsed (snapshot: Snapshot) =
-        snapshot.Functions |> List.exists (fun fn ->
-            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
-                match node.Kind with SemanticNodeKind.CapabilityConstruct _ -> true | _ -> false))
-
     let validate (snapshot: Snapshot) capabilityId (implementations: (CapabilityOperationId * FunctionId) list) =
         match snapshot.Capabilities |> List.tryFind (fun capability -> capability.Id = capabilityId) with
         | None -> [ "UnknownCapabilityConstructTarget", "A capability construction must name an existing capability." ]

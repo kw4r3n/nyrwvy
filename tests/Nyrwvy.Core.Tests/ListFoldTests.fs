@@ -239,10 +239,10 @@ module ListFoldTests =
             relation.Kind = ViewerRelationKind.CallsFunction && relation.Target = ViewerTarget.Function folder.Id)
         let typed = TypedSemanticIr.project reopened |> unwrap "typed projection"
         let execution = ExecutionIr.lower typed |> unwrap "lower"
-        Assert.Contains("\"listFold\"", TypedSemanticIrCodec.serialize typed)
-        Assert.Contains("\"listFold\"", ExecutionIrCodec.serialize execution)
-        Assert.Contains("\"stringEqual\"", TypedSemanticIrCodec.serialize typed)
-        Assert.Contains("\"stringEqual\"", ExecutionIrCodec.serialize execution)
+        Assert.Contains("\"listFold\"", TypedSemanticIrSerializer.serialize typed)
+        Assert.Contains("\"listFold\"", ExecutionIrSerializer.serialize execution)
+        Assert.Contains("\"stringEqual\"", TypedSemanticIrSerializer.serialize typed)
+        Assert.Contains("\"stringEqual\"", ExecutionIrSerializer.serialize execution)
         let emitted = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "C# emission"
         Assert.Contains("public S Fold<S>(S seed, Func<S, T, S> folder)", emitted.Source)
         Assert.Contains(".Fold(", emitted.Source)

@@ -60,6 +60,13 @@ module ViewerArtifact =
           SuggestedFileName = reviewFileName review.TransactionId
           Content = ViewerHtml.renderChangeReviewDocument model }
 
+    /// A pending structural proposal's Change Review; named by transaction ID like `ofChangeReview`.
+    let ofProposalReview (model: ViewerProposalReviewModel): ViewerArtifact =
+        { Kind = ViewerArtifactKind.ChangeReview
+          MediaType = "text/html; charset=utf-8"
+          SuggestedFileName = reviewFileName model.TransactionId
+          Content = ViewerHtml.renderProposalReviewDocument model }
+
 [<RequireQualifiedAccess>]
 module ViewerExport =
     let private decodeSnapshot

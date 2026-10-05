@@ -101,6 +101,17 @@ Semantics, independently of any evaluation recipe or protocol.
 
 Owns stable IDs and allocation, semantic graph state, validation/readiness, semantic facts and queries, operations and transactions, obligations, fingerprints, reviewed proposals, and the ordinary agent workflow facade.
 
+#### Fixed-signature expression operations
+
+An expression operation whose operand and result types are fixed, or fixed up to the type variables `T`, `K` and `V`, and whose only diagnostics are operand type mismatches and an optional equatable constraint, is a fixed-signature operation. Such an operation is declared once, as an entry in `OperationSignatures.table` (`src/Nyrwvy.Semantics/OperationSignatures.fs`), in `ExpressionRecipe` case field order and with the name-form wire field names. Recipe type inference in `AgentExpressionStructuralWorkflow` checks it from that entry; its `inferTypeWithContext` case only joins the list that calls `fixedSignature ()`. The agent recipe reference (`tools/nyrwvy-agent/recipe-reference.mjs`) takes its one-line signature from the generated `tools/nyrwvy-agent/recipe-signatures.generated.mjs`. After changing the table, regenerate that file:
+
+```sh
+dotnet build src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj -c Release
+dotnet fsi scripts/generate-recipe-signatures.fsx
+```
+
+`RecipeKindConsistencyTests` fails when the generated file is stale or an entry's operands differ from its recipe case, and `scripts/tests/recipe-reference.test.mjs` fails when a generated signature is missing from the reference categories. Operations with callbacks, type arguments, branches, scopes, declared types or diagnostics of their own (for example `boolAnd`, `valueEqual`, `listConstruct`, `listFold`, `matchUnion`) stay hand-written in both inference and the reference. The table does not cover the other places a new operation touches, such as the wire readers, node kinds, lowering and backends.
+
 ### `Nyrwvy.Execution`
 
 Owns Typed Semantic IR, backend-neutral Execution IR, and trusted projection from committed agent workspaces into executable representations.
@@ -213,7 +224,7 @@ See [Nyason and storage direction](../concepts/nyason-and-storage.md) and the [s
 
 The viewer is a query/projection client rather than a mutable source editor. The established view contracts include focused semantic slices and Change Review.
 
-A person opens a Function Focus page in two ways: `tools/Nyrwvy.ViewerExport focus` from a snapshot file (by `--function-id` or exact display name with `--function`), or `nyrwvy_view` / `viewFunction` from an open authoring session, which writes the page for the committed state and returns its path. Change Review pages are produced in process only.
+A person opens a Function Focus page in two ways: `tools/Nyrwvy.ViewerExport focus` from a snapshot file (by `--function-id` or exact display name with `--function`), or `nyrwvy_view` / `viewFunction` from an open authoring session, which writes the page for the committed state and returns its path. A Change Review page of a pending proposal is written by `nyrwvy_view` with `proposalId` (`viewProposal`); proposals exist only inside a session, so `tools/Nyrwvy.ViewerExport` has no Change Review command.
 
 Change Review preserves both:
 

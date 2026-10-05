@@ -228,3 +228,40 @@ module StructuralDiagnosticTextTests =
         Assert.Equal("(String, Int64) -> Bool", render (TypeRef.Function([ stringType; int64Type ], TypeRef.Primitive PrimitiveType.Bool)))
         let unknown = id<TypeTag> "unknown"
         Assert.Equal($"type '{StableId.value unknown}'", render (TypeRef.Named unknown))
+
+    /// Operations checked from `OperationSignatures` keep the texts of their former hand-written checks:
+    /// a fixed operand type, a generic shape before its variables are bound, a type fixed by an earlier
+    /// operand, the `left`/`right` sides of older string operations, and equatable constraints.
+    [<Fact>]
+    let ``fixed-signature operations keep their operand mismatch texts`` () =
+        let B = """{"kind":"primitive","primitive":"bool"}"""
+        let F = """{"kind":"primitive","primitive":"float64"}"""
+        let setOf item = $$"""{"kind":"builtinGeneric","generic":"set","arguments":[{{item}}]}"""
+        let mapOf key value = $$"""{"kind":"builtinGeneric","generic":"map","arguments":[{{key}},{{value}}]}"""
+        let cases =
+            [ [ "text", S ], B, """{"kind":"stringContains","value":{"kind":"parameter","name":"text"},"substring":{"kind":"int64Literal","value":1}}""",
+              "PureExpressionOperandTypeMismatch", "StringContains right operand requires String, but the recipe produces Int64. At body (stringContains)."
+              [ "text", S ], optionOf I, """{"kind":"stringIndexOf","value":{"kind":"int64Literal","value":1},"substring":{"kind":"parameter","name":"text"},"from":{"kind":"int64Literal","value":0}}""",
+              "PureExpressionOperandTypeMismatch", "StringIndexOf left operand requires String, but the recipe produces Int64. At body (stringIndexOf)."
+              [], I, """{"kind":"listLength","value":{"kind":"int64Literal","value":1}}""",
+              "PureExpressionOperandTypeMismatch", "ListLength value operand requires List<T>, but the recipe produces Int64. At body (listLength)."
+              [], optionOf I, """{"kind":"mapGet","map":{"kind":"int64Literal","value":1},"key":{"kind":"int64Literal","value":2}}""",
+              "PureExpressionOperandTypeMismatch", "MapGet map operand requires Map<K, V>, but the recipe produces Int64. At body (mapGet)."
+              [ "xs", listOf S ], I, """{"kind":"setSize","value":{"kind":"parameter","name":"xs"}}""",
+              "PureExpressionOperandTypeMismatch", "SetSize value operand requires Set<T>, but the recipe produces List<String>. At body (setSize)."
+              [ "xs", listOf S ], listOf S, """{"kind":"listAppendItem","list":{"kind":"parameter","name":"xs"},"item":{"kind":"int64Literal","value":1}}""",
+              "PureExpressionOperandTypeMismatch", "ListAppendItem item operand requires String, but the recipe produces Int64. At body (listAppendItem)."
+              [ "xs", listOf S ], listOf S, """{"kind":"listConcat","left":{"kind":"parameter","name":"xs"},"right":{"kind":"listEmpty","itemType":""" + I + """}}""",
+              "PureExpressionOperandTypeMismatch", "ListConcat right operand requires List<String>, but the recipe produces List<Int64>. At body (listConcat)."
+              [ "m", mapOf S I ], I, """{"kind":"mapGetOrDefault","map":{"kind":"parameter","name":"m"},"key":{"kind":"stringLiteral","value":"k"},"default":{"kind":"stringLiteral","value":"d"}}""",
+              "PureExpressionOperandTypeMismatch", "MapGetOrDefault default operand requires Int64, but the recipe produces String. At body (mapGetOrDefault)."
+              [ "s", setOf S ], B, """{"kind":"setContains","set":{"kind":"parameter","name":"s"},"item":{"kind":"int64Literal","value":1}}""",
+              "PureExpressionOperandTypeMismatch", "SetContains item operand requires String, but the recipe produces Int64. At body (setContains)."
+              [ "xs", listOf F ], setOf F, """{"kind":"setFromList","value":{"kind":"parameter","name":"xs"}}""",
+              "SetItemTypeNotEquatable", "Set item type is not equatable: Float64 is not equatable: Float64; Float64 is not equatable because of NaN; compare with Float64Equal. At body (setFromList)."
+              [ "xs", listOf F ], optionOf I, """{"kind":"listIndexOf","list":{"kind":"parameter","name":"xs"},"item":{"kind":"stringLiteral","value":"x"}}""",
+              "ListIndexOfItemTypeNotEquatable", "ListIndexOf compares items of a type that is not equatable: Float64 is not equatable: Float64; Float64 is not equatable because of NaN; compare with Float64Equal. At body (listIndexOf)." ]
+        for parameters, resultType, body, expectedCode, expectedMessage in cases do
+            let code, message = reject parameters resultType body
+            Assert.Equal(expectedMessage, message)
+            Assert.Equal(expectedCode, code)

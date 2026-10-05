@@ -53,6 +53,8 @@ module AgentParameterTypeMigrationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
     /// Functions of the proposed snapshot, for rendering rewritten bodies in a full review.
     let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 
@@ -110,6 +112,8 @@ module AgentResultTypeMigrationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
     /// Functions of the proposed snapshot, for rendering rewritten bodies in a full review.
     let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 
@@ -170,6 +174,8 @@ module internal SignatureMigrationCore =
         ValueGraph.collectNodes functionEntity.Body
         |> List.tryFind (fun node -> node.Id = nodeId)
 
+    let unsupportedRewriteUseCode prefix = $"{prefix}UnsupportedRewriteUse"
+
     let rewriteForTemporaryFunction
         (prefix: string)
         (ownerParameters: SemanticParameter list)
@@ -196,7 +202,24 @@ module internal SignatureMigrationCore =
                         )
             loop [] arguments
 
+        // A callback or function-value use of the target would be bound against its old signature,
+        // since only direct calls are redirected to the migrated copy.
+        let nonCallTargetUse functionId =
+            if functionId = originalTargetId then
+                let user =
+                    match owner with
+                    | TemporaryOwner.Target -> "The target replacement"
+                    | TemporaryOwner.Caller(callerId, _, _) -> $"Caller '{StableId.value callerId}' rewrite"
+                Error(
+                    diagnostic
+                        (unsupportedRewriteUseCode prefix)
+                        $"{user} uses the target function '{StableId.value originalTargetId}' as a callback or function value; this bounded migration rewrites only direct calls to the target."
+                )
+            else
+                Ok()
+
         let rec rewrite recipe =
+            let referencing functionId rewritten = nonCallTargetUse functionId |> Result.bind (fun () -> rewritten)
             let rewritePairs values =
                 let rec loop collected = function
                     | [] -> Ok(List.rev collected)
@@ -211,7 +234,9 @@ module internal SignatureMigrationCore =
             let two make left right =
                 rewrite left |> Result.bind (fun left -> rewrite right |> Result.map (fun right -> make(left, right)))
             let callback make source functionId context =
-                rewrite source |> Result.bind (fun source -> rewritePairs context |> Result.map (fun context -> make(source, functionId, context)))
+                nonCallTargetUse functionId
+                |> Result.bind (fun () -> rewrite source)
+                |> Result.bind (fun source -> rewritePairs context |> Result.map (fun context -> make(source, functionId, context)))
             let three make first second third =
                 rewrite first |> Result.bind (fun first -> two (fun (second, third) -> make(first, second, third)) second third)
 
@@ -226,8 +251,12 @@ module internal SignatureMigrationCore =
                         $"{prefix}ParameterSlotUnavailable"
                         "Migration recipes must reference existing parameters by stable ID."
                 )
-            | ExpressionRecipe.CapabilityConstruct _
-            | ExpressionRecipe.FunctionReference _ -> Ok recipe
+            | ExpressionRecipe.CapabilityConstruct(_, implementations) ->
+                let rec check = function
+                    | [] -> Ok recipe
+                    | (_, functionId) :: rest -> referencing functionId (check rest)
+                check implementations
+            | ExpressionRecipe.FunctionReference functionId -> referencing functionId (Ok recipe)
             | ExpressionRecipe.FunctionInvoke(value, arguments) ->
                 rewrite value |> Result.bind (fun target ->
                     rewriteAll arguments |> Result.map (fun values -> ExpressionRecipe.FunctionInvoke(target, values)))
@@ -380,28 +409,34 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))
             | ExpressionRecipe.ListFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListFold(source, seed, folder, context)))
             | ExpressionRecipe.MapFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.MapFold(source, seed, folder, context)))
             | ExpressionRecipe.ListEffectFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListEffectFold(source, seed, folder, context)))
             | ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context) ->
-                two (fun (acquire, releaseCapability) -> acquire, releaseCapability) acquire releaseCapability
+                nonCallTargetUse bodyFunctionId
+                |> Result.bind (fun () -> two (fun (acquire, releaseCapability) -> acquire, releaseCapability) acquire releaseCapability)
                 |> Result.bind (fun (acquire, releaseCapability) ->
                     rewritePairs context
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
-                rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context))
+                nonCallTargetUse bodyFunctionId
+                |> Result.bind (fun () -> rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context)))
             | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
-                two (fun (scope, item) -> scope, item) scope item
+                nonCallTargetUse workerFunctionId
+                |> Result.bind (fun () -> two (fun (scope, item) -> scope, item) scope item)
                 |> Result.bind (fun (scope, item) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item)))
             | ExpressionRecipe.TaskWait(tasks, mode, None) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode, None)) tasks
@@ -499,6 +534,8 @@ module internal SignatureMigrationCore =
                 TemporaryOwner.Target
                 targetRecipe
         with
+        | Error error when error.Code = unsupportedRewriteUseCode prefix ->
+            Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
         | Error error ->
             reject
                 $"{prefix}TargetRewriteInvalid"
@@ -576,6 +613,8 @@ module internal SignatureMigrationCore =
                 ))
                 replacement
         with
+        | Error error when error.Code = unsupportedRewriteUseCode prefix ->
+            Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
         | Error error ->
             reject
                 $"{prefix}CallerRewriteInvalid"
@@ -791,19 +830,19 @@ module internal SignatureMigrationCore =
           ProposedSnapshot: Snapshot
           Receipt: TransactionPreviewReceipt
           Readiness: TransactionReadiness
+          Prepared: Preflight
           BodyRewrites: FunctionBodyReplacementDiff list }
 
     /// Materializes the migrated target and every caller through temporary functions, then maps
-    /// them back onto the original identities and validates the proposed snapshot as a whole.
-    let simulate
+    /// them back onto the original identities: the migrated target and the migrated callers.
+    let private migrate
         (prefix: string)
         (workspace: AgentWorkspace)
-        (baseSnapshot: Snapshot)
         (prepared: Preflight)
         (parameterTypes: Map<ParameterId, TypeRef>)
         (resultType: TypeRef)
         targetReplacement
-        : Result<Simulated, AgentStructuralWorkflowError> =
+        : Result<SemanticFunction * Map<FunctionId, SemanticFunction>, AgentStructuralWorkflowError> =
         match materializeTemporaryTarget prefix workspace prepared parameterTypes resultType targetReplacement with
         | Error error -> Error error
         | Ok temporaryTarget ->
@@ -849,35 +888,46 @@ module internal SignatureMigrationCore =
                                     prepared.Target.Id
                                     temporary.Function.Body })
                     |> Map.ofList
-                let proposedSnapshot =
-                    { baseSnapshot with
-                        Id = StableIdAllocator.newSnapshotId ()
-                        ParentId = Some baseSnapshot.Id
-                        Functions =
-                            baseSnapshot.Functions
-                            |> List.map (fun functionEntity ->
-                                if functionEntity.Id = migratedTarget.Id then migratedTarget
-                                else Map.tryFind functionEntity.Id migratedCallers |> Option.defaultValue functionEntity) }
-                match SnapshotValidator.validate proposedSnapshot with
-                | issue :: _ -> reject $"{prefix}InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                | [] ->
-                    match classifyReadiness proposedSnapshot with
-                    | Error diagnostics -> Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
-                    | Ok readiness ->
-                        let transactionId = StableIdAllocator.newTransactionId ()
-                        match createReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error error
-                        | Ok receipt ->
-                            let proposed functionId = proposedSnapshot.Functions |> List.find (fun fn -> fn.Id = functionId)
-                            let rewrites =
-                                prepared.Target :: prepared.Callers
-                                |> List.map (fun original -> bodyDiff baseSnapshot proposedSnapshot original (proposed original.Id))
-                            Ok
-                                { TransactionId = transactionId
-                                  ProposedSnapshot = proposedSnapshot
-                                  Receipt = receipt
-                                  Readiness = readiness
-                                  BodyRewrites = rewrites }
+                Ok(migratedTarget, migratedCallers)
+
+    /// The signature-migration simulate pipeline: preflight against the base, migrate the target
+    /// and its callers, then validate and review the proposed snapshot as a whole.
+    let simulate
+        (prefix: string)
+        (workspace: AgentWorkspace)
+        (expectedBaseSnapshotId: SnapshotId)
+        (targetFunctionId: FunctionId)
+        (callerRewrites: AgentParameterTypeCallerRewrite list)
+        (checkTarget: SemanticFunction -> Result<unit, AgentStructuralWorkflowError>)
+        (parameterTypes: Map<ParameterId, TypeRef>)
+        (resultType: SemanticFunction -> TypeRef)
+        targetReplacement
+        : Result<Simulated, AgentStructuralWorkflowError> =
+        simulateStructural
+            workspace
+            (fun baseSnapshot ->
+                preflight prefix baseSnapshot expectedBaseSnapshotId targetFunctionId callerRewrites checkTarget
+                |> Result.bind (fun prepared ->
+                    migrate prefix workspace prepared parameterTypes (resultType prepared.Target) targetReplacement
+                    |> Result.map (fun (migratedTarget, migratedCallers) -> prepared, migratedTarget, migratedCallers)))
+            (fun (_, migratedTarget, migratedCallers) snapshot ->
+                { snapshot with
+                    Functions =
+                        snapshot.Functions
+                        |> List.map (fun functionEntity ->
+                            if functionEntity.Id = migratedTarget.Id then migratedTarget
+                            else Map.tryFind functionEntity.Id migratedCallers |> Option.defaultValue functionEntity) })
+        |> Result.map (fun candidate ->
+            let prepared, _, _ = candidate.Prepared
+            let proposed functionId = candidate.ProposedSnapshot.Functions |> List.find (fun fn -> fn.Id = functionId)
+            { TransactionId = candidate.TransactionId
+              ProposedSnapshot = candidate.ProposedSnapshot
+              Receipt = candidate.Receipt
+              Readiness = candidate.Readiness
+              Prepared = prepared
+              BodyRewrites =
+                prepared.Target :: prepared.Callers
+                |> List.map (fun original -> bodyDiff candidate.BaseSnapshot candidate.ProposedSnapshot original (proposed original.Id)) })
 
 [<RequireQualifiedAccess>]
 module AgentParameterTypeMigrationWorkflow =
@@ -889,40 +939,36 @@ module AgentParameterTypeMigrationWorkflow =
         (workspace: AgentWorkspace)
         (request: AgentParameterTypeMigrationRequest)
         : Result<AgentParameterTypeMigrationProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
         let checkParameter (target: SemanticFunction) =
             match target.Parameters |> List.tryFind (fun parameter -> parameter.Id = request.TargetParameterId) with
             | None -> SignatureMigrationCore.reject $"{prefix}ParameterNotFound" "The target parameter is not owned by the target function."
             | Some parameter when parameter.Type = request.NewParameterType ->
                 SignatureMigrationCore.reject $"{prefix}TypeUnchanged" "The requested parameter type is already the current type."
             | Some _ -> Ok()
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ -> SignatureMigrationCore.reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-        | [] ->
-            SignatureMigrationCore.preflight
-                prefix baseSnapshot request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkParameter
-            |> Result.bind (fun prepared ->
-                let parameter = prepared.Target.Parameters |> List.find (fun item -> item.Id = request.TargetParameterId)
-                SignatureMigrationCore.simulate
-                    prefix workspace baseSnapshot prepared
-                    (Map.ofList [ parameter.Id, request.NewParameterType ]) prepared.Target.ResultType request.TargetReplacement
-                |> Result.map (fun simulated ->
-                    AgentParameterTypeMigrationProposal
-                        { TransactionId = simulated.TransactionId
-                          ProposedSnapshot = simulated.ProposedSnapshot
-                          Review =
-                            { RequestedChange = request
-                              Receipt = simulated.Receipt
-                              Readiness = simulated.Readiness
-                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
-                              ResultingChange =
-                                { ParameterChange =
-                                    { FunctionId = prepared.Target.Id
-                                      ParameterId = parameter.Id
-                                      OldType = parameter.Type
-                                      NewType = request.NewParameterType }
-                                  AffectedCallSites = prepared.CallerSites
-                                  BodyRewrites = simulated.BodyRewrites } } }))
+        SignatureMigrationCore.simulate
+            prefix workspace request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkParameter
+            (Map.ofList [ request.TargetParameterId, request.NewParameterType ])
+            (fun target -> target.ResultType)
+            request.TargetReplacement
+        |> Result.map (fun simulated ->
+            let prepared = simulated.Prepared
+            let parameter = prepared.Target.Parameters |> List.find (fun item -> item.Id = request.TargetParameterId)
+            AgentParameterTypeMigrationProposal
+                { TransactionId = simulated.TransactionId
+                  ProposedSnapshot = simulated.ProposedSnapshot
+                  Review =
+                    { RequestedChange = request
+                      Receipt = simulated.Receipt
+                      Readiness = simulated.Readiness
+                      FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
+                      ResultingChange =
+                        { ParameterChange =
+                            { FunctionId = prepared.Target.Id
+                              ParameterId = parameter.Id
+                              OldType = parameter.Type
+                              NewType = request.NewParameterType }
+                          AffectedCallSites = prepared.CallerSites
+                          BodyRewrites = simulated.BodyRewrites } } })
 
     let private publishWithPolicy
         workspace
@@ -975,35 +1021,32 @@ module AgentResultTypeMigrationWorkflow =
         (workspace: AgentWorkspace)
         (request: AgentResultTypeMigrationRequest)
         : Result<AgentResultTypeMigrationProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
         let checkResult (target: SemanticFunction) =
             if target.ResultType = request.NewResultType then
                 SignatureMigrationCore.reject $"{prefix}TypeUnchanged" "The requested result type is already the current type."
             else Ok()
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ -> SignatureMigrationCore.reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-        | [] ->
-            SignatureMigrationCore.preflight
-                prefix baseSnapshot request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkResult
-            |> Result.bind (fun prepared ->
-                SignatureMigrationCore.simulate
-                    prefix workspace baseSnapshot prepared Map.empty request.NewResultType request.TargetReplacement
-                |> Result.map (fun simulated ->
-                    AgentResultTypeMigrationProposal
-                        { TransactionId = simulated.TransactionId
-                          ProposedSnapshot = simulated.ProposedSnapshot
-                          Review =
-                            { RequestedChange = request
-                              Receipt = simulated.Receipt
-                              Readiness = simulated.Readiness
-                              FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
-                              ResultingChange =
-                                { ResultChange =
-                                    { FunctionId = prepared.Target.Id
-                                      OldType = prepared.Target.ResultType
-                                      NewType = request.NewResultType }
-                                  AffectedCallSites = prepared.CallerSites
-                                  BodyRewrites = simulated.BodyRewrites } } }))
+        SignatureMigrationCore.simulate
+            prefix workspace request.ExpectedBaseSnapshotId request.TargetFunctionId request.CallerRewrites checkResult
+            Map.empty
+            (fun _ -> request.NewResultType)
+            request.TargetReplacement
+        |> Result.map (fun simulated ->
+            let prepared = simulated.Prepared
+            AgentResultTypeMigrationProposal
+                { TransactionId = simulated.TransactionId
+                  ProposedSnapshot = simulated.ProposedSnapshot
+                  Review =
+                    { RequestedChange = request
+                      Receipt = simulated.Receipt
+                      Readiness = simulated.Readiness
+                      FunctionEffects = EffectRequirements.summarize simulated.ProposedSnapshot (simulated.BodyRewrites |> List.map (fun diff -> diff.OwnerFunctionId) |> Set.ofList)
+                      ResultingChange =
+                        { ResultChange =
+                            { FunctionId = prepared.Target.Id
+                              OldType = prepared.Target.ResultType
+                              NewType = request.NewResultType }
+                          AffectedCallSites = prepared.CallerSites
+                          BodyRewrites = simulated.BodyRewrites } } })
 
     let commitWithPolicy workspace (AgentResultTypeMigrationProposal proposal) policy =
         match publishCandidateWithPolicy workspace proposal.ProposedSnapshot proposal.Review.Readiness proposal.Review.Receipt policy with

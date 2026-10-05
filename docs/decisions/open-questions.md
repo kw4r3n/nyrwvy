@@ -155,7 +155,7 @@ How should Nyrwvy present larger cross-function or cross-subsystem graph slices 
 
 ### Current position
 
-Function Focus and Change Review projections are implemented and verified. Function Focus can be written from an open authoring session (`nyrwvy_view`) or exported from a snapshot by display name or ID. Broader workspace-level views and layout algorithms remain open.
+Function Focus and Change Review projections are implemented and verified. Function Focus can be written from an open authoring session (`nyrwvy_view`) or exported from a snapshot by display name or ID; Change Review of a pending proposal can be written from the session (`nyrwvy_view` with `proposalId`). Broader workspace-level views and layout algorithms remain open.
 
 ### Resolution target
 

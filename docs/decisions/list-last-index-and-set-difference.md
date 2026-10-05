@@ -24,6 +24,6 @@ Probe 23's 1,800 cases still match their reference, `components` among them.
 
 ## Consequences
 
-- `ListLastIndexOf` goes through the semantic graph, validation (`ListLastIndexOfListTypeMismatch`, `ListLastIndexOfItemTypeMismatch`, `ListLastIndexOfItemTypeNotEquatable`), snapshot and Nyason codecs (`listLastIndexOf`, `list-last-index-of`), typed semantic IR, Execution IR, the C# backend (`NyList<T>.LastIndexOf`), the viewer, wire recipes and the recipe reference. No schema version changes.
+- `ListLastIndexOf` goes through the semantic graph, validation (`ListLastIndexOfListTypeMismatch`, `ListLastIndexOfItemTypeMismatch`, `ListLastIndexOfItemTypeNotEquatable`), snapshot and Nyason codecs (`listLastIndexOf`, `list-last-index-of`), typed semantic IR, Execution IR, the C# backend (`NyList<T>.LastIndexOf`), the viewer, wire recipes and the recipe reference. No IR schema version changes. A snapshot that uses `ListLastIndexOf` is written at snapshot JSON 13 / Nyason `nayamnyam.snapshot.v9` since 2026-10-05; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions).
 - `ListIndexTests` covers it through every layer and under `runPure`, including a 70-item list whose matches lie in different leaves. `SetTests` adds a difference with a smaller right set followed by an insert.
 - The viewer labels of `ListIndexOf` and `ListFindIndex`, which read "Set contains" and "List any" since order 51, now read "List index of" and "List find index".

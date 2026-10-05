@@ -112,7 +112,13 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     }
     await assert.rejects(readFile(join(root, "escaped.html")), { code: "ENOENT" })
     const discard = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
+    // A person reviews the pending proposal before it is rejected.
+    const review = (await call(first, "view", { proposalId: discard.proposalId })).result
+    assert.equal(review.kind, "changeReview")
+    assert.match(await readFile(review.path, "utf8"), /Change Review — replaceBody/)
+    await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
+    await failed(first, "view", { proposalId: discard.proposalId })
     const pending = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     assert.equal((await call(first, "request", { op: "executionReadiness", arguments: {} })).result.kind, "ready")
     const disabled = await failed(first, "request", { op: "runPure", arguments: { functionId, arguments: [], hostSources: ["Host.cs"] } })

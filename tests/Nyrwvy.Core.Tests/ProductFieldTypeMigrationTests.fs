@@ -131,6 +131,20 @@ module ProductFieldTypeMigrationTests =
                 else rewrite)
         Assert.Equal("FieldTypeMigrationRewriteInvalid", rejects ws { valid with FunctionRewrites = stale })
 
+    [<Fact>]
+    let ``field type migration checks the new field type before binding rewrites`` () =
+        let ws = fixture ()
+        let valid = request ws
+        let unknown = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(id<TypeTag> "missing") ])
+        Assert.Equal("FieldTypeMigrationUnknownNamedType", rejects ws { valid with NewFieldType = unknown })
+        Assert.Equal("FieldTypeMigrationUnknownCapabilityType", rejects ws { valid with NewFieldType = TypeRef.Capability(id<CapabilityTag> "missing") })
+        Assert.Equal(
+            "FieldTypeMigrationTypeParameterNotAllowed",
+            rejects ws { valid with NewFieldType = TypeRef.TypeParameter(id<TypeParameterTag> "t", "T") })
+        Assert.Equal(
+            "FieldTypeMigrationBuiltinGenericArityMismatch",
+            rejects ws { valid with NewFieldType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ intType; intType ]) })
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``field type migration is authored over the wire and runs through the common runner`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-field-type-" + Guid.NewGuid().ToString("N"))

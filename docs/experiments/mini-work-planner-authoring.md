@@ -5,6 +5,8 @@
 - **Baseline:** `main` after the C# symbol-manifest repair (#177/#178)
 - **Issue:** #179
 
+The OpenCode operator for this probe (`scripts/run-mini-work-planner-authoring.fish`, the `nyrwvy-m4-authoring-eval` agent and its `nyrwvy_m4_authoring_eval_*` tools over `.opencode/lib/nyrwvy-m4-authoring-eval-bridge.ts`) was removed from main because it duplicated the JSONL transport of the maintained tools. Replay the run from commit `800f364`.
+
 ## Purpose
 
 Author a second small practical Nyrwvy program with a different semantic shape from Verification Planner.

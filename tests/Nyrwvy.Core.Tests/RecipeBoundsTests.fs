@@ -94,3 +94,45 @@ module RecipeBoundsTests =
             Assert.Contains("/0 ListConstruct (201 nodes); /1 ListConcat (70 nodes)", diagnostic.Message)
             Assert.DoesNotContain("/1/0", diagnostic.Message)
         | other -> failwithf "Expected a node-limit rejection, got %A" other
+
+    [<Fact>]
+    let ``targeted replacement enforces depth and node budgets at their boundaries`` () =
+        let float64List = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ float64Type ])
+        let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-recipe-bounds-targeted-" + name)
+        let leftId, rightId, resultId = nodeId "left", nodeId "right", nodeId "result"
+        let target: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-targeted"
+              DisplayName = "targeted"
+              Parameters = []
+              ResultType = float64List
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ { Id = leftId; Kind = SemanticNodeKind.ListEmpty float64Type }
+                      { Id = rightId; Kind = SemanticNodeKind.ListEmpty float64Type }
+                      { Id = resultId; Kind = SemanticNodeKind.ListConcat(leftId, rightId) } ]
+                  ResultNodeId = resultId } }
+        let snapshot = { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-recipe-bounds-targeted") with Functions = [ target ] }
+        let workspace =
+            match AgentWorkspace.create snapshot with
+            | Ok workspace -> workspace
+            | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
+        let literal () = ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
+        let rec deep depth = if depth <= 1 then literal () else ExpressionRecipe.Float64Add(literal (), deep (depth - 1))
+        let list items = ExpressionRecipe.ListConstruct(float64Type, items)
+        // The bounds apply to the replacement recipe of one non-result node, not to the rest of the body.
+        let replace replacement =
+            AgentExpressionStructuralWorkflow.Targeted.simulate
+                workspace
+                { TargetFunctionId = target.Id
+                  ExpectedBaseSnapshotId = snapshot.Id
+                  TargetNodeId = leftId
+                  Replacement = replacement }
+        let accepted label = function
+            | Ok _ -> ()
+            | error -> failwithf "%s should pass: %A" label error
+
+        replace (list [ deep 31 ]) |> accepted "Depth 32"
+        replace (list [ deep 32 ]) |> assertRejectedCode "StructuralRecipeDepthLimitExceeded"
+        replace (list (List.init 255 (fun _ -> literal ()))) |> accepted "Node count 256"
+        replace (list (List.init 256 (fun _ -> literal ()))) |> assertRejectedCode "StructuralRecipeNodeLimitExceeded"

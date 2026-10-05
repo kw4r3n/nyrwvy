@@ -74,13 +74,29 @@ module ListCallbackContextTests =
         let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason restore"))
         let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
-        Assert.Contains("\"context\"", TypedSemanticIrCodec.serialize typed)
-        Assert.Contains("\"context\"", ExecutionIrCodec.serialize (ExecutionIr.lower typed |> unwrap "lower"))
+        Assert.Contains("\"context\"", TypedSemanticIrSerializer.serialize typed)
+        Assert.Contains("\"context\"", ExecutionIrSerializer.serialize (ExecutionIr.lower typed |> unwrap "lower"))
         // A context-free callback serializes without the property, exactly as before.
         let plain = { snapshot with Functions = snapshot.Functions |> List.filter (fun fn -> fn.DisplayName = "above") }
         Assert.DoesNotContain("\"context\"", SnapshotCodec.serialize plain |> unwrap "plain")
         Assert.Throws<Exception>(fun () ->
             json.Replace("\"context\":[", "\"context\":[],\"unused\":[") |> SnapshotCodec.deserialize |> unwrap "tampered" |> ignore) |> ignore
+
+    [<Fact>]
+    let ``persisted callback context is omitted rather than written empty`` () =
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing (fixture ())
+        let json = SnapshotCodec.serialize snapshot |> unwrap "json"
+        let contexts = Text.RegularExpressions.Regex("\"context\":\\[[^\\]]*\\]")
+        Assert.Equal(5, contexts.Matches(json).Count)
+        // An empty array is not another spelling of "no context": the decoder rejects it.
+        match contexts.Replace(json, "\"context\":[]", 1) |> SnapshotCodec.deserialize with
+        | Error error -> Assert.Contains("Callback context must be omitted rather than empty.", sprintf "%A" error)
+        | Ok _ -> failwith "An empty callback context was accepted."
+        // Omitting it decodes to an empty context, which the validator then checks against the callback arity.
+        let omitted = contexts.Replace(json, "", 1).Replace(",,", ",").Replace(",}", "}")
+        match SnapshotCodec.deserialize omitted with
+        | Error error -> Assert.DoesNotContain("omitted rather than empty", sprintf "%A" error)
+        | Ok _ -> failwith "A callback without its required context was accepted."
 
     [<Fact>]
     let ``context bindings are checked in recipes and in persisted graphs`` () =

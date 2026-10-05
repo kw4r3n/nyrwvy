@@ -54,9 +54,9 @@ module StringCodePointsTests =
         let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
-        Assert.Contains("\"stringCodePoints\"", TypedSemanticIrCodec.serialize typed)
+        Assert.Contains("\"stringCodePoints\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
-        Assert.Contains("\"stringCodePoints\"", ExecutionIrCodec.serialize execution)
+        Assert.Contains("\"stringCodePoints\"", ExecutionIrSerializer.serialize execution)
         let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
         Assert.Contains("NyList<NyStr>.FromOwnedArray(codePoints.ToArray())", artifact.Source)
         // A persisted node over a non-String value is a validation error.

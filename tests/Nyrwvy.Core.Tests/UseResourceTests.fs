@@ -120,7 +120,7 @@ module UseResourceTests =
             let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
             let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
-            Assert.Contains("\"useResource\"", ExecutionIrCodec.serialize (ExecutionIr.lower typed |> unwrap "lower")))
+            Assert.Contains("\"useResource\"", ExecutionIrSerializer.serialize (ExecutionIr.lower typed |> unwrap "lower")))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``UseResource releases on every exit and combines failures`` () =

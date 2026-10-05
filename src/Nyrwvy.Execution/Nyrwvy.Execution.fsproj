@@ -2,13 +2,13 @@
   <ItemGroup>
     <Compile Include="TypedSemanticIr.fs" />
     <Compile Include="AgentExecution.fs" />
-    <Compile Include="TypedSemanticIrCodec.fs" />
+    <Compile Include="TypedSemanticIrSerializer.fs" />
     <Compile Include="ExecutionIrModel.fs" />
     <Compile Include="ExecutionCallGraph.fs" />
     <Compile Include="ExecutionIrAnalysis.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />
-    <Compile Include="ExecutionIrCodec.fs" />
+    <Compile Include="ExecutionIrSerializer.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />

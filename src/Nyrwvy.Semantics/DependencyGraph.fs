@@ -27,6 +27,8 @@ module DependencyGraph =
             |> Result.bind (fun (seen: Map<string, 'T>, ordered: 'T list) ->
                 let key = identity item
                 match Map.tryFind key seen with
+                // Structural equality on purpose: Product field, Union variant and parameter order
+                // is meaningful, so the same identity with reordered members is a conflict.
                 | Some existing when existing = item -> Ok(seen, ordered)
                 | Some _ -> Error(DependencyCombinationError.ConflictingDeclaration(kind, key))
                 | None -> Ok(Map.add key item seen, item :: ordered))) (Ok(Map.empty, []))

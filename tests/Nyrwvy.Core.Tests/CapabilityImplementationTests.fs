@@ -102,8 +102,8 @@ module CapabilityImplementationTests =
             Assert.Contains("implementations", inspected.RootElement.GetRawText())
             let typed = TypedSemanticIr.project graph |> unwrap
             let execution = ExecutionIr.lower typed |> unwrap
-            Assert.Contains("capabilityConstruct", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("capabilityConstruct", ExecutionIrCodec.serialize execution)
+            Assert.Contains("capabilityConstruct", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("capabilityConstruct", ExecutionIrSerializer.serialize execution)
             let reachable = ExecutionCallGraph.forEntry execution (find session "choose").Id
             Assert.Contains(reachable.Functions, fun fn -> fn.SemanticFunctionId = (find session "ten").Id)
             Assert.Contains(reachable.Functions, fun fn -> fn.SemanticFunctionId = (find session "twenty").Id)

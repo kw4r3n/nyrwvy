@@ -23,7 +23,7 @@
 
 ## Consequences
 
-- `ListLast` and `ListDropLast` go through the semantic graph, validation (`ListLastInputTypeMismatch`, `ListDropLastInputTypeMismatch`), snapshot and Nyason codecs, typed semantic IR, Execution IR, the C# backend, the viewer, wire recipes and the recipe reference. No schema version changes.
+- `ListLast` and `ListDropLast` go through the semantic graph, validation (`ListLastInputTypeMismatch`, `ListDropLastInputTypeMismatch`), snapshot and Nyason codecs, typed semantic IR, Execution IR, the C# backend, the viewer, wire recipes and the recipe reference. No IR schema version changes. A snapshot that uses them is written at snapshot JSON 13 / Nyason `nayamnyam.snapshot.v9` since 2026-10-05; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions).
 - `StandardOperationTests` covers both through every layer, and `ListAppendTests`' compiled driver checks that pushing twice onto one popped list leaves the original and both results independent.
 - **Known limit.** A push right after a pop copies the stack. A search that pops a leaf before every push on a deep path is still quadratic: on a comb whose every node depends first on a leaf, 10,000 nodes take 0.80 s and 20,000 take 2.4 s (the frame version: 1.0 s and 4.7 s).
 

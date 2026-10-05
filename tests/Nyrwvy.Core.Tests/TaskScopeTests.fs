@@ -304,8 +304,8 @@ module TaskScopeTests =
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
             let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"
-            Assert.Contains("\"taskStart\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"taskWait\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"taskStart\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"taskWait\"", ExecutionIrSerializer.serialize execution)
             // Members run concurrently, so the capabilities they use need a concurrent binding assertion.
             let profile = CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]
             match session.EmitCSharp profile with
@@ -338,16 +338,16 @@ module TaskScopeTests =
             Assert.Contains(None, limits)
             Assert.Contains(limits, Option.isSome)
             Assert.Contains("\"limitNodeId\"", File.ReadAllText path)
-            Assert.Contains("limitValueId", ExecutionIrCodec.serialize execution)
+            Assert.Contains("limitValueId", ExecutionIrSerializer.serialize execution)
             // A limit operand selects newer schemas, so readers that predate limits reject it by version.
             let stored = File.ReadAllText path
             Assert.Contains("\"schemaVersion\":12", stored)
             Assert.True(SnapshotCodec.deserialize (stored.Replace("\"schemaVersion\":12", "\"schemaVersion\":11")) |> Result.isError)
             Assert.Contains("nayamnyam.snapshot.v8", nyason)
             Assert.True(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v8", "nayamnyam.snapshot.v7")) |> Result.isError)
-            Assert.Contains("\"schemaVersion\":9", TypedSemanticIrCodec.serialize typed)
+            Assert.Contains("\"schemaVersion\":9", TypedSemanticIrSerializer.serialize typed)
             // The task loops end in tail self calls, so Execution IR carries TailCall (version 9).
-            Assert.Contains("\"schemaVersion\":9", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"schemaVersion\":9", ExecutionIrSerializer.serialize execution)
             Assert.Equal("TaskCancelInputTypeMismatch", reject [ "task", stringType ] unitType (ExpressionRecipe.TaskCancel(slot 0)))
             // The body's free parameter must be the scope.
             Assert.Equal("TaskScopeBodyMismatch", reject capabilities outcomeType (ExpressionRecipe.TaskScope(memberWorker.Id, context)))

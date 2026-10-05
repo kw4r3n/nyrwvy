@@ -59,7 +59,7 @@ C# is the only backend, and the execution IR already has what a loop needs:
 The change:
 
 1. **Lowering** (`ExecutionIrLoweringCore.fs`, `lowerGraph`): pass an `isTail` flag into the arms and the `Bind` body of a structured node that is itself in tail position. A self `DirectCall` lowered with `isTail` ends its block with a new terminator, `TailCall(arguments)`, instead of a call instruction and a jump to the merge block. Node scheduling orders instructions by dependency and then by node ID, so the tail call is emitted last in its block; other nodes of the arm are independent of it and are placed before it.
-2. **IR model and codec**: the new terminator, in `ExecutionIrModel.fs`, `ExecutionIrCodec.fs`, the backend validation and the call graph (a self edge, already allowed).
+2. **IR model and codec**: the new terminator, in `ExecutionIrModel.fs`, `ExecutionIrSerializer.fs`, the backend validation and the call graph (a self edge, already allowed).
 3. **Emitter**: the new terminator assigns the parameter locals through temporaries and jumps to the label after the prologue, so the parameter copies are not redone. The function keeps its C# signature.
 4. **Documentation**: the guarantee and the tail-position rule in the [language subset](../reference/language-subset.md) and the [expression authoring spec](../specs/expression-authoring.md#selfcall), and a revised `runPure` overflow message that names the rule.
 5. **Tests**: a 10,000,000-turn tail self-call under `runPure`; a self-call in each tail position kind; a non-tail self-call (`ResultOk(f(x))`) that still overflows; an effectful loop with a fake capability; a call inside a `ListFold` callback; and the codec round trip.

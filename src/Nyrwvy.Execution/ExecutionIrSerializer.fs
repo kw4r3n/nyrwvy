@@ -6,8 +6,12 @@ open System.Text.Json
 /// Canonical serialization for backend-neutral Execution IR.
 /// Collection order is normalized only where order is non-semantic.
 /// Instruction order and signature/block-parameter order are preserved.
+///
+/// Write-only debug and inspection output. There is no reader, and the JSON shape
+/// carries no compatibility promise: it may change in any commit, and `schemaVersion`
+/// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
-module ExecutionIrCodec =
+module ExecutionIrSerializer =
     let schemaVersion = 9
 
     let private quote (value: string): string =

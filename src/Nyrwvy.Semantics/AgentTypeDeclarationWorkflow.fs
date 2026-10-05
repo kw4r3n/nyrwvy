@@ -100,6 +100,8 @@ module AgentTypeDeclarationGroupProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
 [<RequireQualifiedAccess>]
 module AgentTypeDeclarationProposal =
@@ -107,6 +109,8 @@ module AgentTypeDeclarationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
 [<RequireQualifiedAccess>]
 module AgentTypeDeclarationWorkflow =
@@ -332,7 +336,7 @@ module AgentTypeDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedType = List.exactlyOne candidate.Created } })
+                      CreatedType = List.exactlyOne candidate.Prepared } })
 
     /// Creates a group of types that may reference themselves and each other through their
     /// request-local references.
@@ -349,7 +353,7 @@ module AgentTypeDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedTypes = candidate.Created } })
+                      CreatedTypes = candidate.Prepared } })
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)

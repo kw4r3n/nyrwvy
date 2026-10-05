@@ -90,9 +90,9 @@ module StandardOperationChoiceTests =
         let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
-        Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrCodec.serialize typed)
+        Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)
         let execution = ExecutionIr.lower typed |> unwrap "lower"
-        Assert.Contains("\"" + wireKind + "\"", ExecutionIrCodec.serialize execution)
+        Assert.Contains("\"" + wireKind + "\"", ExecutionIrSerializer.serialize execution)
         let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
         Assert.Contains(csharpCall, artifact.Source)
         // Every parameter reference replaced by a literal of the other primitive type.

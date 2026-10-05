@@ -81,6 +81,11 @@ type SnapshotComputationScope private (context: SnapshotComputationContext, owns
                 else action ())
         | None -> action ()
 
+    /// `compute` runs under the context lock. The lock is reentrant, so nested memoized
+    /// computations on the same thread are fine, but the scope assumes no concurrent callers
+    /// of one context: a computation that waited on other threads using the same (flowed)
+    /// context would deadlock. Switch to per-key lazies computed outside the lock before
+    /// fanning snapshot computations out across threads.
     static member internal Memoize(name, compute: Snapshot -> 'Result): Snapshot -> 'Result =
         let slot = obj() // One private typed table per computation, per scope.
         fun snapshot ->

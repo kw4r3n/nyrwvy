@@ -265,3 +265,56 @@ module AuthoringDependencySetTests =
             session.Close()
             use upgraded = AuthoringSession.upgradeDependency path next (Some(StableId.value libraryB.Id)) preview.NewFingerprint |> unwrap "upgrade"
             Assert.Equal<Set<string>>(set [ "keep"; "pass"; "more" ], upgraded.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList))
+
+    [<Fact>]
+    let ``the same declaration with reordered Product fields is a conflict, not a merge`` () =
+        let currencyId = id<FieldTag> "currency"
+        let withFields fields: SemanticType =
+            { Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
+        let amount: SemanticField = { Id = amountId; DisplayName = "amount"; Type = intType }
+        let currency: SemanticField = { Id = currencyId; DisplayName = "currency"; Type = TypeRef.Primitive PrimitiveType.String }
+        let first = library "ordered" [ withFields [ amount; currency ] ] []
+        let second = library "reordered" [ withFields [ currency; amount ] ] []
+        // Field order is meaningful, so only identical declarations merge.
+        match DependencyGraph.combine [ first; second ] with
+        | Error(DependencyCombinationError.ConflictingDeclaration(kind, collided)) ->
+            Assert.Equal("type", kind)
+            Assert.Equal(StableId.value moneyId, collided)
+        | other -> failwithf "Reordered declaration was merged: %A" other
+        Assert.True(DependencyGraph.combine [ first; library "same" [ withFields [ amount; currency ] ] [] ] |> Result.isOk)
+
+    [<Fact>]
+    let ``display names shared across dependencies are rejected by mutation and ambiguous by name`` () =
+        // Two libraries each hold a different function displayed as "keep".
+        let libraryD = library "d" [ money "Money" ] [ { identity "other-keep" with DisplayName = "keep" } ]
+        withLibraries (fun root a _ _ ->
+            let d = Path.Combine(root, "d.json")
+            File.WriteAllText(d, SnapshotCodec.serialize libraryD |> unwrap "serialize")
+            use session = AuthoringSession.createNewWithDependencies (Path.Combine(root, "local.json")) [ a; d ] |> unwrap "create"
+            Assert.Equal(2, session.Declarations().Functions |> List.filter (fun fn -> fn.DisplayName = "keep") |> List.length)
+            let protocolError request =
+                use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.GetRawText())
+                let error = response.RootElement.GetProperty("error")
+                Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+                error.GetProperty("message").GetString()
+            Assert.Equal("Ambiguous function 'keep'.", protocolError """{"id":"read","op":"readFunction","function":"keep"}""")
+            Assert.Equal(
+                "Ambiguous function 'keep'.",
+                protocolError """{"id":"delete","op":"simulateOperationsByName","operations":[{"kind":"deleteFunction","function":"keep"}]}""")
+            Assert.Contains(
+                "already exists",
+                protocolError
+                    """{"id":"create","op":"simulateCreateFunctionByName","displayName":"keep","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":1}}""")
+            let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                { ExpectedBaseSnapshotId = session.SnapshotId
+                  DisplayName = "keep"
+                  Parameters = []
+                  ResultType = intType
+                  RequiredEffects = []
+                  Body = ExpressionRecipe.Int64Literal 1L }
+            match session.SimulateCreateFunction request with
+            | Error(AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected(diagnostic :: _))) ->
+                Assert.Equal("FunctionCreationDuplicateDisplayName", diagnostic.Code)
+            | other -> failwithf "Duplicate display name was accepted: %A" other
+            session.Close())

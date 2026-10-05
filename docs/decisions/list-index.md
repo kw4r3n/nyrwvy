@@ -21,5 +21,5 @@ With them, the cycle path of probe 22's search is `ListSlice(stack, i, ListLengt
 
 ## Consequences
 
-- Both go through the semantic graph, validation, snapshot and Nyason codecs, typed semantic IR, Execution IR, the C# backend (`NyList<T>.IndexOf` and `FindIndex`), the viewer, wire recipes and the recipe reference. No schema version changes.
+- Both go through the semantic graph, validation, snapshot and Nyason codecs, typed semantic IR, Execution IR, the C# backend (`NyList<T>.IndexOf` and `FindIndex`), the viewer, wire recipes and the recipe reference. No IR schema version changes. A snapshot that uses them is written at snapshot JSON 13 / Nyason `nayamnyam.snapshot.v9` since 2026-10-05; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions).
 - `ListIndexTests` covers rejection, persistence, Nyason, lowering and emission, and under `runPure` the first match, a later duplicate, an absent item and the empty list.

@@ -217,8 +217,8 @@ module ValueEqualTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            Assert.Contains("\"kind\":\"valueEqual\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"kind\":\"valueEqual\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize)
+            Assert.Contains("\"kind\":\"valueEqual\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"kind\":\"valueEqual\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             use reopened = AuthoringSession.openExisting path |> unwrap
             Assert.Equal(named.Body.ResultNodeId, (find reopened "sameByName").Body.ResultNodeId))
 
