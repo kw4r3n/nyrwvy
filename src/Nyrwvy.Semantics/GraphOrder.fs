@@ -25,15 +25,16 @@ module internal GraphOrder =
                 | None -> pairs rest
         observable |> List.sortBy StableId.value |> pairs
 
-    /// Legacy effect-only graphs retain their existing lowering-time readiness check.
-    /// A new local exit must also pass ordering before it can be published or reopened.
+    /// Only functions with a local exit (Abort) are ordered here, so that such a function cannot be
+    /// published or reopened unordered; graphs without one are ordered by the same rule at lowering
+    /// (`ExecutionIrAnalysis.validateEffectOrder`).
     let tryAbortOrderConflict (functions: Map<FunctionId, SemanticFunction>) (fn: SemanticFunction) =
         let all = ValueGraph.collectNodes fn.Body
         if not (all |> List.exists (fun node -> match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false)) then None
         else
             let functionHasEffects id = Map.tryFind id functions |> Option.exists (fun target -> not (List.isEmpty target.RequiredEffects))
             // Bodies and TaskStart workers belong to kinds that are observable on their own above.
-            // Pure list callbacks are not checked here, as before: validation requires them pure.
+            // Pure callbacks carry no effects (validation requires them pure), so they never make a node observable.
             let carriesCalleeEffects role =
                 match role with
                 | FunctionReferenceRole.DirectCall

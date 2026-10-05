@@ -637,13 +637,13 @@ module SnapshotValidator =
                                 |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
                             with
                             | Some extended -> substitution <- extended
-                            | None -> add "CallbackParameterTypeMismatch" $"{name} callback input types must match the key and value types."
+                            | None -> add "CallbackParameterTypeMismatch" $"{name} node '{StableId.value nodeId}' callback input types must match the key and value types."
                         | _ ->
-                            add "CallbackArityMismatch" $"{name} callback must have exactly two parameters not bound by context (key, value)."
+                            add "CallbackArityMismatch" $"{name} node '{StableId.value nodeId}' callback must have exactly two parameters not bound by context (key, value)."
                         if requireBool && TypeParameters.substitute substitution keep.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
-                            add "PredicateResultTypeMismatch" $"{name} callback must return Bool."
+                            add "PredicateResultTypeMismatch" $"{name} node '{StableId.value nodeId}' callback must return Bool."
                         if not (PureFunctions.isPure snapshot keep.Id) then
-                            add "CallbackEffectsNotAllowed" $"{name} callback must be pure, including its transitive calls and ambient task or cancellation behavior."
+                            add "CallbackEffectsNotAllowed" $"{name} node '{StableId.value nodeId}' callback must be pure, including its transitive calls and ambient task or cancellation behavior."
                 | Some _ -> add "MapInputTypeMismatch" $"{name} node '{StableId.value nodeId}' requires a Map<K, V> input."
                 | None -> ()
 
@@ -1305,19 +1305,19 @@ module SnapshotValidator =
                                 let unbound, contextSubstitution = validateCallbackContext node.Id folder context
                                 let mutable substitution = contextSubstitution
                                 if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" "ListFold folder must have exactly two parameters not bound by context (accumulator, item)."
+                                    add "CallbackArityMismatch" $"ListFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
                                     match
                                         TypeParameters.matchType substitution unbound.Head.Type seedType
                                         |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
                                     with
                                     | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" "ListFold folder input types must match seed and list item types."
+                                    | None -> add "CallbackParameterTypeMismatch" $"ListFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
                                 if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" "ListFold folder must return the seed type."
+                                    add "CallbackResultTypeMismatch" $"ListFold node '{StableId.value node.Id}' folder must return the seed type."
                                 if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" "ListFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" "ListFold requires List<T> input."
+                                    add "CallbackEffectsNotAllowed" $"ListFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListFold node '{StableId.value node.Id}' requires List<T> input."
                         | _ -> ()
                     | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceMapNodeId, nodeType seedNodeId with
@@ -1335,13 +1335,13 @@ module SnapshotValidator =
                                         |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
                                     with
                                     | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" "MapFold folder input types must match the seed, key and value types."
+                                    | None -> add "CallbackParameterTypeMismatch" $"MapFold node '{StableId.value node.Id}' folder input types must match the seed, key and value types."
                                 | _ ->
-                                    add "CallbackArityMismatch" "MapFold folder must have exactly three parameters not bound by context (accumulator, key, value)."
+                                    add "CallbackArityMismatch" $"MapFold node '{StableId.value node.Id}' folder must have exactly three parameters not bound by context (accumulator, key, value)."
                                 if TypeParameters.substitute substitution folder.ResultType <> seedType then
-                                    add "CallbackResultTypeMismatch" "MapFold folder must return the seed type."
+                                    add "CallbackResultTypeMismatch" $"MapFold node '{StableId.value node.Id}' folder must return the seed type."
                                 if not (PureFunctions.isPure snapshot folder.Id) then
-                                    add "CallbackEffectsNotAllowed" "MapFold folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+                                    add "CallbackEffectsNotAllowed" $"MapFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
                         | Some _, Some _ -> add "MapInputTypeMismatch" $"MapFold node '{StableId.value node.Id}' requires a Map<K, V> input."
                         | _ -> ()
                     | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
@@ -1357,25 +1357,25 @@ module SnapshotValidator =
                                 let unbound, contextSubstitution = validateCallbackContext node.Id folder context
                                 let mutable substitution = contextSubstitution
                                 if unbound.Length <> 2 then
-                                    add "CallbackArityMismatch" "ListEffectFold folder must have exactly two parameters not bound by context (accumulator, item)."
+                                    add "CallbackArityMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
                                     match
                                         TypeParameters.matchType substitution unbound.Head.Type seedType
                                         |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
                                     with
                                     | Some extended -> substitution <- extended
-                                    | None -> add "CallbackParameterTypeMismatch" "ListEffectFold folder input types must match seed and list item types."
+                                    | None -> add "CallbackParameterTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
                                 match TypeParameters.substitute substitution folder.ResultType with
                                 | resultType when resultType = seedType -> ()
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) when okType = seedType -> ()
                                 | _ ->
-                                    add "CallbackResultTypeMismatch" "ListEffectFold folder must return the seed type S or Result<S, E>."
+                                    add "CallbackResultTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder must return the seed type S or Result<S, E>."
                                 for effectId in folder.RequiredEffects do
                                     if not (Set.contains effectId requiredEffects) then
                                         add
                                             "MissingEffectRequirement"
                                             $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} folds with {StableId.describe folder.DisplayName folder.Id} but does not declare required effect {effectLabel effectId}."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" "ListEffectFold requires List<T> input."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' requires List<T> input."
                         | _ -> ()
                     | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
                         // Release is guaranteed only for a resource this node alone acquires: the
@@ -1493,7 +1493,7 @@ module SnapshotValidator =
                             for effectId in worker.RequiredEffects do
                                 if not (Set.contains effectId requiredEffects) then
                                     add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} runs {StableId.describe worker.DisplayName worker.Id} in parallel but does not declare required effect {effectLabel effectId}."
-                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" "ParallelAll requires List<T> input."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' requires List<T> input."
                         | _, None -> add "UnknownCallbackFunction" $"ParallelAll node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
@@ -1522,20 +1522,20 @@ module SnapshotValidator =
                         match Map.tryFind target functionsById with
                         | None -> add "UnknownFunctionReference" $"Function reference '{StableId.value node.Id}' names unknown function '{StableId.value target}'."
                         | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
-                            add "GenericFunctionReferenceUnsupported" "A function value must reference a monomorphic function; use a concrete wrapper."
+                            add "GenericFunctionReferenceUnsupported" $"Function reference '{StableId.value node.Id}' must reference a monomorphic function; use a concrete wrapper."
                         | Some _ when not (PureFunctions.isPure snapshot target) ->
-                            add "ImpureFunctionReference" "A function value must reference a pure function, including its transitive calls and ambient cancellation behavior."
+                            add "ImpureFunctionReference" $"Function reference '{StableId.value node.Id}' must reference a pure function, including its transitive calls and ambient cancellation behavior."
                         | Some _ -> ()
                     | SemanticNodeKind.FunctionInvoke(value, arguments) ->
                         match nodeType value with
                         | Some(TypeRef.Function(parameters, _)) when parameters.Length <> arguments.Length ->
-                            add "FunctionInvokeArityMismatch" "Function invocation must supply exactly one value for each positional parameter."
+                            add "FunctionInvokeArityMismatch" $"Function invocation '{StableId.value node.Id}' must supply exactly one value for each positional parameter."
                         | Some(TypeRef.Function(parameters, _)) ->
                             List.zip parameters arguments |> List.iter (fun (expected, argument) ->
                                 match nodeType argument with
-                                | Some actual when actual <> expected -> add "FunctionInvokeArgumentTypeMismatch" "Function invocation argument has the wrong type."
+                                | Some actual when actual <> expected -> add "FunctionInvokeArgumentTypeMismatch" $"Function invocation '{StableId.value node.Id}' argument has the wrong type."
                                 | _ -> ())
-                        | Some _ -> add "FunctionInvokeTargetTypeMismatch" "Function invocation requires a function value."
+                        | Some _ -> add "FunctionInvokeTargetTypeMismatch" $"Function invocation '{StableId.value node.Id}' requires a function value."
                         | None -> ()
                     | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                         match Map.tryFind targetFunctionId functionsById with

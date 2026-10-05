@@ -25,8 +25,8 @@ module private FingerprintHash =
 
 [<RequireQualifiedAccess>]
 module SnapshotFingerprint =
-    // Legacy domain label intentionally retained so the spelling correction does
-    // not invalidate previously reviewed fingerprint values.
+    // The domain is a frozen identifier, not a name: its `nayamnyam` spelling is part of every
+    // reviewed fingerprint value and must not follow the project name.
     let private domain = "nayamnyam.snapshot-fingerprint.v6"
 
     let private computeCached: Snapshot -> Result<SnapshotFingerprint, SnapshotCodecError> =
@@ -40,8 +40,8 @@ module SnapshotFingerprint =
 
 [<RequireQualifiedAccess>]
 module SemanticFingerprint =
-    // Legacy domain label intentionally retained so the spelling correction does
-    // not invalidate previously reviewed fingerprint values.
+    // The domain is a frozen identifier, not a name: its `nayamnyam` spelling is part of every
+    // reviewed fingerprint value and must not follow the project name.
     let private domain = "nayamnyam.semantic-fingerprint.v6"
     let private displayPlaceholder = "_"
 

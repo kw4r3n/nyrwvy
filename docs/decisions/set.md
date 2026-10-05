@@ -27,6 +27,7 @@ The [Map decision](map.md) put Set in a second slice on the same runtime structu
 - New diagnostics:
   - `SetItemTypeNotEquatable`;
   - in persisted graphs, `SetInputTypeMismatch` and `SetItemTypeMismatch`.
+- As for `Map` keys, a type parameter is never equatable, so a `Set` item type is always concrete and a generic function cannot take or return `Set<T>`; `SetItemTypeNotEquatable` says so for a type parameter.
 
 ## Revisit conditions
 

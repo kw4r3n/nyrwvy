@@ -329,8 +329,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetRemove(map, key) -> ExpressionRecipe.SetRemove(go map, go key)
         | ExpressionRecipe.MapContainsKey(map, key) -> ExpressionRecipe.MapContainsKey(go map, go key)
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
-        | ExpressionRecipe.ListIndexOf(map, key) -> ExpressionRecipe.ListIndexOf(go map, go key)
-        | ExpressionRecipe.ListLastIndexOf(map, key) -> ExpressionRecipe.ListLastIndexOf(go map, go key)
+        | ExpressionRecipe.ListIndexOf(list, item) -> ExpressionRecipe.ListIndexOf(go list, go item)
+        | ExpressionRecipe.ListLastIndexOf(list, item) -> ExpressionRecipe.ListLastIndexOf(go list, go item)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -2632,7 +2632,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapKeys map -> unary SemanticNodeKind.MapKeys map
         | ExpressionRecipe.SetToList map -> unary SemanticNodeKind.SetToList map
         | ExpressionRecipe.MapSize map -> unary SemanticNodeKind.MapSize map
-        | ExpressionRecipe.SetFromList map -> unary SemanticNodeKind.SetFromList map
+        | ExpressionRecipe.SetFromList list -> unary SemanticNodeKind.SetFromList list
         | ExpressionRecipe.SetSize map -> unary SemanticNodeKind.SetSize map
         | ExpressionRecipe.ListReverse list -> unary SemanticNodeKind.ListReverse list
         | ExpressionRecipe.ListLast list -> unary SemanticNodeKind.ListLast list
@@ -2644,8 +2644,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetRemove(map, key) -> binary SemanticNodeKind.SetRemove map key
         | ExpressionRecipe.MapContainsKey(map, key) -> binary SemanticNodeKind.MapContainsKey map key
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
-        | ExpressionRecipe.ListIndexOf(map, key) -> binary SemanticNodeKind.ListIndexOf map key
-        | ExpressionRecipe.ListLastIndexOf(map, key) -> binary SemanticNodeKind.ListLastIndexOf map key
+        | ExpressionRecipe.ListIndexOf(list, item) -> binary SemanticNodeKind.ListIndexOf list item
+        | ExpressionRecipe.ListLastIndexOf(list, item) -> binary SemanticNodeKind.ListLastIndexOf list item
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map
