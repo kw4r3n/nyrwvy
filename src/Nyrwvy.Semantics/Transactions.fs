@@ -233,6 +233,38 @@ module Transaction =
                 | Some _
                 | None -> None))
 
+    let private describeFunction (snapshot: Snapshot) (id: FunctionId) =
+        let name =
+            snapshot.Functions
+            |> List.tryFind (fun fn -> fn.Id = id)
+            |> Option.map (fun fn -> fn.DisplayName)
+            |> Option.defaultValue "?"
+        $"'{name}' ({StableId.value id})"
+
+    let private nonCallUseLabel = function
+        | FunctionReferenceRole.DirectCall -> None
+        | FunctionReferenceRole.PureListCallback
+        | FunctionReferenceRole.EffectListCallback -> Some "callback"
+        | FunctionReferenceRole.Worker -> Some "worker"
+        | FunctionReferenceRole.Body -> Some "scoped body"
+        | FunctionReferenceRole.FunctionValue -> Some "function value"
+        | FunctionReferenceRole.CapabilityImplementation _ -> Some "capability implementation"
+
+    /// Functions that use the target other than through a DirectCall, each with the kinds of use.
+    /// Only direct calls can be planned, since the other roles fix the function's signature.
+    let private nonCallUses targetFunctionId (snapshot: Snapshot) =
+        snapshot.Functions
+        |> List.choose (fun owner ->
+            let labels =
+                ValueGraph.collectNodes owner.Body
+                |> List.collect SemanticNodeShape.functionReferences
+                |> List.filter (fun reference -> reference.FunctionId = targetFunctionId)
+                |> List.choose (fun reference -> nonCallUseLabel reference.Role)
+                |> List.distinct
+                |> List.sort
+            if List.isEmpty labels then None else Some(owner.Id, labels))
+        |> List.sortBy (fst >> StableId.value)
+
     let private addFunctionParameter
         (transactionId: TransactionId)
         (request: AddFunctionParameterRequest)
@@ -251,104 +283,117 @@ module Transaction =
             match snapshot.Functions |> List.tryFind (fun item -> item.Id = request.TargetFunctionId) with
             | None -> Error("TargetNotFound", "The target function was not found.")
             | Some targetFunction ->
-                let affected = affectedCalls request.TargetFunctionId snapshot
-                let affectedIds = affected |> List.map snd |> Set.ofList
-                let planIds = request.CallSitePlans |> List.map callPlanNodeId
-                let planIdSet = Set.ofList planIds
+                match nonCallUses request.TargetFunctionId snapshot with
+                | _ :: _ as uses ->
+                    let users =
+                        uses
+                        |> List.map (fun (ownerId, labels) ->
+                            let kinds = labels |> String.concat ", "
+                            $"{describeFunction snapshot ownerId} ({kinds})")
+                        |> String.concat "; "
+                    Error(
+                        "ParameterAdditionNonCallUse",
+                        $"Function {describeFunction snapshot targetFunction.Id} is used other than as a direct call by {users}. Those uses fix its signature, so only direct calls can supply a new parameter; replace those uses before adding a parameter to this function."
+                    )
+                | [] ->
+                    let affected = affectedCalls request.TargetFunctionId snapshot
+                    let affectedIds = affected |> List.map snd |> Set.ofList
+                    let planIds = request.CallSitePlans |> List.map callPlanNodeId
+                    let planIdSet = Set.ofList planIds
 
-                if planIds.Length <> planIdSet.Count || affectedIds <> planIdSet then
-                    Error("CallPlanMismatch", "Every affected direct call requires exactly one call-site plan.")
-                else
-                    let newObligationIds =
-                        request.CallSitePlans
-                        |> List.choose (function
-                            | LeaveMissing(_, obligationId) -> Some obligationId
-                            | BindExistingValue _ -> None)
-
-                    let existingObligationIds = snapshot.Obligations |> List.map (fun item -> item.Id) |> Set.ofList
-                    let duplicateNewObligation = newObligationIds.Length <> (newObligationIds |> Set.ofList).Count
-                    let collidesWithExisting = newObligationIds |> List.exists (fun id -> Set.contains id existingObligationIds)
-
-                    if duplicateNewObligation || collidesWithExisting then
-                        Error("DuplicateObligationId", "A call-site plan uses a duplicate obligation ID.")
+                    if planIds.Length <> planIdSet.Count || affectedIds <> planIdSet then
+                        Error("CallPlanMismatch", "Every affected direct call requires exactly one call-site plan.")
                     else
-                        let planByCallId =
-                            request.CallSitePlans |> List.map (fun plan -> callPlanNodeId plan, plan) |> Map.ofList
-
-                        let newParameter: SemanticParameter =
-                            { Id = request.NewParameterId
-                              DisplayName = request.NewParameterDisplayName
-                              Type = request.NewParameterType }
-
-                        let functionsWithParameter =
-                            snapshot.Functions
-                            |> List.map (fun functionEntity ->
-                                if functionEntity.Id = targetFunction.Id then
-                                    { functionEntity with Parameters = functionEntity.Parameters @ [ newParameter ] }
-                                else
-                                    functionEntity)
-
-                        let mutable attached: ArgumentAttached list = []
-
-                        let updateNode (node: SemanticNode) =
-                            match Map.tryFind node.Id planByCallId with
-                            | None -> node
-                            | Some plan ->
-                                match plan, node.Kind with
-                                | BindExistingValue(_, valueNodeId), SemanticNodeKind.DirectCall(targetId, arguments) ->
-                                    let binding: ArgumentBinding =
-                                        { TargetParameterId = request.NewParameterId
-                                          ValueNodeId = valueNodeId }
-                                    let change: ArgumentAttached =
-                                        { CallNodeId = node.Id
-                                          TargetParameterId = request.NewParameterId
-                                          ValueNodeId = valueNodeId }
-                                    attached <- change :: attached
-                                    { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
-                                | BindExistingValue _, _
-                                | LeaveMissing _, _ -> node
-
-                        let updatedFunctions =
-                            functionsWithParameter
-                            |> List.map (fun owner -> { owner with Body = ValueGraph.mapNodes updateNode owner.Body })
-
-                        let createdObligations: MissingArgumentObligation list =
+                        let newObligationIds =
                             request.CallSitePlans
                             |> List.choose (function
-                                | LeaveMissing(callNodeId, obligationId) ->
-                                    Some
-                                        { Id = obligationId
-                                          OriginTransactionId = transactionId
-                                          CallNodeId = callNodeId
-                                          ParameterId = request.NewParameterId
-                                          Status = ObligationStatus.Open }
+                                | LeaveMissing(_, obligationId) -> Some obligationId
                                 | BindExistingValue _ -> None)
 
-                        let createdDiff: MissingArgumentCreated list =
-                            createdObligations
-                            |> List.map (fun obligation ->
-                                { ObligationId = obligation.Id
-                                  CallNodeId = obligation.CallNodeId
-                                  ParameterId = obligation.ParameterId })
+                        let existingObligationIds = snapshot.Obligations |> List.map (fun item -> item.Id) |> Set.ofList
+                        let duplicateNewObligation = newObligationIds.Length <> (newObligationIds |> Set.ofList).Count
+                        let collidesWithExisting = newObligationIds |> List.exists (fun id -> Set.contains id existingObligationIds)
 
-                        let updatedSnapshot: Snapshot =
-                            { snapshot with
-                                Functions = updatedFunctions
-                                Obligations = snapshot.Obligations @ createdObligations }
+                        if duplicateNewObligation || collidesWithExisting then
+                            Error("DuplicateObligationId", "A call-site plan uses a duplicate obligation ID.")
+                        else
+                            let planByCallId =
+                                request.CallSitePlans |> List.map (fun plan -> callPlanNodeId plan, plan) |> Map.ofList
 
-                        let parameterChange: ParameterAdded =
-                            { OwnerFunctionId = request.TargetFunctionId
-                              AddedParameterId = request.NewParameterId
-                              AddedDisplayName = request.NewParameterDisplayName
-                              AddedType = request.NewParameterType }
+                            let newParameter: SemanticParameter =
+                                { Id = request.NewParameterId
+                                  DisplayName = request.NewParameterDisplayName
+                                  Type = request.NewParameterType }
 
-                        let updatedChanges: ChangeAccumulator =
-                            { changes with
-                                ParametersAdded = parameterChange :: changes.ParametersAdded
-                                ArgumentsAttached = attached @ changes.ArgumentsAttached
-                                ObligationsCreated = createdDiff @ changes.ObligationsCreated }
+                            let functionsWithParameter =
+                                snapshot.Functions
+                                |> List.map (fun functionEntity ->
+                                    if functionEntity.Id = targetFunction.Id then
+                                        { functionEntity with Parameters = functionEntity.Parameters @ [ newParameter ] }
+                                    else
+                                        functionEntity)
 
-                        Ok(updatedSnapshot, updatedChanges)
+                            let mutable attached: ArgumentAttached list = []
+
+                            let updateNode (node: SemanticNode) =
+                                match Map.tryFind node.Id planByCallId with
+                                | None -> node
+                                | Some plan ->
+                                    match plan, node.Kind with
+                                    | BindExistingValue(_, valueNodeId), SemanticNodeKind.DirectCall(targetId, arguments) ->
+                                        let binding: ArgumentBinding =
+                                            { TargetParameterId = request.NewParameterId
+                                              ValueNodeId = valueNodeId }
+                                        let change: ArgumentAttached =
+                                            { CallNodeId = node.Id
+                                              TargetParameterId = request.NewParameterId
+                                              ValueNodeId = valueNodeId }
+                                        attached <- change :: attached
+                                        { node with Kind = SemanticNodeKind.DirectCall(targetId, arguments @ [ binding ]) }
+                                    | BindExistingValue _, _
+                                    | LeaveMissing _, _ -> node
+
+                            let updatedFunctions =
+                                functionsWithParameter
+                                |> List.map (fun owner -> { owner with Body = ValueGraph.mapNodes updateNode owner.Body })
+
+                            let createdObligations: MissingArgumentObligation list =
+                                request.CallSitePlans
+                                |> List.choose (function
+                                    | LeaveMissing(callNodeId, obligationId) ->
+                                        Some
+                                            { Id = obligationId
+                                              OriginTransactionId = transactionId
+                                              CallNodeId = callNodeId
+                                              ParameterId = request.NewParameterId
+                                              Status = ObligationStatus.Open }
+                                    | BindExistingValue _ -> None)
+
+                            let createdDiff: MissingArgumentCreated list =
+                                createdObligations
+                                |> List.map (fun obligation ->
+                                    { ObligationId = obligation.Id
+                                      CallNodeId = obligation.CallNodeId
+                                      ParameterId = obligation.ParameterId })
+
+                            let updatedSnapshot: Snapshot =
+                                { snapshot with
+                                    Functions = updatedFunctions
+                                    Obligations = snapshot.Obligations @ createdObligations }
+
+                            let parameterChange: ParameterAdded =
+                                { OwnerFunctionId = request.TargetFunctionId
+                                  AddedParameterId = request.NewParameterId
+                                  AddedDisplayName = request.NewParameterDisplayName
+                                  AddedType = request.NewParameterType }
+
+                            let updatedChanges: ChangeAccumulator =
+                                { changes with
+                                    ParametersAdded = parameterChange :: changes.ParametersAdded
+                                    ArgumentsAttached = attached @ changes.ArgumentsAttached
+                                    ObligationsCreated = createdDiff @ changes.ObligationsCreated }
+
+                            Ok(updatedSnapshot, updatedChanges)
 
     let private addProductField
         (request: AddProductFieldRequest)
@@ -635,13 +680,7 @@ module Transaction =
             match callers with
             | Error _ -> Error("FunctionCallSiteInspectionFailed", "The function's callers could not be inspected.")
             | Ok (_ :: _ as sites) ->
-                let describe (id: FunctionId) =
-                    let name =
-                        snapshot.Functions
-                        |> List.tryFind (fun fn -> fn.Id = id)
-                        |> Option.map (fun fn -> fn.DisplayName)
-                        |> Option.defaultValue "?"
-                    $"'{name}' ({StableId.value id})"
+                let describe = describeFunction snapshot
                 let referrers =
                     sites
                     |> List.map (fun site -> site.CallerFunctionId)
