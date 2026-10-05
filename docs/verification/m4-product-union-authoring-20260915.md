@@ -6,7 +6,7 @@ This record captures deterministic repository verification for issue #154 and PR
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Implementation issue: #154
 - Implementation PR: #159
 - Exact verified implementation head: `7a98e1a0a93670ca9430265c7bc6b365fa710a91`

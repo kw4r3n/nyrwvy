@@ -2,7 +2,7 @@
 
 - **Status:** Accepted; implemented. The current contracts are the [product/union](../specs/type-declaration-authoring.md), [effect](../specs/effect-declaration-authoring.md), and [capability/operation](../specs/capability-declaration-authoring.md) declaration authoring specifications.
 - **Date:** 2026-09-08
-- **Issue:** [#146](https://github.com/kw4r3n/nyrwvy-lang/issues/146)
+- **Issue:** [#146](https://github.com/kw4r3n/nyrwvy/issues/146)
 
 This decision defines the next declaration-authoring direction after broad `ExpressionRecipe` construction became available. It does not turn declarations into a generic raw graph-editing surface.
 
@@ -224,4 +224,4 @@ No broad model corpus or routine extended/live CI is authorized merely because a
 
 Revisit this boundary when real workflows require body-less function declarations, self-recursive creation, mutually dependent new declarations, atomic parameter/result type migration, partial type declarations, or capability declaration plus provider registration as one lifecycle.
 
-Refs [#44](https://github.com/kw4r3n/nyrwvy-lang/issues/44), [#114](https://github.com/kw4r3n/nyrwvy-lang/issues/114), [#119](https://github.com/kw4r3n/nyrwvy-lang/issues/119), [#136](https://github.com/kw4r3n/nyrwvy-lang/issues/136), [#137](https://github.com/kw4r3n/nyrwvy-lang/issues/137), [#145](https://github.com/kw4r3n/nyrwvy-lang/issues/145).
+Refs [#44](https://github.com/kw4r3n/nyrwvy/issues/44), [#114](https://github.com/kw4r3n/nyrwvy/issues/114), [#119](https://github.com/kw4r3n/nyrwvy/issues/119), [#136](https://github.com/kw4r3n/nyrwvy/issues/136), [#137](https://github.com/kw4r3n/nyrwvy/issues/137), [#145](https://github.com/kw4r3n/nyrwvy/issues/145).

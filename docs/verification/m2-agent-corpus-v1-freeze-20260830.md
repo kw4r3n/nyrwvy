@@ -8,7 +8,7 @@ It is evaluation-input evidence, not a model-reliability result.
 
 ## Frozen condition
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Corpus issue: #50
 - Fixture/oracle verification subtask: #58
 - Corpus merge PR: #62

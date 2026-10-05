@@ -6,7 +6,7 @@ The largest language costs are the missing `while` loop and the missing dict and
 
 **Date:** 2026-10-01
 
-Baseline: nyrwvy `29017a9` (main after #272, clean); rrawrlet `5a46504` (branch `claude/project-thread-jhvo4h`, clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with rrawrlet's own virtual environment, Python 3.14.3, with `argparse` from that interpreter. The `str.isprintable` and `str.isdecimal` tables were computed from it.
+Baseline: nyrwvy `29017a9` (main after #272, clean); rrawrlet `5a46504` (clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with rrawrlet's own virtual environment, Python 3.14.3, with `argparse` from that interpreter. The `str.isprintable` and `str.isdecimal` tables were computed from it.
 
 The method was probe 12's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests (`simulateCreateTypesByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `simulateReplaceBodyByName`, `commit` and `runPureByName`), no `declarations` call, and `runPure` batches of up to 40 cases through a `runCases` entry. Probe 12's recipe helper and session client were reused. None of its port was reused, because these parts share no logic with it. Scripts, cases and transcripts were kept outside the repository in a scratch directory (`probe13/`) and are not committed.
 

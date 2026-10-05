@@ -6,7 +6,7 @@ This record captures deterministic verification for issue #160, the Effect stage
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Implementation issue: #160
 - Implementation PR: #162
 - Exact verified implementation head: `468e1574556924e1368c0e1b35da3cbdc9a35957`

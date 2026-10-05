@@ -4,7 +4,7 @@
 
 **Date:** 2026-09-28
 
-Baseline: nyrwvy `70995fa` (branch `claude/rrawrlet-reprobe`, main after #225 Bool operators); rrawrlet `903f2ce`. `preview`, `usage_is_complete` and `summarize` are unchanged since the 2026-09-25 probe's `d02990a` (the AST is identical). Python 3.14.7 ran the real functions, extracted read-only from `rrawrlet/team.py`.
+Baseline: nyrwvy `70995fa` (main after #225 Bool operators); rrawrlet `903f2ce`. `preview`, `usage_is_complete` and `summarize` are unchanged since the 2026-09-25 probe's `d02990a` (the AST is identical). Python 3.14.7 ran the real functions, extracted read-only from `rrawrlet/team.py`.
 
 This re-runs the 2026-09-25 slice probe (see [post-M2 roadmap](../plans/post-m2-roadmap.md#queue-from-the-2026-09-25-probe)) after queue orders 1-5 were implemented. It uses only the maintained `Nyrwvy.AuthoringSession` JSON-lines protocol: `simulate*ByName`, `commit`, `declarations` and `runPureByName`. No exact-ID authoring request was needed. The driver is a transport client with pure JSON builders and does not look up names or IDs. Scripts and transcripts are kept outside the repository in the session scratchpad `reprobe/` (`client.py`, `data.py`, `run_data.py`, `team.py`, `team_single_body.py`, `run_team.py`, `count.py`, `*_transcript.jsonl`).
 

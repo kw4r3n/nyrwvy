@@ -50,7 +50,7 @@ end
 
 set -l repo_root (git rev-parse --show-toplevel 2>/dev/null)
 if test -z "$repo_root"
-    echo "ERROR: run from the nyrwvy-lang repository." >&2
+    echo "ERROR: run from the nyrwvy repository." >&2
     exit 1
 end
 cd "$repo_root"

@@ -6,7 +6,7 @@ The hash was exact but slow. Each 64-byte block costs about 0.25 ms, where Pytho
 
 **Date:** 2026-10-01
 
-Baseline: nyrwvy `68f98d2` (main after #270, clean); rrawrlet `5a46504` (branch `claude/project-thread-jhvo4h`). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with rrawrlet's own virtual environment, Python 3.14.3 (earlier probes used 3.11). The `\w` and `\d` tables were computed from that interpreter.
+Baseline: nyrwvy `68f98d2` (main after #270, clean); rrawrlet `5a46504`. The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with rrawrlet's own virtual environment, Python 3.14.3 (earlier probes used 3.11). The `\w` and `\d` tables were computed from that interpreter.
 
 The method was probe 10's and probe 11's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests (`simulateCreateTypesByName`, `simulateCreateEffect`, `simulateCreateCapabilityByName`, `simulateCreateFunctionByName`, `commit` and `runPureByName`) and no `declarations` call, and `runPure` batches of up to 40 cases through a `runCases` entry. Scripts, cases and transcripts were kept outside the repository in a scratch directory (`probe12/`) and are not committed.
 

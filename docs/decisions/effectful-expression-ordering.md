@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
-- **Issue:** [#141](https://github.com/kw4r3n/nyrwvy-lang/issues/141)
+- **Issue:** [#141](https://github.com/kw4r3n/nyrwvy/issues/141)
 
 This decision selected the bounded Bind authoring contract in Issue #141. The subsequent implementation is described by the [expression authoring specification](../specs/expression-authoring.md), which remains the authority for the implemented surface.
 

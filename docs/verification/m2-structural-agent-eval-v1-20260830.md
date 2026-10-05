@@ -6,7 +6,7 @@ This record captures local verification for the first versioned M2 structural ag
 
 ## Verified protocol condition
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Implementation issue: #49
 - Verified PR head: `1cfd3f9f8f220deecbd188d3a5836e4e295e6d32`
 - Merge PR: #57
