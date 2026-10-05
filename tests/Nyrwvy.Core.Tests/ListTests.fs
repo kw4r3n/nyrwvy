@@ -346,7 +346,7 @@ module ListTests =
         Assert.Contains("private readonly object[]? _root;", artifact.Source)
         Assert.Contains("private readonly Store _tail;", artifact.Source)
         Assert.Contains("private readonly int _count;", artifact.Source)
-        Assert.Contains("public long Length => _count;", artifact.Source)
+        Assert.Contains("public long Length => Count;", artifact.Source)
         Assert.Contains("AppendItem(T item)", artifact.Source)
         Assert.Contains("Concat(NyList<T> other)", artifact.Source)
         Assert.Contains("Array.Copy", artifact.Source)
