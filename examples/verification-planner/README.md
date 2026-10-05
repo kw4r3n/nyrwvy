@@ -35,7 +35,7 @@ Fast is always required. knownRegression is kept as information and does not rai
 
 ## Authoring and maintenance by AI
 
-The current entry point is the [standard graph editing tools](../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.json` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
+The current entry point is the [standard graph editing tools](../../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.json` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
 
 For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `nyrwvy_create_function`. The app-specific Python authoring helper that produced the initial program is no longer needed and was deleted. Deterministic contract tests for the standard tools (`.opencode/tests/nyrwvy-authoring-workflow.test.mjs`) cover creating the same three types and four functions, maintaining one branch, and saving and resuming; the requests and responses of the initial experiment remain in `transcript.jsonl`. These validate the authoring procedure and are not a new LLM evaluation.
 

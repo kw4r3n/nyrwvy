@@ -8,7 +8,7 @@ The largest finding is the event loop. It was written as a self-recursive `serve
 
 Baseline: nyrwvy `084890c` (main after #277, clean); rrawrlet `4276240` (clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The oracle ran rrawrlet's real `mcp.serve_streams` and `Server` on Python 3.11.15.
 
-The method was probe 14's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and `runPureByName`. Probe 9's JSON parser and serialiser and probe 10's `repr` were reused as they were (59 functions, 1,381 nodes). The harness, cases, snapshots and transcripts are in the project's shared files (`rrawrlet-probe15/`) and are not committed.
+The method was probe 14's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and `runPureByName`. Probe 9's JSON parser and serialiser and probe 10's `repr` were reused as they were (59 functions, 1,381 nodes). The harness, cases, snapshots and transcripts are in private files outside the repository (`rrawrlet-probe15/`) and are not committed.
 
 ## Why this part
 
@@ -109,4 +109,4 @@ Against the deferred candidates: the lossy UTF-8 decode builtin was not needed, 
 
 ## Reproducing
 
-The scripts are in the project's shared files under `rrawrlet-probe15/`. `mkcases.py` builds the case directories under `/tmp/mcp15` and runs the oracle (`oracle.py`) with rrawrlet on `PYTHONPATH`. `author.py <snapshot>` authors the port (`p15.json`), and `run_cases.py <snapshot> cases.json known.json` runs the cases. `scale.py` gives the fake-bound rows and `depth.py` the loop depth and the burst. `depth.py <copy> port` replaces `serve` with the folds (`p15fold.json`).
+The scripts are in private files outside the repository under `rrawrlet-probe15/`. `mkcases.py` builds the case directories under `/tmp/mcp15` and runs the oracle (`oracle.py`) with rrawrlet on `PYTHONPATH`. `author.py <snapshot>` authors the port (`p15.json`), and `run_cases.py <snapshot> cases.json known.json` runs the cases. `scale.py` gives the fake-bound rows and `depth.py` the loop depth and the burst. `depth.py <copy> port` replaces `serve` with the folds (`p15fold.json`).

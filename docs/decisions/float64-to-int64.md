@@ -26,7 +26,7 @@ Both give `None` for NaN, for either infinity, and for a result outside Int64, w
 
 **Two names, not a mode argument.** A mode would be a new kind of operand (an enum or a string) with its own validation. Two unary nodes reuse the existing unary path end to end.
 
-**Measured effect.** Probe 20 re-authored with the builtins (`author.py order34` in the project's shared files) replaced `truncPos`, `floorF` and `roundF` (95 nodes) with two 5-node wrappers (10 nodes); the module went from 1,153 to 1,068 nodes and matched the same 3,400/3,400 cases. The JSONL test checks both nodes against Python on ties, values just below one half, 2^52 ± 0.5, subnormals, both ends of the Int64 range, NaN and the infinities.
+**Measured effect.** Probe 20 re-authored with the builtins (`author.py order34` in private files outside the repository) replaced `truncPos`, `floorF` and `roundF` (95 nodes) with two 5-node wrappers (10 nodes); the module went from 1,153 to 1,068 nodes and matched the same 3,400/3,400 cases. The JSONL test checks both nodes against Python on ties, values just below one half, 2^52 ± 0.5, subnormals, both ends of the Int64 range, NaN and the infinities.
 
 ## Consequences
 

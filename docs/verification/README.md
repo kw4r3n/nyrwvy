@@ -49,6 +49,8 @@ This area holds evidence from completed implementation and evaluation work. A re
 
 ## Live agent probes
 
+Most records in this section are *porting probes*: a slice of an existing program was re-authored in Nyrwvy through the AuthoringSession protocol and its outputs were compared case by case with the original. The usual subject, **rrawrlet**, is a separate Python application by the same author (an OpenCode-based agent-team tool) chosen because it is real, unrelated code; its functions are named in the records for orientation only. The probe scripts (`author.py`, `mkcases.py`, oracles) and the raw case files were never part of this repository and are private, as is rrawrlet itself. Each record therefore states what was observed at the recorded Nyrwvy and rrawrlet commits, with the counts, failures and timings as the author saw them; a reader can verify the language changes the probes motivated through the linked decisions, specs and tests, but cannot rerun the comparison. "Probe N" numbers the probes in order; "order N" is the numbered entry of the [implementation queue](../plans/post-m2-roadmap.md#immediate-execution-queue) that a probe's finding became.
+
 - [Codex CLI MCP maintenance probe, Run 1](codex-cli-mcp-maintenance-probe.md) — host approval blocker
 - [Codex CLI MCP maintenance probe, Run 2](codex-cli-mcp-maintenance-probe-run-2.md) — qualified maintenance success
 - [Expression recipe reference live probe](expression-recipe-reference-live-probe.md)
