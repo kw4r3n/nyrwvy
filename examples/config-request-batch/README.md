@@ -32,6 +32,23 @@ node examples/config-request-batch/run.mjs --replay /path/to/output/moved
 
 Replay rewrites only the fixture reports and traces and appends the tool transcript. It does not author the program again.
 
+## Evolve the program to v2
+
+```sh
+node examples/config-request-batch/run.mjs --v2
+```
+
+An optional second argument selects an empty output directory. This mode first runs the v1 exercise, then uses existing APIs to make two separately published changes:
+
+1. Revise the original formatting-library path so `normalizeValue` returns `v2:` followed by the uppercase response, preserving its signature and IDs. Reopen the consumer and prove its retained v1 pin still produces the original output. Commit a local `missingLine` label change to `skipped `, preview the dependency upgrade, and apply only a fresh compatible fingerprint through `open(mode: "upgrade")`. The local edit and existing declaration/parameter IDs survive. The upgraded program runs with its original summary type as a valid intermediate state.
+2. Use `simulateProductFieldTypeMigration` to change `BatchSummary.failed` from `Int64` to `List<String>`. Exactly `collectRequest` and `processConfig` require complete replacement bodies; their function and parameter IDs and all Product field IDs stay stable. An empty failure list replaces zero, and a missing response appends `beta: missing` after its retry limit. The saved report and all exception/cancellation/resource checks remain explicit assertions.
+
+The script rejects an incompatible upstream result type, a source modified after preview, an incomplete rewrite set, an old inspected snapshot and a mistyped rewrite. Each refusal checks both the snapshot and dependency sidecar are byte-identical. It also closes a valid but uncommitted migration proposal, reopens the last published state, refuses reuse of the old proposal handle and reruns that state before resimulating and committing.
+
+`cases.v1.json` and `cases.v1-local.json` retain historical expectations; `cases.json` holds the explicit final v2 expectations. Historical cases are not silently adapted to the new field type. `evolution.json` records the intermediate states, refusals and preserved identities. The final bundle is moved and run after every upstream source is unavailable. The normal `--replay` and focused acquisition-test commands above work with that bundle too.
+
+The dependency upgrade and field migration are independent publications, not one atomic combined update. A refusal retains the immediately preceding committed state, which may already include an earlier successful step. This exercise adds no rollback manager and makes no machine-crash or cross-file crash-atomicity guarantee. Existing upgrade/migration primitives provide the workflow; no language-core change or agent command wrapper is added.
+
 The host also owns cleanup when acquisition itself throws, before `UseResource` has received a handle. A focused regression forces `trace.txt` to be a directory, checks that the original trace I/O exception retains its path, directly checks the private handle collection is empty, opens the exclusive lease file again, and successfully reacquires and releases through the same host instance. It compiles the bundle's unedited projection and host in a temporary directory with the local .NET 10 SDK, without fetching packages:
 
 ```sh
