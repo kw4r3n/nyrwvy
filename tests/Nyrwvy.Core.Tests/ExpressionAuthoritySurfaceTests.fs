@@ -33,38 +33,62 @@ module ExpressionAuthoritySurfaceTests =
         let bindingFlags = BindingFlags.Public ||| BindingFlags.NonPublic
         let coreAssembly = typeof<ExpressionRecipe>.Assembly
 
-        let rec containsForbidden visited (candidate: System.Type) =
-            if forbiddenPayloadTypes |> List.contains candidate then
-                true
-            elif visited |> List.contains candidate then
-                false
+        let children (candidate: System.Type) =
+            if candidate.IsArray then
+                [| candidate.GetElementType() |]
+            elif FSharpType.IsTuple candidate then
+                FSharpType.GetTupleElements candidate
+            elif candidate.Assembly = coreAssembly && FSharpType.IsRecord(candidate, bindingFlags) then
+                FSharpType.GetRecordFields(candidate, bindingFlags) |> Array.map (fun field -> field.PropertyType)
+            elif candidate.Assembly = coreAssembly && FSharpType.IsUnion(candidate, bindingFlags) then
+                FSharpType.GetUnionCases(candidate, bindingFlags)
+                |> Array.collect (fun case -> case.GetFields())
+                |> Array.map (fun field -> field.PropertyType)
+            elif candidate.IsGenericType then
+                candidate.GetGenericArguments()
             else
-                let visited = candidate :: visited
+                [||]
 
-                if candidate.IsArray then
-                    containsForbidden visited (candidate.GetElementType())
-                elif FSharpType.IsTuple candidate then
-                    FSharpType.GetTupleElements candidate
-                    |> Array.exists (containsForbidden visited)
-                elif candidate.Assembly = coreAssembly && FSharpType.IsRecord(candidate, bindingFlags) then
-                    FSharpType.GetRecordFields(candidate, bindingFlags)
-                    |> Array.exists (fun field -> containsForbidden visited field.PropertyType)
-                elif candidate.Assembly = coreAssembly && FSharpType.IsUnion(candidate, bindingFlags) then
-                    FSharpType.GetUnionCases(candidate, bindingFlags)
-                    |> Array.collect (fun case -> case.GetFields())
-                    |> Array.exists (fun field -> containsForbidden visited field.PropertyType)
-                elif candidate.IsGenericType then
-                    candidate.GetGenericArguments()
-                    |> Array.exists (containsForbidden visited)
-                else
-                    false
+        // Reflect each reachable type once, then mark every type that reaches a forbidden one.
+        // Walking per path instead re-reflects shared types once per path, which grows with every
+        // recipe case.
+        let fieldTypes =
+            FSharpType.GetUnionCases(typeof<ExpressionRecipe>)
+            |> Array.collect (fun case -> case.GetFields())
+            |> Array.map (fun field -> field.PropertyType)
+
+        let edges = System.Collections.Generic.Dictionary<System.Type, System.Type array>()
+        let pending = System.Collections.Generic.Stack<System.Type>(fieldTypes)
+
+        while pending.Count > 0 do
+            let candidate = pending.Pop()
+
+            if not (edges.ContainsKey candidate) then
+                let next =
+                    if forbiddenPayloadTypes |> List.contains candidate then [||] else children candidate
+
+                edges[candidate] <- next
+                next |> Array.iter pending.Push
+
+        let forbidden = System.Collections.Generic.HashSet<System.Type>(forbiddenPayloadTypes)
+        let mutable changed = true
+
+        while changed do
+            changed <- false
+
+            for KeyValue(candidate, next) in edges do
+                if not (forbidden.Contains candidate) && next |> Array.exists forbidden.Contains then
+                    forbidden.Add candidate |> ignore
+                    changed <- true
+
+        let containsForbidden (candidate: System.Type) = forbidden.Contains candidate
 
         let leakedPayloads =
             FSharpType.GetUnionCases(typeof<ExpressionRecipe>)
             |> Array.collect (fun case ->
                 case.GetFields()
                 |> Array.choose (fun field ->
-                    if containsForbidden [] field.PropertyType then
+                    if containsForbidden field.PropertyType then
                         Some(case.Name + "." + field.Name, field.PropertyType)
                     else
                         None))
