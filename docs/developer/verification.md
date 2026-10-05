@@ -18,20 +18,36 @@ Upgrade the SDK pin deliberately and verify the build/tests with that version.
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
 
-The verification entry points require fish 3.4+ and Node 22.6+. CI executes
-`fish scripts/test-fast.fish --no-build --no-restore` once after building and
-installing the locked Node dependencies, rather than repeating its suites.
-It also syntax-checks every tracked `.fish` file and runs the offline
-`scripts/tests/m2-listmap-evaluation-summary.test.fish` contract. The
-`test-extended.fish` wrapper stays out of per-push CI; the separate
-[`extended.yml`](../../.github/workflows/extended.yml) workflow runs it weekly and
-on demand (`workflow_dispatch`) after a Release solution build, together with the
-suite partition audit. Per-push CI skips changes that touch only `docs/` or
-`README.md`, and installs fish in the background beside the F# build. Tests that compile and run
+GitHub Actions minutes are billed, so neither workflow runs on push or pull
+request: [`ci.yml`](../../.github/workflows/ci.yml) and
+[`extended.yml`](../../.github/workflows/extended.yml) run only on demand
+(`workflow_dispatch`), at major milestones (owner decision, 2026-10-05). Before
+opening a pull request, run the fast suite and the tests related to the change
+in a local or cloud session; a PR does not wait on GitHub Actions.
+
+The verification entry points require fish 3.4+ and Node 22.6+. The CI job
+runs, and a local pre-PR check mirrors, these steps after building the fast
+test graph and installing the locked Node dependencies (`npm ci`):
+
+```sh
+npm run typecheck
+npm run test:adapters
+npm run test:bun
+git ls-files -z '*.fish' | xargs -0 -r -n 1 fish --no-execute
+fish scripts/tests/m2-listmap-evaluation-summary.test.fish
+fish scripts/test-fast.fish
+node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
+npm --prefix tools/nyrwvy-mcp test
+```
+
+The `test-extended.fish` wrapper is separate; `extended.yml` runs it after a
+Release solution build, together with the suite partition audit
+(`node scripts/check-test-suite-partition.mjs`). CI installs fish in the
+background beside the F# build. Tests that compile and run
 generated C# many times for a finished feature (the `runPure` behaviour tests
 of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
 are Extended; the fast suite keeps their checking and persistence tests and one
-compiled smoke test per runtime path. Run the Extended workflow on demand when
+compiled smoke test per runtime path. Run the extended suite (locally, or the Extended workflow at a milestone) when
 a change touches the C# backend runtime. The CI job has a 20-minute timeout, so a hung transport
 test cannot hold a runner for the default six hours. Exploratory/live runner and preflight
 scripts, freeze-ref materialization, and historical evaluation helpers are
