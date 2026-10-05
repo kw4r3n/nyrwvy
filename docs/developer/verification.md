@@ -27,8 +27,7 @@ It also syntax-checks every tracked `.fish` file and runs the offline
 [`extended.yml`](../../.github/workflows/extended.yml) workflow runs it weekly and
 on demand (`workflow_dispatch`) after a Release solution build, together with the
 suite partition audit. Per-push CI skips changes that touch only `docs/` or
-`README.md`, and starts the fish installation and the Node typecheck, schema and
-Bun tests in the background beside the F# build. Tests that compile and run
+`README.md`, and installs fish in the background beside the F# build. Tests that compile and run
 generated C# many times for a finished feature (the `runPure` behaviour tests
 of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
 are Extended; the fast suite keeps their checking and persistence tests and one

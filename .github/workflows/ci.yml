@@ -49,17 +49,12 @@ jobs:
       - name: Install locked adapter and typechecking dependencies
         run: npm ci --no-audit --no-fund
 
-      # The F# build leaves cores idle on its critical path, so the checks that need neither
-      # the build nor each other run beside it. Each one writes its log and exit status,
-      # and the matching step below waits for them and fails with that status.
-      - name: Start fish installation and Node checks beside the build
+      # Installing fish waits mostly on the network and dpkg, so it runs beside the build, which
+      # needs every core (running the Node checks there too made the build slower by as much as
+      # they took). It writes its log and exit status; the step after the build waits for them.
+      - name: Start fish installation beside the build
         run: |
-          start() {
-            local name=$1; shift
-            ( set +e; "$@" > "$RUNNER_TEMP/$name.log" 2>&1; echo $? > "$RUNNER_TEMP/$name.status" ) < /dev/null > /dev/null 2>&1 &
-          }
-          start fish bash -c 'sudo apt-get update && sudo apt-get install --yes fish'
-          start node-checks bash -c 'npm run typecheck && npm run test:adapters && npm run test:bun'
+          ( set +e; { sudo apt-get update && sudo apt-get install --yes fish; } > "$RUNNER_TEMP/fish.log" 2>&1; echo $? > "$RUNNER_TEMP/fish.status" ) < /dev/null > /dev/null 2>&1 &
 
       - name: Restore fast test graph
         run: dotnet restore tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj
@@ -70,8 +65,14 @@ jobs:
       - name: Install fish for maintained verification entry points
         run: scripts/ci-wait.sh fish
 
-      - name: Typecheck maintained adapters, test shared schemas and Bun adapter contracts without live models
-        run: scripts/ci-wait.sh node-checks
+      - name: Typecheck maintained adapters and Bun tests
+        run: npm run typecheck
+
+      - name: Test shared schemas and typechecking contracts
+        run: npm run test:adapters
+
+      - name: Test Bun adapter contracts without live models
+        run: npm run test:bun
 
       - name: Check fish syntax and offline script contracts
         run: |
