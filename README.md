@@ -57,7 +57,7 @@ The write-side goal is an adequate AI graph-editing toolset, not a natural-langu
 
 ## Build and verify
 
-Install the exact .NET SDK selected by [`global.json`](global.json) (currently 10.0.112), Node 22.6+ and fish 3.4+ for the verification entry points. SDK roll-forward is disabled so local and CI builds use the same compiler; SDK patch updates are explicit repository changes. Shared F# settings live in `Directory.Build.props`. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
+Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.1xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`), Node 22.6+ and fish 3.4+ for the verification entry points. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development uses the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 ./scripts/test-fast.fish

@@ -11,9 +11,11 @@ The second job can justify expensive controlled experiments. It does not make th
 
 ## Reproducible tooling and shell checks
 
-The exact .NET SDK is selected by [`global.json`](../../global.json), with
-roll-forward disabled and prerelease SDKs excluded. CI uses that same file.
-Upgrade the SDK pin deliberately and verify the build/tests with that version.
+The .NET SDK is selected by [`global.json`](../../global.json): the pinned
+version or any newer patch of the same feature band (`rollForward:
+latestPatch`), with prerelease SDKs excluded. CI uses that same file. A
+different feature band or major version is a deliberate repository change;
+verify the build/tests with that version when updating the pin.
 [`Directory.Build.props`](../../Directory.Build.props) owns the shared F# target
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
