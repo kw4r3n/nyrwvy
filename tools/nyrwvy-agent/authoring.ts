@@ -186,7 +186,7 @@ export class AuthoringClient {
 }
 
 const sessions = new Map<string, AuthoringClient>()
-/** Opens still starting, settled (never rejected) once the attempt ends; close waits for them. */
+/** Reserved open slots; their promise resolves once a child is owned or startup fails. */
 const opening = new Map<string, Promise<void>>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
@@ -208,13 +208,18 @@ export async function openAuthoring(
   // The slot is reserved before the first await, so a concurrent open of the same session fails
   // instead of spawning a second child whose ownership the map would silently drop.
   if (sessions.has(sessionKey) || opening.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
-  const launch = launchAuthoring(sessionKey, mode, snapshot, context, workspaceOverride, dependency, dependencies, upgrade)
-  const settled = launch.then(() => undefined, () => undefined)
-  opening.set(sessionKey, settled)
+  let resolveStarted!: () => void
+  const started = new Promise<void>(resolve => { resolveStarted = resolve })
+  const markStarted = () => {
+    // The owned client now protects the slot. Never clear a later open's reservation.
+    if (opening.get(sessionKey) === started) opening.delete(sessionKey)
+    resolveStarted()
+  }
+  opening.set(sessionKey, started)
   try {
-    return await launch
+    return await launchAuthoring(sessionKey, mode, snapshot, context, workspaceOverride, dependency, dependencies, upgrade, markStarted)
   } finally {
-    if (opening.get(sessionKey) === settled) opening.delete(sessionKey)
+    markStarted() // A failure before spawn also releases a waiting close.
   }
 }
 
@@ -222,6 +227,7 @@ async function launchAuthoring(
   sessionKey: string, mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext,
   workspaceOverride: string | undefined, dependency: string | undefined, dependencies: string[] | undefined,
   upgrade: { expectedFingerprint: string; replaces?: string } | undefined,
+  markStarted: () => void,
 ): Promise<string> {
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")
   // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
@@ -242,6 +248,7 @@ async function launchAuthoring(
     cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
   }))
   sessions.set(sessionKey, client)
+  markStarted()
   try {
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
@@ -270,7 +277,7 @@ export function requestAuthoring(request: Request, context: AuthoringContext): P
 
 export async function closeAuthoring(context: AuthoringContext): Promise<string> {
   const sessionKey = key(context)
-  // A close racing an open applies to the session that open starts, never to nothing.
+  // Wait for ownership, not the first reply: close itself bounds a silent request queue.
   await opening.get(sessionKey)
   const client = sessions.get(sessionKey)
   if (!client) return "No active Nyrwvy authoring session."
