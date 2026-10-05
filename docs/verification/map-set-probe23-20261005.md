@@ -75,10 +75,16 @@ The linear Kahn's algorithm confirms probe 22's claim: 100,000 names in 1.8 s ag
 
 Not needed: a loop construct, mutual recursion, a pair type, `ListFindIndex` (`ListIndexOf` covered both uses), `ListLast` on anything but the stack top. Every self-call was again in tail position without rearranging.
 
+## Follow-up: loop state in a Product
+
+After orders 52 and 53, cost 2's untried alternative was authored in the same session: `tarjanLoop2(deps, roots, root, state)` keeps the seven changing values in a `Tarjan` Product, reads them with `FieldAccess` and passes `ProductUpdate(state, changed fields)` to each self-call. It was accepted first time, matched `components` on all 200 graphs, and ran the comb of 10,000 / 20,000 / 40,000 in 0.67 / 0.97 / 1.73 s, the same as the parameter form.
+
+It is **236 nodes instead of 208** (+13%). Each self-call names only the changed fields, which removes the 47 pass-through arguments, but every read of the state becomes a two-node `FieldAccess` instead of a one-node `Parameter`, and the loop reads the state more often than it passes it through; the type adds a declaration. The positional scope references are unchanged. So `ProductUpdate` does not cover cost 2, and a self-call that names only the changed arguments, expanding to the full `DirectCall`, would remove the 47 nodes (about 23%) without the reads' cost.
+
 ## Candidate hit counts after probe 23
 
 | Candidate | Probes |
 | --- | --- |
 | Last item / non-copying stack operations | 22; **done as order 50**, used here by both searches. Non-copying push after pop (persistent vector): 22, 23, over the run limit on a comb |
 | Position of an item in a list | 22; **done as order 51**, used twice here. Searching from the end: 23 |
-| Self-call naming only the changed arguments | 23 |
+| Self-call naming only the changed arguments | 23 (a state Product with `ProductUpdate` was 13% larger, not smaller) |
