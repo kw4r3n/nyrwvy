@@ -280,9 +280,9 @@ module internal StructuralTransactionInternals =
           Receipt: TransactionPreviewReceipt
           Prepared: 'Prepared }
 
-    /// A snapshot that fails validation, reported by its first validator issue.
-    let private invalidSnapshot code (issue: ValidationIssue) =
-        diagnostic code $"{issue.Code}: {issue.Message}"
+    /// A snapshot that fails validation, reported as one diagnostic per validator issue.
+    let private invalidSnapshot code (issues: ValidationIssue list) =
+        issues |> List.map (fun issue -> diagnostic code $"{issue.Code}: {issue.Message}")
 
     /// The simulate pipeline shared by the structural, migration and declaration workflows:
     /// validate the base, `prepare` against it (preflight and materialization), derive the
@@ -300,7 +300,7 @@ module internal StructuralTransactionInternals =
         let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
 
         match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ -> Error(rejectWith [ invalidSnapshot "InvalidBaseSnapshot" issue ])
+        | _ :: _ as issues -> Error(rejectWith (invalidSnapshot "InvalidBaseSnapshot" issues))
         | [] ->
             match prepare baseSnapshot with
             | Error error -> Error error
@@ -314,7 +314,7 @@ module internal StructuralTransactionInternals =
                             ParentId = Some baseSnapshot.Id }
 
                 match SnapshotValidator.validate proposedSnapshot with
-                | issue :: _ -> Error(rejectWith [ invalidSnapshot "InvalidProposedSnapshot" issue ])
+                | _ :: _ as issues -> Error(rejectWith (invalidSnapshot "InvalidProposedSnapshot" issues))
                 | [] ->
                     match classifyReadiness proposedSnapshot with
                     | Error diagnostics -> Error(rejectWith diagnostics)
