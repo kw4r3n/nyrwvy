@@ -194,6 +194,57 @@ module DeclarationCleanupTests =
             Assert.Equal("CapabilityOperationStillReferenced", diagnostic.Code)
         | other -> failwithf "Nested invocation was not protected: %A" other
 
+    let private unusedTypeId = id<TypeTag> "unused-type"
+
+    let private withUnusedType (snapshot: Snapshot) =
+        { snapshot with
+            Types =
+                [ { Id = unusedTypeId
+                    DisplayName = "Unused"
+                    Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "unused-field"; DisplayName = "text"; Type = stringType } ] } ] }
+
+    let private dropRequiredEffect =
+        AgentOperationIntent.RemoveFunctionRequiredEffect { TargetFunctionId = functionId; EffectId = effectId }
+
+    [<Fact>]
+    let ``a safe deletion is not blamed for an issue an earlier operation in the batch left`` () =
+        let initial = fixture () |> withUnusedType
+        let preExisting =
+            SnapshotValidator.validate
+                { initial with
+                    Functions = initial.Functions |> List.map (fun fn -> { fn with RequiredEffects = [] }) }
+            |> List.head
+        match AgentWorkflow.simulate (workspace initial) [ dropRequiredEffect; AgentOperationIntent.DeleteType unusedTypeId ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("InvalidProposedSnapshot", diagnostic.Code)
+            Assert.Equal($"{preExisting.Code}: {preExisting.Message}", diagnostic.Message)
+        | other -> failwithf "Expected the earlier operation's issue, got %A" other
+        // A later operation may repair what an earlier one left; the deletion in between does not block it.
+        let repaired =
+            [ dropRequiredEffect
+              AgentOperationIntent.DeleteType unusedTypeId
+              AgentOperationIntent.AddFunctionRequiredEffect { TargetFunctionId = functionId; EffectId = effectId } ]
+        match AgentWorkflow.simulate (workspace initial) repaired with
+        | Ok proposal ->
+            let diff = (AgentChangeProposal.review proposal).ResultingChange.Diff
+            Assert.Equal(unusedTypeId, (List.exactlyOne diff.TypesRemoved).TypeId)
+            Assert.Empty(diff.FunctionRequiredEffectsChanged)
+        | Error error -> failwithf "Repaired batch was rejected: %A" error
+
+    [<Fact>]
+    let ``a deletion is blamed only for the issues it introduces`` () =
+        let initial = fixture ()
+        let preExisting =
+            SnapshotValidator.validate
+                { initial with
+                    Functions = initial.Functions |> List.map (fun fn -> { fn with RequiredEffects = [] }) }
+            |> List.head
+        match AgentWorkflow.simulate (workspace initial) [ dropRequiredEffect; AgentOperationIntent.DeleteCapability capabilityId ] with
+        | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("CapabilityStillReferenced", diagnostic.Code)
+            Assert.DoesNotContain(preExisting.Message, diagnostic.Message)
+        | other -> failwithf "Expected CapabilityStillReferenced, got %A" other
+
     [<Fact>]
     let ``JSONL operation deletion retains an empty capability and allows effect cleanup`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-operation-cleanup-" + Guid.NewGuid().ToString("N"))

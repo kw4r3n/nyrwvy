@@ -498,10 +498,30 @@ module Transaction =
                 Ok({ snapshot with Types = updatedTypes; Functions = updatedFunctions },
                     { changes with ProductFieldsRemoved = removed :: changes.ProductFieldsRemoved })
 
-    let private ensureDeletionSafe code name (candidate: Snapshot) =
+    // Earlier operations in a batch may leave the intermediate snapshot invalid. Only issues the
+    // deletion itself introduces are blamed on it; issues already present before the deletion are
+    // left for a later operation to repair or for the final whole-snapshot validation to report.
+    let private ensureDeletionSafe code name (beforeDeletion: Snapshot) (candidate: Snapshot) =
         match SnapshotValidator.validate candidate with
-        | issue :: _ -> Error(code, $"Repair all references before deleting this {name}: {issue.Code}: {issue.Message}")
         | [] -> Ok candidate
+        | candidateIssues ->
+            let key (issue: ValidationIssue) = issue.Code, issue.Message
+            // Matched as a multiset so a deletion that repeats an existing issue is still blamed.
+            let preExisting = SnapshotValidator.validate beforeDeletion |> List.countBy key |> Map.ofList
+            let introduced =
+                candidateIssues
+                |> List.fold
+                    (fun (remaining, introduced) issue ->
+                        match Map.tryFind (key issue) remaining with
+                        | Some count when count > 0 -> Map.add (key issue) (count - 1) remaining, introduced
+                        | Some _
+                        | None -> remaining, issue :: introduced)
+                    (preExisting, [])
+                |> snd
+                |> List.rev
+            match introduced with
+            | issue :: _ -> Error(code, $"Repair all references before deleting this {name}: {issue.Code}: {issue.Message}")
+            | [] -> Ok candidate
 
     let private deleteType
         (typeId: TypeId)
@@ -516,7 +536,7 @@ module Transaction =
                 Error("TypeModifiedInTransaction", "Delete a type in a separate reviewed change from its field edits.")
             else
                 let candidate = { snapshot with Types = snapshot.Types |> List.filter (fun item -> item.Id <> typeId) }
-                match ensureDeletionSafe "TypeStillReferenced" "type" candidate with
+                match ensureDeletionSafe "TypeStillReferenced" "type" snapshot candidate with
                 | Error error -> Error error
                 | Ok candidate ->
                     let variantIds, fieldIds =
@@ -541,7 +561,7 @@ module Transaction =
         | None -> Error("TargetNotFound", "The effect to delete was not found.")
         | Some target ->
             let candidate = { snapshot with Effects = snapshot.Effects |> List.filter (fun item -> item.Id <> effectId) }
-            ensureDeletionSafe "EffectStillReferenced" "effect" candidate
+            ensureDeletionSafe "EffectStillReferenced" "effect" snapshot candidate
             |> Result.map (fun safe ->
                 safe,
                 { changes with
@@ -558,7 +578,7 @@ module Transaction =
         | Some target ->
             let candidate =
                 { snapshot with Capabilities = snapshot.Capabilities |> List.filter (fun item -> item.Id <> capabilityId) }
-            ensureDeletionSafe "CapabilityStillReferenced" "capability" candidate
+            ensureDeletionSafe "CapabilityStillReferenced" "capability" snapshot candidate
             |> Result.map (fun safe ->
                 let removed: CapabilityRemoved =
                     { CapabilityId = target.Id
@@ -588,7 +608,7 @@ module Transaction =
                         if capability.Id = owner.Id then
                             { capability with Operations = capability.Operations |> List.filter (fun item -> item.Id <> operationId) }
                         else capability) }
-            ensureDeletionSafe "CapabilityOperationStillReferenced" "capability operation" candidate
+            ensureDeletionSafe "CapabilityOperationStillReferenced" "capability operation" snapshot candidate
             |> Result.map (fun safe ->
                 let removed: CapabilityOperationRemoved =
                     { OwnerCapabilityId = owner.Id
