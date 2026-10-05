@@ -8,7 +8,7 @@ The concurrency part was expressible with task scopes, `TaskWait` (any) and `Tas
 
 Baseline: nyrwvy `800f364` (main after #352, clean); rrawrlet `4a28172` (clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The oracle ran rrawrlet's real `codex.py` on Python 3.11.15.
 
-The method was probe 19's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests, and `runPure` batches through a `runCases` entry. Probe 11's session client and probe 19's recipe helpers were reused. `dsl9.py` gained `mu2`, a `matchUnion` helper that writes order 41's `otherwise` and shared arms, and probe 9's JSON helpers now use it. The harness, cases, snapshot and transcripts are in the project's shared files (`codex-probe25/`) and are not committed.
+The method was probe 19's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests, and `runPure` batches through a `runCases` entry. Probe 11's session client and probe 19's recipe helpers were reused. `dsl9.py` gained `mu2`, a `matchUnion` helper that writes order 41's `otherwise` and shared arms, and probe 9's JSON helpers now use it. The harness, cases, snapshot and transcripts are in private files outside the repository (`codex-probe25/`) and are not committed.
 
 ## Why this part
 
