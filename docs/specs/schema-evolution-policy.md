@@ -34,6 +34,25 @@ nyrwvy.execution-ir.v1
 
 Exact naming can evolve, but version identity must be carried by the serialized artifact rather than inferred from filename, Git revision, or parser behavior.
 
+## Snapshot schema versions
+
+The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the same set of persisted constructs and move together. One table, `SnapshotSchema.minimumVersions` in `src/Nyrwvy.Semantics/SnapshotSchema.fs`, gives the minimum version of every construct that an older version cannot hold. Both codecs derive everything from it:
+
+- a writer emits the smallest version that holds every construct the snapshot uses, so a snapshot keeps its version, bytes and fingerprint until it uses something newer;
+- a reader rejects a version outside the supported range, and rejects a document whose declared version is lower than the minimum of a construct in it (`<`, for every row).
+
+| JSON `schemaVersion` | Nyason `schema` | Constructs that need at least this version |
+| --- | --- | --- |
+| 9 | `nayamnyam.snapshot.v5` | Baseline: every construct not listed below. |
+| 10 | `nayamnyam.snapshot.v6` | `CapabilityConstruct`. |
+| 11 | `nayamnyam.snapshot.v7` | `Abort`. |
+| 12 | `nayamnyam.snapshot.v8` | `TaskWait` with a `limit` operand. |
+| 13 | `nayamnyam.snapshot.v9` | `Int64CheckedAdd`, `Int64CheckedSubtract`, `Int64CheckedMultiply`; a `MatchUnion` arm that names several variants; `StringToUpper`; `Float64Round`; the `Map<K, V>` type anywhere and every `Map*` node; the `Set<T>` type anywhere and every `Set*` node; `ListMinBy`; `ListLast`, `ListDropLast`; `ListIndexOf`, `ListLastIndexOf`, `ListFindIndex`. |
+
+Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Older versions (JSON 8, Nyason v4 and before) are rejected.
+
+A new persisted construct gets a row in the table, normally with a new version. `SnapshotSchema.featureOfNodeKind` matches every `SemanticNodeKind` without a wildcard, so a new node kind does not compile until it is assigned a version or explicitly left at the baseline. `SnapshotSchemaTests` writes one snapshot per row, checks that it is written at the row's version, and checks that both codecs reject it under the version just below.
+
 ## Closed decoding rule
 
 Decoders remain strict by default.

@@ -20,6 +20,7 @@
     <Compile Include="SemanticQuery.fs" />
     <Compile Include="Validation.fs" />
     <Compile Include="LooseJsonString.fs" />
+    <Compile Include="SnapshotSchema.fs" />
     <Compile Include="SnapshotCodec.fs" />
     <Compile Include="Fingerprint.fs" />
     <Compile Include="DependencyGraph.fs" />

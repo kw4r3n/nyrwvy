@@ -1882,21 +1882,6 @@ module ValueGraph =
                 |> List.map (fun node -> transform (SemanticNodeShape.mapNestedGraphs (mapNodes transform) node)) }
 
 [<RequireQualifiedAccess>]
-module FunctionAbort =
-    let isUsed (snapshot: Snapshot) =
-        snapshot.Functions |> List.exists (fun fn ->
-            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
-                match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false))
-
-/// A TaskWait with a limit operand needs a persisted schema newer than the one that introduced tasks.
-[<RequireQualifiedAccess>]
-module TaskTimeLimits =
-    let isUsed (snapshot: Snapshot) =
-        snapshot.Functions |> List.exists (fun fn ->
-            ValueGraph.collectNodes fn.Body |> List.exists (fun node ->
-                match node.Kind with SemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false))
-
-[<RequireQualifiedAccess>]
 module Snapshot =
     let empty id =
         { Id = id
