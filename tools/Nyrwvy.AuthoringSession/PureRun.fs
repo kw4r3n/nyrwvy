@@ -215,7 +215,7 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.BuiltinGeneric(kind, arguments) ->
-            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Task values are not run values."
+            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Runtime handles are not run values."
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | _ -> invalidOp "Unsupported runner type passed validation."
 
@@ -1003,7 +1003,7 @@ module PureRun =
         | Some fn when not (List.isEmpty (TypeParameters.ofFunction fn)) ->
             Error(diagnostic "RunGenericEntryUnsupported" "A generic function cannot be an entry point; run a concrete function that calls it.")
         | Some fn when fn.ResultType :: (fn.Parameters |> List.map (fun parameter -> parameter.Type)) |> List.exists (TaskTypes.bearing declarations.Types) ->
-            Error(diagnostic "RunTaskTypeUnsupported" "Task and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.")
+            Error(diagnostic "RunTaskTypeUnsupported" "Task, OneShot and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.")
         | Some fn when fn.Parameters.Length <> arguments.Length ->
             Error(diagnostic "RunArgumentCountMismatch" "The number of arguments differs from the function signature.")
         | Some fn when List.exists2 (fun (parameter: SemanticParameter) value -> parameter.Type <> valueType value) fn.Parameters arguments ->

@@ -142,6 +142,9 @@ type ExpressionRecipe =
     /// `limit` is an optional `Option<Int64>` of milliseconds; absent means no limit.
     | TaskWait of tasks: ExpressionRecipe * mode: TaskWaitMode * limit: ExpressionRecipe option
     | TaskCancel of task: ExpressionRecipe
+    | OneShotCreate of scope: ExpressionRecipe * valueType: TypeRef
+    | OneShotComplete of cell: ExpressionRecipe * value: ExpressionRecipe
+    | OneShotWait of cell: ExpressionRecipe * limit: ExpressionRecipe option
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -349,6 +352,9 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.CancellationRequested -> recipe
         | ExpressionRecipe.TaskScope(body, context) -> ExpressionRecipe.TaskScope(body, pairs context)
         | ExpressionRecipe.TaskStart(scope, worker, context, item) -> ExpressionRecipe.TaskStart(go scope, worker, pairs context, go item)
+        | ExpressionRecipe.OneShotCreate(scope, valueType) -> ExpressionRecipe.OneShotCreate(go scope, mapType valueType)
+        | ExpressionRecipe.OneShotComplete(cell, value) -> ExpressionRecipe.OneShotComplete(go cell, go value)
+        | ExpressionRecipe.OneShotWait(cell, limit) -> ExpressionRecipe.OneShotWait(go cell, Option.map go limit)
         | ExpressionRecipe.TaskWait(tasks, mode, limit) -> ExpressionRecipe.TaskWait(go tasks, mode, Option.map go limit)
         | ExpressionRecipe.TaskCancel task -> ExpressionRecipe.TaskCancel(go task)
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
@@ -667,6 +673,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.CancellationRequested -> Seq.empty
         | ExpressionRecipe.TaskScope(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskStart(scope, _, context, item) -> seq { yield scope; yield item; yield! context |> Seq.map snd }
+        | ExpressionRecipe.OneShotCreate(scope, _) -> Seq.singleton scope
+        | ExpressionRecipe.OneShotComplete(cell, value) -> seq { yield cell; yield value }
+        | ExpressionRecipe.OneShotWait(cell, limit) -> seq { yield cell; yield! Option.toList limit }
         | ExpressionRecipe.TaskWait(tasks, _, limit) -> seq { yield tasks; yield! Option.toList limit }
         | ExpressionRecipe.TaskCancel task -> Seq.singleton task
         | ExpressionRecipe.ListMap(source, _, context)
@@ -833,6 +842,7 @@ module AgentExpressionStructuralWorkflow =
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
                     | BuiltinGenericType.Set
+                    | BuiltinGenericType.OneShot
                     | BuiltinGenericType.Task -> 1
                     | BuiltinGenericType.Result
                     | BuiltinGenericType.Map -> 2
@@ -1013,6 +1023,7 @@ module AgentExpressionStructuralWorkflow =
         let capabilityOperationsById = index.CapabilityOperationsById
         let variantsById = index.VariantsById
         let productFieldsById = index.ProductFieldsById
+        let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
 
         let ty = DiagnosticText.typeRef snapshot
         let tyPair = DiagnosticText.typeRefPair snapshot
@@ -1781,6 +1792,27 @@ module AgentExpressionStructuralWorkflow =
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ])), Ok() ->
                     Ok(listType (optionType result))
                 | Ok actual, Ok() -> Error(diagnostic "TaskWaitInputTypeMismatch" $"TaskWait requires List<Task<T>>, not {ty actual}.")
+            | ExpressionRecipe.OneShotCreate(scope, valueType) ->
+                match infer frames scope, validateTypeRef index valueType with
+                | Error error, _ | _, Error error -> Error error
+                | Ok actual, _ when actual <> TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> Error(diagnostic "OneShotScopeTypeMismatch" "OneShotCreate requires TaskScope.")
+                | _, _ when TaskTypes.mentionsScope valueType -> Error(diagnostic "OneShotScopePayloadUnsupported" "A OneShot payload cannot contain TaskScope.")
+                | _ -> Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ valueType ]))
+            | ExpressionRecipe.OneShotComplete(cell, value) ->
+                match infer frames cell, infer frames value with
+                | Error error, _ | _, Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ expected ])), Ok actual when expected = actual -> Ok boolType
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ _ ])), _ -> Error(diagnostic "OneShotValueTypeMismatch" "OneShotComplete payload must match the cell's exact type.")
+                | _ -> Error(diagnostic "OneShotCellTypeMismatch" "OneShotComplete requires OneShot<T>.")
+            | ExpressionRecipe.OneShotWait(cell, limit) ->
+                let limitType = match limit |> Option.map (infer frames) with
+                                | None | Some(Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))) -> Ok()
+                                | Some(Error error) -> Error error
+                                | _ -> Error(diagnostic "OneShotLimitTypeMismatch" "OneShotWait requires Option<Int64> limit.")
+                match infer frames cell, limitType with
+                | Error error, _ | _, Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ valueType ])), Ok() -> Ok(optionType valueType)
+                | _ -> Error(diagnostic "OneShotCellTypeMismatch" "OneShotWait requires OneShot<T>.")
             | ExpressionRecipe.TaskCancel task ->
                 match infer frames task with
                 | Error error -> Error error
@@ -1980,7 +2012,10 @@ module AgentExpressionStructuralWorkflow =
                     match missingEffect callee.RequiredEffects with
                     | Some effectId -> Error(missingEffectError $"DirectCall callee {callbackName callee}" effectId)
                     | None ->
-                        validateCallArguments callee arguments |> Result.map (fun substitution -> TypeParameters.substitute substitution callee.ResultType)
+                        validateCallArguments callee arguments |> Result.bind (fun substitution ->
+                            if OneShotPayloadRequirements.violates oneShotPayloadRequirements.Value callee.Id substitution then
+                                Error(diagnostic "OneShotScopePayloadUnsupported" "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call.")
+                            else Ok(TypeParameters.substitute substitution callee.ResultType))
             | ExpressionRecipe.SelfCall arguments ->
                 // The owner's RequiredEffects trivially cover its own, so only the arguments are checked.
                 let slotCount = List.length owner.SelfParameters
@@ -2530,6 +2565,13 @@ module AgentExpressionStructuralWorkflow =
                 | None -> [], None
             let nodeId = StableIdAllocator.newGraphNodeId ()
             tasksNodes @ limitNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.TaskWait(tasksResult, mode, limitResult) } ], nodeId
+        | ExpressionRecipe.OneShotCreate(scope, valueType) -> unary (fun scope -> SemanticNodeKind.OneShotCreate(scope, valueType)) scope
+        | ExpressionRecipe.OneShotComplete(cell, value) -> binary SemanticNodeKind.OneShotComplete cell value
+        | ExpressionRecipe.OneShotWait(cell, limit) ->
+            let cellNodes, cellId = materializeRecipe cell
+            let limitNodes, limitId = match limit with Some item -> let nodes, id = materializeRecipe item in nodes, Some id | None -> [], None
+            let id = StableIdAllocator.newGraphNodeId ()
+            cellNodes @ limitNodes @ [ { Id = id; Kind = SemanticNodeKind.OneShotWait(cellId, limitId) } ], id
         | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
         | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) -> listCallback SemanticNodeKind.MapFromList source keyOfFunctionId context

@@ -54,6 +54,7 @@ module internal StructuralTransactionInternals =
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
                     | BuiltinGenericType.Set
+                    | BuiltinGenericType.OneShot
                     | BuiltinGenericType.Task -> 1
                     | BuiltinGenericType.Result
                     | BuiltinGenericType.Map -> 2

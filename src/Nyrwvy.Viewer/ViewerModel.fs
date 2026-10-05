@@ -157,6 +157,9 @@ type ViewerNodeRole =
     | TaskStart
     | TaskWait of mode: TaskWaitMode
     | TaskCancel
+    | OneShotCreate
+    | OneShotComplete
+    | OneShotWait
     | ListMap
     | MapFromList
     | ListFilter
@@ -419,6 +422,9 @@ module ViewerProjection =
         | SemanticNodeKind.TaskScope _ -> ViewerNodeRole.TaskScope, []
         | SemanticNodeKind.TaskStart _ -> ViewerNodeRole.TaskStart, []
         | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
+        | SemanticNodeKind.OneShotCreate _ -> ViewerNodeRole.OneShotCreate, []
+        | SemanticNodeKind.OneShotComplete _ -> ViewerNodeRole.OneShotComplete, []
+        | SemanticNodeKind.OneShotWait _ -> ViewerNodeRole.OneShotWait, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
         | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []

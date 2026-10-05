@@ -6,6 +6,7 @@ namespace Nyrwvy.Core
 type SnapshotSchemaFeature =
     /// CapabilityConstruct.
     | CapabilityConstruct
+    | OneShot
     /// Abort.
     | FunctionAbort
     /// TaskWait with a limit operand.
@@ -51,13 +52,15 @@ module SnapshotSchema =
     let private v11 = version 11 "nayamnyam.snapshot.v7"
     let private v12 = version 12 "nayamnyam.snapshot.v8"
     let private v13 = version 13 "nayamnyam.snapshot.v9"
+    let private v14 = version 14 "nayamnyam.snapshot.v10"
 
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.CapabilityConstruct, v10, "Capability construction"
+        [ SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
+          SnapshotSchemaFeature.CapabilityConstruct, v10, "Capability construction"
           SnapshotSchemaFeature.FunctionAbort, v11, "Function abort"
           SnapshotSchemaFeature.TimedTaskWait, v12, "Timed TaskWait"
           SnapshotSchemaFeature.CheckedInt64Arithmetic, v13, "Checked Int64 arithmetic"
@@ -84,6 +87,9 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.OneShotCreate _
+        | SemanticNodeKind.OneShotComplete _
+        | SemanticNodeKind.OneShotWait _ -> Some SnapshotSchemaFeature.OneShot
         | SemanticNodeKind.CapabilityConstruct _ -> Some SnapshotSchemaFeature.CapabilityConstruct
         | SemanticNodeKind.Abort _ -> Some SnapshotSchemaFeature.FunctionAbort
         | SemanticNodeKind.TaskWait(_, _, Some _) -> Some SnapshotSchemaFeature.TimedTaskWait
@@ -255,6 +261,7 @@ module SnapshotSchema =
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             let own =
                 match generic with
+                | BuiltinGenericType.OneShot -> [ SnapshotSchemaFeature.OneShot ]
                 | BuiltinGenericType.Map -> [ SnapshotSchemaFeature.Map ]
                 | BuiltinGenericType.Set -> [ SnapshotSchemaFeature.Set ]
                 | BuiltinGenericType.Option

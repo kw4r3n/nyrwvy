@@ -149,6 +149,9 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.TaskScope _
                 | TypedSemanticNodeKind.TaskStart _
                 | TypedSemanticNodeKind.TaskWait _
+                | TypedSemanticNodeKind.OneShotCreate _
+                | TypedSemanticNodeKind.OneShotComplete _
+                | TypedSemanticNodeKind.OneShotWait _
                 | TypedSemanticNodeKind.TaskCancel _
                 | TypedSemanticNodeKind.ListMap _
                 | TypedSemanticNodeKind.MapFromList _

@@ -395,6 +395,12 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ])) ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ resultType ]) ]))
                         | _ -> None
+                    | SemanticNodeKind.OneShotCreate(_, valueType) -> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ valueType ]))
+                    | SemanticNodeKind.OneShotComplete _ -> Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.OneShotWait(cell, _) ->
+                        match tryNodeType nextVisiting cell with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ valueType ])) -> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ valueType ]))
+                        | _ -> None
                     | SemanticNodeKind.TaskCancel _ -> Some(TypeRef.Primitive PrimitiveType.Unit)
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind workerFunctionId index.Functions with

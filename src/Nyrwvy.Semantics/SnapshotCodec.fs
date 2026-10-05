@@ -192,6 +192,7 @@ module SnapshotCodec =
                 | BuiltinGenericType.Map -> "map"
                 | BuiltinGenericType.List -> "list"
                 | BuiltinGenericType.Set -> "set"
+                | BuiltinGenericType.OneShot -> "oneShot"
                 | BuiltinGenericType.Task -> "task"
                 | BuiltinGenericType.TaskScope -> "taskScope"
             )
@@ -787,6 +788,19 @@ module SnapshotCodec =
                 | TaskWaitMode.All -> "all"
             )
             limitNodeId |> Option.iter (fun limit -> writer.WriteString("limitNodeId", StableId.value limit))
+        | SemanticNodeKind.OneShotCreate(scope, valueType) ->
+            writer.WriteString("kind", "oneShotCreate")
+            writer.WriteString("scopeNodeId", StableId.value scope)
+            writer.WritePropertyName("valueType")
+            writeTypeRef writer valueType
+        | SemanticNodeKind.OneShotComplete(cell, value) ->
+            writer.WriteString("kind", "oneShotComplete")
+            writer.WriteString("cellNodeId", StableId.value cell)
+            writer.WriteString("valueNodeId", StableId.value value)
+        | SemanticNodeKind.OneShotWait(cell, limit) ->
+            writer.WriteString("kind", "oneShotWait")
+            writer.WriteString("cellNodeId", StableId.value cell)
+            limit |> Option.iter (fun item -> writer.WriteString("limitNodeId", StableId.value item))
         | SemanticNodeKind.TaskCancel taskNodeId ->
             writer.WriteString("kind", "taskCancel")
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
@@ -1173,6 +1187,7 @@ module SnapshotCodec =
                 | "map" -> BuiltinGenericType.Map
                 | "list" -> BuiltinGenericType.List
                 | "set" -> BuiltinGenericType.Set
+                | "oneShot" -> BuiltinGenericType.OneShot
                 | "task" -> BuiltinGenericType.Task
                 | "taskScope" -> BuiltinGenericType.TaskScope
                 | value -> invalidShape $"Unsupported builtin generic type '{value}'."
@@ -1842,6 +1857,15 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "tasksNodeId" element,
                     mode,
                     tryProperty "limitNodeId" element |> Option.map (fun _ -> readId<GraphNodeTag> "limitNodeId" element))
+            | "oneShotCreate" ->
+                ensureProperties "OneShotCreate node" (set [ "id"; "kind"; "scopeNodeId"; "valueType" ]) (set [ "id"; "kind"; "scopeNodeId"; "valueType" ]) element
+                SemanticNodeKind.OneShotCreate(readId<GraphNodeTag> "scopeNodeId" element, readTypeRef (requireProperty "valueType" element))
+            | "oneShotComplete" ->
+                ensureProperties "OneShotComplete node" (set [ "id"; "kind"; "cellNodeId"; "valueNodeId" ]) (set [ "id"; "kind"; "cellNodeId"; "valueNodeId" ]) element
+                SemanticNodeKind.OneShotComplete(readId<GraphNodeTag> "cellNodeId" element, readId<GraphNodeTag> "valueNodeId" element)
+            | "oneShotWait" ->
+                ensureProperties "OneShotWait node" (set [ "id"; "kind"; "cellNodeId" ]) (set [ "id"; "kind"; "cellNodeId"; "limitNodeId" ]) element
+                SemanticNodeKind.OneShotWait(readId<GraphNodeTag> "cellNodeId" element, tryProperty "limitNodeId" element |> Option.map (fun _ -> readId<GraphNodeTag> "limitNodeId" element))
             | "taskCancel" ->
                 ensureProperties "TaskCancel node" (set [ "id"; "kind"; "taskNodeId" ]) (set [ "id"; "kind"; "taskNodeId" ]) element
                 SemanticNodeKind.TaskCancel(readId<GraphNodeTag> "taskNodeId" element)

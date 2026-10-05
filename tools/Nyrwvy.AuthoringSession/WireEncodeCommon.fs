@@ -38,6 +38,7 @@ module internal WireEncodeCommon =
                 | BuiltinGenericType.Map -> "map"
                 | BuiltinGenericType.List -> "list"
                 | BuiltinGenericType.Set -> "set"
+                | BuiltinGenericType.OneShot -> "oneShot"
                 | BuiltinGenericType.Task -> "task"
                 | BuiltinGenericType.TaskScope -> "taskScope"
             objectValue

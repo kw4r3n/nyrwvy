@@ -205,6 +205,9 @@ type ExecutionInstructionKind =
     | TaskStart of scopeValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list * itemValueId: ExecutionValueId
     | TaskWait of tasksValueId: ExecutionValueId * mode: TaskWaitMode * limitValueId: ExecutionValueId option
     | TaskCancel of taskValueId: ExecutionValueId
+    | OneShotCreate of scope: ExecutionValueId * valueType: TypeRef
+    | OneShotComplete of cell: ExecutionValueId * value: ExecutionValueId
+    | OneShotWait of cell: ExecutionValueId * limit: ExecutionValueId option
     | UseResource of acquireValueId: ExecutionValueId * releaseCapabilityValueId: ExecutionValueId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -290,6 +293,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.TaskStart(_, functionId, _, _) ->
             [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.TaskWait _
+        | ExecutionInstructionKind.OneShotCreate _
+        | ExecutionInstructionKind.OneShotComplete _
+        | ExecutionInstructionKind.OneShotWait _
         | ExecutionInstructionKind.TaskCancel _ -> [ ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.UseResource(_, _, releaseOperationId, functionId, _) ->
             [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.CapabilityOperation releaseOperationId ]

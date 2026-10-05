@@ -67,6 +67,8 @@ type BuiltinGenericType =
     | List
     /// `Task<T>`: a handle to a task started in a task scope. Its only operations are TaskWait and TaskCancel.
     | Task
+    /// A scope-owned, copyable one-shot result handle; live state is never persisted.
+    | OneShot
     /// `TaskScope`: the opaque scope value a TaskScope body receives; takes no type arguments.
     | TaskScope
     /// `Set<T>`: an immutable set of equatable items (compared with ValueEqual), visited in the order
@@ -497,6 +499,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode * limitNodeId: GraphNodeId option
     /// Requests cooperative cancellation of one task without waiting for it. Idempotent.
     | TaskCancel of taskNodeId: GraphNodeId
+    | OneShotCreate of scope: GraphNodeId * valueType: TypeRef
+    | OneShotComplete of cell: GraphNodeId * value: GraphNodeId
+    | OneShotWait of cell: GraphNodeId * limit: GraphNodeId option
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     /// The items of a List<T> indexed by a pure `T -> K` callback, as Map<K, T>: a repeated key
@@ -840,6 +845,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: contextValues context
         | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
+        | SemanticNodeKind.OneShotCreate(scope, _) -> [ scope ]
+        | SemanticNodeKind.OneShotComplete(cell, value) -> [ cell; value ]
+        | SemanticNodeKind.OneShotWait(cell, limit) -> cell :: Option.toList limit
         | SemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | SemanticNodeKind.DirectCall(_, arguments) -> contextValues arguments
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
@@ -1080,6 +1088,9 @@ module SemanticNodeShape =
                 SemanticNodeKind.TaskStart(mapNodeId scopeNodeId, functionId, mapContextValues mapNodeId context, mapNodeId itemNodeId)
             | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) ->
                 SemanticNodeKind.TaskWait(mapNodeId tasksNodeId, mode, Option.map mapNodeId limitNodeId)
+            | SemanticNodeKind.OneShotCreate(scope, valueType) -> SemanticNodeKind.OneShotCreate(mapNodeId scope, valueType)
+            | SemanticNodeKind.OneShotComplete(cell, value) -> SemanticNodeKind.OneShotComplete(mapNodeId cell, mapNodeId value)
+            | SemanticNodeKind.OneShotWait(cell, limit) -> SemanticNodeKind.OneShotWait(mapNodeId cell, Option.map mapNodeId limit)
             | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
             | SemanticNodeKind.ListMap(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
@@ -1284,6 +1295,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.OneShotCreate _
+        | SemanticNodeKind.OneShotComplete _
+        | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
         | SemanticNodeKind.ListMap _
@@ -1367,6 +1381,7 @@ module SemanticNodeShape =
     /// graphs excluded), paired with the node's kind after `mapTypeRef` rewrote each of them.
     let private typeRefPayload (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): TypeRef list * SemanticNodeKind =
         match node.Kind with
+        | SemanticNodeKind.OneShotCreate(scope, valueType) -> [ valueType ], SemanticNodeKind.OneShotCreate(scope, mapTypeRef valueType)
         | SemanticNodeKind.ListEmpty itemType -> [ itemType ], SemanticNodeKind.ListEmpty(mapTypeRef itemType)
         | SemanticNodeKind.SetEmpty itemType -> [ itemType ], SemanticNodeKind.SetEmpty(mapTypeRef itemType)
         | SemanticNodeKind.MapEmpty(keyType, valueType) -> [ keyType; valueType ], SemanticNodeKind.MapEmpty(mapTypeRef keyType, mapTypeRef valueType)
@@ -1496,6 +1511,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.OneShotComplete _
+        | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
         | SemanticNodeKind.ListMap _
@@ -1688,6 +1705,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.OneShotCreate _
+        | SemanticNodeKind.OneShotComplete _
+        | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.FunctionInvoke _
         | SemanticNodeKind.ProductConstruct _
@@ -1729,6 +1749,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _
+        | SemanticNodeKind.OneShotCreate _
+        | SemanticNodeKind.OneShotComplete _
+        | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.CapabilityInvoke _ -> true
         | SemanticNodeKind.ParameterReference _
@@ -1925,9 +1948,9 @@ module Snapshot =
           Functions = []
           Obligations = [] }
 
-/// `Task<T>` and `TaskScope` values exist only inside one run of a function. A declared field may
-/// hold a `Task<T>` but not a `TaskScope`, which is a lexical construct; a type that holds a task
-/// anywhere, including through declared types, never crosses a capability or runPure boundary.
+/// Task and OneShot handles exist only inside one run. Declared fields may hold these handles
+/// but not TaskScope, which is lexical. Runtime-bearing types, including through declared types,
+/// never cross a capability or runPure boundary.
 [<RequireQualifiedAccess>]
 module TaskTypes =
     let rec private occurs (matches: BuiltinGenericType -> bool) (typeRef: TypeRef) =
@@ -1940,11 +1963,15 @@ module TaskTypes =
         | TypeRef.Capability _
         | TypeRef.TypeParameter _ -> false
 
-    /// Whether the type itself mentions `Task` or `TaskScope`, without looking into declared types.
+    /// Whether the type itself mentions a runtime handle or TaskScope, without inspecting declared types.
     let mentions (typeRef: TypeRef) =
-        occurs (function BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
+        occurs (function BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
 
-    /// Whether the type itself mentions `TaskScope`, without looking into declared types.
+    /// Whether the type itself mentions OneShot, without looking into declared types.
+    let mentionsOneShot (typeRef: TypeRef) =
+        occurs ((=) BuiltinGenericType.OneShot) typeRef
+
+    /// Whether the type itself mentions TaskScope, without looking into declared types.
     let mentionsScope (typeRef: TypeRef) =
         occurs (function BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
 
@@ -1999,6 +2026,7 @@ module EquatableTypes =
         | TypeRef.Capability capabilityId -> $"capability '{StableId.value capabilityId}'"
         | TypeRef.Function(parameters, result) ->
             "(" + (parameters |> List.map go |> String.concat ", ") + ") -> " + go result
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) -> "OneShot<" + (arguments |> List.map go |> String.concat ", ") + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, _) -> "TaskScope"
         | TypeRef.BuiltinGeneric(kind, arguments) -> $"{kind}<" + (arguments |> List.map go |> String.concat ", ") + ">"
         | TypeRef.TypeParameter(_, displayName) -> displayName
@@ -2018,7 +2046,7 @@ module EquatableTypes =
             | TypeRef.Function _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _
-            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map | BuiltinGenericType.Set), _) -> Some(List.rev path, typeRef)
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map | BuiltinGenericType.Set), _) -> Some(List.rev path, typeRef)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
                 arguments |> List.tryPick (visit ("List item" :: path))
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -2058,7 +2086,7 @@ module EquatableTypes =
                 match offending with
                 | TypeRef.Primitive PrimitiveType.Float64 -> "Float64 is not equatable because of NaN; compare with Float64Equal"
                 | TypeRef.Function _ -> "function values are not equatable"
-                | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "task handles and scopes are not equatable"
+                | TypeRef.BuiltinGeneric((BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "runtime handles and scopes are not equatable"
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, _) -> "maps are not equatable"
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, _) -> "sets are not equatable"
                 | TypeRef.Capability _ -> "capability values are not equatable"

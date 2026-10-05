@@ -605,6 +605,15 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "tasks" element),
                 WireInput.taskWaitMode element,
                 tryProperty "limit" element |> Option.map (recipe declarations parameterContext))
+        | "oneShotCreate" ->
+            ensureFields "one-shot-create recipe" [ "kind"; "scope"; "valueType" ] [ "kind"; "scope"; "valueType" ] element
+            ExpressionRecipe.OneShotCreate(recipe declarations parameterContext (property "scope" element), typeRef declarations (property "valueType" element))
+        | "oneShotComplete" ->
+            ensureFields "one-shot-complete recipe" [ "kind"; "cell"; "value" ] [ "kind"; "cell"; "value" ] element
+            ExpressionRecipe.OneShotComplete(recipe declarations parameterContext (property "cell" element), recipe declarations parameterContext (property "value" element))
+        | "oneShotWait" ->
+            ensureFields "one-shot-wait recipe" [ "kind"; "cell"; "limit" ] [ "kind"; "cell" ] element
+            ExpressionRecipe.OneShotWait(recipe declarations parameterContext (property "cell" element), tryProperty "limit" element |> Option.map (recipe declarations parameterContext))
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))

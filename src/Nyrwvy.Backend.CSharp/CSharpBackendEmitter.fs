@@ -69,9 +69,13 @@ module CSharpBackend =
             "NySet<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
             "NyList<" + formatType itemType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ resultType ]) ->
+            "NyOneShot<" + formatType resultType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             "NyTask<" + formatType resultType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "NyTaskScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+            invalidOp $"C# backend received OneShot with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"C# backend received Task with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
@@ -1177,7 +1181,57 @@ module CSharpBackend =
 
     /// A task scope owns the tasks started in it. Each task has its own token linked to the scope's,
     /// which is linked to the token of whoever created the scope, so cancellation only flows down.
+    let private oneShotRuntime =
+        [ "// Scope ownership and publication share one gate; this gate never enters the scheduler."
+          "internal interface INyOneShot { void CloseLocked(); }"
+          "public sealed class NyOneShot<T> : INyOneShot"
+          "{"
+          "    private readonly NyTaskScope _owner;"
+          "    private int _state; // 0 pending, 1 completed, 2 closed"
+          "    private T _value = default!;"
+          "    internal NyOneShot(NyTaskScope owner, bool closed) { _owner = owner; _state = closed ? 2 : 0; }"
+          "    void INyOneShot.CloseLocked() { if (_state == 0) _state = 2; }"
+          "    public bool Complete(T value)"
+          "    {"
+          "        lock (_owner.HandoffGate)"
+          "        {"
+          "            if (_state != 0 || _owner.HandoffsClosed) return false;"
+          "            _value = value;"
+          "            _state = 1;"
+          "            _owner.ForgetCompletedOneShot(this);"
+          "            System.Threading.Monitor.PulseAll(_owner.HandoffGate);"
+          "            return true;"
+          "        }"
+          "    }"
+          "    private bool Ready() { lock (_owner.HandoffGate) return _state != 0; }"
+          "    public NyOption<T> Wait(NyOption<long> limit)"
+          "    {"
+          "        long? millis = limit.HasValue ? Math.Max(0L, limit.Value) : null;"
+          "        var token = NyRuntime.Cancellation.Value;"
+          "        if (NyRuntime.Clock is { } clock)"
+          "        {"
+          "            clock.Block(() => Ready() || token.IsCancellationRequested, millis);"
+          "            lock (_owner.HandoffGate) return _state == 1 ? NyOption<T>.Some(_value) : NyOption<T>.None();"
+          "        }"
+          "        // Register and dispose outside the gate: disposing while a callback waits for it can deadlock."
+          "        using var wake = token.Register(() => { lock (_owner.HandoffGate) System.Threading.Monitor.PulseAll(_owner.HandoffGate); });"
+          "        var watch = System.Diagnostics.Stopwatch.StartNew();"
+          "        lock (_owner.HandoffGate)"
+          "        {"
+          "            while (_state == 0 && !token.IsCancellationRequested)"
+          "            {"
+          "                long left = millis is long total ? Math.Max(0L, total - watch.ElapsedMilliseconds) : -1L;"
+          "                if (left == 0L) break;"
+          "                System.Threading.Monitor.Wait(_owner.HandoffGate, left < 0L ? System.Threading.Timeout.Infinite : (int)Math.Min(left, int.MaxValue));"
+          "            }"
+          "            return _state == 1 ? NyOption<T>.Some(_value) : NyOption<T>.None();"
+          "        }"
+          "    }"
+          "}"
+          "" ]
+
     let private taskRuntime =
+        oneShotRuntime @
         [ "public interface INyTask"
           "{"
           "    System.Threading.Tasks.Task Running { get; }"
@@ -1205,8 +1259,36 @@ module CSharpBackend =
           "    private readonly System.Threading.CancellationTokenSource _cancellation;"
           "    private readonly System.Collections.Generic.List<INyTask> _tasks = new();"
           "    private bool _closed;"
-          "    public NyTaskScope(System.Threading.CancellationToken parent) =>"
+          "    internal object HandoffGate { get; } = new();"
+          "    internal bool HandoffsClosed { get; private set; }"
+          "    private readonly System.Collections.Generic.HashSet<INyOneShot> _handoffs = new();"
+          "    public NyTaskScope(System.Threading.CancellationToken parent)"
+          "    {"
           "        _cancellation = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(parent);"
+          "        _cancellation.Token.Register(CloseHandoffs);"
+          "    }"
+          "    public NyOneShot<T> CreateOneShot<T>()"
+          "    {"
+          "        lock (HandoffGate)"
+          "        {"
+          "            var cell = new NyOneShot<T>(this, HandoffsClosed);"
+          "            if (!HandoffsClosed) _handoffs.Add(cell);"
+          "            return cell;"
+          "        }"
+          "    }"
+          "    // Called only by successful Complete while HandoffGate is held. Terminal cells retain"
+          "    // their own values; the owner tracks only unresolved cells it still needs to close."
+          "    internal void ForgetCompletedOneShot(INyOneShot cell) => _handoffs.Remove(cell);"
+          "    private void CloseHandoffs()"
+          "    {"
+          "        lock (HandoffGate)"
+          "        {"
+          "            HandoffsClosed = true;"
+          "            foreach (var cell in _handoffs) cell.CloseLocked();"
+          "            _handoffs.Clear();"
+          "            System.Threading.Monitor.PulseAll(HandoffGate);"
+          "        }"
+          "    }"
           "    public NyTask<T> Start<T>(Func<T> work)"
           "    {"
           "        System.Threading.CancellationTokenSource cancellation;"
@@ -1239,6 +1321,7 @@ module CSharpBackend =
           "    /// the earliest-started task that raised one."
           "    public void Close(bool bodyThrew)"
           "    {"
+          "        CloseHandoffs();"
           "        INyTask[] tasks;"
           "        lock (_tasks)"
           "        {"
@@ -2121,6 +2204,13 @@ module CSharpBackend =
             let any = match mode with TaskWaitMode.Any -> "true" | TaskWaitMode.All -> "false"
             let limit = limitValueId |> Option.map valueName |> Option.defaultValue "NyOption<long>.None()"
             writer.Line(target + " = NyTasks.Wait(" + valueName tasksValueId + ", any: " + any + ", limit: " + limit + ");")
+        | ExecutionInstructionKind.OneShotCreate(scope, valueType) ->
+            writer.Line(target + " = " + valueName scope + ".CreateOneShot<" + formatType valueType + ">();")
+        | ExecutionInstructionKind.OneShotComplete(cell, value) ->
+            writer.Line(target + " = " + valueName cell + ".Complete(" + valueName value + ");")
+        | ExecutionInstructionKind.OneShotWait(cell, limit) ->
+            let limit = limit |> Option.map valueName |> Option.defaultValue "NyOption<long>.None()"
+            writer.Line(target + " = " + valueName cell + ".Wait(" + limit + ");")
         | ExecutionInstructionKind.TaskCancel taskValueId ->
             writer.Line(valueName taskValueId + ".Cancel();")
             writer.Line(target + " = NyUnit.Value;")

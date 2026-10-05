@@ -280,6 +280,15 @@ module internal WireRecipe =
         | "taskWait" ->
             ensureFields "task-wait recipe" [ "kind"; "tasks"; "mode"; "limit" ] [ "kind"; "tasks"; "mode" ] element
             ExpressionRecipe.TaskWait(recipe (property "tasks" element), WireInput.taskWaitMode element, tryProperty "limit" element |> Option.map recipe)
+        | "oneShotCreate" ->
+            ensureFields "one-shot-create recipe" [ "kind"; "scope"; "valueType" ] [ "kind"; "scope"; "valueType" ] element
+            ExpressionRecipe.OneShotCreate(recipe (property "scope" element), typeRef (property "valueType" element))
+        | "oneShotComplete" ->
+            ensureFields "one-shot-complete recipe" [ "kind"; "cell"; "value" ] [ "kind"; "cell"; "value" ] element
+            ExpressionRecipe.OneShotComplete(recipe (property "cell" element), recipe (property "value" element))
+        | "oneShotWait" ->
+            ensureFields "one-shot-wait recipe" [ "kind"; "cell"; "limit" ] [ "kind"; "cell" ] element
+            ExpressionRecipe.OneShotWait(recipe (property "cell" element), tryProperty "limit" element |> Option.map (recipe))
         | "taskCancel" ->
             ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
             ExpressionRecipe.TaskCancel(recipe (property "task" element))

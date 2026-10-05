@@ -213,6 +213,9 @@ module ValueDependency =
             @ contextDependencies context
         | SemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) ->
             create ValueDependencyRole.Source tasksNodeId :: (limitNodeId |> Option.map (create ValueDependencyRole.Limit) |> Option.toList)
+        | SemanticNodeKind.OneShotCreate(scope, _) -> [ create ValueDependencyRole.TaskScope scope ]
+        | SemanticNodeKind.OneShotComplete(cell, value) -> [ create ValueDependencyRole.Source cell; create ValueDependencyRole.Value value ]
+        | SemanticNodeKind.OneShotWait(cell, limit) -> create ValueDependencyRole.Source cell :: (limit |> Option.map (create ValueDependencyRole.Limit) |> Option.toList)
         | SemanticNodeKind.TaskCancel taskNodeId -> [ create ValueDependencyRole.Value taskNodeId ]
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
