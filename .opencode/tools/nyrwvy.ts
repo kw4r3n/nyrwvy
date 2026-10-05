@@ -5,6 +5,7 @@ type OpenCodeSchema = ReturnType<typeof tool>["args"][string]
 const definitions = createGraphTools<OpenCodeSchema>(tool.schema)
 export const open = tool(definitions.open)
 export const inspect = tool(definitions.inspect)
+export const view = tool(definitions.view)
 export const recipe_reference = tool(definitions.recipe_reference)
 export const create_type = tool(definitions.create_type)
 export const create_function = tool(definitions.create_function)

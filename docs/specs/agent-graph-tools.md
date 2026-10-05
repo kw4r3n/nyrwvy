@@ -26,6 +26,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 | --- | --- |
 | `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
+| `nyrwvy_view` | Write a human-readable HTML page (Function Focus) of one committed function and return its path, for a person to open in a browser. See [human-readable view](#human-readable-view). |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot: no argument for the categorized index of kind names, `category` for its one-line signatures, `kind` or `kinds` for exact shapes. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
@@ -76,6 +77,10 @@ The result keeps the focused query's snapshot ID, declaration, inferred node typ
 This is a read projection, not a new accepted snapshot encoding or a raw graph-editing payload. Non-semantic node/arm/binding order is rendered by stable ID for consistent reads across reopen; parameter and List item order are retained. `focusFunction` retains its existing response format.
 
 `Int64` literal values in this projection are decimal strings so JavaScript tool hosts do not round values above their safe-integer range. Recipe input accepts exact decimal strings as well as existing JSON integer tokens; `Float64` retains its explicit hexadecimal bits representation. These are transport encodings, not numeric conversions.
+
+## Human-readable view
+
+`nyrwvy_view` (JSONL `viewFunction`) takes exactly one of `function` (exact display name) and `functionId`, as `readFunction` does, plus an optional `output` path ending in `.html`. Relative paths use the authoring process's working directory, which is the project. Without `output`, the page is written to `nyrwvy-views/` beside the snapshot under the viewer's stable-ID-derived file name. The reply is `{ functionId, displayName, kind: "functionFocus", mediaType, path }`; the HTML itself is not returned, so it costs the agent no context. The page renders the committed state with the same [viewer](../developer/architecture.md#human-review-and-projections) as `tools/Nyrwvy.ViewerExport`. It is a projection: it is never read back, and editing it changes nothing.
 
 ## Targeted edits and pre-commit review
 

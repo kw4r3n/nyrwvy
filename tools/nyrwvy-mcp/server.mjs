@@ -81,6 +81,7 @@ if (values.help) {
     }
     register("open", definitions.open)
     register("inspect", definitions.inspect)
+    register("view", definitions.view)
     register("recipe_reference", definitions.recipe_reference)
     register("create_type", definitions.create_type)
     register("create_function", definitions.create_function)

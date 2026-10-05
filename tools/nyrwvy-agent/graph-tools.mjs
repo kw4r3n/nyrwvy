@@ -81,6 +81,12 @@ export function createGraphTools(schema) {
           ...(args.functionId === undefined ? {} : { functionId: args.functionId }) }, context)
       },
     }),
+    view: defineTool({
+      description: "Write a human-readable HTML page for one committed function (Function Focus: signature, effects, typed nodes and their dependencies) and return its path, for a person to open in a browser. Nothing is returned to read; use inspect for the graph. Pass exactly one function name or functionId. output is an optional .html path (relative paths use the project); by default the page goes to nyrwvy-views/ beside the snapshot. The page is a projection and is never read back.",
+      args: { function: schema.string().optional(), functionId: schema.string().optional(), output: schema.string().optional() },
+      /** @param {{ function?: string; functionId?: string; output?: string }} args */
+      execute: (args, context) => requestAuthoring({ op: "viewFunction", ...args }, context),
+    }),
     recipe_reference: defineTool({
       description: "Read the maintained name-resolved ExpressionRecipe wire shapes used by create_function and replace. No snapshot or authoring session is required. Omit every argument for the categorized index of kind names. Pass category for one-line signatures of its kinds, kind for one exact shape with notes, or kinds to read several shapes in one call; pass at most one of them.",
       args: { category: schema.enum(recipeCategories).optional(), kind: schema.enum(recipeKinds).optional(), kinds: schema.array(schema.string()).min(1).describe("Several kinds from the index; checked when read, so the kind list is not repeated in this schema.").optional() },
