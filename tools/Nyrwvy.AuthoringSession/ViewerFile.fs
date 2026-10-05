@@ -12,15 +12,23 @@ module ViewerFile =
     /// Default directory, beside the snapshot, for views written without an explicit output path.
     let defaultDirectoryName = "nyrwvy-views"
 
+    let private isInside (directory: string) (path: string) =
+        let relative = Path.GetRelativePath(directory, path)
+        not (Path.IsPathRooted relative) && relative <> ".." && not (relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal))
+
+    /// A requested output resolves against the snapshot's directory and must stay inside it, so an
+    /// auto-approved agent can only write pages next to the graph it was given, never over other files.
     let private outputPath (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
+        let directory = Path.GetDirectoryName(Path.GetFullPath snapshotPath)
         match requested with
-        | None ->
-            let directory = Path.GetDirectoryName(Path.GetFullPath snapshotPath)
-            Ok(Path.Combine(directory, defaultDirectoryName, artifact.SuggestedFileName))
+        | None -> Ok(Path.Combine(directory, defaultDirectoryName, artifact.SuggestedFileName))
         | Some path when String.IsNullOrWhiteSpace path -> Error "output must not be blank."
         | Some path when not (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) ->
             Error "output must name an .html file."
-        | Some path -> Ok(Path.GetFullPath path)
+        | Some path ->
+            let resolved = Path.GetFullPath(Path.Combine(directory, path))
+            if isInside directory resolved then Ok resolved
+            else Error $"output must stay inside the snapshot's directory {directory}; {path} resolves to {resolved}."
 
     let writeFocus
         (snapshotPath: string)
