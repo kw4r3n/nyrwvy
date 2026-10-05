@@ -36,8 +36,29 @@ static class Runner
         return list;
     }
     static List<long> Items(NyList<long> list) => list.Fold(new List<long>(), (items, item) => { items.Add(item); return items; });
+    // The callback and search operations against List<T>, and equality with a list of the same items
+    // that starts at another trie position (a slice keeps at least half of the positions, so it shares).
+    static bool WideFailure(NyList<long> next, List<long> wanted, NyList<long> copy, int skip)
+    {
+        var padded = NyList<long>.Create(new long[skip]).Concat(copy);
+        var shifted = padded.Slice(skip, padded.Length);
+        var probe = wanted.Count > 0 ? wanted[wanted.Count / 3] : 0L;
+        var even = wanted.Where(v => (v & 1) == 0).ToList();
+        bool IsEven(long v) => (v & 1) == 0;
+        // The padding is zeros, so a search for 0 that looks before the start finds one there.
+        Func<NyOption<long>, int, bool> differs = (found, expected) => found.HasValue != (expected >= 0) || (found.HasValue && found.Value != expected);
+        return !next.Equals(shifted) || !shifted.Equals(next) || next.GetHashCode() != shifted.GetHashCode()
+            || differs(shifted.IndexOf(0L), wanted.IndexOf(0L)) || differs(shifted.LastIndexOf(0L), wanted.LastIndexOf(0L))
+            || next.IndexOf(probe).HasValue != wanted.Contains(probe)
+            || (wanted.Contains(probe) && (next.IndexOf(probe).Value != wanted.IndexOf(probe) || next.LastIndexOf(probe).Value != wanted.LastIndexOf(probe)))
+            || next.FindIndex(IsEven).HasValue != (even.Count > 0) || (even.Count > 0 && next.FindIndex(IsEven).Value != wanted.FindIndex(v => IsEven(v)))
+            || next.MinBy((l, r) => l < r).HasValue != (wanted.Count > 0) || (wanted.Count > 0 && next.MinBy((l, r) => l < r).Value != wanted.Min())
+            || next.Any(IsEven) != (even.Count > 0) || next.All(IsEven) != (even.Count == wanted.Count)
+            || !Items(next.Filter(IsEven)).SequenceEqual(even) || !Items(next.Map(v => v + 1)).SequenceEqual(wanted.Select(v => v + 1))
+            || !Items(next.Reverse()).SequenceEqual(Enumerable.Reverse(wanted)) || !Items(next.SortBy((l, r) => l < r)).SequenceEqual(wanted.OrderBy(v => v));
+    }
     // Random operation sequences against List<T>, at sizes that cross 32, 1,024 and 32,768 items, so
-    // pushes, pops and prefix slices reach every trie boundary; every earlier list must stay unchanged.
+    // pushes, pops, slices and dequeues reach every trie boundary; every earlier list must stay unchanged.
     static int RandomSequences()
     {
         var random = new Random(52);
@@ -50,7 +71,7 @@ static class Runner
                 var (list, expected) = lists[random.Next(lists.Count)];
                 NyList<long> next;
                 List<long> wanted;
-                switch (random.Next(10))
+                switch (random.Next(11))
                 {
                     case < 4: var item = random.NextInt64(); next = list.AppendItem(item); wanted = new List<long>(expected) { item }; break;
                     case < 6: next = list.DropLast(); wanted = expected.Take(Math.Max(expected.Count - 1, 0)).ToList(); break;
@@ -59,6 +80,10 @@ static class Runner
                         var from = Math.Clamp(a, 0, expected.Count); var to = Math.Clamp(b, 0, expected.Count);
                         next = list.Slice(a, b); wanted = to <= from ? new List<long>() : expected.GetRange(from, to - from); break;
                     case 7: var k = random.Next(0, expected.Count + 1); next = list.Slice(0, k); wanted = expected.Take(k).ToList(); break;
+                    case 9:
+                        var dequeues = random.Next(1, 80); next = list; wanted = new List<long>(expected);
+                        for (var i = 0; i < dequeues; i++) { next = next.Slice(1, next.Length); if (wanted.Count > 0) wanted.RemoveAt(0); }
+                        break;
                     case 8: var other = lists[random.Next(lists.Count)]; next = list.Concat(other.List); wanted = expected.Concat(other.Expected).ToList(); break;
                     default:
                         var count = random.Next(0, limit); next = NyList<long>.Empty(); wanted = new List<long>();
@@ -67,9 +92,12 @@ static class Runner
                 }
                 if (wanted.Count > limit) continue;
                 var copy = NyList<long>.Create(wanted.ToArray());
+                // The wider checks run on every small list and on a sample of the large ones.
+                var wide = wanted.Count <= 1100 || step % 50 == 0;
                 var index = wanted.Count / 3;
                 if (next.Length != wanted.Count || !Items(next).SequenceEqual(wanted) || !next.Equals(copy) || next.GetHashCode() != copy.GetHashCode()
-                    || (wanted.Count > 0 && (next.ItemAt(index).Value != wanted[index] || next.Last().Value != wanted[^1])) || next.ItemAt(wanted.Count).HasValue)
+                    || (wanted.Count > 0 && (next.ItemAt(index).Value != wanted[index] || next.Last().Value != wanted[^1])) || next.ItemAt(wanted.Count).HasValue
+                    || (wide && WideFailure(next, wanted, copy, random.Next(1, Math.Clamp(wanted.Count + 1, 2, 40)))))
                     failures++;
                 lists.Add((next, wanted));
                 if (lists.Count > 60) lists.RemoveAt(1);

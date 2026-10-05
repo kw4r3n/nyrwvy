@@ -40,4 +40,4 @@ The components still exceed the limit on a comb of 20,000. Their remaining per-p
 ## Revisit conditions
 
 - **The components loop on a comb.** A from-the-end search (`ListLastIndexOf`) and a `SetDifference` that folds over the smaller operand when the right one is smaller would make each pop proportional to the component; the second needs no language change. Propose both together. **Done as order 53** ([decision](list-last-index-and-set-difference.md)): the comb of 40,000 takes 1.73 s.
-- **A breadth-first queue.** A slice from any start but 0 still copies; a probe that dequeues with `ListSlice(1, …)` at scale needs a queue. [Probe 24](../verification/map-set-probe24-20261005.md) met it on a fan of 40,000: **queued as order 55** ([roadmap](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-24-owner-choice)).
+- **A breadth-first queue.** A slice from any start but 0 still copies; a probe that dequeues with `ListSlice(1, …)` at scale needs a queue. [Probe 24](../verification/map-set-probe24-20261005.md) met it on a fan of 40,000: **done as order 55**, a slice from any start shares the trie ([decision](list-slice-sharing.md)).
