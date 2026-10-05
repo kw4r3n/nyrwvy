@@ -186,6 +186,8 @@ export class AuthoringClient {
 }
 
 const sessions = new Map<string, AuthoringClient>()
+/** Opens still starting, settled (never rejected) once the attempt ends; close waits for them. */
+const opening = new Map<string, Promise<void>>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
@@ -203,7 +205,24 @@ export async function openAuthoring(
   }
   if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
   const sessionKey = key(context)
-  if (sessions.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
+  // The slot is reserved before the first await, so a concurrent open of the same session fails
+  // instead of spawning a second child whose ownership the map would silently drop.
+  if (sessions.has(sessionKey) || opening.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
+  const launch = launchAuthoring(sessionKey, mode, snapshot, context, workspaceOverride, dependency, dependencies, upgrade)
+  const settled = launch.then(() => undefined, () => undefined)
+  opening.set(sessionKey, settled)
+  try {
+    return await launch
+  } finally {
+    if (opening.get(sessionKey) === settled) opening.delete(sessionKey)
+  }
+}
+
+async function launchAuthoring(
+  sessionKey: string, mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext,
+  workspaceOverride: string | undefined, dependency: string | undefined, dependencies: string[] | undefined,
+  upgrade: { expectedFingerprint: string; replaces?: string } | undefined,
+): Promise<string> {
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")
   // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
@@ -251,6 +270,8 @@ export function requestAuthoring(request: Request, context: AuthoringContext): P
 
 export async function closeAuthoring(context: AuthoringContext): Promise<string> {
   const sessionKey = key(context)
+  // A close racing an open applies to the session that open starts, never to nothing.
+  await opening.get(sessionKey)
   const client = sessions.get(sessionKey)
   if (!client) return "No active Nyrwvy authoring session."
   try {

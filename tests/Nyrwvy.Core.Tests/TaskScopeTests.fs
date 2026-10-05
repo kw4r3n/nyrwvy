@@ -269,6 +269,32 @@ module TaskScopeTests =
                     ExpressionRecipe.DirectCall(describe.Id, [ parameter "outcomes" describe, ExpressionRecipe.TaskWait(pattern 0 RecipePatternSlot.Value, TaskWaitMode.Any, None) ]),
                     pattern 0 RecipePatternSlot.Error))
             |> ignore
+            // Review 2026-10-05: a scope handed out of its body is closed. A late start on it whose worker
+            // fans out through ParallelAll into more starts on the same scope must not wait on itself.
+            let lateLeaf = create "lateLeaf" [ "item", stringType ] outcomeType [] (ExpressionRecipe.ResultOk(stringType, slot 0))
+            let lateFan =
+                create "lateFan" [ "scope", scopeType; "item", stringType ] (resultOf taskType stringType) []
+                    (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.TaskStart(slot 0, lateLeaf.Id, [], slot 1)))
+            let lateWorker =
+                create "lateWorker" [ "scope", scopeType; "item", stringType ] outcomeType []
+                    (ExpressionRecipe.MatchResult(
+                        ExpressionRecipe.ParallelAll(ExpressionRecipe.ListConstruct(stringType, [ text "a"; text "b" ]), lateFan.Id, [ parameter "scope" lateFan, slot 0 ]),
+                        ExpressionRecipe.ResultOk(stringType, slot 1),
+                        ExpressionRecipe.ResultErr(stringType, pattern 0 RecipePatternSlot.Error)))
+            let handOut = create "handOutScope" [ "scope", scopeType ] (resultOf scopeType stringType) [] (ExpressionRecipe.ResultOk(stringType, slot 0))
+            let closedScope = pattern 0 RecipePatternSlot.Value
+            create "lateFanOut" [ "unused", stringType ] stringType []
+                (ExpressionRecipe.MatchResult(
+                    ExpressionRecipe.TaskScope(handOut.Id, []),
+                    ExpressionRecipe.DirectCall(
+                        describe.Id,
+                        [ parameter "outcomes" describe,
+                          ExpressionRecipe.TaskWait(
+                              ExpressionRecipe.ListConstruct(taskType, [ ExpressionRecipe.TaskStart(closedScope, lateWorker.Id, [ parameter "scope" lateWorker, closedScope ], text "late") ]),
+                              TaskWaitMode.All,
+                              None) ]),
+                    pattern 0 RecipePatternSlot.Error))
+            |> ignore
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
             test reopened path
@@ -432,6 +458,14 @@ module TaskScopeTests =
                 Assert.Equal("crash", failure.Message)
                 Assert.Contains(failure.Calls, fun call -> call.OperationId = removeId)
             | other -> failwithf "The member's host exception did not propagate: %A" other)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``a late start on a closed scope may fan out into more starts on it`` () =
+        withTeam (fun session _ ->
+            let lateFanOut = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "lateFanOut")
+            // A deadlock surfaces as runPure's RunTimeout.
+            let result = PureRun.run session lateFanOut.Id [ PureRunValue.String "" ] (Some(PureRunValue.String "|ok:late")) |> unwrap "lateFanOut"
+            Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch))
 
     let private delayed millis response = PureRunFakeResponse.Delayed(millis, response)
 

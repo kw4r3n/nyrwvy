@@ -22,25 +22,46 @@ module ViewerFile =
     let private outputPath (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
         let directory = Path.GetDirectoryName(Path.GetFullPath snapshotPath)
         match requested with
-        | None -> Ok(Path.Combine(directory, defaultDirectoryName, artifact.SuggestedFileName))
+        | None -> Ok(directory, Path.Combine(directory, defaultDirectoryName, artifact.SuggestedFileName))
         | Some path when String.IsNullOrWhiteSpace path -> Error "output must not be blank."
         | Some path when not (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) ->
             Error "output must name an .html file."
         | Some path ->
             let resolved = Path.GetFullPath(Path.Combine(directory, path))
-            if isInside directory resolved then Ok resolved
+            if isInside directory resolved then Ok(directory, resolved)
             else Error $"output must stay inside the snapshot's directory {directory}; {path} resolves to {resolved}."
+
+    /// The first existing component below `directory` on the way to `path` (the file included) that is
+    /// a symbolic link or reparse point. The confinement above compares strings, so a link would carry
+    /// the write outside the directory while the string stays inside it.
+    let private linkedComponent (directory: string) (path: string) =
+        Path.GetRelativePath(directory, path).Split(
+            [| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.scan (fun (current: string) (part: string) -> Path.Combine(current, part)) directory
+        |> Array.tail
+        |> Array.tryFind (fun (item: string) -> not (isNull (FileInfo(item).LinkTarget)))
 
     let private write (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
         outputPath snapshotPath requested artifact
-        |> Result.bind (fun path ->
-            try
-                Directory.CreateDirectory(Path.GetDirectoryName path) |> ignore
-                File.WriteAllText(path, artifact.Content, UTF8Encoding(false))
-                Ok(path, artifact)
-            with
-            | :? IOException as error -> Error $"I/O error: {error.Message}"
-            | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}")
+        |> Result.bind (fun (directory, path) ->
+            match linkedComponent directory path with
+            | Some link -> Error $"output must not pass through a symbolic link or reparse point; {link} is one."
+            | None ->
+                try
+                    let parent = Path.GetDirectoryName path
+                    Directory.CreateDirectory parent |> ignore
+                    // Written beside the target and renamed over it: a rename replaces a link created at the
+                    // final name after the check above instead of writing through it.
+                    let temporary = Path.Combine(parent, $".{Path.GetFileName path}.{Guid.NewGuid():N}.tmp")
+                    try
+                        File.WriteAllText(temporary, artifact.Content, UTF8Encoding(false))
+                        File.Move(temporary, path, true)
+                    finally
+                        if File.Exists temporary then File.Delete temporary
+                    Ok(path, artifact)
+                with
+                | :? IOException as error -> Error $"I/O error: {error.Message}"
+                | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}")
 
     let writeFocus
         (snapshotPath: string)

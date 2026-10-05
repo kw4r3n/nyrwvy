@@ -444,3 +444,53 @@ module SelfCallTests =
             Assert.Equal(PureRunValue.Int64 0L, run 0L)
             Assert.Equal(PureRunValue.Int64 10L, run 1L)
             Assert.Equal(PureRunValue.Int64 22L, run 4L))
+
+    let private ancestorLoopId<'tag> name = StableId.createForTesting<'tag> ("ancestor-loop-" + name)
+
+    /// loop(n) = { next = n - 1; if next <= 0 then 0 else loop(next) }: the tail self call's argument
+    /// is a node of the enclosing graph, not of the branch that holds the call.
+    let private ancestorLoopSnapshot () =
+        let node name kind: SemanticNode = { Id = ancestorLoopId<GraphNodeTag> name; Kind = kind }
+        let nodeId = ancestorLoopId<GraphNodeTag>
+        let loopId, nId = ancestorLoopId<FunctionTag> "fn", ancestorLoopId<ParameterTag> "n"
+        let loop: SemanticFunction =
+            { Id = loopId
+              DisplayName = "loop"
+              Parameters = [ { Id = nId; DisplayName = "n"; Type = intType } ]
+              ResultType = intType
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ node "n-ref" (SemanticNodeKind.ParameterReference nId)
+                      node "one" (SemanticNodeKind.Int64Literal 1L)
+                      node "next" (SemanticNodeKind.Int64WrappingSubtract(nodeId "n-ref", nodeId "one"))
+                      node "zero" (SemanticNodeKind.Int64Literal 0L)
+                      node "done" (SemanticNodeKind.Int64LessThanOrEqual(nodeId "next", nodeId "zero"))
+                      node "branch"
+                          (SemanticNodeKind.Conditional(
+                              nodeId "done",
+                              { Nodes = [ node "stop" (SemanticNodeKind.Int64Literal 0L) ]; ResultNodeId = nodeId "stop" },
+                              { Nodes = [ node "call" (SemanticNodeKind.DirectCall(loopId, [ { TargetParameterId = nId; ValueNodeId = nodeId "next" } ])) ]
+                                ResultNodeId = nodeId "call" })) ]
+                  ResultNodeId = nodeId "branch" } }
+        { Snapshot.empty (ancestorLoopId<SnapshotTag> "snapshot") with Functions = [ loop ] }, loopId
+
+    [<Fact>]
+    let ``a tail self call whose argument is an enclosing graph's node lowers to a tail call`` () =
+        let graph, loopId = ancestorLoopSnapshot ()
+        Assert.Empty(SnapshotValidator.validate graph)
+        let program = TypedSemanticIr.project graph |> unwrap |> ExecutionIr.lower |> unwrap
+        let lowered = program.Functions |> List.find (fun fn -> fn.SemanticFunctionId = loopId)
+        Assert.Contains(lowered.Blocks, fun block -> match block.Terminator with ExecutionTerminator.TailCall _ -> true | _ -> false)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``a tail self call through an enclosing graph's node runs deep under runPure`` () =
+        let graph, loopId = ancestorLoopSnapshot ()
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-ancestor-loop-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        try
+            let path = Path.Combine(root, "workspace.json")
+            File.WriteAllText(path, SnapshotCodec.serialize graph |> unwrap)
+            use session = AuthoringSession.openExisting path |> unwrap
+            Assert.Equal(PureRunValue.Int64 0L, (PureRun.run session loopId [ PureRunValue.Int64 10000000L ] None |> unwrap).Actual)
+        finally Directory.Delete(root, true)

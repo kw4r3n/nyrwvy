@@ -264,6 +264,31 @@ module ViewerArtifactTests =
                 Assert.Contains("inside the snapshot's directory", error.GetProperty("message").GetString())
             Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName root, "escaped.html")))
             Assert.False(File.Exists outside)
+            // Review 2026-10-05: confinement also holds through links. A linked default directory, a linked
+            // explicit parent and a linked final file are refused, and the file outside stays untouched.
+            let outsideDirectory = Path.Combine(Path.GetTempPath(), "nyrwvy-view-link-target-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory outsideDirectory |> ignore
+            try
+                let victim = Path.Combine(outsideDirectory, expected.SuggestedFileName)
+                File.WriteAllText(victim, "outside")
+                let defaultDirectory = Path.Combine(root, ViewerFile.defaultDirectoryName)
+                Directory.Delete(defaultDirectory, true)
+                Directory.CreateSymbolicLink(defaultDirectory, outsideDirectory) |> ignore
+                Directory.CreateSymbolicLink(Path.Combine(root, "linked"), outsideDirectory) |> ignore
+                File.CreateSymbolicLink(Path.Combine(root, "pages", "linked.html"), victim) |> ignore
+                let byDefault = """{"id":"view","op":"viewFunction","function":"validate_user"}"""
+                let explicitOutput output = $"""{{"id":"view","op":"viewFunction","function":"validate_user","output":{JsonSerializer.Serialize(output: string)}}}"""
+                for line in [ byDefault; explicitOutput ("linked/" + expected.SuggestedFileName); explicitOutput "pages/linked.html" ] do
+                    use refused = send session line
+                    Assert.False(refused.RootElement.GetProperty("ok").GetBoolean(), line)
+                    let error = refused.RootElement.GetProperty("error")
+                    Assert.Equal("ViewWriteFailed", error.GetProperty("code").GetString())
+                    Assert.Contains("symbolic link", error.GetProperty("message").GetString())
+                Assert.Equal("outside", File.ReadAllText victim)
+            finally
+                for link in [ Path.Combine(root, ViewerFile.defaultDirectoryName); Path.Combine(root, "linked"); Path.Combine(root, "pages", "linked.html") ] do
+                    if not (isNull (FileInfo(link).LinkTarget)) then File.Delete link
+                Directory.Delete(outsideDirectory, true)
             use both = send session ($"""{{"id":"view","op":"viewFunction","function":"main","functionId":"{StableId.value fixture.MainFunctionId}"}}""")
             Assert.False(both.RootElement.GetProperty("ok").GetBoolean())
             use unknown = send session """{"id":"view","op":"viewFunction","function":"missing"}"""
