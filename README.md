@@ -112,3 +112,7 @@ Historical and superseded material is kept separately under [`docs-archive/`](do
 ## Relationship to RAST
 
 Nyrwvy is informed by earlier RAST work, but RAST is not a runtime, semantic, or design-authority dependency. Conceptual ancestry does not require a special provenance system; concrete copied or substantially adapted material uses ordinary source attribution. See the [RAST provenance decision](docs/decisions/rast-provenance.md).
+
+## License
+
+Nyrwvy is licensed under the [Apache License, Version 2.0](LICENSE). The evaluation corpora under `evaluation/` and the archived documentation under `docs-archive/` are covered by the same license.
