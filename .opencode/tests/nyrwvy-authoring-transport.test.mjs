@@ -289,3 +289,55 @@ test("an unreaped child keeps its authoring slot even when the SIGKILL wait expi
   assert.equal(children.length, 2)
   await closeAuthoring(context)
 })
+
+function mockRespondingSpawn(t) {
+  const actualSpawn = childProcess.spawn
+  const children = []
+  t.mock.method(childProcess, "spawn", () => {
+    const runner = actualSpawn(process.execPath, ["-e", `
+      require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+        process.stdout.write(JSON.stringify({ id: JSON.parse(line).id, ok: true }) + '\\n');
+      });
+    `], { stdio: ["pipe", "pipe", "pipe"] })
+    children.push({ runner, closed: new Promise(resolve => runner.once("close", resolve)) })
+    return runner
+  })
+  syncBuiltinESMExports()
+  t.after(async () => {
+    for (const { runner } of children) {
+      if (runner.exitCode === null && runner.signalCode === null) childProcess.ChildProcess.prototype.kill.call(runner, "SIGKILL")
+    }
+    await Promise.all(children.map(entry => entry.closed))
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  })
+  return children
+}
+
+test("concurrent opens of one session start at most one child", { timeout: 5000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const children = mockRespondingSpawn(t)
+  const results = await Promise.allSettled([
+    openAuthoring("create", "first.json", context),
+    openAuthoring("create", "second.json", context),
+  ])
+  assert.deepEqual(results.map(result => result.status).sort(), ["fulfilled", "rejected"])
+  assert.match(results.find(result => result.status === "rejected").reason.message, /already open/)
+  assert.equal(children.length, 1)
+  assert.match(await closeAuthoring(context), /closed/)
+  await Promise.all(children.map(entry => entry.closed))
+})
+
+test("a close racing an open closes the child that open starts", { timeout: 5000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const children = mockRespondingSpawn(t)
+  const [opened, closed] = await Promise.allSettled([
+    openAuthoring("create", "first.json", context),
+    closeAuthoring(context),
+  ])
+  assert.equal(opened.status, "fulfilled")
+  assert.match(closed.value, /closed/)
+  assert.equal(children.length, 1)
+  await Promise.all(children.map(entry => entry.closed))
+  assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
+})
