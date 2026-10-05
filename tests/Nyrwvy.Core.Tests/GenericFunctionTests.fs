@@ -113,6 +113,16 @@ module GenericFunctionTests =
             { snapshot with
                 Types = [ { Id = id<TypeTag> "box"; DisplayName = "Box"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = countParameter } ] } ] }
         Assert.Contains(SnapshotValidator.validate declared, fun issue -> issue.Code = "TypeParameterOutsideFunction")
+        // A result type may only use a type parameter that the function's own parameter types introduce.
+        let undeclared =
+            { snapshot with
+                Functions = snapshot.Functions |> List.map (fun fn ->
+                    if fn.DisplayName <> "defaultName" then fn
+                    else { fn with ResultType = TypeRef.TypeParameter(id<TypeParameterTag> "unintroduced", "U") }) }
+        let issues = SnapshotValidator.validate undeclared
+        Assert.Contains(issues, fun issue ->
+            issue.Code = "TypeParameterNotDeclared" && issue.Message.Contains("'defaultName'") && issue.Message.Contains("'U'"))
+        Assert.DoesNotContain(SnapshotValidator.validate snapshot, fun issue -> issue.Code = "TypeParameterNotDeclared")
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``one generic body runs for several element types`` () =
