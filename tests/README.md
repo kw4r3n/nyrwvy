@@ -4,7 +4,7 @@ Nyrwvy keeps routine validation small and separates broader execution checks fro
 
 ## fast
 
-Run during ordinary development and CI:
+Run during ordinary development (the on-demand `CI` workflow runs the same checks when the maintainer starts it):
 
 ```fish
 ./scripts/test-fast.fish
