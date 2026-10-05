@@ -332,7 +332,7 @@ module AgentTypeDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedType = List.exactlyOne candidate.Created } })
+                      CreatedType = List.exactlyOne candidate.Prepared } })
 
     /// Creates a group of types that may reference themselves and each other through their
     /// request-local references.
@@ -349,7 +349,7 @@ module AgentTypeDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedTypes = candidate.Created } })
+                      CreatedTypes = candidate.Prepared } })
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)

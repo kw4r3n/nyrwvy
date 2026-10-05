@@ -82,11 +82,14 @@ module AgentProductFieldTypeMigrationWorkflow =
                     bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId)
                 | _ -> false))
 
-    let simulate
-        (workspace: AgentWorkspace)
-        (request: AgentProductFieldTypeMigrationRequest)
-        : Result<AgentProductFieldTypeMigrationProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+    type private Prepared =
+        { OwnerType: SemanticType
+          UpdatedType: SemanticType
+          Field: SemanticField
+          Affected: SemanticFunction list
+          Bodies: Map<FunctionId, ValueGraph> }
+
+    let private prepare (request: AgentProductFieldTypeMigrationRequest) (baseSnapshot: Snapshot) =
         let owner =
             baseSnapshot.Types
             |> List.tryPick (fun item ->
@@ -94,11 +97,9 @@ module AgentProductFieldTypeMigrationWorkflow =
                 | SemanticTypeKind.Product fields ->
                     fields |> List.tryFind (fun field -> field.Id = request.FieldId) |> Option.map (fun field -> item, fields, field)
                 | SemanticTypeKind.Union _ -> None)
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ -> reject "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-        | [] when request.ExpectedBaseSnapshotId <> baseSnapshot.Id ->
+        if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
             reject "FieldTypeMigrationExpectedBaseMismatch" "The migration request targets a different base snapshot."
-        | [] ->
+        else
             match owner with
             | None -> reject "FieldTypeMigrationFieldNotFound" "The field is not a field of an existing Product."
             | Some(_, _, field) when field.Type = request.NewFieldType ->
@@ -140,48 +141,51 @@ module AgentProductFieldTypeMigrationWorkflow =
                         | Some(fn, error) ->
                             reject "FieldTypeMigrationRewriteInvalid" $"Function '{StableId.value fn.Id}' rewrite is invalid: {error.Code}: {error.Message}"
                         | None ->
-                            let bodies = materialized |> List.choose (function Ok item -> Some item | Error _ -> None) |> Map.ofList
-                            let proposedSnapshot =
-                                { candidate with
-                                    Id = StableIdAllocator.newSnapshotId ()
-                                    ParentId = Some baseSnapshot.Id
-                                    Functions =
-                                        candidate.Functions
-                                        |> List.map (fun fn ->
-                                            match Map.tryFind fn.Id bodies with
-                                            | Some body -> { fn with Body = body }
-                                            | None -> fn) }
-                            match SnapshotValidator.validate proposedSnapshot with
-                            | issue :: _ -> reject "FieldTypeMigrationInvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                            | [] ->
-                                match classifyReadiness proposedSnapshot with
-                                | Error diagnostics -> Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
-                                | Ok readiness ->
-                                    let transactionId = StableIdAllocator.newTransactionId ()
-                                    match createReceipt transactionId baseSnapshot proposedSnapshot with
-                                    | Error error -> Error error
-                                    | Ok receipt ->
-                                        let proposed functionId = proposedSnapshot.Functions |> List.find (fun fn -> fn.Id = functionId)
-                                        Ok(
-                                            AgentProductFieldTypeMigrationProposal
-                                                { TransactionId = transactionId
-                                                  ProposedSnapshot = proposedSnapshot
-                                                  Review =
-                                                    { RequestedChange = request
-                                                      Receipt = receipt
-                                                      Readiness = readiness
-                                                      FunctionEffects = EffectRequirements.summarize proposedSnapshot (affected |> List.map (fun fn -> fn.Id) |> Set.ofList)
-                                                      ResultingChange =
-                                                        { FieldChange =
-                                                            { TypeId = ownerType.Id
-                                                              FieldId = field.Id
-                                                              OldType = field.Type
-                                                              NewType = request.NewFieldType }
-                                                          BodyRewrites =
-                                                            affected
-                                                            |> List.map (fun fn ->
-                                                                SignatureMigrationCore.bodyDiff baseSnapshot proposedSnapshot fn (proposed fn.Id)) } } }
-                                        )
+                            Ok
+                                { OwnerType = ownerType
+                                  UpdatedType = updatedType
+                                  Field = field
+                                  Affected = affected
+                                  Bodies = materialized |> List.choose (function Ok item -> Some item | Error _ -> None) |> Map.ofList }
+
+    let simulate
+        (workspace: AgentWorkspace)
+        (request: AgentProductFieldTypeMigrationRequest)
+        : Result<AgentProductFieldTypeMigrationProposal, AgentStructuralWorkflowError> =
+        simulateStructural
+            workspace
+            (prepare request)
+            (fun prepared snapshot ->
+                { snapshot with
+                    Types = snapshot.Types |> List.map (fun item -> if item.Id = prepared.OwnerType.Id then prepared.UpdatedType else item)
+                    Functions =
+                        snapshot.Functions
+                        |> List.map (fun fn ->
+                            match Map.tryFind fn.Id prepared.Bodies with
+                            | Some body -> { fn with Body = body }
+                            | None -> fn) })
+        |> Result.map (fun candidate ->
+            let prepared = candidate.Prepared
+            let proposedSnapshot = candidate.ProposedSnapshot
+            let proposed functionId = proposedSnapshot.Functions |> List.find (fun fn -> fn.Id = functionId)
+            AgentProductFieldTypeMigrationProposal
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = proposedSnapshot
+                  Review =
+                    { RequestedChange = request
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      FunctionEffects = EffectRequirements.summarize proposedSnapshot (prepared.Affected |> List.map (fun fn -> fn.Id) |> Set.ofList)
+                      ResultingChange =
+                        { FieldChange =
+                            { TypeId = prepared.OwnerType.Id
+                              FieldId = prepared.Field.Id
+                              OldType = prepared.Field.Type
+                              NewType = request.NewFieldType }
+                          BodyRewrites =
+                            prepared.Affected
+                            |> List.map (fun fn ->
+                                SignatureMigrationCore.bodyDiff candidate.BaseSnapshot proposedSnapshot fn (proposed fn.Id)) } } })
 
     let commitWithPolicy workspace (AgentProductFieldTypeMigrationProposal proposal) policy =
         match publishCandidateWithPolicy workspace proposal.ProposedSnapshot proposal.Review.Readiness proposal.Review.Receipt policy with

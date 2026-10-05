@@ -176,162 +176,133 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
         (copySourceFields: bool)
         (additionalFields: AgentTypeFieldIntent list)
         : Result<AgentFieldlessUnionVariantEvolutionProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: rest ->
-            Error(
-                AgentStructuralWorkflowError.SimulationRejected(
-                    validationDiagnostics (issue :: rest)
-                )
-            )
-        | [] when request.ExpectedBaseSnapshotId <> baseSnapshot.Id ->
-            rejected
-                "UnionVariantEvolutionExpectedBaseMismatch"
-                "The Union-variant evolution request targets a different base snapshot."
-        | [] when String.IsNullOrWhiteSpace request.NewVariantDisplayName ->
-            rejected
-                "UnionVariantEvolutionDisplayNameBlank"
-                "The new Union variant display name must not be blank."
-        | [] ->
-            match
-                baseSnapshot.Types
-                |> List.tryFind (fun item -> item.Id = request.TargetTypeId)
-            with
-            | None ->
+        let prepare (baseSnapshot: Snapshot) =
+            if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
                 rejected
-                    "UnionVariantEvolutionTypeNotFound"
-                    "The target type does not exist."
-            | Some targetType ->
-                match targetType.Kind with
-                | SemanticTypeKind.Product _ ->
+                    "UnionVariantEvolutionExpectedBaseMismatch"
+                    "The Union-variant evolution request targets a different base snapshot."
+            elif String.IsNullOrWhiteSpace request.NewVariantDisplayName then
+                rejected
+                    "UnionVariantEvolutionDisplayNameBlank"
+                    "The new Union variant display name must not be blank."
+            else
+                match
+                    baseSnapshot.Types
+                    |> List.tryFind (fun item -> item.Id = request.TargetTypeId)
+                with
+                | None ->
                     rejected
-                        "UnionVariantEvolutionTargetNotUnion"
-                        "The target type must be a Union."
-                | SemanticTypeKind.Union variants ->
-                    let invalidFieldNames (sourceVariant: SemanticVariant) =
-                        let names =
-                            (sourceVariant.Fields |> List.map (fun field -> field.DisplayName))
-                            @ (additionalFields |> List.map (fun field -> field.DisplayName))
-                        List.distinct names <> names || names |> List.exists String.IsNullOrWhiteSpace
-                    match
-                        variants
-                        |> List.tryFind (fun variant ->
-                            variant.Id = request.SourceVariantId)
-                    with
-                    | None ->
+                        "UnionVariantEvolutionTypeNotFound"
+                        "The target type does not exist."
+                | Some targetType ->
+                    match targetType.Kind with
+                    | SemanticTypeKind.Product _ ->
                         rejected
-                            "UnionVariantEvolutionSourceVariantNotFound"
-                            "The source variant does not belong to the target Union."
-                    | Some sourceVariant when not copySourceFields && not (List.isEmpty sourceVariant.Fields) ->
-                        rejected
-                            "UnionVariantEvolutionSourceVariantHasFields"
-                            "This bounded evolution operation supports only fieldless source variants."
-                    | Some sourceVariant when invalidFieldNames sourceVariant ->
-                        rejected
-                            "UnionVariantEvolutionFieldDisplayNameInvalid"
-                            "New variant field display names must be non-blank and distinct, including copied source fields."
-                    | Some sourceVariant when variants |> List.exists (fun variant -> variant.DisplayName = request.NewVariantDisplayName) ->
-                        rejected
-                            "UnionVariantEvolutionDuplicateVariantDisplayName"
-                            "The Union already has a variant with this display name."
-                    | Some sourceVariant ->
-                        // Copied source fields keep names and types under fresh identities.
-                        let copied =
-                            sourceVariant.Fields |> List.map (fun (field: SemanticField) -> field, { field with Id = StableIdAllocator.newFieldId () })
-                        let fieldMap = copied |> List.map (fun (source, added) -> source.Id, added.Id) |> Map.ofList
-                        let added =
-                            additionalFields |> List.map (fun field ->
-                                ({ Id = StableIdAllocator.newFieldId (); DisplayName = field.DisplayName; Type = field.Type }: SemanticField))
-                        let addedVariant: SemanticVariant =
-                            { Id = StableIdAllocator.newVariantId ()
-                              DisplayName = request.NewVariantDisplayName
-                              Fields = (copied |> List.map snd) @ added }
+                            "UnionVariantEvolutionTargetNotUnion"
+                            "The target type must be a Union."
+                    | SemanticTypeKind.Union variants ->
+                        let invalidFieldNames (sourceVariant: SemanticVariant) =
+                            let names =
+                                (sourceVariant.Fields |> List.map (fun field -> field.DisplayName))
+                                @ (additionalFields |> List.map (fun field -> field.DisplayName))
+                            List.distinct names <> names || names |> List.exists String.IsNullOrWhiteSpace
+                        match
+                            variants
+                            |> List.tryFind (fun variant ->
+                                variant.Id = request.SourceVariantId)
+                        with
+                        | None ->
+                            rejected
+                                "UnionVariantEvolutionSourceVariantNotFound"
+                                "The source variant does not belong to the target Union."
+                        | Some sourceVariant when not copySourceFields && not (List.isEmpty sourceVariant.Fields) ->
+                            rejected
+                                "UnionVariantEvolutionSourceVariantHasFields"
+                                "This bounded evolution operation supports only fieldless source variants."
+                        | Some sourceVariant when invalidFieldNames sourceVariant ->
+                            rejected
+                                "UnionVariantEvolutionFieldDisplayNameInvalid"
+                                "New variant field display names must be non-blank and distinct, including copied source fields."
+                        | Some sourceVariant when variants |> List.exists (fun variant -> variant.DisplayName = request.NewVariantDisplayName) ->
+                            rejected
+                                "UnionVariantEvolutionDuplicateVariantDisplayName"
+                                "The Union already has a variant with this display name."
+                        | Some sourceVariant ->
+                            // Copied source fields keep names and types under fresh identities.
+                            let copied =
+                                sourceVariant.Fields |> List.map (fun (field: SemanticField) -> field, { field with Id = StableIdAllocator.newFieldId () })
+                            let fieldMap = copied |> List.map (fun (source, added) -> source.Id, added.Id) |> Map.ofList
+                            let added =
+                                additionalFields |> List.map (fun field ->
+                                    ({ Id = StableIdAllocator.newFieldId (); DisplayName = field.DisplayName; Type = field.Type }: SemanticField))
+                            let addedVariant: SemanticVariant =
+                                { Id = StableIdAllocator.newVariantId ()
+                                  DisplayName = request.NewVariantDisplayName
+                                  Fields = (copied |> List.map snd) @ added }
 
-                        let updatedType =
-                            { targetType with
-                                Kind =
-                                    SemanticTypeKind.Union(
-                                        variants @ [ addedVariant ]
-                                    ) }
+                            let updatedType =
+                                { targetType with
+                                    Kind =
+                                        SemanticTypeKind.Union(
+                                            variants @ [ addedVariant ]
+                                        ) }
 
-                        let repaired =
-                            baseSnapshot.Functions
-                            |> List.map (fun functionEntity ->
-                                let body, repairedMatchCount =
-                                    repairMatches
-                                        request.SourceVariantId
-                                        addedVariant.Id
-                                        fieldMap
-                                        added
-                                        functionEntity.Body
-                                functionEntity, body, repairedMatchCount)
+                            let repaired =
+                                baseSnapshot.Functions
+                                |> List.map (fun functionEntity ->
+                                    let body, repairedMatchCount =
+                                        repairMatches
+                                            request.SourceVariantId
+                                            addedVariant.Id
+                                            fieldMap
+                                            added
+                                            functionEntity.Body
+                                    functionEntity, body, repairedMatchCount)
 
-                        let repairedFunctionIds =
-                            repaired
-                            |> List.choose (fun (functionEntity, _, count) ->
-                                if count > 0 then Some functionEntity.Id else None)
+                            let repairedFunctionIds =
+                                repaired
+                                |> List.choose (fun (functionEntity, _, count) ->
+                                    if count > 0 then Some functionEntity.Id else None)
 
-                        let repairedMatchCount =
-                            repaired
-                            |> List.sumBy (fun (_, _, count) -> count)
+                            let repairedMatchCount =
+                                repaired
+                                |> List.sumBy (fun (_, _, count) -> count)
 
-                        let proposedFunctions =
-                            repaired
-                            |> List.map (fun (functionEntity, body, count) ->
-                                if count > 0 then
-                                    { functionEntity with Body = body }
-                                else
-                                    functionEntity)
+                            let proposedFunctions =
+                                repaired
+                                |> List.map (fun (functionEntity, body, count) ->
+                                    if count > 0 then
+                                        { functionEntity with Body = body }
+                                    else
+                                        functionEntity)
 
-                        let transactionId = StableIdAllocator.newTransactionId ()
-                        let proposedSnapshot =
-                            { baseSnapshot with
-                                Id = StableIdAllocator.newSnapshotId ()
-                                ParentId = Some baseSnapshot.Id
-                                Types =
-                                    baseSnapshot.Types
-                                    |> List.map (fun item ->
-                                        if item.Id = targetType.Id then updatedType else item)
-                                Functions = proposedFunctions }
+                            Ok(updatedType, addedVariant, proposedFunctions, repairedFunctionIds, repairedMatchCount)
 
-                        match SnapshotValidator.validate proposedSnapshot with
-                        | issue :: rest ->
-                            Error(
-                                AgentStructuralWorkflowError.SimulationRejected(
-                                    validationDiagnostics (issue :: rest)
-                                )
-                            )
-                        | [] ->
-                            match classifyReadiness proposedSnapshot with
-                            | Error diagnostics ->
-                                Error(
-                                    AgentStructuralWorkflowError.SimulationRejected diagnostics
-                                )
-                            | Ok readiness ->
-                                match
-                                    createReceipt
-                                        transactionId
-                                        baseSnapshot
-                                        proposedSnapshot
-                                with
-                                | Error error -> Error error
-                                | Ok receipt ->
-                                    let review =
-                                        { RequestedChange = request
-                                          Receipt = receipt
-                                          Readiness = readiness
-                                          UpdatedType = updatedType
-                                          AddedVariant = addedVariant
-                                          RepairedFunctionIds = repairedFunctionIds
-                                          RepairedMatchCount = repairedMatchCount }
+        simulateStructural
+            workspace
+            prepare
+            (fun (updatedType, _, proposedFunctions, _, _) snapshot ->
+                { snapshot with
+                    Types =
+                        snapshot.Types
+                        |> List.map (fun item ->
+                            if item.Id = updatedType.Id then updatedType else item)
+                    Functions = proposedFunctions })
+        |> Result.map (fun candidate ->
+            let updatedType, addedVariant, _, repairedFunctionIds, repairedMatchCount = candidate.Prepared
+            let review =
+                { RequestedChange = request
+                  Receipt = candidate.Receipt
+                  Readiness = candidate.Readiness
+                  UpdatedType = updatedType
+                  AddedVariant = addedVariant
+                  RepairedFunctionIds = repairedFunctionIds
+                  RepairedMatchCount = repairedMatchCount }
 
-                                    Ok(
-                                        AgentFieldlessUnionVariantEvolutionProposal
-                                            { TransactionId = transactionId
-                                              ProposedSnapshot = proposedSnapshot
-                                              Review = review }
-                                    )
+            AgentFieldlessUnionVariantEvolutionProposal
+                { TransactionId = candidate.TransactionId
+                  ProposedSnapshot = candidate.ProposedSnapshot
+                  Review = review })
 
     /// Adds a fieldless variant whose match arms copy those of a fieldless source variant.
     let simulate workspace (request: AgentAddFieldlessUnionVariantLikeRequest) =

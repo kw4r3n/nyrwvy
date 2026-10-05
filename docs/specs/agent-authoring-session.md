@@ -86,6 +86,8 @@ A mutation follows this lifecycle:
 
 A reported temporary-write or replacement failure leaves the session's current workspace at the previously published state and does not intentionally publish the candidate file. The existing I/O-failure tests retain the previous authoritative file. This is not a promise about OS/storage failure or a lost response after a successful replacement; those boundaries are distinguished above. A rejected semantic commit never reaches the persistence step.
 
+Every simulate operation validates the base snapshot, runs its own preflight, builds the proposed snapshot, validates it as a whole, classifies readiness and fingerprints the receipt. A base snapshot that fails validation rejects with `InvalidBaseSnapshot` and a proposed snapshot that fails full validation rejects with `InvalidProposedSnapshot`, whatever the operation; the message is the first validator issue as `<issue code>: <message>`. Operation-specific preflight diagnostics are reported before the proposed snapshot is built.
+
 The session does not provide a durable proposal database. Existing proposal handles that become stale after another publication are allowed to fail through the existing stale-base checks. These checks protect the window between simulation and commit; the window between inspection and simulation is protected only when the request carries `expectedSnapshotId`.
 
 ## Read/query surface

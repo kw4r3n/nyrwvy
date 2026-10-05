@@ -2734,75 +2734,73 @@ module AgentExpressionStructuralWorkflow =
                 let nodes, resultNodeId = materialize index target [] recipe
                 Ok { Nodes = nodes; ResultNodeId = resultNodeId }
 
+    /// Replaces one function's body in a proposed snapshot.
+    let private withFunctionBody functionId body (snapshot: Snapshot) =
+        { snapshot with
+            Functions =
+                snapshot.Functions
+                |> List.map (fun functionEntity ->
+                    if functionEntity.Id = functionId then
+                        { functionEntity with Body = body }
+                    else
+                        functionEntity) }
+
+    /// The review focus of one function before and after a simulated change.
+    let private focusBaseAndProposed (candidate: SimulatedCandidate<'Prepared>) functionId =
+        match
+            SemanticQuery.focusFunction candidate.BaseSnapshot functionId,
+            SemanticQuery.focusFunction candidate.ProposedSnapshot functionId
+        with
+        | Error error, _
+        | _, Error error -> Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
+        | Ok baseFocus, Ok proposedFocus -> Ok(baseFocus, proposedFocus)
+
     let simulate
         (workspace: AgentWorkspace)
         (request: AgentReplaceFunctionBodyWithExpressionRecipe)
         : Result<AgentExpressionStructuralChangeProposal, AgentStructuralWorkflowError> =
-        let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-        match SnapshotValidator.validate baseSnapshot with
-        | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-        | [] ->
-            let index = buildSnapshotIndex baseSnapshot
-            match validatePreflight request index with
-            | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-            | Ok target ->
-                let newNodes, newResultId = materialize index target [] request.Replacement
-                let replacementBody =
-                    { Nodes = newNodes
-                      ResultNodeId = newResultId }
-                let proposedSnapshotId = StableIdAllocator.newSnapshotId ()
-                let transactionId = StableIdAllocator.newTransactionId ()
-                let proposedSnapshot =
-                    { baseSnapshot with
-                        Id = proposedSnapshotId
-                        ParentId = Some baseSnapshot.Id
-                        Functions =
-                            baseSnapshot.Functions
-                            |> List.map (fun functionEntity ->
-                                if functionEntity.Id = target.Id then
-                                    { functionEntity with Body = replacementBody }
-                                else
-                                    functionEntity) }
-
-                match SnapshotValidator.validate proposedSnapshot with
-                | issue :: _ -> rejected "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                | [] ->
-                    match classifyReadiness proposedSnapshot with
-                    | Error diagnostics -> Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
-                    | Ok readiness ->
-                        match createReceipt transactionId baseSnapshot proposedSnapshot with
-                        | Error error -> Error error
-                        | Ok receipt ->
-                            match SemanticQuery.focusFunction baseSnapshot target.Id, SemanticQuery.focusFunction proposedSnapshot target.Id with
-                            | Error error, _
-                            | _, Error error -> Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
-                            | Ok baseFocus, Ok proposedFocus ->
-                                let proposedTarget = proposedSnapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = target.Id)
-                                let diff =
-                                    { OwnerFunctionId = target.Id
-                                      OldResultNodeId = target.Body.ResultNodeId
-                                      NewResultNodeId = newResultId
-                                      RemovedNodes =
-                                        ValueGraph.collectNodes target.Body
-                                        |> summarizeNodes baseSnapshot target
-                                        |> List.sortBy (fun node -> StableId.value node.NodeId)
-                                      AddedNodes =
-                                        ValueGraph.collectNodes proposedTarget.Body
-                                        |> summarizeNodes proposedSnapshot proposedTarget }
-                                let review =
-                                    { RequestedChange = request
-                                      Receipt = receipt
-                                      Readiness = readiness
-                                      ResultingChange = diff
-                                      BaseFocus = baseFocus
-                                      ProposedFocus = proposedFocus }
-                                Ok(
-                                    AgentExpressionStructuralChangeProposal
-                                        { TransactionId = transactionId
-                                          ProposedSnapshot = proposedSnapshot
-                                          Review = review }
-                                )
+        simulateStructural
+            workspace
+            (fun baseSnapshot ->
+                let index = buildSnapshotIndex baseSnapshot
+                match validatePreflight request index with
+                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                | Ok target ->
+                    let newNodes, newResultId = materialize index target [] request.Replacement
+                    Ok(target, { Nodes = newNodes; ResultNodeId = newResultId }))
+            (fun (target, replacementBody) snapshot -> withFunctionBody target.Id replacementBody snapshot)
+        |> Result.bind (fun candidate ->
+            let target, replacementBody = candidate.Prepared
+            let baseSnapshot = candidate.BaseSnapshot
+            let proposedSnapshot = candidate.ProposedSnapshot
+            match focusBaseAndProposed candidate target.Id with
+            | Error error -> Error error
+            | Ok(baseFocus, proposedFocus) ->
+                let proposedTarget = proposedSnapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = target.Id)
+                let diff =
+                    { OwnerFunctionId = target.Id
+                      OldResultNodeId = target.Body.ResultNodeId
+                      NewResultNodeId = replacementBody.ResultNodeId
+                      RemovedNodes =
+                        ValueGraph.collectNodes target.Body
+                        |> summarizeNodes baseSnapshot target
+                        |> List.sortBy (fun node -> StableId.value node.NodeId)
+                      AddedNodes =
+                        ValueGraph.collectNodes proposedTarget.Body
+                        |> summarizeNodes proposedSnapshot proposedTarget }
+                let review =
+                    { RequestedChange = request
+                      Receipt = candidate.Receipt
+                      Readiness = candidate.Readiness
+                      ResultingChange = diff
+                      BaseFocus = baseFocus
+                      ProposedFocus = proposedFocus }
+                Ok(
+                    AgentExpressionStructuralChangeProposal
+                        { TransactionId = candidate.TransactionId
+                          ProposedSnapshot = proposedSnapshot
+                          Review = review }
+                ))
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)
@@ -3173,128 +3171,106 @@ module AgentExpressionStructuralWorkflow =
             (workspace: AgentWorkspace)
             (request: Request)
             : Result<Proposal, AgentStructuralWorkflowError> =
-            let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
+            simulateStructural
+                workspace
+                (fun baseSnapshot ->
+                    let index = buildSnapshotIndex baseSnapshot
+                    match validatePreflight request index with
+                    | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                    | Ok preflight ->
+                        let replacementNodes =
+                            materializeReplacement
+                                index
+                                preflight.Target
+                                preflight.Frames
+                                request.TargetNodeId
+                                request.Replacement
 
-            match SnapshotValidator.validate baseSnapshot with
-            | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-            | [] ->
-                let index = buildSnapshotIndex baseSnapshot
-                match validatePreflight request index with
-                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-                | Ok preflight ->
-                    let replacementNodes =
-                        materializeReplacement
-                            index
-                            preflight.Target
-                            preflight.Frames
-                            request.TargetNodeId
-                            request.Replacement
+                        let replacementBody =
+                            preflight.Target.Body
+                            |> replaceTarget request.TargetNodeId replacementNodes
+                            |> pruneNodes preflight.Pruning.RemovedNodeIds
 
-                    let replacementBody =
-                        preflight.Target.Body
-                        |> replaceTarget request.TargetNodeId replacementNodes
-                        |> pruneNodes preflight.Pruning.RemovedNodeIds
+                        Ok(preflight, replacementBody))
+                (fun (preflight, replacementBody) snapshot -> withFunctionBody preflight.Target.Id replacementBody snapshot)
+            |> Result.bind (fun candidate ->
+                let preflight, _ = candidate.Prepared
+                let baseSnapshot = candidate.BaseSnapshot
+                let proposedSnapshot = candidate.ProposedSnapshot
+                let transactionId = candidate.TransactionId
+                let receipt = candidate.Receipt
+                let readiness = candidate.Readiness
+                match focusBaseAndProposed candidate preflight.Target.Id with
+                | Error error -> Error error
+                | Ok(baseFocus, proposedFocus) ->
+                    let proposedTarget =
+                        proposedSnapshot.Functions
+                        |> List.find (fun functionEntity ->
+                            functionEntity.Id = preflight.Target.Id)
 
-                    let proposedSnapshotId = StableIdAllocator.newSnapshotId ()
-                    let transactionId = StableIdAllocator.newTransactionId ()
-                    let proposedSnapshot =
-                        { baseSnapshot with
-                            Id = proposedSnapshotId
-                            ParentId = Some baseSnapshot.Id
-                            Functions =
-                                baseSnapshot.Functions
-                                |> List.map (fun functionEntity ->
-                                    if functionEntity.Id = preflight.Target.Id then
-                                        { functionEntity with Body = replacementBody }
-                                    else
-                                        functionEntity) }
+                    let baseNodes = ValueGraph.collectNodes preflight.Target.Body
+                    let baseNodeIds =
+                        baseNodes |> List.map (fun node -> node.Id) |> Set.ofList
+                    let proposedNodes = ValueGraph.collectNodes proposedTarget.Body
+                    let previousTarget =
+                        summarizeNodes baseSnapshot preflight.Target [ preflight.TargetNode ]
+                        |> List.exactlyOne
+                    let proposedTargetSummary =
+                        proposedNodes
+                        |> List.filter (fun node -> node.Id = request.TargetNodeId)
+                        |> summarizeNodes proposedSnapshot proposedTarget
+                        |> List.tryHead
+                    let removedNodes =
+                        baseNodes
+                        |> List.filter (fun node ->
+                            Set.contains node.Id preflight.Pruning.RemovedNodeIds)
+                        |> summarizeNodes baseSnapshot preflight.Target
+                        |> List.sortBy (fun node -> StableId.value node.NodeId)
+                    let addedNodes =
+                        proposedNodes
+                        |> List.filter (fun node -> not (Set.contains node.Id baseNodeIds))
+                        |> summarizeNodes proposedSnapshot proposedTarget
+                    let baseBindingIds =
+                        SemanticFacts.collectPatternBindings preflight.Target.Body
+                        |> List.map (fun binding -> binding.Id)
+                        |> Set.ofList
+                    let addedBindings =
+                        SemanticFacts.collectPatternBindings proposedTarget.Body
+                        |> List.filter (fun binding ->
+                            not (Set.contains binding.Id baseBindingIds))
+                        |> List.sortBy (fun binding -> StableId.value binding.Id)
+                    let retainedShared =
+                        baseNodes
+                        |> List.filter (fun node ->
+                            Set.contains
+                                node.Id
+                                preflight.Pruning.RetainedSharedDependencyIds)
+                        |> summarizeNodes baseSnapshot preflight.Target
+                        |> List.sortBy (fun node -> StableId.value node.NodeId)
 
-                    match SnapshotValidator.validate proposedSnapshot with
-                    | issue :: _ -> rejected "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                    | [] ->
-                        match classifyReadiness proposedSnapshot with
-                        | Error diagnostics ->
-                            Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
-                        | Ok readiness ->
-                            match createReceipt transactionId baseSnapshot proposedSnapshot with
-                            | Error error -> Error error
-                            | Ok receipt ->
-                                match
-                                    SemanticQuery.focusFunction baseSnapshot preflight.Target.Id,
-                                    SemanticQuery.focusFunction proposedSnapshot preflight.Target.Id
-                                with
-                                | Error error, _
-                                | _, Error error ->
-                                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
-                                | Ok baseFocus, Ok proposedFocus ->
-                                    let proposedTarget =
-                                        proposedSnapshot.Functions
-                                        |> List.find (fun functionEntity ->
-                                            functionEntity.Id = preflight.Target.Id)
-
-                                    let baseNodes = ValueGraph.collectNodes preflight.Target.Body
-                                    let baseNodeIds =
-                                        baseNodes |> List.map (fun node -> node.Id) |> Set.ofList
-                                    let proposedNodes = ValueGraph.collectNodes proposedTarget.Body
-                                    let previousTarget =
-                                        summarizeNodes baseSnapshot preflight.Target [ preflight.TargetNode ]
-                                        |> List.exactlyOne
-                                    let proposedTargetSummary =
-                                        proposedNodes
-                                        |> List.filter (fun node -> node.Id = request.TargetNodeId)
-                                        |> summarizeNodes proposedSnapshot proposedTarget
-                                        |> List.tryHead
-                                    let removedNodes =
-                                        baseNodes
-                                        |> List.filter (fun node ->
-                                            Set.contains node.Id preflight.Pruning.RemovedNodeIds)
-                                        |> summarizeNodes baseSnapshot preflight.Target
-                                        |> List.sortBy (fun node -> StableId.value node.NodeId)
-                                    let addedNodes =
-                                        proposedNodes
-                                        |> List.filter (fun node -> not (Set.contains node.Id baseNodeIds))
-                                        |> summarizeNodes proposedSnapshot proposedTarget
-                                    let baseBindingIds =
-                                        SemanticFacts.collectPatternBindings preflight.Target.Body
-                                        |> List.map (fun binding -> binding.Id)
-                                        |> Set.ofList
-                                    let addedBindings =
-                                        SemanticFacts.collectPatternBindings proposedTarget.Body
-                                        |> List.filter (fun binding ->
-                                            not (Set.contains binding.Id baseBindingIds))
-                                        |> List.sortBy (fun binding -> StableId.value binding.Id)
-                                    let retainedShared =
-                                        baseNodes
-                                        |> List.filter (fun node ->
-                                            Set.contains
-                                                node.Id
-                                                preflight.Pruning.RetainedSharedDependencyIds)
-                                        |> summarizeNodes baseSnapshot preflight.Target
-                                        |> List.sortBy (fun node -> StableId.value node.NodeId)
-
-                                    let diff =
-                                        { OwnerFunctionId = preflight.Target.Id
-                                          TargetNodeId = request.TargetNodeId
-                                          PreviousTarget = previousTarget
-                                          ProposedTarget = proposedTargetSummary
-                                          RemovedNodes = removedNodes
-                                          AddedNodes = addedNodes
-                                          AddedPatternBindings = addedBindings
-                                          RetainedSharedDependencies = retainedShared
-                                          AffectedUses = preflight.Pruning.AffectedUses }
-                                    let review =
-                                        { RequestedChange = request
-                                          Receipt = receipt
-                                          Readiness = readiness
-                                          ResultingChange = diff
-                                          BaseFocus = baseFocus
-                                          ProposedFocus = proposedFocus }
-                                    Ok(
-                                        Proposal
-                                            { TransactionId = transactionId
-                                              ProposedSnapshot = proposedSnapshot
-                                              Review = review }
-                                    )
+                    let diff =
+                        { OwnerFunctionId = preflight.Target.Id
+                          TargetNodeId = request.TargetNodeId
+                          PreviousTarget = previousTarget
+                          ProposedTarget = proposedTargetSummary
+                          RemovedNodes = removedNodes
+                          AddedNodes = addedNodes
+                          AddedPatternBindings = addedBindings
+                          RetainedSharedDependencies = retainedShared
+                          AffectedUses = preflight.Pruning.AffectedUses }
+                    let review =
+                        { RequestedChange = request
+                          Receipt = receipt
+                          Readiness = readiness
+                          ResultingChange = diff
+                          BaseFocus = baseFocus
+                          ProposedFocus = proposedFocus }
+                    Ok(
+                        Proposal
+                            { TransactionId = transactionId
+                              ProposedSnapshot = proposedSnapshot
+                              Review = review }
+                    ))
 
         let private publishWithPolicy
             (workspace: AgentWorkspace)
@@ -3532,88 +3508,73 @@ module AgentExpressionStructuralWorkflow =
             (request: Request)
             : Result<Proposal, AgentStructuralWorkflowError> =
             let request = withFreshTypeParameters request
-            let baseSnapshot = AgentWorkspace.snapshotForStructuralEditing workspace
-
-            match SnapshotValidator.validate baseSnapshot with
-            | issue :: _ -> rejected "InvalidBaseSnapshot" $"{issue.Code}: {issue.Message}"
-            | [] ->
-                let index = buildSnapshotIndex baseSnapshot
-                match validatePreflight requireUniqueName request index with
-                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-                | Ok preflight ->
-                    let functionId = StableIdAllocator.newFunctionId ()
-                    let parameters: SemanticParameter list =
-                        request.Parameters
-                        |> List.map (fun parameter ->
-                            { Id = StableIdAllocator.newParameterId ()
-                              DisplayName = parameter.DisplayName
-                              Type = parameter.Type })
-                    let slots =
-                        List.map2
-                            (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
-                                { Type = intent.Type
-                                  ParameterId = Some parameter.Id
-                                  DisplayName = intent.DisplayName })
-                            parameters
+            simulateStructural
+                workspace
+                (fun baseSnapshot ->
+                    let index = buildSnapshotIndex baseSnapshot
+                    match validatePreflight requireUniqueName request index with
+                    | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                    | Ok preflight ->
+                        let functionId = StableIdAllocator.newFunctionId ()
+                        let parameters: SemanticParameter list =
                             request.Parameters
-                    let materializationOwner =
-                        { preflight.Owner with
-                            ParameterSlots = Some slots
-                            SelfFunctionId = Some functionId
-                            SelfParameters = slots }
-                    let bodyNodes, bodyResultId =
-                        materializeWithContext
-                            index
-                            materializationOwner
-                            (InferenceCache())
-                            []
-                            request.Body
-                    let createdFunction: SemanticFunction =
-                        { Id = functionId
-                          DisplayName = request.DisplayName
-                          Parameters = parameters
-                          ResultType = request.ResultType
-                          RequiredEffects = preflight.CanonicalRequiredEffects
-                          Body =
-                            { Nodes = bodyNodes
-                              ResultNodeId = bodyResultId } }
-                    let transactionId = StableIdAllocator.newTransactionId ()
-                    let proposedSnapshot =
-                        { baseSnapshot with
-                            Id = StableIdAllocator.newSnapshotId ()
-                            ParentId = Some baseSnapshot.Id
-                            Functions = baseSnapshot.Functions @ [ createdFunction ] }
-
-                    match SnapshotValidator.validate proposedSnapshot with
-                    | issue :: _ -> rejected "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                    | [] ->
-                        match classifyReadiness proposedSnapshot with
-                        | Error diagnostics ->
-                            Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
-                        | Ok readiness ->
-                            match createReceipt transactionId baseSnapshot proposedSnapshot with
-                            | Error error -> Error error
-                            | Ok receipt ->
-                                match SemanticQuery.focusFunction proposedSnapshot functionId with
-                                | Error error ->
-                                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
-                                | Ok proposedFocus ->
-                                    let bodySummary =
-                                        ValueGraph.collectNodes createdFunction.Body
-                                        |> summarizeNodes proposedSnapshot createdFunction
-                                    let review =
-                                        { RequestedChange = request
-                                          Receipt = receipt
-                                          Readiness = readiness
-                                          CreatedFunction = createdFunction
-                                          MaterializedBody = bodySummary
-                                          ProposedFocus = proposedFocus }
-                                    Ok(
-                                        Proposal
-                                            { TransactionId = transactionId
-                                              ProposedSnapshot = proposedSnapshot
-                                              Review = review }
-                                    )
+                            |> List.map (fun parameter ->
+                                { Id = StableIdAllocator.newParameterId ()
+                                  DisplayName = parameter.DisplayName
+                                  Type = parameter.Type })
+                        let slots =
+                            List.map2
+                                (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
+                                    { Type = intent.Type
+                                      ParameterId = Some parameter.Id
+                                      DisplayName = intent.DisplayName })
+                                parameters
+                                request.Parameters
+                        let materializationOwner =
+                            { preflight.Owner with
+                                ParameterSlots = Some slots
+                                SelfFunctionId = Some functionId
+                                SelfParameters = slots }
+                        let bodyNodes, bodyResultId =
+                            materializeWithContext
+                                index
+                                materializationOwner
+                                (InferenceCache())
+                                []
+                                request.Body
+                        let createdFunction: SemanticFunction =
+                            { Id = functionId
+                              DisplayName = request.DisplayName
+                              Parameters = parameters
+                              ResultType = request.ResultType
+                              RequiredEffects = preflight.CanonicalRequiredEffects
+                              Body =
+                                { Nodes = bodyNodes
+                                  ResultNodeId = bodyResultId } }
+                        Ok createdFunction)
+                (fun createdFunction snapshot -> { snapshot with Functions = snapshot.Functions @ [ createdFunction ] })
+            |> Result.bind (fun candidate ->
+                let createdFunction = candidate.Prepared
+                match SemanticQuery.focusFunction candidate.ProposedSnapshot createdFunction.Id with
+                | Error error ->
+                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
+                | Ok proposedFocus ->
+                    let bodySummary =
+                        ValueGraph.collectNodes createdFunction.Body
+                        |> summarizeNodes candidate.ProposedSnapshot createdFunction
+                    let review =
+                        { RequestedChange = request
+                          Receipt = candidate.Receipt
+                          Readiness = candidate.Readiness
+                          CreatedFunction = createdFunction
+                          MaterializedBody = bodySummary
+                          ProposedFocus = proposedFocus }
+                    Ok(
+                        Proposal
+                            { TransactionId = candidate.TransactionId
+                              ProposedSnapshot = candidate.ProposedSnapshot
+                              Review = review }
+                    ))
 
         /// Creates a new function; its display name must not already name a function,
         /// since by-name requests resolve exactly one declaration.
