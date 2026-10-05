@@ -77,7 +77,7 @@ module SetTests =
             result session $"""{{"id":"run","op":"runPureByName","function":"{name}","arguments":[{String.concat "," arguments}],"expected":{expected}}}"""
         Assert.True(run.GetProperty("matches").GetBoolean(), $"{name}: {run}")
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``Set operations keep first-insertion order and ignore repeated items`` () =
         withSession (fun session path ->
             let s, x = parameter "s", parameter "x"
@@ -139,7 +139,7 @@ module SetTests =
             define session "size" [ "s", words ] (primitive "int64") $"""{{"kind":"setSize","value":{parameter "s"}}}"""
             Assert.Equal("RunContainerTypeMismatch", rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{set [ "a"; "a" ]}]}}"""))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``Set union, intersection and difference keep the left order`` () =
         withSession (fun session path ->
             let l, r = parameter "l", parameter "r"

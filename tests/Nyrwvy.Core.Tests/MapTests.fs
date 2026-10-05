@@ -89,7 +89,7 @@ module MapTests =
         | Ok snapshot -> snapshot
         | Error error -> failwithf "Workspace did not decode: %A" error
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``Map operations keep insertion order, replace in place and move a re-inserted key to the end`` () =
         withSession (fun session path ->
             let m = parameter "m"
@@ -220,7 +220,7 @@ module MapTests =
                 rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{mistyped}]}}"""
             ))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``MapFold walks entries in insertion order and MapFromList keeps the first position and the last value`` () =
         withSession (fun session path ->
             let s, k, v = parameter "s", parameter "k", parameter "v"
@@ -274,7 +274,7 @@ module MapTests =
                 simulateCode session [ "rows", listOf row ] (mapOf (primitive "float64") row) $"""{{"kind":"mapFromList","source":{parameter "rows"},"function":"rowWeight"}}"""
             ))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``MapFilter keeps the entries its callback accepts in their insertion positions`` () =
         withSession (fun session path ->
             // limit < v, with limit bound by context.
@@ -316,7 +316,7 @@ module MapTests =
                 simulateCode session [ "l", listOf str ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "l"},"function":"notA"}}"""
             ))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``MapGetOrDefault returns the value for a present key and the default for an absent one`` () =
         withSession (fun session path ->
             let m = parameter "m"
@@ -375,7 +375,7 @@ module MapTests =
                 simulateCode session [ "m", wordCounts; "k", str ] (optionOf int64Type) $"""{{"kind":"mapGetOrDefault","map":{m},"key":{k},"default":{{"kind":"int64Literal","value":0}}}}"""
             ))
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``MapMapValues replaces each value through its callback and keeps the keys in order`` () =
         withSession (fun session path ->
             let flags (entries: (string * bool) list) =

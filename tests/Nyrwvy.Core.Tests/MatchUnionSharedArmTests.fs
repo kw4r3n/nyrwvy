@@ -137,7 +137,7 @@ module MatchUnionSharedArmTests =
     let private bool (value: bool) = $"""{{"kind":"bool","value":{(if value then "true" else "false")}}}"""
     let private str (value: string) = $"""{{"kind":"string","value":{JsonSerializer.Serialize value}}}"""
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``Shared arms and otherwise store each body once, run like the full match and keep every variant named`` () =
         withSession (fun session path ->
             let shared = create session "isStrShared" (primitive "bool") (matchJson [ one "Str" (boolLiteral true) ] (Some(boolLiteral false)))

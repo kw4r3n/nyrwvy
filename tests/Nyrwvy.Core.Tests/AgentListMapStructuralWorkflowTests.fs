@@ -566,7 +566,7 @@ module AgentListMapStructuralWorkflowTests =
         child.WaitForExit()
         child.ExitCode, stdout.Result, stderr.Result
 
-    [<Fact>]
+    [<Fact; Trait("Suite", "Extended")>]
     let ``committed ListMap body lowers emits builds and executes`` () =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
