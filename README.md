@@ -6,7 +6,7 @@ In plain terms: an AI agent writes and maintains a small, strongly typed program
 
 ## Quick start
 
-Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.1xx), Node 22 (22.22.2 or newer installs the development dependencies without engine warnings; the adapters themselves run on 22.6 or newer) and npm. Nothing else is required for this section.
+Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.1xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings) and npm. Nothing else is required for this section.
 
 ```shell
 npm ci
@@ -49,9 +49,9 @@ Important boundaries include:
 
 ## AI graph authoring
 
-The host-neutral tool handlers live in `tools/nyrwvy-agent`; the stdio MCP server in `tools/nyrwvy-mcp` and the OpenCode tools in `.opencode/tools/nyrwvy.ts` expose the same handlers. They let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a function's human-readable HTML page for a person to open. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations and `runPure`, which compiles the committed program and runs one function with fake capability responses. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
+The host-neutral tool handlers live in `tools/nyrwvy-agent`; the stdio MCP server in `tools/nyrwvy-mcp` and the OpenCode tools in `.opencode/tools/nyrwvy.ts` expose the same handlers ([`tools/README.md`](tools/README.md) says which directories under `tools/` are maintained tools and which are evaluation runners). They let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a function's human-readable HTML page for a person to open; the page is written beside the snapshot (under `nyrwvy-views/` by default) and never elsewhere. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations and `runPure`, which compiles the committed program and runs one function with fake capability responses. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
 
-`runPure` bounds wall time, output size and value sizes, but it is not a resource sandbox, and its optional `hostSources` (off by default) compile and run arbitrary C#; see [SECURITY.md](SECURITY.md) and the [session protocol](docs/specs/agent-authoring-session.md).
+`runPure` runs the compiled program in a child process bounded in wall time (5 s) and output size, with the permissions of the user who started the tool host. It is not a sandbox and has no memory bound, and its optional `hostSources` (off by default) compile and run arbitrary C#; see [SECURITY.md](SECURITY.md) and the [session protocol](docs/specs/agent-authoring-session.md).
 
 Underneath, `tools/Nyrwvy.AuthoringSession` is a JSON-lines executable over a snapshot file. For an independent workspace referencing a published snapshot, it also supports `create --snapshot <new-local-path> --dependency <source-snapshot-path>`; later use `open --snapshot <local-path>`. The read-only `dependency` operation shows the pinned provenance. The selected source content is retained in a sidecar, while the local graph stores only local declarations and references. Clone/move both files together. `nyrwvy_open` also accepts `dependency` on create and `mode: "pin"` for same-content recovery of older source-only selections. See [pinned snapshot dependency](docs/specs/agent-authoring-session.md#pinned-snapshot-dependencies). No per-program Python/F#/C# authoring helper is required.
 
@@ -72,24 +72,24 @@ Completed controlled evaluations are reusable design evidence; they are not a re
 
 ## Build and verify
 
-Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.1xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`) and Node 22. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development runs the fast test graph plus the ordinary-authoring and script contracts:
+Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.1xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`) and Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version)); fish 3.4+ is needed only for the `.fish` wrapper scripts. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development runs the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
 node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
 
-`./scripts/test-fast.fish` wraps the same two commands; fish 3.4+ is needed only for the wrapper scripts under `scripts/`.
+`./scripts/test-fast.fish` wraps the same two commands.
 
 The maintained Node/Bun adapters also have a repository-owned, locked TypeScript toolchain. From a clean checkout, no global `tsc`, OpenCode installation, or .NET build is needed to typecheck them:
 
 ```shell
 npm ci
 npm run typecheck
-npm run test:adapters
+npm test
 ```
 
-These are deterministic adapter checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 is optional and runs only the Bun unit tests (`npm run test:bun`). See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
+`npm test` is the root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the Release AuthoringSession built). These are deterministic adapter checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 is optional and runs only the Bun unit tests (`npm run test:bun`). See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
 
 Tests run locally before a change is merged. The two GitHub Actions workflows (`CI` with the checks above plus the MCP, evaluation-transport and Bun contracts; `Extended` with the broader suite) are started manually by the maintainer at milestones rather than on every push or pull request; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
 
