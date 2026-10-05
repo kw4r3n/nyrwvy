@@ -46,7 +46,17 @@ module ViewerFile =
         |> Result.bind (fun (directory, path) ->
             match linkedComponent directory path with
             | Some link -> Error $"output must not pass through a symbolic link or reparse point; {link} is one."
+            | None when ConfinedDirectory.supported ->
+                let components = Path.GetRelativePath(directory, path).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries) |> List.ofArray
+                let parents, name = List.take (components.Length - 1) components, List.last components
+                ConfinedDirectory.openBelow directory parents
+                |> Result.bind (fun handle ->
+                    use handle = handle
+                    ConfinedDirectory.writeFile handle name (UTF8Encoding(false).GetBytes artifact.Content))
+                |> Result.map (fun () -> path, artifact)
             | None ->
+                // Without directory handles a parent swapped for a link between the check above and
+                // this write is not caught.
                 try
                     let parent = Path.GetDirectoryName path
                     Directory.CreateDirectory parent |> ignore

@@ -386,3 +386,36 @@ module ViewerArtifactTests =
         finally
             if Directory.Exists root then
                 Directory.Delete(root, true)
+
+    /// A parent directory swapped for a link after the directory was opened: the write resolves against
+    /// the opened handle, so it lands in the moved directory and the link's target stays untouched.
+    [<Fact>]
+    let ``a confined write ignores a parent swapped for a link after it was opened`` () =
+        if ConfinedDirectory.supported then
+            let root = Path.Combine(Path.GetTempPath(), "nyrwvy-confined-" + Guid.NewGuid().ToString("N"))
+            let outside = Path.Combine(Path.GetTempPath(), "nyrwvy-confined-outside-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory root |> ignore
+            Directory.CreateDirectory outside |> ignore
+            try
+                File.WriteAllText(Path.Combine(outside, "page.html"), "outside")
+                let handle = ConfinedDirectory.openBelow root [ "pages"; "nested" ] |> unwrap
+                use handle = handle
+                Directory.Move(Path.Combine(root, "pages"), Path.Combine(root, "pages-real"))
+                Directory.CreateSymbolicLink(Path.Combine(root, "pages"), outside) |> ignore
+                Directory.CreateDirectory(Path.Combine(outside, "nested")) |> ignore
+                ConfinedDirectory.writeFile handle "page.html" (Encoding.UTF8.GetBytes "viewer") |> unwrap
+                Assert.Equal("viewer", File.ReadAllText(Path.Combine(root, "pages-real", "nested", "page.html")))
+                Assert.Equal("outside", File.ReadAllText(Path.Combine(outside, "page.html")))
+                Assert.False(File.Exists(Path.Combine(outside, "nested", "page.html")))
+                // Opening through the link is refused.
+                match ConfinedDirectory.openBelow root [ "pages" ] with
+                | Error message -> Assert.Contains("symbolic link", message)
+                | Ok opened ->
+                    (opened :> IDisposable).Dispose()
+                    failwith "A link below the anchor was opened."
+                Assert.Empty(Directory.GetFiles(Path.Combine(root, "pages-real", "nested"), ".*.tmp"))
+            finally
+                let link = Path.Combine(root, "pages")
+                if not (isNull (FileInfo(link).LinkTarget)) then File.Delete link
+                if Directory.Exists root then Directory.Delete(root, true)
+                Directory.Delete(outside, true)
