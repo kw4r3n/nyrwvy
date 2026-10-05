@@ -53,6 +53,8 @@ module AgentParameterTypeMigrationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
     /// Functions of the proposed snapshot, for rendering rewritten bodies in a full review.
     let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 
@@ -110,6 +112,8 @@ module AgentResultTypeMigrationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
     /// Functions of the proposed snapshot, for rendering rewritten bodies in a full review.
     let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 

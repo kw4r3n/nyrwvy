@@ -45,6 +45,8 @@ module AgentEffectDeclarationProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
 [<RequireQualifiedAccess>]
 module AgentEffectDeclarationWorkflow =

@@ -258,3 +258,91 @@ module ViewerArtifactTests =
         finally
             if Directory.Exists root then
                 Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``authoring session viewProposal writes a pending proposal's Change Review without publishing it`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-view-proposal-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        let send session (line: string) =
+            AuthoringProtocol.executeLine session line |> JsonDocument.Parse
+        let ok (document: JsonDocument) =
+            Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), document.RootElement.ToString())
+            document.RootElement.GetProperty("result")
+        let view session (proposalId: string) =
+            use reply = send session ($"""{{"id":"view","op":"viewProposal","proposalId":{JsonSerializer.Serialize proposalId}}}""")
+            let result = ok reply
+            Assert.Equal(proposalId, result.GetProperty("proposalId").GetString())
+            Assert.Equal("changeReview", result.GetProperty("kind").GetString())
+            let written = result.GetProperty("path").GetString()
+            Assert.Equal(Path.Combine(root, ViewerFile.defaultDirectoryName), Path.GetDirectoryName written)
+            File.ReadAllText(written, Encoding.UTF8)
+        try
+            use session = AuthoringSession.createNew path |> unwrap
+            use created =
+                send session """{"id":"create","op":"simulateCreateFunctionByName","displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+            let createdId = (ok created).GetProperty("proposalId").GetString()
+            let createdPage = view session createdId
+            Assert.Contains("Change Review — createFunction", createdPage)
+            Assert.Contains("flag — created", createdPage)
+            Assert.Contains("Engine review", createdPage)
+            use _ = send session ($"""{{"id":"commit","op":"commit","proposalId":{JsonSerializer.Serialize createdId}}}""")
+            let committed = File.ReadAllText path
+
+            use replaced =
+                send session """{"id":"replace","op":"simulateReplaceBodyByName","function":"flag","replacement":{"kind":"boolLiteral","value":false}}"""
+            let replacedId = (ok replaced).GetProperty("proposalId").GetString()
+            let replacedPage = view session replacedId
+            Assert.Contains("Change Review — replaceBody", replacedPage)
+            Assert.Contains("flag — changed", replacedPage)
+            Assert.Contains("<summary>Committed</summary>", replacedPage)
+            Assert.Contains("bool literal true", replacedPage)
+            Assert.Contains("bool literal false", replacedPage)
+            Assert.Equal(replacedPage, view session replacedId)
+
+            use typed =
+                send session """{"id":"type","op":"simulateCreateTypeByName","displayName":"Choice","typeKind":{"kind":"union","variants":[{"displayName":"Yes","fields":[]},{"displayName":"No","fields":[]}]}}"""
+            let typePage = view session ((ok typed).GetProperty("proposalId").GetString())
+            Assert.Contains("Declarations created or updated", typePage)
+            Assert.Contains("Choice", typePage)
+
+            use explicitPage =
+                send session ($"""{{"id":"view","op":"viewProposal","proposalId":{JsonSerializer.Serialize replacedId},"output":{JsonSerializer.Serialize(Path.Combine(root, "pages", "replace.html"))}}}""")
+            Assert.Equal(Path.Combine(root, "pages", "replace.html"), (ok explicitPage).GetProperty("path").GetString())
+
+            use _ = send session ($"""{{"id":"reject","op":"reject","proposalId":{JsonSerializer.Serialize replacedId}}}""")
+            use rejected = send session ($"""{{"id":"view","op":"viewProposal","proposalId":{JsonSerializer.Serialize replacedId}}}""")
+            Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
+            use missingId = send session """{"id":"view","op":"viewProposal"}"""
+            Assert.False(missingId.RootElement.GetProperty("ok").GetBoolean())
+
+            Assert.Equal(committed, File.ReadAllText path)
+        finally
+            if Directory.Exists root then
+                Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``authoring session viewProposal renders an operations proposal with its Change Review projection`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-view-operations-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            File.WriteAllText(path, SnapshotCodec.serialize fixture.Snapshot |> unwrap)
+            use session = AuthoringSession.openExisting path |> unwrap
+            use renamed =
+                AuthoringProtocol.executeLine
+                    session
+                    ($"""{{"id":"rename","op":"simulateOperations","operations":[{{"kind":"renameFunction","functionId":"{StableId.value fixture.ValidateFunctionId}","displayName":"check_user"}}]}}""")
+                |> JsonDocument.Parse
+            let proposalId = renamed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use page =
+                AuthoringProtocol.executeLine session ($"""{{"id":"view","op":"viewProposal","proposalId":"{proposalId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(page.RootElement.GetProperty("ok").GetBoolean(), page.RootElement.ToString())
+            let content = File.ReadAllText(page.RootElement.GetProperty("result").GetProperty("path").GetString(), Encoding.UTF8)
+            Assert.Contains("<h1>Change Review</h1>", content)
+            Assert.Contains("validate_user → check_user", content)
+        finally
+            if Directory.Exists root then
+                Directory.Delete(root, true)

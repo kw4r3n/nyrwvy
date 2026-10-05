@@ -455,56 +455,65 @@ module ViewerHtml =
         writer.Line("</div>")
         writer.Line("</section>")
 
+    let private emitTypeEntity (writer: HtmlWriter) (typeEntity: SemanticType) =
+        writer.Line(
+            "<details><summary>" + html typeEntity.DisplayName + " — "
+            + code (stableText "type:" typeEntity.Id) + "</summary>")
+        match typeEntity.Kind with
+        | SemanticTypeKind.Product fields ->
+            writer.Line("<p>Product fields</p><ul>")
+            for field in fields |> List.sortBy (fun item -> StableId.value item.Id) do
+                writer.Line(
+                    "<li>" + html field.DisplayName + ": " + code (typeRefText field.Type)
+                    + " — " + code (stableText "field:" field.Id) + "</li>")
+            writer.Line("</ul>")
+        | SemanticTypeKind.Union variants ->
+            writer.Line("<p>Union variants</p><ul>")
+            for variant in variants |> List.sortBy (fun item -> StableId.value item.Id) do
+                writer.Line(
+                    "<li>" + html variant.DisplayName + " — "
+                    + code (stableText "variant:" variant.Id) + "</li>")
+            writer.Line("</ul>")
+        writer.Line("</details>")
+
+    let private emitCapability (writer: HtmlWriter) (capability: SemanticCapability) =
+        writer.Line(
+            "<details><summary>" + html capability.DisplayName + " — "
+            + code (stableText "capability:" capability.Id) + "</summary><ul>")
+        for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
+            writer.Line(
+                "<li>" + html operation.DisplayName + " — "
+                + code (stableText "capability-operation:" operation.Id)
+                + "; result " + code (typeRefText operation.ResultType)
+                + "; effect " + code (stableText "effect:" operation.EffectId) + "</li>")
+        writer.Line("</ul></details>")
+
+    let private emitEffects (writer: HtmlWriter) (effects: SemanticEffect list) =
+        writer.Line("<ul>")
+        for effect in effects do
+            writer.Line(
+                "<li>" + html effect.DisplayName + " — "
+                + code (stableText "effect:" effect.Id) + "</li>")
+        writer.Line("</ul>")
+
     let private emitDeclarations (writer: HtmlWriter) (model: ViewerFocusModel) =
         writer.Line("<section>")
         writer.Line("<h3>Referenced declarations</h3>")
         writer.Line("<h4>Types</h4>")
         if List.isEmpty model.ReferencedTypes then writer.Line("<p>None.</p>")
         for typeEntity in model.ReferencedTypes do
-            writer.Line(
-                "<details><summary>" + html typeEntity.DisplayName + " — "
-                + code (stableText "type:" typeEntity.Id) + "</summary>")
-            match typeEntity.Kind with
-            | SemanticTypeKind.Product fields ->
-                writer.Line("<p>Product fields</p><ul>")
-                for field in fields |> List.sortBy (fun item -> StableId.value item.Id) do
-                    writer.Line(
-                        "<li>" + html field.DisplayName + ": " + code (typeRefText field.Type)
-                        + " — " + code (stableText "field:" field.Id) + "</li>")
-                writer.Line("</ul>")
-            | SemanticTypeKind.Union variants ->
-                writer.Line("<p>Union variants</p><ul>")
-                for variant in variants |> List.sortBy (fun item -> StableId.value item.Id) do
-                    writer.Line(
-                        "<li>" + html variant.DisplayName + " — "
-                        + code (stableText "variant:" variant.Id) + "</li>")
-                writer.Line("</ul>")
-            writer.Line("</details>")
+            emitTypeEntity writer typeEntity
 
         writer.Line("<h4>Capabilities</h4>")
         if List.isEmpty model.ReferencedCapabilities then writer.Line("<p>None.</p>")
         for capability in model.ReferencedCapabilities do
-            writer.Line(
-                "<details><summary>" + html capability.DisplayName + " — "
-                + code (stableText "capability:" capability.Id) + "</summary><ul>")
-            for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
-                writer.Line(
-                    "<li>" + html operation.DisplayName + " — "
-                    + code (stableText "capability-operation:" operation.Id)
-                    + "; result " + code (typeRefText operation.ResultType)
-                    + "; effect " + code (stableText "effect:" operation.EffectId) + "</li>")
-            writer.Line("</ul></details>")
+            emitCapability writer capability
 
         writer.Line("<h4>Effects</h4>")
         if List.isEmpty model.ReferencedEffects then
             writer.Line("<p>None.</p>")
         else
-            writer.Line("<ul>")
-            for effect in model.ReferencedEffects do
-                writer.Line(
-                    "<li>" + html effect.DisplayName + " — "
-                    + code (stableText "effect:" effect.Id) + "</li>")
-            writer.Line("</ul>")
+            emitEffects writer model.ReferencedEffects
         writer.Line("</section>")
 
     let private emitMissing (writer: HtmlWriter) (model: ViewerFocusModel) =
@@ -675,6 +684,69 @@ module ViewerHtml =
             writer.Line("<article>")
             emitFocusBody writer focus
             writer.Line("</article>")
+        writer.Line("</section>")
+        emitDocumentEnd writer
+        writer.ToString()
+
+    let private transactionReadinessLabel (readiness: TransactionReadiness): string =
+        match readiness with
+        | TransactionReadiness.SemanticallyReady -> "semantically ready"
+        | TransactionReadiness.Incomplete ids ->
+            "incomplete — blocking obligations: "
+            + (ids |> List.map (StableId.value >> fun value -> "obligation:" + value) |> String.concat ", ")
+
+    let renderProposalReviewDocument (model: ViewerProposalReviewModel): string =
+        let writer = HtmlWriter()
+        emitDocumentStart writer ("Nyrwvy Change Review — " + model.ProposalKind)
+        writer.Line("<header><h1>Change Review — " + html model.ProposalKind + "</h1>")
+        writer.Line("<p>Pending proposal: " + code (stableText "transaction:" model.TransactionId) + ". Nothing is published until it is committed.</p>")
+        writer.Line("<p>Base snapshot: " + code (stableText "snapshot:" model.BaseSnapshotId) + "</p>")
+        writer.Line("<p>Proposed snapshot: " + code (stableText "snapshot:" model.ProposedSnapshotId) + "</p>")
+        if not model.BaseIsCommitted then
+            writer.Line("<p class=\"status\">The base snapshot is no longer the committed state; committed focus is not shown.</p>")
+        writer.Line("<p class=\"status\">Readiness: " + html (transactionReadinessLabel model.Readiness) + "</p></header>")
+
+        writer.Line("<section><h2>Functions created or rewritten</h2>")
+        if List.isEmpty model.ChangedFunctions then writer.Line("<p>None.</p>")
+        for item in model.ChangedFunctions do
+            let status =
+                match item.CommittedVersion with
+                | Some _ -> "changed"
+                | None when model.BaseIsCommitted -> "created"
+                | None -> "proposed"
+            writer.Line(
+                "<article><h2>" + html item.ProposedVersion.Function.DisplayName + " — " + status + " "
+                + code (stableText "function:" item.ProposedVersion.Function.FunctionId) + "</h2>")
+            match item.CommittedVersion with
+            | Some before ->
+                writer.Line("<details><summary>Committed</summary>")
+                emitFocusBody writer before
+                writer.Line("</details>")
+                writer.Line("<details open><summary>Proposed</summary>")
+                emitFocusBody writer item.ProposedVersion
+                writer.Line("</details>")
+            | None -> emitFocusBody writer item.ProposedVersion
+            writer.Line("</article>")
+        writer.Line("</section>")
+
+        if not (List.isEmpty model.DeclaredTypes && List.isEmpty model.DeclaredCapabilities && List.isEmpty model.DeclaredEffects) then
+            writer.Line("<section><h2>Declarations created or updated</h2>")
+            if not (List.isEmpty model.DeclaredTypes) then
+                writer.Line("<h3>Types</h3>")
+                for typeEntity in model.DeclaredTypes do
+                    emitTypeEntity writer typeEntity
+            if not (List.isEmpty model.DeclaredCapabilities) then
+                writer.Line("<h3>Capabilities</h3>")
+                for capability in model.DeclaredCapabilities do
+                    emitCapability writer capability
+            if not (List.isEmpty model.DeclaredEffects) then
+                writer.Line("<h3>Effects</h3>")
+                emitEffects writer model.DeclaredEffects
+            writer.Line("</section>")
+
+        writer.Line("<section><h2>Engine review</h2>")
+        writer.Line("<p>The requested change and resulting diff exactly as the authoring session returned them to the agent.</p>")
+        writer.Line("<pre><code>" + html model.EngineReview + "</code></pre>")
         writer.Line("</section>")
         emitDocumentEnd writer
         writer.ToString()

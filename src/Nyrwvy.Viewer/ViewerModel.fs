@@ -261,6 +261,30 @@ type ViewerChangeReviewModel =
       AffectedTypeIds: TypeId list
       FunctionFocus: ViewerFocusModel list }
 
+/// One function a pending proposal creates or rewrites: its committed focus (absent for a
+/// created function, or when the proposal's base is no longer the committed state) and its
+/// focus in the proposed snapshot.
+type ViewerProposalFunction =
+    { CommittedVersion: ViewerFocusModel option
+      ProposedVersion: ViewerFocusModel }
+
+/// Change Review of a pending structural proposal (replacement, creation, migration,
+/// declaration). The engine's review is kept verbatim as `EngineReview`, the JSON the
+/// authoring session returned to the agent; the page adds before/after focus beside it and
+/// reconstructs nothing from either.
+type ViewerProposalReviewModel =
+    { TransactionId: TransactionId
+      ProposalKind: string
+      BaseSnapshotId: SnapshotId
+      ProposedSnapshotId: SnapshotId
+      BaseIsCommitted: bool
+      Readiness: TransactionReadiness
+      ChangedFunctions: ViewerProposalFunction list
+      DeclaredTypes: SemanticType list
+      DeclaredEffects: SemanticEffect list
+      DeclaredCapabilities: SemanticCapability list
+      EngineReview: string }
+
 [<RequireQualifiedAccess>]
 module ViewerProjection =
     let private roleAndSemanticRelations (node: SemanticNode): ViewerNodeRole * ViewerRelation list =
