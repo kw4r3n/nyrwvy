@@ -611,12 +611,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.GetDependencies(functionId, nodeId) = AgentWorkspace.getDependencies workspace functionId nodeId
     member _.GetUses(functionId, nodeId) = AgentWorkspace.getUses workspace functionId nodeId
 
-    member _.SimulateOperations(operations: AgentOperationIntent list): Result<AuthoringProposal, AuthoringSessionError> =
+    /// `expectedBaseSnapshotId` defaults to the current snapshot; a different one is rejected as stale.
+    member _.SimulateOperations(operations: AgentOperationIntent list, ?expectedBaseSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
-            match AgentWorkflow.simulate workspace operations with
+            let expectedBase = defaultArg expectedBaseSnapshotId (AgentWorkspace.currentSnapshotId workspace)
+            match AgentWorkflow.simulateFromBase workspace expectedBase operations with
             | Error error -> Error(AuthoringSessionError.WorkflowSimulationFailure error)
             | Ok proposal ->
                 register (AgentChangeProposal.transactionId proposal) (PendingProposal.Operations proposal) (AuthoringProposalReview.Operations(AgentChangeProposal.review proposal))

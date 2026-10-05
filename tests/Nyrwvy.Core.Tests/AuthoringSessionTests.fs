@@ -731,3 +731,73 @@ module AuthoringSessionTests =
             finish second
         finally
             if Directory.Exists root then Directory.Delete(root, true)
+
+    let private rejectedDiagnosticCode (session: AuthoringSession) (request: string) =
+        use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+        let root = response.RootElement
+        Assert.False(root.GetProperty("ok").GetBoolean(), root.GetRawText())
+        let error = root.GetProperty("error")
+        Assert.Equal("SimulationRejected", error.GetProperty("code").GetString())
+        error.GetProperty("details").GetProperty("diagnostics").[0].GetProperty("code").GetString()
+
+    let private simulatedProposalId (session: AuthoringSession) (request: string) =
+        use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+        let root = response.RootElement
+        Assert.True(root.GetProperty("ok").GetBoolean(), root.GetRawText())
+        root.GetProperty("result").GetProperty("proposalId").GetString()
+
+    [<Fact>]
+    let ``JSONL simulate requests reject a stale expectedSnapshotId and accept the inspected one`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = createSession path
+            let inspected = StableId.value session.SnapshotId
+            let proposal =
+                creationRequest session "value" [] int64Type (ExpressionRecipe.Int64Literal 1L)
+                |> simulateCreation session
+            commit session proposal |> ignore
+            let current = StableId.value session.SnapshotId
+            let resultNodeId = StableId.value (createdFunction proposal).Body.ResultNodeId
+            let before = status session
+
+            let replace extra =
+                $"""{{"id":"replace","op":"simulateReplaceBodyByName","function":"value","replacement":{{"kind":"int64Literal","value":2}}{extra}}}"""
+            let snapshot value = $""","expectedSnapshotId":"{value}" """
+
+            // Another writer advanced the workspace after the inspection: every workflow reports its own stale-base code.
+            Assert.Equal("StructuralExpectedBaseMismatch", rejectedDiagnosticCode session (replace (snapshot inspected)))
+            Assert.Equal(
+                "EffectDeclarationExpectedBaseMismatch",
+                rejectedDiagnosticCode session $"""{{"id":"effect","op":"simulateCreateEffect","displayName":"Clock"{snapshot inspected}}}""")
+            Assert.Equal(
+                "TypeDeclarationExpectedBaseMismatch",
+                rejectedDiagnosticCode
+                    session
+                    $"""{{"id":"type","op":"simulateCreateTypeByName","displayName":"Flag","typeKind":{{"kind":"product","fields":[]}}{snapshot inspected}}}""")
+            Assert.Equal(
+                "StaleBaseSnapshot",
+                rejectedDiagnosticCode
+                    session
+                    $"""{{"id":"delete","op":"simulateOperationsByName","operations":[{{"kind":"deleteFunction","function":"value"}}]{snapshot inspected}}}""")
+            let otherNode = StableId.value (StableIdAllocator.newGraphNodeId ())
+            Assert.Equal(
+                "StructuralExpectedResultMismatch",
+                rejectedDiagnosticCode session (replace $""","expectedResultNodeId":"{otherNode}" """))
+            Assert.Equal(before, status session)
+
+            // The inspected snapshot and result node are current, so the request is simulated as before.
+            simulatedProposalId session (replace ($"""{snapshot current},"expectedResultNodeId":"{resultNodeId}" """))
+            |> ignore
+            simulatedProposalId
+                session
+                $"""{{"id":"delete","op":"simulateOperationsByName","operations":[{{"kind":"deleteFunction","function":"value"}}]{snapshot current}}}"""
+            |> ignore
+
+            // Omitting both keeps simulating against the current snapshot.
+            let proposalId = simulatedProposalId session (replace "")
+            match session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) with
+            | Ok _ -> ()
+            | Error error -> failwithf "Unexpected commit failure: %A" error
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
