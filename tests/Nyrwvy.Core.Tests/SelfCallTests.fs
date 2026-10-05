@@ -200,3 +200,46 @@ module SelfCallTests =
             use replaced = send session (sprintf """{"id":"real","op":"simulateReplaceBodyByName","function":"step","replacement":%s}""" callsBack)
             publishWire session replaced
             Assert.Empty(SnapshotValidator.validate (snapshot path)))
+
+    /// sumAcc(n, acc, step) = if n <= 0 then acc else sumAcc(n - step, acc + n, step), where the self call
+    /// names only n and acc and keepUnlisted passes step through.
+    let private sumAccNamed keep =
+        let keepField = if keep then "\"keepUnlisted\":true," else ""
+        """{"kind":"conditional","condition":{"kind":"int64LessThanOrEqual","left":{"kind":"parameter","name":"n"},"right":{"kind":"int64Literal","value":0}},"whenTrue":{"kind":"parameter","name":"acc"},"whenFalse":{"kind":"directCall","function":"sumAcc","""
+        + keepField
+        + """"arguments":[{"parameter":"n","value":{"kind":"int64WrappingSubtract","left":{"kind":"parameter","name":"n"},"right":{"kind":"parameter","name":"step"}}},{"parameter":"acc","value":{"kind":"int64WrappingAdd","left":{"kind":"parameter","name":"acc"},"right":{"kind":"parameter","name":"n"}}}]}}"""
+    let private sumAccRequest op target body =
+        sprintf """{"id":"sumAcc","op":"%s",%s,"body":%s}""" op target body
+
+    [<Fact>]
+    let ``keepUnlisted passes the parameters a self call does not name through unchanged`` () =
+        withSession (fun session path ->
+            let signature =
+                sprintf """"displayName":"sumAcc","parameters":[{"displayName":"n","type":%s},{"displayName":"acc","type":%s},{"displayName":"step","type":%s}],"resultType":%s,"requiredEffects":[]""" int64Json int64Json int64Json int64Json
+            // Without keepUnlisted the omitted parameter is still an error.
+            Assert.Contains("PureExpressionCallArgumentMissing", failure session (sumAccRequest "simulateCreateFunctionByName" signature (sumAccNamed false)))
+            use created = send session (sumAccRequest "simulateCreateFunctionByName" signature (sumAccNamed true))
+            publishWire session created
+            let assertFullCall () =
+                let fn = find session "sumAcc"
+                let step = fn.Parameters |> List.find (fun parameter -> parameter.DisplayName = "step")
+                let call =
+                    ValueGraph.collectNodes fn.Body
+                    |> List.pick (fun node -> match node.Kind with SemanticNodeKind.DirectCall(target, arguments) -> Some(target, arguments) | _ -> None)
+                Assert.Equal(fn.Id, fst call)
+                Assert.Equal<ParameterId list>(fn.Parameters |> List.map (fun parameter -> parameter.Id), snd call |> List.map (fun argument -> argument.TargetParameterId))
+                // step is bound to the step parameter itself.
+                let stepArgument = snd call |> List.find (fun argument -> argument.TargetParameterId = step.Id)
+                let stepNode = ValueGraph.collectNodes fn.Body |> List.find (fun node -> node.Id = stepArgument.ValueNodeId)
+                Assert.Equal(SemanticNodeKind.ParameterReference step.Id, stepNode.Kind)
+            assertFullCall ()
+            // Body replacement by name expands against the existing owner's parameters.
+            use replaced = send session (sprintf """{"id":"named","op":"simulateReplaceBodyByName","function":"sumAcc","replacement":%s}""" (sumAccNamed true))
+            publishWire session replaced
+            assertFullCall ()
+            // keepUnlisted belongs to self calls only.
+            let other =
+                """{"kind":"directCall","function":"sumAcc","keepUnlisted":true,"arguments":[{"parameter":"n","value":{"kind":"int64Literal","value":1}}]}"""
+            let message = failure session (sprintf """{"id":"other","op":"simulateCreateFunctionByName","displayName":"caller","parameters":[],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json other)
+            Assert.Contains("keepUnlisted applies only to a call of the function being created or replaced", message)
+            Assert.Empty(SnapshotValidator.validate (snapshot path)))
