@@ -190,7 +190,7 @@ Console.WriteLine(NyFunctions.{callerName}() ? "true" : "false");
                     fail "Typed Semantic IR is not sourced from the published snapshot."
                 else
                     typedProgram <- Some typed
-                    TypedSemanticIrCodec.serialize typed |> ArtifactFiles.writeText typedPath FileMode.Create
+                    TypedSemanticIrSerializer.serialize typed |> ArtifactFiles.writeText typedPath FileMode.Create
 
         let mutable executionProgram: ExecutionProgram option = None
         if Option.isNone failure then
@@ -205,7 +205,7 @@ Console.WriteLine(NyFunctions.{callerName}() ? "true" : "false");
                         fail "Execution IR is not sourced from the published snapshot."
                     else
                         executionProgram <- Some execution
-                        ExecutionIrCodec.serialize execution |> ArtifactFiles.writeText executionPath FileMode.Create
+                        ExecutionIrSerializer.serialize execution |> ArtifactFiles.writeText executionPath FileMode.Create
 
         if Option.isNone failure then
             match fixture, executionProgram with

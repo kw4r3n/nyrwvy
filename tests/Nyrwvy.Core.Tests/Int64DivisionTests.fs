@@ -117,8 +117,8 @@ module Int64DivisionTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            let typedText = TypedSemanticIrCodec.serialize typed
-            let executionText = ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize
+            let typedText = TypedSemanticIrSerializer.serialize typed
+            let executionText = ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize
             for kind in kinds do
                 Assert.Contains($"\"kind\":\"{kind}\"", typedText)
                 Assert.Contains($"\"kind\":\"{kind}\"", executionText)

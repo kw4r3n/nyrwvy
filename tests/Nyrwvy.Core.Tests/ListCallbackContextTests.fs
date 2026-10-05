@@ -74,8 +74,8 @@ module ListCallbackContextTests =
         let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason restore"))
         let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
-        Assert.Contains("\"context\"", TypedSemanticIrCodec.serialize typed)
-        Assert.Contains("\"context\"", ExecutionIrCodec.serialize (ExecutionIr.lower typed |> unwrap "lower"))
+        Assert.Contains("\"context\"", TypedSemanticIrSerializer.serialize typed)
+        Assert.Contains("\"context\"", ExecutionIrSerializer.serialize (ExecutionIr.lower typed |> unwrap "lower"))
         // A context-free callback serializes without the property, exactly as before.
         let plain = { snapshot with Functions = snapshot.Functions |> List.filter (fun fn -> fn.DisplayName = "above") }
         Assert.DoesNotContain("\"context\"", SnapshotCodec.serialize plain |> unwrap "plain")

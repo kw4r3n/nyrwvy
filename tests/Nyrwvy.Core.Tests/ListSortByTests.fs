@@ -205,10 +205,10 @@ module ListSortByTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            let typedJson = TypedSemanticIrCodec.serialize typed
+            let typedJson = TypedSemanticIrSerializer.serialize typed
             Assert.Contains("\"kind\":\"listSortBy\"", typedJson)
             Assert.Contains("\"kind\":\"stringLessThan\"", typedJson)
-            let executionJson = ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize
+            let executionJson = ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize
             Assert.Contains("\"kind\":\"listSortBy\"", executionJson)
             Assert.Contains("\"kind\":\"stringLessThan\"", executionJson)
             use reopened = AuthoringSession.openExisting path |> unwrap
@@ -320,8 +320,8 @@ module ListSortByTests =
             let restored = NyasonCodec.deserialize nyason |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             let typed = TypedSemanticIr.project restored |> unwrap
-            Assert.Contains("\"kind\":\"listMinBy\"", TypedSemanticIrCodec.serialize typed)
-            let executionJson = ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize
+            Assert.Contains("\"kind\":\"listMinBy\"", TypedSemanticIrSerializer.serialize typed)
+            let executionJson = ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize
             Assert.Contains("\"kind\":\"listMinBy\"", executionJson)
 
             // Persisted graphs report the same codes as ListSortBy.

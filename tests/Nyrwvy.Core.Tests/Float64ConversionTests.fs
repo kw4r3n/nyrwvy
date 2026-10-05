@@ -109,8 +109,8 @@ module Float64ConversionTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            Assert.Contains("\"kind\":\"int64ToFloat64\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"kind\":\"int64ToFloat64\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize)
+            Assert.Contains("\"kind\":\"int64ToFloat64\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"kind\":\"int64ToFloat64\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             use reopened = AuthoringSession.openExisting path |> unwrap
             Assert.Equal(fn.Body.ResultNodeId, (find reopened "named").Body.ResultNodeId))
 

@@ -57,9 +57,9 @@
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
-    <Compile Include="TypedSemanticIrCodecTests.fs" />
+    <Compile Include="TypedSemanticIrSerializerTests.fs" />
     <Compile Include="ExecutionIrTests.fs" />
-    <Compile Include="ExecutionIrCodecTests.fs" />
+    <Compile Include="ExecutionIrSerializerTests.fs" />
     <Compile Include="EffectClassificationConsistencyTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />

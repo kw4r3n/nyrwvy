@@ -6,8 +6,12 @@ open System.Text.Json
 
 /// Explicit canonical serialization for the derived Typed Semantic IR.
 /// This is an IR schema, not a semantic-graph persistence format.
+///
+/// Write-only debug and inspection output. There is no reader, and the JSON shape
+/// carries no compatibility promise: it may change in any commit, and `schemaVersion`
+/// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
-module TypedSemanticIrCodec =
+module TypedSemanticIrSerializer =
     let schemaVersion = 9
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =

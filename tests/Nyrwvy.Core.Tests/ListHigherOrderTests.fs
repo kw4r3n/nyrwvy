@@ -453,8 +453,8 @@ module ListHigherOrderTests =
         requireExecution fixture.AnyNodeId (function ExecutionInstructionKind.ListAny(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
         requireExecution fixture.AllNodeId (function ExecutionInstructionKind.ListAll(_, callback, _) -> callback = fixture.PositiveFunctionId | _ -> false)
 
-        let typedJson = TypedSemanticIrCodec.serialize typed
-        let executionJson = ExecutionIrCodec.serialize execution
+        let typedJson = TypedSemanticIrSerializer.serialize typed
+        let executionJson = ExecutionIrSerializer.serialize execution
         Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"listMap\"", typedJson)
         Assert.Contains(StableId.value fixture.PositiveFunctionId, typedJson)

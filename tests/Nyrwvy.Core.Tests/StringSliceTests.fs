@@ -120,8 +120,8 @@ module StringSliceTests =
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"
-            Assert.Contains("\"stringSlice\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"stringLength\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"stringSlice\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"stringLength\"", ExecutionIrSerializer.serialize execution)
             use reopened = AuthoringSession.openExisting path |> unwrap "reopen session"
             let functionId name = (reopened.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             let texts = [ ""; "hello"; "a😀b"; "日本語"; "é"; "😀😀" ]

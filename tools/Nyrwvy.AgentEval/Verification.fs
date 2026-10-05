@@ -443,7 +443,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                               "publishedSnapshotId", StableId.value publication.PublishedSnapshotId ]
                     else
                         try
-                            TypedSemanticIrCodec.serialize typed
+                            TypedSemanticIrSerializer.serialize typed
                             |> ArtifactFiles.writeText typedSemanticIrPath FileMode.Create
                             addStage
                                 "typedSemanticIr"
@@ -471,7 +471,7 @@ Console.WriteLine(NyFunctions.{countInvalidFunctionName}(validated));
                                   "publishedSnapshotId", StableId.value publication.PublishedSnapshotId ]
                         else
                             try
-                                ExecutionIrCodec.serialize execution
+                                ExecutionIrSerializer.serialize execution
                                 |> ArtifactFiles.writeText executionIrPath FileMode.Create
                                 addStage
                                     "executionIr"

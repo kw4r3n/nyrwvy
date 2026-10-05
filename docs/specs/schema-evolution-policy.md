@@ -12,8 +12,8 @@ At minimum, treat these as separately versioned contracts:
 
 - authoritative snapshot persistence schema;
 - Nyason encoding schema;
-- Typed Semantic IR schema;
-- Execution IR schema;
+- Typed Semantic IR schema (in-process; its JSON output is debug-only, see [IR evolution](#ir-evolution));
+- Execution IR schema (in-process; its JSON output is debug-only, see [IR evolution](#ir-evolution));
 - agent-facing operation/tool schema;
 - durable transaction/audit record schema if introduced;
 - viewer artifact schema only if viewer data becomes a machine-consumed durable format.
@@ -175,6 +175,8 @@ Rules:
 - a lowering adapter may migrate one IR version to another if meaning is uniquely preserved;
 - editing-only metadata must not be added to IR merely to simplify migration;
 - provenance needed for diagnostics may evolve as explicit non-semantic fields.
+
+The IR JSON writers, `TypedSemanticIrSerializer` and `ExecutionIrSerializer`, are write-only debug and inspection output. Nothing reads them, there is no round trip, and their shape carries no compatibility promise: it may change in any commit without a version bump. Their `schemaVersion` field is informational. Do not persist this output or use it as an interchange format; persist the semantic snapshot and derive the IR again.
 
 ## Persistence-format experiments
 

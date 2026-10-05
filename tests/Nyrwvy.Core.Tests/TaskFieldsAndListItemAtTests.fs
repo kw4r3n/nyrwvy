@@ -332,8 +332,8 @@ module TaskFieldsAndListItemAtTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            Assert.Contains("\"kind\":\"listItemAt\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"kind\":\"listItemAt\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize)
+            Assert.Contains("\"kind\":\"listItemAt\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"kind\":\"listItemAt\"", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             use reopened = AuthoringSession.openExisting path |> unwrap
             Assert.Equal(named.Body.ResultNodeId, (find reopened "itemAtByName").Body.ResultNodeId))
 

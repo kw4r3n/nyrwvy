@@ -198,7 +198,7 @@ module AgentExpressionBindTests =
             Assert.Equal(review.Receipt.ProposedSnapshotFingerprint, SnapshotFingerprint.compute restored |> unwrap)
             Assert.Equal(TypedSemanticIr.project published |> unwrap, TypedSemanticIr.project restored |> unwrap)
 
-        let typed = TypedSemanticIr.project published |> unwrap |> TypedSemanticIrCodec.serialize
+        let typed = TypedSemanticIr.project published |> unwrap |> TypedSemanticIrSerializer.serialize
         Assert.Contains("\"kind\":\"bind\"", typed)
         Assert.Contains(StableId.value body.ValueBinding.Id, typed)
         let summary = review.ResultingChange.AddedNodes |> List.find (fun node -> node.NodeId = bindNode.Id)
