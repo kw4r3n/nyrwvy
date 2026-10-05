@@ -1,24 +1,24 @@
 # Verification Planner
 
-A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.json`; the JSON was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp`.
+A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.json`; the JSON was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp` for the current snapshot content, regenerated with the emitter of the repository revision that last changed the program.
 
 ## Running
 
 From the repository root (requires the .NET 10 SDK):
 
 ```sh
-dotnet run --project verification-planner/runner -- Documentation
-dotnet run --project verification-planner/runner -- Semantics,Documentation --regression
-dotnet run --project verification-planner/runner -- AuthoringProtocol --agent
-dotnet run --project verification-planner/runner -- EvaluationHarness --environment
+dotnet run --project examples/verification-planner/runner -- Documentation
+dotnet run --project examples/verification-planner/runner -- Semantics,Documentation --regression
+dotnet run --project examples/verification-planner/runner -- AuthoringProtocol --agent
+dotnet run --project examples/verification-planner/runner -- EvaluationHarness --environment
 ```
 
-The outputs are, in order, `fast tests only`, `fast + extended`, `fast + live`, and `fast + extended + live`.
+The outputs are, in order, `fast tests only`, `fast + extended`, `fast + live`, and `fast + extended + live`. (The initial experiment authored the first label in Japanese; it was changed to English through `nyrwvy_replace` on the one `StringLiteral` node, as the maintenance section below describes.)
 
 Area names: `Documentation`, `Semantics`, `AuthoringProtocol`, `Backend`, `Persistence`, `EvaluationHarness`, `CI`. Names are case-insensitive, and several can be given separated by commas. `--agent`, `--environment`, and `--regression` are Bool inputs. The CLI is only an input/output adapter; the decision is made by the generated Nyrwvy functions.
 
 ```sh
-dotnet run --project verification-planner/runner -- --test --maintained
+dotnet run --project examples/verification-planner/runner -- --test --maintained
 ```
 
 ## Types and functions
@@ -37,7 +37,9 @@ Fast is always required. knownRegression is kept as information and does not rai
 
 The current entry point is the [standard graph editing tools](../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.json` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
 
-For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `nyrwvy_create_function`. The app-specific `author.py` is no longer needed and was deleted. Deterministic contract tests for the standard tools cover creating the same three types and four functions, maintaining one branch, and saving and resuming; the requests and responses of the initial experiment remain in `transcript.jsonl`. These validate the authoring procedure and are not a new LLM evaluation.
+For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `nyrwvy_create_function`. The app-specific Python authoring helper that produced the initial program is no longer needed and was deleted. Deterministic contract tests for the standard tools (`.opencode/tests/nyrwvy-authoring-workflow.test.mjs`) cover creating the same three types and four functions, maintaining one branch, and saving and resuming; the requests and responses of the initial experiment remain in `transcript.jsonl`. These validate the authoring procedure and are not a new LLM evaluation.
+
+A second maintenance change was made with those tools on 2026-10-05: `nyrwvy_open` on `planner.snapshot.json`, `nyrwvy_inspect` of `verification_label`, one `nyrwvy_replace` of the `FastOnly` arm's `StringLiteral` (`fast tests のみ` to `fast tests only`, the label this README documents), `nyrwvy_commit`, then `emitCSharp` to regenerate `runner/Generated.cs`. The review showed the one literal as `previousTarget`/`proposedTarget` with no node added or removed; the function, parameter and result-node IDs were unchanged, and the 1,024-case `--test --maintained` run passed again.
 
 ## Work and verification record (initial experiment)
 
@@ -49,14 +51,13 @@ For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `ny
 
 The only affected site was the single ListAny in plan_verification. No signature change or caller rewrite was needed, so parameter-type migration was not used. No IDs were added or removed, including the target graph node.
 
-Main evidence:
+Main evidence (from the initial experiment):
 
 - `transcript.jsonl`: all public JSONL requests and responses (including review and commit).
-- `initial-declarations.json`, `restart-declarations.json`, `maintained-declarations.json`: public discovery responses.
+- `initial-declarations.json`, `maintained-declarations.json`: public discovery responses before and after the maintenance change. The response after the restart was byte-identical to the maintained one and is not kept separately.
 - `restart-check.json`, `maintenance-check.json`: comparison results and operation counts.
 - `maintenance-focus.json`, `maintenance-review.json`: the target, callers, and the before/after review.
-- `initial-execution.log`, `maintained-execution.log`: execution test results.
-- `Initial.generated.cs`: the unedited backend projection of the initial implementation.
+- The execution test output (`PASS 1024 exhaustive cases`, before and after the maintenance change) is reproduced by the `--test` and `--test --maintained` runs above. The initial implementation's generated C# differed from the maintained one only in the one `BoolLiteral` and is not kept separately.
 
 ## Friction, failures, and constraints (initial experiment)
 
@@ -72,4 +73,4 @@ Main evidence:
 
 ## Runner adapter
 
-The runner adapter (`runner/Generated.cs`, `runner/Program.cs`) is kept as committed evidence. The Python relay and regeneration script that produced it were removed because they depended on the deleted app-specific `author.py`. To change the program, use the standard graph tools described in the "Authoring and maintenance by AI" section.
+The runner adapter (`runner/Generated.cs`, `runner/Program.cs`) is kept as committed evidence. `Program.cs` is a hand-written input/output adapter that calls the generated symbols; `Generated.cs` is written only by `emitCSharp`. The Python relay and regeneration script that produced the first version were removed because they depended on the deleted app-specific authoring helper. To change the program, use the standard graph tools described in the "Authoring and maintenance by AI" section, then regenerate `runner/Generated.cs` from the `emitCSharp` reply (`nyrwvy_request` with `op: "emitCSharp"` and `arguments: {"profile": {"kind": "empty"}}`) and rerun `--test --maintained`.
