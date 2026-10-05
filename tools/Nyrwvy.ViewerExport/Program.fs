@@ -3,19 +3,25 @@ open System.IO
 open System.Text
 open Nyrwvy.Core
 
+[<RequireQualifiedAccess>]
+type private FunctionSelector =
+    | Id of string
+    | DisplayName of string
+
 type private FocusArguments =
     { InputPath: string
       Encoding: ViewerSourceEncoding
-      FunctionIdText: string
+      Function: FunctionSelector
       OutputPath: string option }
 
 let private usage =
     """Usage:
   dotnet run --project tools/Nyrwvy.ViewerExport -- \
     focus --input <snapshot-path> --format <json|nyason> \
-    --function-id <stable-function-id> [--output <html-path>]
+    (--function-id <stable-function-id> | --function <display-name>) [--output <html-path>]
 
-The command resolves functions only by stable FunctionId. Display-name lookup is not supported.
+--function takes an exact display name and fails when no function or several functions have it.
+The default output file name is derived from the stable FunctionId, never from the display name.
 Unknown, duplicate, missing-value, and positional options are rejected.
 """
 
@@ -26,21 +32,26 @@ let private parseEncoding (value: string) =
     | _ -> Error $"Unsupported --format '{value}'. Expected json or nyason."
 
 let private parseFocusArguments (arguments: string list): Result<FocusArguments, string> =
-    let allowed = set [ "--input"; "--format"; "--function-id"; "--output" ]
+    let allowed = set [ "--input"; "--format"; "--function-id"; "--function"; "--output" ]
+    let functionSelector options =
+        match Map.tryFind "--function-id" options, Map.tryFind "--function" options with
+        | Some id, None -> Ok(FunctionSelector.Id id)
+        | None, Some displayName -> Ok(FunctionSelector.DisplayName displayName)
+        | _ -> Error "Pass exactly one of --function-id and --function."
     ExportCli.parseOptions allowed arguments
     |> Result.bind (fun options ->
         match ExportCli.requiredOption "--input" options,
               ExportCli.requiredOption "--format" options,
-              ExportCli.requiredOption "--function-id" options with
+              functionSelector options with
         | Error error, _, _
         | _, Error error, _
         | _, _, Error error -> Error error
-        | Ok inputPath, Ok formatText, Ok functionIdText ->
+        | Ok inputPath, Ok formatText, Ok selector ->
             parseEncoding formatText
             |> Result.map (fun encoding ->
                 { InputPath = inputPath
                   Encoding = encoding
-                  FunctionIdText = functionIdText
+                  Function = selector
                   OutputPath = Map.tryFind "--output" options }))
 
 let private runFocus (arguments: string list): Result<string, string> =
@@ -55,7 +66,11 @@ let private runFocus (arguments: string list): Result<string, string> =
 
         source
         |> Result.bind (fun source ->
-            match ViewerExport.focusFromSource parsed.Encoding source parsed.FunctionIdText with
+            let artifact =
+                match parsed.Function with
+                | FunctionSelector.Id id -> ViewerExport.focusFromSource parsed.Encoding source id
+                | FunctionSelector.DisplayName name -> ViewerExport.focusFromSourceByName parsed.Encoding source name
+            match artifact with
             | Error error -> Error $"Viewer export failed: {error}"
             | Ok artifact ->
                 let outputPath = parsed.OutputPath |> Option.defaultValue artifact.SuggestedFileName

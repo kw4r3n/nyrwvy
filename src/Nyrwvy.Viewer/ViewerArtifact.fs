@@ -22,6 +22,8 @@ type ViewerArtifact =
 [<RequireQualifiedAccess>]
 type ViewerExportError =
     | InvalidFunctionId of StableIdError
+    | UnknownFunctionName of displayName: string
+    | AmbiguousFunctionName of displayName: string * candidates: FunctionId list
     | JsonDecodeFailed of SnapshotCodecError
     | NyasonDecodeFailed of NyasonCodecError
     | FocusQueryFailed of SemanticQueryError
@@ -90,6 +92,34 @@ module ViewerExport =
         | Ok functionId ->
             decodeSnapshot encoding source
             |> Result.bind (fun snapshot -> focusFromSnapshot snapshot functionId)
+
+    /// Resolves a function by exact display name. Names carry no identity, so an
+    /// unknown or ambiguous name fails rather than picking one; the artifact itself
+    /// stays stable-ID named.
+    let resolveFunctionName
+        (snapshot: Snapshot)
+        (displayName: string)
+        : Result<FunctionId, ViewerExportError> =
+        match snapshot.Functions |> List.filter (fun functionEntity -> functionEntity.DisplayName = displayName) with
+        | [ functionEntity ] -> Ok functionEntity.Id
+        | [] -> Error(ViewerExportError.UnknownFunctionName displayName)
+        | matches ->
+            Error(
+                ViewerExportError.AmbiguousFunctionName(
+                    displayName,
+                    matches |> List.map (fun functionEntity -> functionEntity.Id) |> List.sortBy StableId.value
+                )
+            )
+
+    let focusFromSourceByName
+        (encoding: ViewerSourceEncoding)
+        (source: string)
+        (displayName: string)
+        : Result<ViewerArtifact, ViewerExportError> =
+        decodeSnapshot encoding source
+        |> Result.bind (fun snapshot ->
+            resolveFunctionName snapshot displayName
+            |> Result.bind (focusFromSnapshot snapshot))
 
     let changeReview
         (simulation: TransactionSimulation)

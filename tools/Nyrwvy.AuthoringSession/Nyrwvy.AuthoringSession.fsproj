@@ -18,6 +18,7 @@
     <Compile Include="WireGraph.fs" />
     <Compile Include="WireEncode.fs" />
     <Compile Include="WireProtocolAdapters.fs" />
+    <Compile Include="ViewerFile.fs" />
     <Compile Include="Protocol.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -28,5 +29,6 @@
     <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
+    <ProjectReference Include="../../src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />
   </ItemGroup>
 </Project>

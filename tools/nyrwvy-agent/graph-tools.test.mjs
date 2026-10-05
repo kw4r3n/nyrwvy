@@ -10,6 +10,7 @@ const context = { sessionID: "schema-contract", worktree: process.cwd() }
 const samples = {
   open: { valid: { mode: "create", snapshot: "workspace.json", dependency: "policy.json" }, invalid: { mode: "create", snapshot: "workspace.json", dependency: 42 } },
   inspect: { valid: { view: "function", function: "Identity" }, invalid: { view: "unknown" } },
+  view: { valid: { function: "Identity", output: "identity.html" }, invalid: { function: 42 } },
   recipe_reference: { valid: { kinds: ["conditional", "matchUnion"] }, invalid: { kinds: [] } },
   create_type: { valid: { displayName: "Item", typeKind: {} }, invalid: { displayName: "Item", typeKind: [] } },
   create_function: {

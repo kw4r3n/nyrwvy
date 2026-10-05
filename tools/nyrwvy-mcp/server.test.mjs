@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio"
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
-const names = ["open", "inspect", "recipe_reference", "create_type", "create_function", "replace", "commit", "reject", "request", "close"]
+const names = ["open", "inspect", "view", "recipe_reference", "create_type", "create_function", "replace", "commit", "reject", "request", "close"]
 
 async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
@@ -94,6 +94,11 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(replacement.review.proposedFocus.function.body.nodes[0].kind.value, false)
     assert.equal((await call(first, "inspect", { view: "status" })).result.snapshotId, before.snapshotId)
     await call(first, "commit", { proposalId: replacement.proposalId })
+    // A human-readable page of the committed function, written relative to the project.
+    const page = (await call(first, "view", { function: "value", output: "views/value.html" })).result
+    assert.equal(page.path, join(workspace, "views", "value.html"))
+    assert.equal(page.functionId, functionId)
+    assert.match(await readFile(page.path, "utf8"), /Function Focus/)
     const discard = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     await call(first, "reject", { proposalId: discard.proposalId })
     const pending = (await call(first, "replace", { function: "value", replacement: bool(true) })).result

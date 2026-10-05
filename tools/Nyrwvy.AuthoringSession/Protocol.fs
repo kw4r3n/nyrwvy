@@ -673,6 +673,34 @@ module AuthoringProtocol =
                 | Ok focus -> success requestId (WireGraph.focus focus)
                 | Error error ->
                     failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box (sprintf "%A" error) ])
+            | "viewFunction" ->
+                ensureFields
+                    "viewFunction request"
+                    [ "id"; "op"; "function"; "functionId"; "output" ]
+                    [ "id"; "op" ]
+                    root
+                let functionId =
+                    match tryProperty "function" root, tryProperty "functionId" root with
+                    | Some _, None ->
+                        (WireSymbolic.resolveFunction (session.Declarations()) (requiredString "function" root)).Id
+                    | None, Some _ -> id<FunctionTag> "functionId" root
+                    | _ -> WireInput.fail "viewFunction requires exactly one of function and functionId."
+                let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
+                match session.FocusFunction functionId with
+                | Error error ->
+                    failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box (sprintf "%A" error) ])
+                | Ok focus ->
+                    match ViewerFile.writeFocus session.Path output focus with
+                    | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
+                    | Ok(path, artifact) ->
+                        success
+                            requestId
+                            (objectValue
+                                [ "functionId", box (StableId.value functionId)
+                                  "displayName", box focus.Function.DisplayName
+                                  "kind", box "functionFocus"
+                                  "mediaType", box artifact.MediaType
+                                  "path", box path ])
             | "simulateOperations" ->
                 ensureFields
                     "simulateOperations request"
