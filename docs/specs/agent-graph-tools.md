@@ -26,7 +26,7 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 | --- | --- |
 | `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
-| `nyrwvy_view` | Write a human-readable HTML page (Function Focus) of one committed function and return its path, for a person to open in a browser. See [human-readable view](#human-readable-view). |
+| `nyrwvy_view` | Write a human-readable HTML page and return its path, for a person to open in a browser: Function Focus of one committed function, or Change Review of a pending proposal (`proposalId`). See [human-readable view](#human-readable-view). |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot: no argument for the categorized index of kind names, `category` for its one-line signatures, `kind` or `kinds` for exact shapes. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
@@ -81,6 +81,8 @@ This is a read projection, not a new accepted snapshot encoding or a raw graph-e
 ## Human-readable view
 
 `nyrwvy_view` (JSONL `viewFunction`) takes exactly one of `function` (exact display name) and `functionId`, as `readFunction` does, plus an optional `output` path ending in `.html`. Relative paths use the authoring process's working directory, which is the project. Without `output`, the page is written to `nyrwvy-views/` beside the snapshot under the viewer's stable-ID-derived file name. The reply is `{ functionId, displayName, kind: "functionFocus", mediaType, path }`; the HTML itself is not returned, so it costs the agent no context. The page renders the committed state with the same [viewer](../developer/architecture.md#human-review-and-projections) as `tools/Nyrwvy.ViewerExport`. It is a projection: it is never read back, and editing it changes nothing.
+
+With `proposalId` instead (JSONL `viewProposal`), `nyrwvy_view` writes the Change Review of a pending proposal, so a person can review it before `nyrwvy_commit` or `nyrwvy_reject`; `function` and `functionId` must then be absent. `output` and the default directory work as above, and the default file name is derived from the proposal's transaction ID. The reply is `{ proposalId, kind: "changeReview", mediaType, path }`. Writing the page publishes nothing and leaves the proposal pending; a committed or rejected proposal is no longer viewable. An operations proposal (`simulateOperations`, `simulateOperationsByName`) renders the Change Review projection its review already carries. Every other proposal kind renders, for each function it creates or rewrites, the committed focus (when the proposal's base is still the committed state) and the proposed focus; the types, effects and capabilities it creates or rewrites; and the engine review exactly as the session returned it to the agent (the full review), so requested intent and resulting diff come from the engine, not from the page.
 
 ## Targeted edits and pre-commit review
 

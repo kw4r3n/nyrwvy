@@ -51,7 +51,7 @@ The ordinary OpenCode tools in `.opencode/tools/nyrwvy.ts` let an AI open/create
 dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
 ```
 
-Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a function's human-readable HTML page for a person to open. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
+Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a human-readable HTML page for a person to open: a function, or a pending proposal's Change Review before commit. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
 
 The write-side goal is an adequate AI graph-editing toolset, not a natural-language compiler or a human-written source language. Human-facing projections can be graphical. [Structured-action research](docs/concepts/structured-agent-actions.md) distinguishes the relevant CODESTRUCT evidence from CGM and smaller AST-edit experiments.
 

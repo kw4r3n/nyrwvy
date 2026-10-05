@@ -215,6 +215,8 @@ module AgentExpressionStructuralChangeProposal =
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+    /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+    let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
 /// Structural rewriting of the type references embedded in an expression recipe.
 [<RequireQualifiedAccess>]
@@ -2884,6 +2886,8 @@ module AgentExpressionStructuralWorkflow =
             let review proposal = (state proposal).Review
             let transactionId proposal = (state proposal).TransactionId
             let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+            /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+            let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
         [<RequireQualifiedAccess>]
         type CommitResult =
@@ -3398,6 +3402,8 @@ module AgentExpressionStructuralWorkflow =
             let review proposal = (state proposal).Review
             let transactionId proposal = (state proposal).TransactionId
             let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
+            /// The proposed snapshot, read-only, for rendering a human review page of the proposal.
+            let proposedSnapshot proposal = (state proposal).ProposedSnapshot
 
         [<RequireQualifiedAccess>]
         type CommitResult =

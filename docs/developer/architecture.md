@@ -224,7 +224,7 @@ See [Nyason and storage direction](../concepts/nyason-and-storage.md) and the [s
 
 The viewer is a query/projection client rather than a mutable source editor. The established view contracts include focused semantic slices and Change Review.
 
-A person opens a Function Focus page in two ways: `tools/Nyrwvy.ViewerExport focus` from a snapshot file (by `--function-id` or exact display name with `--function`), or `nyrwvy_view` / `viewFunction` from an open authoring session, which writes the page for the committed state and returns its path. Change Review pages are produced in process only.
+A person opens a Function Focus page in two ways: `tools/Nyrwvy.ViewerExport focus` from a snapshot file (by `--function-id` or exact display name with `--function`), or `nyrwvy_view` / `viewFunction` from an open authoring session, which writes the page for the committed state and returns its path. A Change Review page of a pending proposal is written by `nyrwvy_view` with `proposalId` (`viewProposal`); proposals exist only inside a session, so `tools/Nyrwvy.ViewerExport` has no Change Review command.
 
 Change Review preserves both:
 

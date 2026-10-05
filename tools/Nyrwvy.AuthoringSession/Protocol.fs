@@ -707,6 +707,24 @@ module AuthoringProtocol =
                                   "kind", box "functionFocus"
                                   "mediaType", box artifact.MediaType
                                   "path", box path ])
+            | "viewProposal" ->
+                ensureFields "viewProposal request" [ "id"; "op"; "proposalId"; "output" ] [ "id"; "op"; "proposalId" ] root
+                let proposalId = requiredString "proposalId" root
+                let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
+                match session.PendingProposalView proposalId with
+                | Error error -> sessionFailure requestId error
+                | Ok view ->
+                    let committedFocus functionId = session.FocusFunction functionId |> Result.toOption
+                    match ViewerFile.writeProposalReview session.Path output view committedFocus with
+                    | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
+                    | Ok(path, artifact) ->
+                        success
+                            requestId
+                            (objectValue
+                                [ "proposalId", box proposalId
+                                  "kind", box "changeReview"
+                                  "mediaType", box artifact.MediaType
+                                  "path", box path ])
             | "simulateOperations" ->
                 ensureFields
                     "simulateOperations request"

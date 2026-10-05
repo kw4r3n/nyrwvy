@@ -163,6 +163,7 @@ The maintained operation set is:
 | `declarations` | Stable-ID declaration discovery. |
 | `focusFunction` | Focused function/query projection by `functionId`. |
 | `viewFunction` | Write the committed function's human-readable Function Focus HTML and return its path; exactly one of `function` and `functionId`, optional `.html` `output` ([contract](agent-graph-tools.md#human-readable-view)). |
+| `viewProposal` | Write a pending proposal's human-readable Change Review HTML and return its path; required `proposalId`, optional `.html` `output`. Publishes nothing ([contract](agent-graph-tools.md#human-readable-view)). |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
 | `simulateOperationsByName` | Resolve display names in a list of deletion operations, then simulate them as `simulateOperations` does. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |

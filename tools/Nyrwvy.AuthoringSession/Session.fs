@@ -63,6 +63,19 @@ type AuthoringProposal =
       /// review order; empty for other reviews. Rendered only by a full review.
       RewrittenFunctions: SemanticFunction list }
 
+/// What a human Change Review page of a pending proposal reads. `ProposedSnapshot` is absent
+/// for an operations proposal, whose review already carries its Change Review projection.
+type AuthoringPendingProposalView =
+    { TransactionId: TransactionId
+      Proposal: AuthoringProposal
+      BaseSnapshotId: SnapshotId
+      BaseIsCommitted: bool
+      ProposedSnapshot: Snapshot option
+      /// Functions the proposal creates or rewrites, in review order.
+      FunctionIds: FunctionId list
+      /// Types the proposal creates or rewrites, in review order.
+      TypeIds: TypeId list }
+
 type AuthoringCommitReceipt =
     { TransactionId: TransactionId
       PublishedSnapshotId: SnapshotId
@@ -86,6 +99,46 @@ type private PendingProposal =
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
+
+module private PendingProposal =
+    let proposedSnapshot (pending: PendingProposal): Snapshot option =
+        match pending with
+        | PendingProposal.Operations _ -> None
+        | PendingProposal.ReplaceBody proposal -> Some(AgentExpressionStructuralChangeProposal.proposedSnapshot proposal)
+        | PendingProposal.ReplaceTarget proposal -> Some(AgentExpressionStructuralWorkflow.Targeted.Proposal.proposedSnapshot proposal)
+        | PendingProposal.CreateFunction proposal -> Some(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.proposedSnapshot proposal)
+        | PendingProposal.ParameterTypeMigration proposal -> Some(AgentParameterTypeMigrationProposal.proposedSnapshot proposal)
+        | PendingProposal.ResultTypeMigration proposal -> Some(AgentResultTypeMigrationProposal.proposedSnapshot proposal)
+        | PendingProposal.ProductFieldTypeMigration proposal -> Some(AgentProductFieldTypeMigrationProposal.proposedSnapshot proposal)
+        | PendingProposal.CreateType proposal -> Some(AgentTypeDeclarationProposal.proposedSnapshot proposal)
+        | PendingProposal.CreateTypeGroup proposal -> Some(AgentTypeDeclarationGroupProposal.proposedSnapshot proposal)
+        | PendingProposal.FieldlessUnionVariantEvolution proposal -> Some(AgentFieldlessUnionVariantEvolutionProposal.proposedSnapshot proposal)
+        | PendingProposal.CreateEffect proposal -> Some(AgentEffectDeclarationProposal.proposedSnapshot proposal)
+        | PendingProposal.CreateCapability proposal -> Some(AgentCapabilityDeclarationProposal.proposedSnapshot proposal)
+
+module private ProposalReview =
+    /// Functions and types a proposal rewrites, from its resulting change as well as its
+    /// intent: signature/variant edits can rewrite other callers or match owners.
+    let touched (review: AuthoringProposalReview): FunctionId list * TypeId list =
+        match review with
+        | AuthoringProposalReview.Operations item ->
+            item.ResultingChange.AffectedFunctionIds @ (item.ResultingChange.Diff.FunctionsRemoved |> List.map (fun removed -> removed.FunctionId)),
+            item.ResultingChange.AffectedTypeIds @ (item.ResultingChange.Diff.TypesRemoved |> List.map (fun removed -> removed.TypeId))
+        | AuthoringProposalReview.ReplaceBody item -> [ item.RequestedChange.TargetFunctionId ], []
+        | AuthoringProposalReview.ReplaceTarget item -> [ item.RequestedChange.TargetFunctionId ], []
+        | AuthoringProposalReview.ParameterTypeMigration item ->
+            item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
+        | AuthoringProposalReview.ResultTypeMigration item ->
+            item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
+        | AuthoringProposalReview.ProductFieldTypeMigration item ->
+            item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
+        | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
+            item.RepairedFunctionIds, [ item.UpdatedType.Id ]
+        | AuthoringProposalReview.CreateFunction _
+        | AuthoringProposalReview.CreateType _
+        | AuthoringProposalReview.CreateTypeGroup _
+        | AuthoringProposalReview.CreateEffect _
+        | AuthoringProposalReview.CreateCapability _ -> [], []
 
 /// Test seam for storage failures that cannot be produced reliably through the file system.
 module internal SessionStorageFaults =
@@ -436,6 +489,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let dependency = selection |> Option.map (fun item -> item.Imported)
     let dependencyManifest = selection |> Option.map (fun item -> item.Manifest)
     let proposals = Dictionary<string, TransactionId * PendingProposal>(StringComparer.Ordinal)
+    // The registered review and the snapshot it was simulated against, for review pages.
+    let registered = Dictionary<string, AuthoringProposal * SnapshotId>(StringComparer.Ordinal)
     let mutable workspace = initialWorkspace
     let mutable persistedSource = initialPersistedSource
     let mutable invalidated = false
@@ -454,28 +509,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         |> Option.defaultValue Set.empty
 
     let registerWith (proposedFunctions: SemanticFunction list) transactionId pending review =
-        // Check resulting changes too: signature/variant edits can rewrite other
-        // callers or match owners, not just the intent's primary target.
-        let functions, types =
-            match review with
-            | AuthoringProposalReview.Operations item ->
-                item.ResultingChange.AffectedFunctionIds @ (item.ResultingChange.Diff.FunctionsRemoved |> List.map (fun removed -> removed.FunctionId)),
-                item.ResultingChange.AffectedTypeIds @ (item.ResultingChange.Diff.TypesRemoved |> List.map (fun removed -> removed.TypeId))
-            | AuthoringProposalReview.ReplaceBody item -> [ item.RequestedChange.TargetFunctionId ], []
-            | AuthoringProposalReview.ReplaceTarget item -> [ item.RequestedChange.TargetFunctionId ], []
-            | AuthoringProposalReview.ParameterTypeMigration item ->
-                item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
-            | AuthoringProposalReview.ResultTypeMigration item ->
-                item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
-            | AuthoringProposalReview.ProductFieldTypeMigration item ->
-                item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
-            | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
-                item.RepairedFunctionIds, [ item.UpdatedType.Id ]
-            | AuthoringProposalReview.CreateFunction _
-            | AuthoringProposalReview.CreateType _
-            | AuthoringProposalReview.CreateTypeGroup _
-            | AuthoringProposalReview.CreateEffect _
-            | AuthoringProposalReview.CreateCapability _ -> [], []
+        let functions, types = ProposalReview.touched review
         let removesImportedDeclaration =
             match review, dependency with
             | AuthoringProposalReview.Operations item, Some imported ->
@@ -496,7 +530,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             proposals.Add(proposalId, (transactionId, pending))
             let rewritten =
                 functions |> List.distinct |> List.choose (fun id -> proposedFunctions |> List.tryFind (fun item -> item.Id = id))
-            Ok { ProposalId = proposalId; Review = review; RewrittenFunctions = rewritten }
+            let proposal = { ProposalId = proposalId; Review = review; RewrittenFunctions = rewritten }
+            registered.Add(proposalId, (proposal, AgentWorkspace.currentSnapshotId workspace))
+            Ok proposal
 
     let register transactionId pending review = registerWith [] transactionId pending review
 
@@ -559,6 +595,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error error
         | Ok() ->
             proposals.Remove proposalId |> ignore
+            registered.Remove proposalId |> ignore
             Ok { TransactionId = transactionId; PublishedSnapshotId = publishedSnapshotId; Readiness = readiness }
 
     member _.Path = path
@@ -829,6 +866,34 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentCapabilityDeclarationCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
 
+    /// Read-only: the review of a pending proposal and the snapshots a human review page renders.
+    member _.PendingProposalView(proposalId: string): Result<AuthoringPendingProposalView, AuthoringSessionError> =
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match proposals.TryGetValue proposalId, registered.TryGetValue proposalId with
+            | (true, (transactionId, pending)), (true, (proposal, baseSnapshotId)) ->
+                let touched, touchedTypes = ProposalReview.touched proposal.Review
+                let signatureOwners =
+                    match proposal.Review with
+                    | AuthoringProposalReview.CreateFunction item -> [ item.CreatedFunction.Id ]
+                    | AuthoringProposalReview.ParameterTypeMigration item -> [ item.ResultingChange.ParameterChange.FunctionId ]
+                    | AuthoringProposalReview.ResultTypeMigration item -> [ item.ResultingChange.ResultChange.FunctionId ]
+                    | _ -> []
+                Ok { TransactionId = transactionId
+                     Proposal = proposal
+                     BaseSnapshotId = baseSnapshotId
+                     BaseIsCommitted = (AgentWorkspace.currentSnapshotId workspace = baseSnapshotId)
+                     ProposedSnapshot = PendingProposal.proposedSnapshot pending
+                     FunctionIds = signatureOwners @ touched |> List.distinct
+                     TypeIds =
+                        match proposal.Review with
+                        | AuthoringProposalReview.CreateType item -> [ item.CreatedType.Id ]
+                        | AuthoringProposalReview.CreateTypeGroup item -> item.CreatedTypes |> List.map (fun typeEntity -> typeEntity.Id)
+                        | _ -> touchedTypes
+                        |> List.distinct }
+            | _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
+
     member _.Reject(proposalId: string): Result<AuthoringRejectionReceipt, AuthoringSessionError> =
         match ensureUsable () with
         | Error error -> Error error
@@ -839,6 +904,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 // Rejection only forgets a handle; all workflows retain the current
                 // workspace and return the same identity-only receipt.
                 proposals.Remove proposalId |> ignore
+                registered.Remove proposalId |> ignore
                 Ok { TransactionId = transactionId; RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
 
     member _.ProjectExecution(): Result<ExecutionProgram, AuthoringSessionError> =
