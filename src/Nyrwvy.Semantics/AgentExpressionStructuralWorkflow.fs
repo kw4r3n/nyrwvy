@@ -984,6 +984,19 @@ module AgentExpressionStructuralWorkflow =
         member _.TryCompletion(frames, recipe) = find completions frames recipe
         member _.AddCompletion(frames, recipe, value) = add completions frames recipe value
 
+    /// The `OperationSignatures` entry of each `ExpressionRecipe` case, indexed by union tag.
+    let private fixedSignatureEntries =
+        Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<ExpressionRecipe>)
+        |> Array.map (fun case -> OperationSignatures.tryFind (string (System.Char.ToLowerInvariant case.Name[0]) + case.Name.Substring 1))
+
+    let private readRecipeTag =
+        Microsoft.FSharp.Reflection.FSharpValue.PreComputeUnionTagReader(typeof<ExpressionRecipe>)
+
+    let private fixedSignatureEntry (recipe: ExpressionRecipe) =
+        match fixedSignatureEntries[readRecipeTag recipe] with
+        | Some entry -> entry
+        | None -> invalidOp $"Recipe kind '{recipeKindName recipe}' is inferred from OperationSignatures but has no entry there."
+
     let private inferTypeWithContext
         (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
@@ -1017,11 +1030,6 @@ module AgentExpressionStructuralWorkflow =
             diagnostic
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires Map<K, V>, but the recipe produces {ty actual}."
-
-        let setMismatch role side actual =
-            diagnostic
-                "PureExpressionOperandTypeMismatch"
-                $"{role} {side} operand requires Set<T>, but the recipe produces {ty actual}."
 
         let setItemNotEquatable itemType =
             diagnostic
@@ -1187,22 +1195,25 @@ module AgentExpressionStructuralWorkflow =
                 result |> Result.iter (fun completion -> cache.AddCompletion(frames, recipe, completion))
                 result
         and inferNode frames recipe =
-            // Checks each (side, expected type, operand) in order and stops at the first failure.
-            let operands role result checks =
-                checks
-                |> List.fold (fun state (side, expected, child) ->
-                    state
-                    |> Result.bind (fun () ->
-                        match infer frames child with
-                        | Error error -> Error error
-                        | Ok actual when actual <> expected -> Error(typeMismatch role side expected actual)
-                        | Ok _ -> Ok())) (Ok())
-                |> Result.map (fun () -> result)
-
-            let unary role expected result child = operands role result [ "value", expected, child ]
-
-            let binary role expected result left right =
-                operands role result [ "left", expected, left; "right", expected, right ]
+            // A fixed-signature operation, checked from its `OperationSignatures` entry.
+            let fixedSignature () =
+                let entry = fixedSignatureEntry recipe
+                let role = string (System.Char.ToUpperInvariant entry.Kind[0]) + entry.Kind.Substring 1
+                let fail failure =
+                    match failure with
+                    | OperationSignatures.OperandFailure.TypeMismatch(side, expected, actual) -> typeMismatch role side expected actual
+                    | OperationSignatures.OperandFailure.ShapeMismatch(side, expected, actual) ->
+                        diagnostic
+                            "PureExpressionOperandTypeMismatch"
+                            $"{role} {side} operand requires {expected}, but the recipe produces {ty actual}."
+                    | OperationSignatures.OperandFailure.NotEquatable(constraintEntry, itemType) ->
+                        diagnostic constraintEntry.Code (constraintEntry.Message + EquatableTypes.explain snapshot.Types itemType)
+                OperationSignatures.check
+                    (infer frames)
+                    (EquatableTypes.isEquatable snapshot.Types)
+                    fail
+                    entry
+                    (recipeChildren recipe |> List.ofSeq)
 
             let validateFieldBindings role (expectedFields: SemanticField list) (bindings: (FieldId * ExpressionRecipe) list) =
                 match tryFindDuplicate fst bindings with
@@ -1363,44 +1374,112 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.UnitLiteral -> Ok unitType
             | ExpressionRecipe.Int64Literal _ -> Ok int64Type
             | ExpressionRecipe.Float64Literal _ -> Ok float64Type
-            | ExpressionRecipe.StringIsEmpty value -> unary "StringIsEmpty" stringType boolType value
-            | ExpressionRecipe.Int64ToString value -> unary "Int64ToString" int64Type stringType value
-            | ExpressionRecipe.Int64ToHexString value -> unary "Int64ToHexString" int64Type stringType value
-            | ExpressionRecipe.StringParseInt64 value ->
-                unary "StringParseInt64" stringType (optionType int64Type) value
-            | ExpressionRecipe.StringParseInt64Hex value ->
-                unary "StringParseInt64Hex" stringType (optionType int64Type) value
-            | ExpressionRecipe.Float64ToString value -> unary "Float64ToString" float64Type stringType value
-            | ExpressionRecipe.StringParseFloat64 value ->
-                unary "StringParseFloat64" stringType (optionType float64Type) value
-            | ExpressionRecipe.StringCodePoints value ->
-                unary "StringCodePoints" stringType (listType stringType) value
-            | ExpressionRecipe.StringToLower value -> unary "StringToLower" stringType stringType value
-            | ExpressionRecipe.StringToUpper value -> unary "StringToUpper" stringType stringType value
-            | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary "StringDecodeUtf8Lossy" stringType stringType value
-            | ExpressionRecipe.Float64RoundToInt64 value ->
-                unary "Float64RoundToInt64" float64Type (optionType int64Type) value
-            | ExpressionRecipe.Float64FloorToInt64 value ->
-                unary "Float64FloorToInt64" float64Type (optionType int64Type) value
-            | ExpressionRecipe.Float64Sqrt value ->
-                unary "Float64Sqrt" float64Type float64Type value
-            | ExpressionRecipe.Float64Abs value ->
-                unary "Float64Abs" float64Type float64Type value
-            | ExpressionRecipe.Float64Negate value ->
-                unary "Float64Negate" float64Type float64Type value
-            | ExpressionRecipe.Float64Floor value ->
-                unary "Float64Floor" float64Type float64Type value
-            | ExpressionRecipe.Float64Ceiling value ->
-                unary "Float64Ceiling" float64Type float64Type value
-            | ExpressionRecipe.Float64Truncate value ->
-                unary "Float64Truncate" float64Type float64Type value
-            | ExpressionRecipe.StringUtf8ByteCount value -> unary "StringUtf8ByteCount" stringType int64Type value
-            | ExpressionRecipe.StringFromCodePoint value ->
-                unary "StringFromCodePoint" int64Type (optionType stringType) value
-            | ExpressionRecipe.StringToCodePoint value ->
-                unary "StringToCodePoint" stringType (optionType int64Type) value
-            | ExpressionRecipe.StringLength value -> unary "StringLength" stringType int64Type value
-            | ExpressionRecipe.BoolNot operand -> unary "BoolNot" boolType boolType operand
+            | ExpressionRecipe.BoolNot _
+            | ExpressionRecipe.StringIsEmpty _
+            | ExpressionRecipe.StringContains _
+            | ExpressionRecipe.StringEqual _
+            | ExpressionRecipe.StringLessThan _
+            | ExpressionRecipe.StringConcat _
+            | ExpressionRecipe.StringLength _
+            | ExpressionRecipe.StringSlice _
+            | ExpressionRecipe.StringCodePoints _
+            | ExpressionRecipe.StringIndexOf _
+            | ExpressionRecipe.StringLastIndexOf _
+            | ExpressionRecipe.StringSpan _
+            | ExpressionRecipe.StringSpanBack _
+            | ExpressionRecipe.StringStartsWith _
+            | ExpressionRecipe.StringEndsWith _
+            | ExpressionRecipe.StringSplit _
+            | ExpressionRecipe.StringSplitLines _
+            | ExpressionRecipe.StringJoin _
+            | ExpressionRecipe.StringToLower _
+            | ExpressionRecipe.StringToUpper _
+            | ExpressionRecipe.StringUtf8ByteCount _
+            | ExpressionRecipe.StringDecodeUtf8Lossy _
+            | ExpressionRecipe.StringFromCodePoint _
+            | ExpressionRecipe.StringToCodePoint _
+            | ExpressionRecipe.Int64ToString _
+            | ExpressionRecipe.StringParseInt64 _
+            | ExpressionRecipe.Int64ToHexString _
+            | ExpressionRecipe.StringParseInt64Hex _
+            | ExpressionRecipe.StringRepeat _
+            | ExpressionRecipe.Float64ToString _
+            | ExpressionRecipe.StringParseFloat64 _
+            | ExpressionRecipe.Int64WrappingAdd _
+            | ExpressionRecipe.Int64WrappingSubtract _
+            | ExpressionRecipe.Int64WrappingMultiply _
+            | ExpressionRecipe.Int64FloorDivide _
+            | ExpressionRecipe.Int64FloorModulo _
+            | ExpressionRecipe.Int64Min _
+            | ExpressionRecipe.Int64Max _
+            | ExpressionRecipe.Int64CheckedAdd _
+            | ExpressionRecipe.Int64CheckedSubtract _
+            | ExpressionRecipe.Int64CheckedMultiply _
+            | ExpressionRecipe.Int64WrappingAbs _
+            | ExpressionRecipe.Int64Equal _
+            | ExpressionRecipe.Int64LessThan _
+            | ExpressionRecipe.Int64LessThanOrEqual _
+            | ExpressionRecipe.Int64GreaterThan _
+            | ExpressionRecipe.Int64GreaterThanOrEqual _
+            | ExpressionRecipe.Int64ToFloat64 _
+            | ExpressionRecipe.Float64Add _
+            | ExpressionRecipe.Float64Subtract _
+            | ExpressionRecipe.Float64Multiply _
+            | ExpressionRecipe.Float64Divide _
+            | ExpressionRecipe.Float64Equal _
+            | ExpressionRecipe.Float64LessThan _
+            | ExpressionRecipe.Float64IsNaN _
+            | ExpressionRecipe.Float64IsFinite _
+            | ExpressionRecipe.Float64IsInfinite _
+            | ExpressionRecipe.Float64Sqrt _
+            | ExpressionRecipe.Float64Abs _
+            | ExpressionRecipe.Float64Negate _
+            | ExpressionRecipe.Float64Floor _
+            | ExpressionRecipe.Float64Ceiling _
+            | ExpressionRecipe.Float64Truncate _
+            | ExpressionRecipe.Float64RoundToInt64 _
+            | ExpressionRecipe.Float64Round _
+            | ExpressionRecipe.Float64FloorToInt64 _
+            | ExpressionRecipe.Bits32FromInt64 _
+            | ExpressionRecipe.Bits32ToInt64 _
+            | ExpressionRecipe.Bits32Xor _
+            | ExpressionRecipe.Bits32And _
+            | ExpressionRecipe.Bits32Or _
+            | ExpressionRecipe.Bits32Not _
+            | ExpressionRecipe.Bits32Add _
+            | ExpressionRecipe.Bits32RotateRight _
+            | ExpressionRecipe.Bits32ShiftRight _
+            | ExpressionRecipe.Bits32ShiftLeft _
+            | ExpressionRecipe.ListLength _
+            | ExpressionRecipe.ListItemAt _
+            | ExpressionRecipe.ListSlice _
+            | ExpressionRecipe.ListRange _
+            | ExpressionRecipe.ListReverse _
+            | ExpressionRecipe.ListLast _
+            | ExpressionRecipe.ListDropLast _
+            | ExpressionRecipe.ListAppendItem _
+            | ExpressionRecipe.ListConcat _
+            | ExpressionRecipe.CancellationRequested
+            | ExpressionRecipe.ListIndexOf _
+            | ExpressionRecipe.ListLastIndexOf _
+            | ExpressionRecipe.MapInsert _
+            | ExpressionRecipe.MapGet _
+            | ExpressionRecipe.MapGetOrDefault _
+            | ExpressionRecipe.MapContainsKey _
+            | ExpressionRecipe.MapRemove _
+            | ExpressionRecipe.MapSize _
+            | ExpressionRecipe.MapKeys _
+            | ExpressionRecipe.MapValues _
+            | ExpressionRecipe.SetFromList _
+            | ExpressionRecipe.SetInsert _
+            | ExpressionRecipe.SetContains _
+            | ExpressionRecipe.SetRemove _
+            | ExpressionRecipe.SetUnion _
+            | ExpressionRecipe.SetIntersection _
+            | ExpressionRecipe.SetDifference _
+            | ExpressionRecipe.SetSize _
+            | ExpressionRecipe.SetToList _
+            | ExpressionRecipe.OptionSome _ -> fixedSignature ()
             | ExpressionRecipe.BoolAnd(left, right)
             | ExpressionRecipe.BoolOr(left, right) ->
                 let role =
@@ -1416,31 +1495,6 @@ module AgentExpressionStructuralWorkflow =
                     | Error error -> Error error
                     | Ok(GraphCompletion.Normal actual) when actual <> boolType -> Error(typeMismatch role "right" boolType actual)
                     | Ok _ -> Ok boolType
-            | ExpressionRecipe.StringSlice(value, start, stop) ->
-                operands "StringSlice" stringType [ "value", stringType, value; "start", int64Type, start; "end", int64Type, stop ]
-            | ExpressionRecipe.StringContains(value, substring) -> binary "StringContains" stringType boolType value substring
-            | ExpressionRecipe.StringIndexOf(value, substring, from) ->
-                operands "StringIndexOf" (optionType int64Type) [ "left", stringType, value; "right", stringType, substring; "from", int64Type, from ]
-            | ExpressionRecipe.StringSpan(value, set, bound)
-            | ExpressionRecipe.StringSpanBack(value, set, bound) ->
-                let name, boundRole =
-                    match recipe with
-                    | ExpressionRecipe.StringSpan _ -> "StringSpan", "from"
-                    | _ -> "StringSpanBack", "end"
-                operands name int64Type [ "value", stringType, value; "set", stringType, set; boundRole, int64Type, bound ]
-            | ExpressionRecipe.StringLastIndexOf(value, substring) ->
-                binary "StringLastIndexOf" stringType (optionType int64Type) value substring
-            | ExpressionRecipe.StringStartsWith(value, prefix) -> binary "StringStartsWith" stringType boolType value prefix
-            | ExpressionRecipe.StringEndsWith(value, suffix) -> binary "StringEndsWith" stringType boolType value suffix
-            | ExpressionRecipe.StringSplit(value, separator) ->
-                binary "StringSplit" stringType (listType stringType) value separator
-            | ExpressionRecipe.StringSplitLines(value, breaks) ->
-                operands "StringSplitLines" (listType stringType) [ "value", stringType, value; "breaks", stringType, breaks ]
-            | ExpressionRecipe.StringJoin(list, separator) ->
-                let stringListType = listType stringType
-                operands "StringJoin" stringType [ "list", stringListType, list; "separator", stringType, separator ]
-            | ExpressionRecipe.StringEqual(left, right) -> binary "StringEqual" stringType boolType left right
-            | ExpressionRecipe.StringLessThan(left, right) -> binary "StringLessThan" stringType boolType left right
             | ExpressionRecipe.ValueEqual(left, right) ->
                 match infer frames left with
                 | Error error -> Error error
@@ -1455,52 +1509,6 @@ module AgentExpressionStructuralWorkflow =
                                 $"ValueEqual compares values of a type that is not equatable: {EquatableTypes.explain snapshot.Types leftType}"
                         )
                     | Ok _ -> Ok boolType
-            | ExpressionRecipe.StringConcat(left, right) -> binary "StringConcat" stringType stringType left right
-            | ExpressionRecipe.Int64WrappingAdd(left, right) -> binary "Int64WrappingAdd" int64Type int64Type left right
-            | ExpressionRecipe.Int64WrappingSubtract(left, right) -> binary "Int64WrappingSubtract" int64Type int64Type left right
-            | ExpressionRecipe.Int64WrappingMultiply(left, right) -> binary "Int64WrappingMultiply" int64Type int64Type left right
-            | ExpressionRecipe.Int64FloorDivide(left, right) -> binary "Int64FloorDivide" int64Type int64Type left right
-            | ExpressionRecipe.Int64FloorModulo(left, right) -> binary "Int64FloorModulo" int64Type int64Type left right
-            | ExpressionRecipe.Int64Min(left, right) -> binary "Int64Min" int64Type int64Type left right
-            | ExpressionRecipe.Int64Max(left, right) -> binary "Int64Max" int64Type int64Type left right
-            | ExpressionRecipe.Int64CheckedAdd(left, right) -> binary "Int64CheckedAdd" int64Type (optionType int64Type) left right
-            | ExpressionRecipe.Int64CheckedSubtract(left, right) -> binary "Int64CheckedSubtract" int64Type (optionType int64Type) left right
-            | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary "Int64CheckedMultiply" int64Type (optionType int64Type) left right
-            | ExpressionRecipe.ListRange(start, stop) ->
-                operands "ListRange" (listType int64Type) [ "start", int64Type, start; "end", int64Type, stop ]
-            | ExpressionRecipe.StringRepeat(text, count) ->
-                operands "StringRepeat" stringType [ "text", stringType, text; "count", int64Type, count ]
-            | ExpressionRecipe.Float64Round(value, digits) ->
-                operands "Float64Round" float64Type [ "value", float64Type, value; "digits", int64Type, digits ]
-            | ExpressionRecipe.Int64Equal(left, right) -> binary "Int64Equal" int64Type boolType left right
-            | ExpressionRecipe.Int64LessThan(left, right) -> binary "Int64LessThan" int64Type boolType left right
-            | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> binary "Int64LessThanOrEqual" int64Type boolType left right
-            | ExpressionRecipe.Int64GreaterThan(left, right) -> binary "Int64GreaterThan" int64Type boolType left right
-            | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> binary "Int64GreaterThanOrEqual" int64Type boolType left right
-            | ExpressionRecipe.Float64Add(left, right) -> binary "Float64Add" float64Type float64Type left right
-            | ExpressionRecipe.Float64Subtract(left, right) -> binary "Float64Subtract" float64Type float64Type left right
-            | ExpressionRecipe.Float64Multiply(left, right) -> binary "Float64Multiply" float64Type float64Type left right
-            | ExpressionRecipe.Float64Divide(left, right) -> binary "Float64Divide" float64Type float64Type left right
-            | ExpressionRecipe.Float64Equal(left, right) -> binary "Float64Equal" float64Type boolType left right
-            | ExpressionRecipe.Float64LessThan(left, right) -> binary "Float64LessThan" float64Type boolType left right
-            | ExpressionRecipe.Float64IsNaN value -> unary "Float64IsNaN" float64Type boolType value
-            | ExpressionRecipe.Float64IsFinite value -> unary "Float64IsFinite" float64Type boolType value
-            | ExpressionRecipe.Float64IsInfinite value -> unary "Float64IsInfinite" float64Type boolType value
-            | ExpressionRecipe.Int64ToFloat64 value -> unary "Int64ToFloat64" int64Type float64Type value
-            | ExpressionRecipe.Int64WrappingAbs value -> unary "Int64WrappingAbs" int64Type int64Type value
-            | ExpressionRecipe.Bits32FromInt64 value -> unary "Bits32FromInt64" int64Type bits32Type value
-            | ExpressionRecipe.Bits32ToInt64 value -> unary "Bits32ToInt64" bits32Type int64Type value
-            | ExpressionRecipe.Bits32Not value -> unary "Bits32Not" bits32Type bits32Type value
-            | ExpressionRecipe.Bits32Xor(left, right) -> binary "Bits32Xor" bits32Type bits32Type left right
-            | ExpressionRecipe.Bits32And(left, right) -> binary "Bits32And" bits32Type bits32Type left right
-            | ExpressionRecipe.Bits32Or(left, right) -> binary "Bits32Or" bits32Type bits32Type left right
-            | ExpressionRecipe.Bits32Add(left, right) -> binary "Bits32Add" bits32Type bits32Type left right
-            | ExpressionRecipe.Bits32RotateRight(value, amount) ->
-                operands "Bits32RotateRight" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
-            | ExpressionRecipe.Bits32ShiftRight(value, amount) ->
-                operands "Bits32ShiftRight" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
-            | ExpressionRecipe.Bits32ShiftLeft(value, amount) ->
-                operands "Bits32ShiftLeft" bits32Type [ "value", bits32Type, value; "amount", int64Type, amount ]
             | ExpressionRecipe.ListEmpty itemType ->
                 match validateTypeRef index itemType with
                 | Error error -> Error error
@@ -1528,231 +1536,6 @@ module AgentExpressionStructuralWorkflow =
                             | Ok actual when actual <> itemType -> Error(typeMismatch "ListConstruct" "item" itemType actual)
                             | Ok _ -> validateItems rest
                     validateItems items
-            | ExpressionRecipe.ListLength list ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual ->
-                    match listItemType actual with
-                    | Some _ -> Ok int64Type
-                    | None -> Error(listMismatch "ListLength" "value" actual)
-            | ExpressionRecipe.MapValues map ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok actual ->
-                    match mapEntryTypes actual with
-                    | Some(_, valueType) -> Ok(listType valueType)
-                    | None -> Error(mapMismatch "MapValues" "value" actual)
-            | ExpressionRecipe.MapKeys map ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok actual ->
-                    match mapEntryTypes actual with
-                    | Some(keyType, _) -> Ok(listType keyType)
-                    | None -> Error(mapMismatch "MapKeys" "value" actual)
-            | ExpressionRecipe.SetToList set ->
-                match infer frames set with
-                | Error error -> Error error
-                | Ok actual ->
-                    match setItemType actual with
-                    | Some itemType -> Ok(listType itemType)
-                    | None -> Error(setMismatch "SetToList" "value" actual)
-            | ExpressionRecipe.MapSize map ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok actual ->
-                    match mapEntryTypes actual with
-                    | Some _ -> Ok int64Type
-                    | None -> Error(mapMismatch "MapSize" "value" actual)
-            | ExpressionRecipe.SetFromList list ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual ->
-                    match listItemType actual with
-                    | None -> Error(listMismatch "SetFromList" "value" actual)
-                    | Some itemType when not (EquatableTypes.isEquatable snapshot.Types itemType) -> Error(setItemNotEquatable itemType)
-                    | Some itemType -> Ok(setOf itemType)
-            | ExpressionRecipe.SetSize set ->
-                match infer frames set with
-                | Error error -> Error error
-                | Ok actual ->
-                    match setItemType actual with
-                    | Some _ -> Ok int64Type
-                    | None -> Error(setMismatch "SetSize" "value" actual)
-            | ExpressionRecipe.ListReverse list ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual ->
-                    match listItemType actual with
-                    | Some _ -> Ok actual
-                    | None -> Error(listMismatch "ListReverse" "value" actual)
-            | ExpressionRecipe.ListLast list ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual ->
-                    match listItemType actual with
-                    | Some itemType -> Ok(optionType itemType)
-                    | None -> Error(listMismatch "ListLast" "value" actual)
-            | ExpressionRecipe.ListDropLast list ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok actual ->
-                    match listItemType actual with
-                    | Some _ -> Ok actual
-                    | None -> Error(listMismatch "ListDropLast" "value" actual)
-            | ExpressionRecipe.ListItemAt(list, index) ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok listResultType ->
-                    match listItemType listResultType with
-                    | None -> Error(listMismatch "ListItemAt" "list" listResultType)
-                    | Some itemType -> operands "ListItemAt" (optionType itemType) [ "index", int64Type, index ]
-            | ExpressionRecipe.MapRemove(map, key) ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok mapResultType ->
-                    match mapEntryTypes mapResultType with
-                    | None -> Error(mapMismatch "MapRemove" "map" mapResultType)
-                    | Some(keyType, _) -> operands "MapRemove" mapResultType [ "key", keyType, key ]
-            | ExpressionRecipe.SetInsert(set, item) ->
-                match infer frames set with
-                | Error error -> Error error
-                | Ok setResultType ->
-                    match setItemType setResultType with
-                    | None -> Error(setMismatch "SetInsert" "set" setResultType)
-                    | Some itemType -> operands "SetInsert" setResultType [ "item", itemType, item ]
-            | ExpressionRecipe.SetRemove(set, item) ->
-                match infer frames set with
-                | Error error -> Error error
-                | Ok setResultType ->
-                    match setItemType setResultType with
-                    | None -> Error(setMismatch "SetRemove" "set" setResultType)
-                    | Some itemType -> operands "SetRemove" setResultType [ "item", itemType, item ]
-            | ExpressionRecipe.MapContainsKey(map, key) ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok mapResultType ->
-                    match mapEntryTypes mapResultType with
-                    | None -> Error(mapMismatch "MapContainsKey" "map" mapResultType)
-                    | Some(keyType, _) -> operands "MapContainsKey" boolType [ "key", keyType, key ]
-            | ExpressionRecipe.ListIndexOf(list, item) ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok listResultType ->
-                    match listItemType listResultType with
-                    | None -> Error(listMismatch "ListIndexOf" "list" listResultType)
-                    | Some itemType when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
-                        Error(
-                            diagnostic
-                                "ListIndexOfItemTypeNotEquatable"
-                                $"ListIndexOf compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
-                        )
-                    | Some itemType -> operands "ListIndexOf" (optionType int64Type) [ "item", itemType, item ]
-            | ExpressionRecipe.ListLastIndexOf(list, item) ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok listResultType ->
-                    match listItemType listResultType with
-                    | None -> Error(listMismatch "ListLastIndexOf" "list" listResultType)
-                    | Some itemType when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
-                        Error(
-                            diagnostic
-                                "ListLastIndexOfItemTypeNotEquatable"
-                                $"ListLastIndexOf compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
-                        )
-                    | Some itemType -> operands "ListLastIndexOf" (optionType int64Type) [ "item", itemType, item ]
-            | ExpressionRecipe.SetContains(set, item) ->
-                match infer frames set with
-                | Error error -> Error error
-                | Ok setResultType ->
-                    match setItemType setResultType with
-                    | None -> Error(setMismatch "SetContains" "set" setResultType)
-                    | Some itemType -> operands "SetContains" boolType [ "item", itemType, item ]
-            | ExpressionRecipe.MapGet(map, key) ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok mapResultType ->
-                    match mapEntryTypes mapResultType with
-                    | None -> Error(mapMismatch "MapGet" "map" mapResultType)
-                    | Some(keyType, valueType) -> operands "MapGet" (optionType valueType) [ "key", keyType, key ]
-            | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok mapResultType ->
-                    match mapEntryTypes mapResultType with
-                    | None -> Error(mapMismatch "MapGetOrDefault" "map" mapResultType)
-                    | Some(keyType, valueType) ->
-                        operands "MapGetOrDefault" valueType [ "key", keyType, key; "default", valueType, defaultValue ]
-            | ExpressionRecipe.ListSlice(list, start, stop) ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok listResultType ->
-                    match listItemType listResultType with
-                    | None -> Error(listMismatch "ListSlice" "list" listResultType)
-                    | Some _ ->
-                        operands "ListSlice" listResultType [ "start", int64Type, start; "end", int64Type, stop ]
-            | ExpressionRecipe.MapInsert(map, key, value) ->
-                match infer frames map with
-                | Error error -> Error error
-                | Ok mapResultType ->
-                    match mapEntryTypes mapResultType with
-                    | None -> Error(mapMismatch "MapInsert" "map" mapResultType)
-                    | Some(keyType, valueType) ->
-                        operands "MapInsert" mapResultType [ "key", keyType, key; "value", valueType, value ]
-            | ExpressionRecipe.ListAppendItem(list, item) ->
-                match infer frames list with
-                | Error error -> Error error
-                | Ok listResultType ->
-                    match listItemType listResultType with
-                    | None -> Error(listMismatch "ListAppendItem" "list" listResultType)
-                    | Some itemType ->
-                        match infer frames item with
-                        | Error error -> Error error
-                        | Ok actual when actual <> itemType -> Error(typeMismatch "ListAppendItem" "item" itemType actual)
-                        | Ok _ -> Ok listResultType
-            | ExpressionRecipe.ListConcat(left, right) ->
-                match infer frames left with
-                | Error error -> Error error
-                | Ok leftType ->
-                    match listItemType leftType with
-                    | None -> Error(listMismatch "ListConcat" "left" leftType)
-                    | Some _ ->
-                        match infer frames right with
-                        | Error error -> Error error
-                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "ListConcat" "right" leftType rightType)
-                        | Ok _ -> Ok leftType
-            | ExpressionRecipe.SetUnion(left, right) ->
-                match infer frames left with
-                | Error error -> Error error
-                | Ok leftType ->
-                    match setItemType leftType with
-                    | None -> Error(setMismatch "SetUnion" "left" leftType)
-                    | Some _ ->
-                        match infer frames right with
-                        | Error error -> Error error
-                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetUnion" "right" leftType rightType)
-                        | Ok _ -> Ok leftType
-            | ExpressionRecipe.SetIntersection(left, right) ->
-                match infer frames left with
-                | Error error -> Error error
-                | Ok leftType ->
-                    match setItemType leftType with
-                    | None -> Error(setMismatch "SetIntersection" "left" leftType)
-                    | Some _ ->
-                        match infer frames right with
-                        | Error error -> Error error
-                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetIntersection" "right" leftType rightType)
-                        | Ok _ -> Ok leftType
-            | ExpressionRecipe.SetDifference(left, right) ->
-                match infer frames left with
-                | Error error -> Error error
-                | Ok leftType ->
-                    match setItemType leftType with
-                    | None -> Error(setMismatch "SetDifference" "left" leftType)
-                    | Some _ ->
-                        match infer frames right with
-                        | Error error -> Error error
-                        | Ok rightType when rightType <> leftType -> Error(typeMismatch "SetDifference" "right" leftType rightType)
-                        | Ok _ -> Ok leftType
             | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -1923,7 +1706,6 @@ module AgentExpressionStructuralWorkflow =
                                     fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
                             | _ -> fail "UseResourceResultMismatch" $"UseResource body {callbackName body} must return Result<T, E> with the acquisition error type E = {ty errorType}; it returns {ty bodyResult}."
                 | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {ty actual}."
-            | ExpressionRecipe.CancellationRequested -> Ok boolType
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
                 match Map.tryFind bodyFunctionId functionsById with
                 | None -> Error(diagnostic "PureExpressionListCallbackNotFound" $"TaskScope body '{StableId.value bodyFunctionId}' does not exist.")
@@ -2138,7 +1920,6 @@ module AgentExpressionStructuralWorkflow =
                 match validateTypeRef index itemType with
                 | Error error -> Error error
                 | Ok() -> Ok(optionType itemType)
-            | ExpressionRecipe.OptionSome value -> infer frames value |> Result.map optionType
             | ExpressionRecipe.ResultOk(errorType, value) ->
                 match validateTypeRef index errorType with
                 | Error error -> Error error

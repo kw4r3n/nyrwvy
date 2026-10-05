@@ -36,6 +36,7 @@
     <Compile Include="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
     <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
+    <Compile Include="OperationSignatures.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
