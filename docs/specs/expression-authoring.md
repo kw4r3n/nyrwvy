@@ -692,6 +692,9 @@ value on the other. All-aborting branches propagate abrupt completion.
 Targeted replacement can switch a graph-result expression between normal and
 abrupt completion while preserving the target identity. The entire proposed
 snapshot must still validate; an existing ordinary value use cannot consume an
-abort. Review reports the owning function, payload and dependent continuations.
+abort. Simulation reports a misplaced abrupt replacement before building the
+proposed snapshot: `TargetedExpressionAbruptValueUse` when another node uses the
+target as a value, and `TargetedExpressionAbortNotGraphResult` when an `abort`
+replaces a node that is not its graph's result. Review reports the owning function, payload and dependent continuations.
 See the [complete contract](typed-function-abort.md), including cleanup, worker
 cancellation, ordering and schema compatibility.

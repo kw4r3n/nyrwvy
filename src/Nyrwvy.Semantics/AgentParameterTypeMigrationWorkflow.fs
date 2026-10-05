@@ -170,6 +170,8 @@ module internal SignatureMigrationCore =
         ValueGraph.collectNodes functionEntity.Body
         |> List.tryFind (fun node -> node.Id = nodeId)
 
+    let unsupportedRewriteUseCode prefix = $"{prefix}UnsupportedRewriteUse"
+
     let rewriteForTemporaryFunction
         (prefix: string)
         (ownerParameters: SemanticParameter list)
@@ -196,7 +198,24 @@ module internal SignatureMigrationCore =
                         )
             loop [] arguments
 
+        // A callback or function-value use of the target would be bound against its old signature,
+        // since only direct calls are redirected to the migrated copy.
+        let nonCallTargetUse functionId =
+            if functionId = originalTargetId then
+                let user =
+                    match owner with
+                    | TemporaryOwner.Target -> "The target replacement"
+                    | TemporaryOwner.Caller(callerId, _, _) -> $"Caller '{StableId.value callerId}' rewrite"
+                Error(
+                    diagnostic
+                        (unsupportedRewriteUseCode prefix)
+                        $"{user} uses the target function '{StableId.value originalTargetId}' as a callback or function value; this bounded migration rewrites only direct calls to the target."
+                )
+            else
+                Ok()
+
         let rec rewrite recipe =
+            let referencing functionId rewritten = nonCallTargetUse functionId |> Result.bind (fun () -> rewritten)
             let rewritePairs values =
                 let rec loop collected = function
                     | [] -> Ok(List.rev collected)
@@ -211,7 +230,9 @@ module internal SignatureMigrationCore =
             let two make left right =
                 rewrite left |> Result.bind (fun left -> rewrite right |> Result.map (fun right -> make(left, right)))
             let callback make source functionId context =
-                rewrite source |> Result.bind (fun source -> rewritePairs context |> Result.map (fun context -> make(source, functionId, context)))
+                nonCallTargetUse functionId
+                |> Result.bind (fun () -> rewrite source)
+                |> Result.bind (fun source -> rewritePairs context |> Result.map (fun context -> make(source, functionId, context)))
             let three make first second third =
                 rewrite first |> Result.bind (fun first -> two (fun (second, third) -> make(first, second, third)) second third)
 
@@ -226,8 +247,12 @@ module internal SignatureMigrationCore =
                         $"{prefix}ParameterSlotUnavailable"
                         "Migration recipes must reference existing parameters by stable ID."
                 )
-            | ExpressionRecipe.CapabilityConstruct _
-            | ExpressionRecipe.FunctionReference _ -> Ok recipe
+            | ExpressionRecipe.CapabilityConstruct(_, implementations) ->
+                let rec check = function
+                    | [] -> Ok recipe
+                    | (_, functionId) :: rest -> referencing functionId (check rest)
+                check implementations
+            | ExpressionRecipe.FunctionReference functionId -> referencing functionId (Ok recipe)
             | ExpressionRecipe.FunctionInvoke(value, arguments) ->
                 rewrite value |> Result.bind (fun target ->
                     rewriteAll arguments |> Result.map (fun values -> ExpressionRecipe.FunctionInvoke(target, values)))
@@ -380,28 +405,34 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))
             | ExpressionRecipe.ListFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListFold(source, seed, folder, context)))
             | ExpressionRecipe.MapFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.MapFold(source, seed, folder, context)))
             | ExpressionRecipe.ListEffectFold(source, seed, folder, context) ->
-                two (fun (source, seed) -> source, seed) source seed
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListEffectFold(source, seed, folder, context)))
             | ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context) ->
-                two (fun (acquire, releaseCapability) -> acquire, releaseCapability) acquire releaseCapability
+                nonCallTargetUse bodyFunctionId
+                |> Result.bind (fun () -> two (fun (acquire, releaseCapability) -> acquire, releaseCapability) acquire releaseCapability)
                 |> Result.bind (fun (acquire, releaseCapability) ->
                     rewritePairs context
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
-                rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context))
+                nonCallTargetUse bodyFunctionId
+                |> Result.bind (fun () -> rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context)))
             | ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item) ->
-                two (fun (scope, item) -> scope, item) scope item
+                nonCallTargetUse workerFunctionId
+                |> Result.bind (fun () -> two (fun (scope, item) -> scope, item) scope item)
                 |> Result.bind (fun (scope, item) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskStart(scope, workerFunctionId, context, item)))
             | ExpressionRecipe.TaskWait(tasks, mode, None) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode, None)) tasks
@@ -499,6 +530,8 @@ module internal SignatureMigrationCore =
                 TemporaryOwner.Target
                 targetRecipe
         with
+        | Error error when error.Code = unsupportedRewriteUseCode prefix ->
+            Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
         | Error error ->
             reject
                 $"{prefix}TargetRewriteInvalid"
@@ -576,6 +609,8 @@ module internal SignatureMigrationCore =
                 ))
                 replacement
         with
+        | Error error when error.Code = unsupportedRewriteUseCode prefix ->
+            Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
         | Error error ->
             reject
                 $"{prefix}CallerRewriteInvalid"

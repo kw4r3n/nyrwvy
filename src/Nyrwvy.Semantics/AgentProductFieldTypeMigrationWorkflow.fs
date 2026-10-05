@@ -100,11 +100,21 @@ module AgentProductFieldTypeMigrationWorkflow =
         if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
             reject "FieldTypeMigrationExpectedBaseMismatch" "The migration request targets a different base snapshot."
         else
-            match owner with
-            | None -> reject "FieldTypeMigrationFieldNotFound" "The field is not a field of an existing Product."
-            | Some(_, _, field) when field.Type = request.NewFieldType ->
+            // The new type is checked like a declared field type, so an unknown or ill-formed type
+            // is reported before any rewrite is bound against it.
+            let newFieldTypeCheck =
+                validateDeclaredTypeRef
+                    "FieldTypeMigration"
+                    (baseSnapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
+                    (baseSnapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+                    "The new field type"
+                    request.NewFieldType
+            match owner, newFieldTypeCheck with
+            | None, _ -> reject "FieldTypeMigrationFieldNotFound" "The field is not a field of an existing Product."
+            | Some(_, _, field), _ when field.Type = request.NewFieldType ->
                 reject "FieldTypeMigrationTypeUnchanged" "The requested field type is already the current type."
-            | Some(ownerType, fields, field) ->
+            | Some _, Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+            | Some(ownerType, fields, field), Ok() ->
                 let affected = affectedFunctions baseSnapshot ownerType.Id field.Id
                 let expected = affected |> List.map (fun fn -> fn.Id) |> Set.ofList
                 let requested = request.FunctionRewrites |> List.map (fun rewrite -> rewrite.FunctionId)

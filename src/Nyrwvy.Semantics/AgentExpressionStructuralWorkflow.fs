@@ -2972,6 +2972,17 @@ module AgentExpressionStructuralWorkflow =
 
             nodeUses @ resultUses
 
+        /// Nodes that use the target node as a value, as full validation sees value uses. An
+        /// abrupt expression cannot stand where any of them reads it.
+        let private valueConsumers targetNodeId (target: SemanticFunction) =
+            ValueGraph.collectNodes target.Body
+            |> List.filter (fun node ->
+                SemanticNodeShape.directValueReferences node |> List.contains targetNodeId)
+
+        /// Whether the target node is the result of the function body or of a nested graph.
+        let private isGraphResult targetNodeId (target: SemanticFunction) =
+            graphResultUses None target.Body |> List.exists (fun (resultNodeId, _) -> resultNodeId = targetNodeId)
+
         let private planPruning targetNodeId (targetNode: SemanticNode) (target: SemanticFunction) =
             let allNodes = ValueGraph.collectNodes target.Body
             let nodesById = allNodes |> List.map (fun node -> node.Id, node) |> Map.ofList
@@ -3107,6 +3118,24 @@ module AgentExpressionStructuralWorkflow =
                                         diagnostic
                                             "TargetedExpressionTypeMismatch"
                                             $"The replacement recipe produces {DiagnosticText.typeRef baseSnapshot replacementType}, but the target node produces {DiagnosticText.completion baseSnapshot targetType}."
+                                    )
+                                | Ok GraphCompletion.Aborts when not (List.isEmpty (valueConsumers request.TargetNodeId target)) ->
+                                    let consumer = valueConsumers request.TargetNodeId target |> List.head
+                                    Error(
+                                        diagnostic
+                                            "TargetedExpressionAbruptValueUse"
+                                            $"The replacement recipe always aborts, but node '{StableId.value consumer.Id}' uses the target node as a value; an abrupt replacement is valid only where the target is not used as a value, such as a branch or function result."
+                                    )
+                                | Ok GraphCompletion.Aborts when
+                                    (match request.Replacement with
+                                     | ExpressionRecipe.Abort _ -> true
+                                     | _ -> false)
+                                    && not (isGraphResult request.TargetNodeId target)
+                                    ->
+                                    Error(
+                                        diagnostic
+                                            "TargetedExpressionAbortNotGraphResult"
+                                            "The replacement recipe is an abort, but the target node is not the result of its graph; an abort may replace only a branch or function result."
                                     )
                                 | Ok _ ->
                                     let pruning = planPruning request.TargetNodeId targetNode target
