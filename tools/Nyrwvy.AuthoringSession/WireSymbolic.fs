@@ -724,10 +724,11 @@ module internal WireSymbolic =
         | "directCall" ->
             ensureFields
                 "direct-call recipe"
-                [ "kind"; "function"; "arguments" ]
+                [ "kind"; "function"; "arguments"; "keepUnlisted" ]
                 [ "kind"; "function"; "arguments" ]
                 element
             let calleeName = requiredString "function" element
+            let keepUnlisted = optionalBool "keepUnlisted" false element
             // A call naming the function being created or replaced resolves to SelfCall,
             // with arguments keyed by the owner's parameter slots.
             let selfParameters =
@@ -754,7 +755,20 @@ module internal WireSymbolic =
                                 (List.indexed parameterNames)
                                 snd
                         slot, recipe declarations parameterContext (property "value" item))
-                ExpressionRecipe.SelfCall arguments
+                // keepUnlisted passes every parameter the call does not name through unchanged,
+                // as if it were written as an argument naming that parameter.
+                let kept =
+                    if not keepUnlisted then
+                        []
+                    else
+                        let named = arguments |> List.map fst |> Set.ofList
+                        parameterNames
+                        |> List.indexed
+                        |> List.filter (fun (slot, _) -> not (Set.contains slot named))
+                        |> List.map (fun (slot, name) -> slot, parameterRecipe parameterContext name)
+                ExpressionRecipe.SelfCall(arguments @ kept)
+            | None when keepUnlisted ->
+                fail $"keepUnlisted applies only to a call of the function being created or replaced; '{calleeName}' is another function."
             | None ->
                 let callee = resolveFunction declarations calleeName
                 let arguments =
