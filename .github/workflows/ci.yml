@@ -1,22 +1,14 @@
 name: CI
 
-# A change that touches only documentation runs no CI: nothing here reads docs/ or README.md.
+# GitHub Actions minutes are billed, so CI runs only on demand at major milestones (owner,
+# 2026-10-05). Routine changes run the same checks in a local or cloud session before a PR;
+# see docs/developer/verification.md.
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'docs/**'
-      - 'README.md'
-  pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - 'README.md'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull request runs are cancelled; every push to main keeps its own run.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
