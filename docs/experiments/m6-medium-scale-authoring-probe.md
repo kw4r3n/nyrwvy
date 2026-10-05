@@ -4,6 +4,8 @@
 - **Prepared:** 2026-09-17
 - **Baseline:** post-M5 `main`
 
+The OpenCode operator for this probe (`scripts/run-m6-medium-scale-authoring-exploratory.fish`, the `nyrwvy-m4-authoring-eval` agent and its `nyrwvy_m4_authoring_eval_*` tools over `.opencode/lib/nyrwvy-m4-authoring-eval-bridge.ts`) was removed from main because it duplicated the JSONL transport of the maintained tools. Replay the run from commit `800f364`.
+
 ## Purpose
 
 Run one bounded medium-scale authoring and evolution workload through the maintained `Nyrwvy.AuthoringSession` to determine whether a concrete M6 pressure is now observable.

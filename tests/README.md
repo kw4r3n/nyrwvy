@@ -72,7 +72,7 @@ The fast wrapper also runs the ordinary-authoring Node tests and the isolated ve
 node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
 
-CI additionally verifies the MCP adapter and evaluation bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
+CI additionally verifies the MCP adapter and the shared evaluation runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
 
 ```shell
 npm run test:node
@@ -85,7 +85,7 @@ npm test --workspace tools/nyrwvy-mcp
 node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
 ```
 
-The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport and lifecycle-isolation tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
+The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
 
 ## live / environment-dependent
 
