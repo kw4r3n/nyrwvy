@@ -101,6 +101,17 @@ Semantics, independently of any evaluation recipe or protocol.
 
 Owns stable IDs and allocation, semantic graph state, validation/readiness, semantic facts and queries, operations and transactions, obligations, fingerprints, reviewed proposals, and the ordinary agent workflow facade.
 
+#### Fixed-signature expression operations
+
+An expression operation whose operand and result types are fixed, or fixed up to the type variables `T`, `K` and `V`, and whose only diagnostics are operand type mismatches and an optional equatable constraint, is a fixed-signature operation. Such an operation is declared once, as an entry in `OperationSignatures.table` (`src/Nyrwvy.Semantics/OperationSignatures.fs`), in `ExpressionRecipe` case field order and with the name-form wire field names. Recipe type inference in `AgentExpressionStructuralWorkflow` checks it from that entry; its `inferTypeWithContext` case only joins the list that calls `fixedSignature ()`. The agent recipe reference (`tools/nyrwvy-agent/recipe-reference.mjs`) takes its one-line signature from the generated `tools/nyrwvy-agent/recipe-signatures.generated.mjs`. After changing the table, regenerate that file:
+
+```sh
+dotnet build src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj -c Release
+dotnet fsi scripts/generate-recipe-signatures.fsx
+```
+
+`RecipeKindConsistencyTests` fails when the generated file is stale or an entry's operands differ from its recipe case, and `scripts/tests/recipe-reference.test.mjs` fails when a generated signature is missing from the reference categories. Operations with callbacks, type arguments, branches, scopes, declared types or diagnostics of their own (for example `boolAnd`, `valueEqual`, `listConstruct`, `listFold`, `matchUnion`) stay hand-written in both inference and the reference. The table does not cover the other places a new operation touches, such as the wire readers, node kinds, lowering and backends.
+
 ### `Nyrwvy.Execution`
 
 Owns Typed Semantic IR, backend-neutral Execution IR, and trusted projection from committed agent workspaces into executable representations.

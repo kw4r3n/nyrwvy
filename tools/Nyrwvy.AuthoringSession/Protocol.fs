@@ -607,6 +607,12 @@ module AuthoringProtocol =
                 function
                 | Ok proposal -> success requestId (encodeProposal proposal)
                 | Error error -> sessionFailure requestId error
+            // A simulate request may name the snapshot its author inspected; the workflow then rejects
+            // it with its stale-base code instead of silently simulating against a newer snapshot.
+            let expectedSnapshotId () =
+                match tryProperty "expectedSnapshotId" root with
+                | Some _ -> id<SnapshotTag> "expectedSnapshotId" root
+                | None -> currentSnapshotId session
 
             match operationName with
             | "status" ->
@@ -722,24 +728,24 @@ module AuthoringProtocol =
             | "simulateOperations" ->
                 ensureFields
                     "simulateOperations request"
-                    [ "id"; "op"; "operations"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "operations" ]
                     root
                 let operations = array "operations" root |> List.map operation
-                proposalResponse (session.SimulateOperations operations)
+                proposalResponse (session.SimulateOperations(operations, expectedSnapshotId ()))
             | "simulateOperationsByName" ->
                 ensureFields
                     "simulateOperationsByName request"
-                    [ "id"; "op"; "operations"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "operations" ]
                     root
                 let declarations = session.Declarations()
                 let operations = array "operations" root |> List.map (WireOperation.operationByName declarations)
-                proposalResponse (session.SimulateOperations operations)
+                proposalResponse (session.SimulateOperations(operations, expectedSnapshotId ()))
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -761,7 +767,7 @@ module AuthoringProtocol =
                             WireInput.fail "requiredEffects entries must be stable-ID strings."
                         stableId<EffectTag> "requiredEffects" (item.GetString()))
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
                       Parameters = parameters
                       ResultType = typeRef (property "resultType" root)
@@ -771,7 +777,7 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
@@ -780,7 +786,7 @@ module AuthoringProtocol =
                     WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
                 let parameters = WireSymbolic.functionParameters declarations root
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
                       Parameters = parameters
                       ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
@@ -795,11 +801,11 @@ module AuthoringProtocol =
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"
-                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "targetFunctionId"; "targetParameterId"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
                     root
                 let request: AgentParameterTypeMigrationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetFunctionId = id<FunctionTag> "targetFunctionId" root
                       TargetParameterId = id<ParameterTag> "targetParameterId" root
                       NewParameterType = typeRef (property "newParameterType" root)
@@ -809,11 +815,11 @@ module AuthoringProtocol =
             | "simulateResultTypeMigration" ->
                 ensureFields
                     "simulateResultTypeMigration request"
-                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "targetFunctionId"; "newResultType"; "targetReplacement"; "callerRewrites" ]
                     root
                 let request: AgentResultTypeMigrationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetFunctionId = id<FunctionTag> "targetFunctionId" root
                       NewResultType = typeRef (property "newResultType" root)
                       TargetReplacement = recipe (property "targetReplacement" root)
@@ -822,11 +828,11 @@ module AuthoringProtocol =
             | "simulateProductFieldTypeMigration" ->
                 ensureFields
                     "simulateProductFieldTypeMigration request"
-                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "fieldId"; "newFieldType"; "functionRewrites" ]
                     root
                 let request: AgentProductFieldTypeMigrationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       FieldId = id<FieldTag> "fieldId" root
                       NewFieldType = typeRef (property "newFieldType" root)
                       FunctionRewrites =
@@ -839,18 +845,18 @@ module AuthoringProtocol =
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let request: AgentCreateTypeDeclarationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
                       Kind = typeKindIntent (property "typeKind" root) }
                 proposalResponse (session.SimulateCreateType request)
             | "simulateCreateTypeByName" ->
                 ensureFields
                     "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
@@ -861,18 +867,18 @@ module AuthoringProtocol =
                 let simulated =
                     if WireSymbolic.kindReferences self kind then
                         session.SimulateCreateTypeGroup
-                            { ExpectedBaseSnapshotId = currentSnapshotId session
+                            { ExpectedBaseSnapshotId = expectedSnapshotId ()
                               Declarations = [ { Reference = self; DisplayName = displayName; Kind = kind } ] }
                     else
                         session.SimulateCreateType
-                            { ExpectedBaseSnapshotId = currentSnapshotId session
+                            { ExpectedBaseSnapshotId = expectedSnapshotId ()
                               DisplayName = displayName
                               Kind = kind }
                 proposalResponse simulated
             | "simulateCreateTypesByName" ->
                 ensureFields
                     "simulateCreateTypesByName request"
-                    [ "id"; "op"; "types"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "types"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "types" ]
                     root
                 let declarations = session.Declarations()
@@ -885,7 +891,7 @@ module AuthoringProtocol =
                 // A name declared twice keeps its first reference; the workflow rejects the duplicate.
                 let group = references |> List.rev |> Map.ofList
                 let request: AgentCreateTypeDeclarationGroupRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       Declarations =
                         List.map2
                             (fun (name, kind) (_, reference) ->
@@ -898,11 +904,11 @@ module AuthoringProtocol =
             | "simulateAddFieldlessUnionVariantLike" ->
                 ensureFields
                     "simulateAddFieldlessUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
                 let request: AgentAddFieldlessUnionVariantLikeRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetTypeId = id<TypeTag> "typeId" root
                       SourceVariantId = id<VariantTag> "sourceVariantId" root
                       NewVariantDisplayName = requiredString "displayName" root }
@@ -910,11 +916,11 @@ module AuthoringProtocol =
             | "simulateAddUnionVariantLike" ->
                 ensureFields
                     "simulateAddUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
                 let request: AgentAddFieldlessUnionVariantLikeRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetTypeId = id<TypeTag> "typeId" root
                       SourceVariantId = id<VariantTag> "sourceVariantId" root
                       NewVariantDisplayName = requiredString "displayName" root }
@@ -926,28 +932,28 @@ module AuthoringProtocol =
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"
-                    [ "id"; "op"; "displayName"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName" ]
                     root
                 let request: AgentCreateEffectDeclarationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root }
                 proposalResponse (session.SimulateCreateEffect request)
             | "simulateCreateCapability" ->
                 ensureFields
                     "simulateCreateCapability request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let request: AgentCreateCapabilityDeclarationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
                       Operations = array "operations" root |> List.map capabilityOperationIntent }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateCreateCapabilityByName" ->
                 ensureFields
                     "simulateCreateCapabilityByName request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let declarations = session.Declarations()
@@ -955,26 +961,26 @@ module AuthoringProtocol =
                 if declarations.Capabilities |> List.exists (fun item -> item.DisplayName = displayName) then
                     WireInput.fail $"Capability display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
                 let request: AgentCreateCapabilityDeclarationRequest =
-                    { ExpectedBaseSnapshotId = currentSnapshotId session
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
                       Operations = array "operations" root |> List.map (WireSymbolic.capabilityOperationIntent declarations) }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateReplaceBody" ->
                 ensureFields
                     "simulateReplaceBody request"
-                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "functionId"; "expectedCurrentResultNodeId"; "replacement" ]
                     root
                 let request: AgentReplaceFunctionBodyWithExpressionRecipe =
                     { TargetFunctionId = id<FunctionTag> "functionId" root
-                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      ExpectedBaseSnapshotId = expectedSnapshotId ()
                       ExpectedCurrentResultNodeId = id<GraphNodeTag> "expectedCurrentResultNodeId" root
                       Replacement = recipe (property "replacement" root) }
                 proposalResponse (session.SimulateReplaceBody request)
             | "simulateReplaceBodyByName" ->
                 ensureFields
                     "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "function"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
                     [ "id"; "op"; "function"; "replacement" ]
                     root
                 let declarations = session.Declarations()
@@ -982,8 +988,11 @@ module AuthoringProtocol =
                     WireSymbolic.resolveFunction declarations (requiredString "function" root)
                 let request: AgentReplaceFunctionBodyWithExpressionRecipe =
                     { TargetFunctionId = functionEntity.Id
-                      ExpectedBaseSnapshotId = currentSnapshotId session
-                      ExpectedCurrentResultNodeId = functionEntity.Body.ResultNodeId
+                      ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      ExpectedCurrentResultNodeId =
+                        match tryProperty "expectedResultNodeId" root with
+                        | Some _ -> id<GraphNodeTag> "expectedResultNodeId" root
+                        | None -> functionEntity.Body.ResultNodeId
                       Replacement =
                         WireSymbolic.recipeForExistingFunction
                             declarations
@@ -993,26 +1002,26 @@ module AuthoringProtocol =
             | "simulateReplaceTarget" ->
                 ensureFields
                     "simulateReplaceTarget request"
-                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "functionId"; "targetNodeId"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "functionId"; "targetNodeId"; "replacement" ]
                     root
                 let request: AgentExpressionStructuralWorkflow.Targeted.Request =
                     { TargetFunctionId = id<FunctionTag> "functionId" root
-                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
                       Replacement = recipe (property "replacement" root) }
                 proposalResponse (session.SimulateReplaceTarget request)
             | "simulateReplaceTargetByName" ->
                 ensureFields
                     "simulateReplaceTargetByName request"
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview"; "detail" ]
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
                     root
                 let declarations = session.Declarations()
                 let functionEntity = WireSymbolic.resolveFunction declarations (requiredString "function" root)
                 let request: AgentExpressionStructuralWorkflow.Targeted.Request =
                     { TargetFunctionId = functionEntity.Id
-                      ExpectedBaseSnapshotId = currentSnapshotId session
+                      ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
                       Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (property "replacement" root) }
                 proposalResponse (session.SimulateReplaceTarget request)

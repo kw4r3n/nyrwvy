@@ -8,7 +8,7 @@ This decision settles order 30 of the post-M2 queue: fixed-width bit operations.
 
 ## Decision
 
-**A primitive type `Bits32`.** It is exactly 32 bits with no numeric meaning. It is equatable, because it has no NaN, so `ValueEqual` compares two values bit for bit. It has no literal and no ordering. The type reference is `{"kind":"primitive","primitive":"bits32"}`; snapshot JSON writes `bits32`, Nyason `primitive-bits32`, and the IR codecs `primitiveBits32`. The C# backend maps it to `uint`.
+**A primitive type `Bits32`.** It is exactly 32 bits with no numeric meaning. It is equatable, because it has no NaN, so `ValueEqual` compares two values bit for bit. It has no literal and no ordering. The type reference is `{"kind":"primitive","primitive":"bits32"}`; snapshot JSON writes `bits32`, Nyason `primitive-bits32`, and the IR serializers `primitiveBits32`. The C# backend maps it to `uint`.
 
 **Ten total operations.** None of them fails:
 

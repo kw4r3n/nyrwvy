@@ -197,7 +197,7 @@ module AgentCapabilityDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedCapability = candidate.Created } })
+                      CreatedCapability = candidate.Prepared } })
         |> Result.mapError (function
             | DeclarationSimulationFailure.Rejected diagnostics -> AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics
             | DeclarationSimulationFailure.FingerprintFailed error -> AgentCapabilityDeclarationWorkflowError.FingerprintFailed error)

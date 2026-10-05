@@ -101,8 +101,8 @@ module Int64TextTests =
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"
-            Assert.Contains("\"stringParseInt64\"", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("\"int64ToString\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"stringParseInt64\"", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("\"int64ToString\"", ExecutionIrSerializer.serialize execution)
             use reopened = AuthoringSession.openExisting path |> unwrap "reopen session"
             let functionId name = (reopened.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             let numbers = [ 0L; -1L; 42L; Int64.MaxValue; Int64.MinValue ]

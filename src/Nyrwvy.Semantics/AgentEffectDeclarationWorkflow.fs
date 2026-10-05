@@ -98,7 +98,7 @@ module AgentEffectDeclarationWorkflow =
                     { RequestedChange = request
                       Receipt = candidate.Receipt
                       Readiness = candidate.Readiness
-                      CreatedEffect = candidate.Created } })
+                      CreatedEffect = candidate.Prepared } })
         |> Result.mapError (function
             | DeclarationSimulationFailure.Rejected diagnostics -> AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics
             | DeclarationSimulationFailure.FingerprintFailed error -> AgentEffectDeclarationWorkflowError.FingerprintFailed error)

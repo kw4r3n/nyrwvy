@@ -12,7 +12,8 @@ open Xunit
 /// Expression recipe kinds are listed three times by hand: the ID-form wire reader (`WireRecipe`),
 /// the display-name wire reader (`WireSymbolic`) and the agent-facing reference
 /// (`tools/nyrwvy-agent/recipe-reference.mjs`). The readers are probed by behaviour: a kind is
-/// supported when the reader does not reject it as an unknown kind.
+/// supported when the reader does not reject it as an unknown kind. The reference signatures of
+/// fixed-signature kinds are generated from `OperationSignatures` and checked here as well.
 module RecipeKindConsistencyTests =
     /// Kinds that exist only in the ID form. The name form reaches the same `ExpressionRecipe`
     /// cases by resolution: a `parameter` of a function being created becomes `ParameterSlot`, and
@@ -89,6 +90,45 @@ module RecipeKindConsistencyTests =
               describe "Documented in recipe-reference.mjs but rejected by the name form" (documented - nameKinds)
               describe "ExpressionRecipe cases whose kind the ID form rejects" (recipeCaseKinds - idKinds) ]
             |> List.choose id
+        Assert.True(List.isEmpty problems, String.Join(Environment.NewLine, problems))
+
+    /// The fixed-signature operations' reference signatures are generated from `OperationSignatures`.
+    [<Fact>]
+    let ``recipe-signatures.generated.mjs is current with the operation signature table`` () =
+        let current = read "tools/nyrwvy-agent/recipe-signatures.generated.mjs"
+        Assert.True(
+            (current = OperationSignatures.referenceModule ()),
+            "tools/nyrwvy-agent/recipe-signatures.generated.mjs is stale. Regenerate it with "
+            + "`dotnet build src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj -c Release && dotnet fsi scripts/generate-recipe-signatures.fsx`."
+        )
+
+    /// Each table entry names an `ExpressionRecipe` case whose operands are exactly the entry's
+    /// operands, in case field order and under the entry's name-form wire fields, so the generated
+    /// reference signatures describe what the reader accepts and inference checks.
+    [<Fact>]
+    let ``every operation signature matches its recipe case and wire fields`` () =
+        let declarations: AuthoringDeclarations = { Functions = []; Types = []; Effects = []; Capabilities = [] }
+        let check (entry: OperationSignatures.Signature) =
+            let fields =
+                entry.Operands
+                |> List.mapi (fun index operand -> $$""","{{operand.Field}}":{"kind":"int64Literal","value":{{index}}}""")
+                |> String.concat ""
+            use document = JsonDocument.Parse($$"""{"kind":"{{entry.Kind}}"{{fields}}}""")
+            try
+                let recipe = WireSymbolic.recipeForNewFunction declarations "Probe" [] document.RootElement
+                let case, values = FSharpValue.GetUnionFields(recipe, typeof<ExpressionRecipe>, true)
+                let expected = entry.Operands |> List.mapi (fun index _ -> box (ExpressionRecipe.Int64Literal(int64 index)))
+                if camelCase case.Name <> entry.Kind then Some $"{entry.Kind}: the name form builds {case.Name}"
+                elif List.ofArray values <> expected then Some $"{entry.Kind}: the operands are not the case fields in order"
+                else None
+            with error ->
+                Some $"{entry.Kind}: {error.Message}"
+        let duplicates =
+            OperationSignatures.table
+            |> List.countBy (fun entry -> entry.Kind)
+            |> List.filter (fun (_, count) -> count > 1)
+            |> List.map (fun (kind, _) -> $"{kind}: listed more than once")
+        let problems = duplicates @ (OperationSignatures.table |> List.choose check)
         Assert.True(List.isEmpty problems, String.Join(Environment.NewLine, problems))
 
     /// `ExpressionRecipe` cases that build a node of a differently named `SemanticNodeKind` case.

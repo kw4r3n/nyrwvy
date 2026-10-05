@@ -186,9 +186,9 @@ module ProductUpdateTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            Assert.Contains("\"kind\":\"productUpdate\"", TypedSemanticIrCodec.serialize typed)
+            Assert.Contains("\"kind\":\"productUpdate\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap
-            Assert.Contains("\"kind\":\"productUpdate\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains("\"kind\":\"productUpdate\"", ExecutionIrSerializer.serialize execution)
             let source = (CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap).Source
             Assert.Contains(" with { ", source)
             use reopened = AuthoringSession.openExisting path |> unwrap

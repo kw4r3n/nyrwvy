@@ -3,7 +3,7 @@ namespace Nyrwvy.Core.Tests
 open Nyrwvy.Core
 open Xunit
 
-module ExecutionIrCodecTests =
+module ExecutionIrSerializerTests =
     let private lowerRepresentative () =
         let fixture = MilestoneZeroGraph.create ()
         let typed =
@@ -19,8 +19,8 @@ module ExecutionIrCodecTests =
     [<Fact>]
     let ``execution IR serialization is byte-for-byte deterministic`` () =
         let _, execution = lowerRepresentative ()
-        let first = ExecutionIrCodec.serialize execution
-        let second = ExecutionIrCodec.serialize execution
+        let first = ExecutionIrSerializer.serialize execution
+        let second = ExecutionIrSerializer.serialize execution
         Assert.Equal(first, second)
         Assert.Contains("\"schemaVersion\":6", first)
 
@@ -36,8 +36,8 @@ module ExecutionIrCodecTests =
                 Capabilities = List.rev execution.Capabilities
                 Functions = execution.Functions |> List.rev |> List.map reorderFunction }
 
-        let expected = ExecutionIrCodec.serialize execution
-        let actual = ExecutionIrCodec.serialize reordered
+        let expected = ExecutionIrSerializer.serialize execution
+        let actual = ExecutionIrSerializer.serialize reordered
         Assert.Equal(expected, actual)
 
     [<Fact>]
@@ -69,7 +69,7 @@ module ExecutionIrCodecTests =
                         else
                             functionEntity) }
 
-        let original = ExecutionIrCodec.serialize execution
-        let changed = ExecutionIrCodec.serialize changedProgram
+        let original = ExecutionIrSerializer.serialize execution
+        let changed = ExecutionIrSerializer.serialize changedProgram
         if original = changed then
             failwith "Execution IR serialization incorrectly normalized semantic instruction order."

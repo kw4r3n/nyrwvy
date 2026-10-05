@@ -231,14 +231,17 @@ module AgentWorkflow =
         | AgentOperationIntent.RemoveFunctionRequiredEffect request ->
             SemanticOperation.RemoveFunctionRequiredEffect(requiredEffectRequest request)
 
-    let simulate
+    /// Simulates against the current snapshot on behalf of a caller that inspected
+    /// `expectedBaseSnapshotId`; a different current snapshot rejects with `StaleBaseSnapshot`.
+    let simulateFromBase
         (workspace: AgentWorkspace)
+        (expectedBaseSnapshotId: SnapshotId)
         (requestedOperations: AgentOperationIntent list)
         : Result<AgentChangeProposal, AgentWorkflowError> =
         let semanticWorkspace = workspace.Workspace
         let request: TransactionRequest =
             { Id = StableIdAllocator.newTransactionId ()
-              BaseSnapshotId = SemanticWorkspace.currentSnapshot semanticWorkspace |> fun snapshot -> snapshot.Id
+              BaseSnapshotId = expectedBaseSnapshotId
               ProposedSnapshotId = StableIdAllocator.newSnapshotId ()
               Operations = requestedOperations |> List.map materializeOperation }
 
@@ -259,6 +262,12 @@ module AgentWorkflow =
                     { Request = request
                       Preview = preview
                       Review = review }
+
+    let simulate
+        (workspace: AgentWorkspace)
+        (requestedOperations: AgentOperationIntent list)
+        : Result<AgentChangeProposal, AgentWorkflowError> =
+        simulateFromBase workspace (SemanticWorkspace.currentSnapshot workspace.Workspace).Id requestedOperations
 
     let private mapCommitResult result =
         match result with

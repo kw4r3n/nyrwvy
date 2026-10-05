@@ -261,14 +261,14 @@ module TailSelfCallTests =
             for name in [ "sumNonTail"; "countNonTail" ] do
                 Assert.Single(selfCallInstructions (loweredFunction program (fixture.Function name))) |> ignore
             // The codec writes the new terminator deterministically under schema version 9.
-            let first = ExecutionIrCodec.serialize program
-            Assert.Equal(first, ExecutionIrCodec.serialize program)
+            let first = ExecutionIrSerializer.serialize program
+            Assert.Equal(first, ExecutionIrSerializer.serialize program)
             Assert.Contains("\"kind\":\"tailCall\"", first)
             Assert.Contains("\"schemaVersion\":9", first)
             let reordered =
                 { program with
                     Functions = program.Functions |> List.rev |> List.map (fun fn -> { fn with Blocks = List.rev fn.Blocks }) }
-            Assert.Equal(first, ExecutionIrCodec.serialize reordered))
+            Assert.Equal(first, ExecutionIrSerializer.serialize reordered))
 
     let private run (fixture: Fixture) name arguments =
         (PureRun.run fixture.Session (fixture.Function name).Id arguments None |> unwrap name).Actual

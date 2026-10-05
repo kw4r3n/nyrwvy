@@ -331,8 +331,8 @@ module ListTests =
             )
         | other -> failwithf "Expected execution ListConstruct, got %A" other
 
-        let typedJson = TypedSemanticIrCodec.serialize typed
-        let executionJson = ExecutionIrCodec.serialize execution
+        let typedJson = TypedSemanticIrSerializer.serialize typed
+        let executionJson = ExecutionIrSerializer.serialize execution
         Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"kind\":\"list\"", typedJson)
         Assert.Contains("\"listConstruct\"", typedJson)

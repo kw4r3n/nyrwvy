@@ -362,3 +362,44 @@ module AgentTargetedExpressionReplacementTests =
         | AgentExpressionStructuralWorkflow.Targeted.CommitResult.Rejected [ diagnostic ]
             when diagnostic.Code = "StaleBaseSnapshot" -> ()
         | other -> failwithf "Expected stale targeted rejection, got %A" other
+
+    [<Fact>]
+    let ``targeted replacement places an abort only where an abrupt expression is valid`` () =
+        let functionId = functionId "abort-position"
+        let leftId = nodeId "abort-left"
+        let rightId = nodeId "abort-right"
+        let sumId = nodeId "abort-sum"
+        let unusedId = nodeId "abort-unused"
+        let okId = nodeId "abort-ok"
+        let target: SemanticFunction =
+            { Id = functionId
+              DisplayName = "abortPosition"
+              Parameters = []
+              ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64Type; stringType ])
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ { Id = leftId; Kind = SemanticNodeKind.Int64Literal 1L }
+                      { Id = rightId; Kind = SemanticNodeKind.Int64Literal 2L }
+                      { Id = sumId; Kind = SemanticNodeKind.Int64WrappingAdd(leftId, rightId) }
+                      { Id = unusedId; Kind = SemanticNodeKind.Int64Literal 3L }
+                      { Id = okId; Kind = SemanticNodeKind.ResultOk(stringType, sumId) } ]
+                  ResultNodeId = okId } }
+        let snapshot =
+            { Snapshot.empty (snapshotId "abort-position") with
+                Functions = [ target ] }
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let ws = workspace snapshot
+        let abort = ExpressionRecipe.Abort(ExpressionRecipe.StringLiteral "stop")
+
+        // Each would fail full validation (AbortValueUse, AbortNotGraphResult); preflight names
+        // the misplaced abort instead.
+        request snapshot functionId leftId abort
+        |> AgentExpressionStructuralWorkflow.Targeted.simulate ws
+        |> assertRejectedCode "TargetedExpressionAbruptValueUse"
+
+        request snapshot functionId unusedId abort
+        |> AgentExpressionStructuralWorkflow.Targeted.simulate ws
+        |> assertRejectedCode "TargetedExpressionAbortNotGraphResult"
+
+        request snapshot functionId okId abort |> simulate ws |> ignore

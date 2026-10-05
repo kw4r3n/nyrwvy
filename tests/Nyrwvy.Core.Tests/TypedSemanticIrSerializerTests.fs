@@ -4,7 +4,7 @@ open System.Text.Json
 open Nyrwvy.Core
 open Xunit
 
-module TypedSemanticIrCodecTests =
+module TypedSemanticIrSerializerTests =
     let private project snapshot =
         match TypedSemanticIr.project snapshot with
         | Ok value -> value
@@ -24,14 +24,14 @@ module TypedSemanticIrCodecTests =
                 Capabilities = List.rev fixture.Snapshot.Capabilities
                 Functions = fixture.Snapshot.Functions |> List.rev |> List.map reorderFunction }
 
-        let expected = fixture.Snapshot |> project |> TypedSemanticIrCodec.serialize
-        let actual = reordered |> project |> TypedSemanticIrCodec.serialize
+        let expected = fixture.Snapshot |> project |> TypedSemanticIrSerializer.serialize
+        let actual = reordered |> project |> TypedSemanticIrSerializer.serialize
         Assert.Equal(expected, actual)
 
     [<Fact>]
     let ``Typed Semantic IR serialization contains execution semantics but no editing presentation metadata`` () =
         let fixture = MilestoneZeroGraph.create ()
-        let encoded = fixture.Snapshot |> project |> TypedSemanticIrCodec.serialize
+        let encoded = fixture.Snapshot |> project |> TypedSemanticIrSerializer.serialize
 
         use document = JsonDocument.Parse(encoded)
         let root = document.RootElement

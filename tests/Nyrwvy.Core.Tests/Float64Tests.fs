@@ -409,8 +409,8 @@ module Float64Tests =
         requireMatch "Execution Float64IsFinite" (function ExecutionInstructionKind.Float64IsFinite _ -> true | _ -> false) executionKinds
         requireMatch "Execution Float64IsInfinite" (function ExecutionInstructionKind.Float64IsInfinite _ -> true | _ -> false) executionKinds
 
-        let typedJson = TypedSemanticIrCodec.serialize typed
-        let executionJson = ExecutionIrCodec.serialize execution
+        let typedJson = TypedSemanticIrSerializer.serialize typed
+        let executionJson = ExecutionIrSerializer.serialize execution
         Assert.Contains("\"schemaVersion\":7", typedJson)
         Assert.Contains("\"primitiveFloat64\"", typedJson)
         Assert.Contains("\"bits\":\"8000000000000000\"", typedJson)

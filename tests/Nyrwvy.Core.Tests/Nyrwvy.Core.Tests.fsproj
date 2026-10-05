@@ -14,6 +14,7 @@
     <Compile Include="SemanticNodeShapeTests.fs" />
     <Compile Include="SnapshotComputationScopeTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
+    <Compile Include="SnapshotSchemaTests.fs" />
     <Compile Include="FingerprintTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
     <Compile Include="CapabilityTests.fs" />
@@ -57,9 +58,9 @@
     <Compile Include="MilestoneZeroTests.fs" />
     <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
-    <Compile Include="TypedSemanticIrCodecTests.fs" />
+    <Compile Include="TypedSemanticIrSerializerTests.fs" />
     <Compile Include="ExecutionIrTests.fs" />
-    <Compile Include="ExecutionIrCodecTests.fs" />
+    <Compile Include="ExecutionIrSerializerTests.fs" />
     <Compile Include="EffectClassificationConsistencyTests.fs" />
     <Compile Include="CSharpBackendTests.fs" />
     <Compile Include="SemanticQueryTests.fs" />
@@ -126,6 +127,7 @@
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />
+    <Compile Include="ParameterAdditionNonCallUseTests.fs" />
     <Compile Include="PureRunTests.fs" />
     <Compile Include="PureRunProductTests.fs" />
     <Compile Include="PureRunUnionTests.fs" />

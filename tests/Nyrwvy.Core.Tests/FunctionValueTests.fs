@@ -89,8 +89,8 @@ module FunctionValueTests =
             Assert.Contains(StableId.value (find session "hasA").Id, html)
             let typed = TypedSemanticIr.project snapshot |> unwrap
             let execution = ExecutionIr.lower typed |> unwrap
-            Assert.Contains("functionReference", TypedSemanticIrCodec.serialize typed)
-            Assert.Contains("functionInvoke", ExecutionIrCodec.serialize execution)
+            Assert.Contains("functionReference", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("functionInvoke", ExecutionIrSerializer.serialize execution)
             let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap
             Assert.Contains("public delegate TResult NyFunction1", artifact.Source)
             let before = File.ReadAllText path

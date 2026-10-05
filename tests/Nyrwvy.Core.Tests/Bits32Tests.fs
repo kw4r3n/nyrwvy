@@ -173,9 +173,9 @@ module Bits32Tests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            let typedJson = TypedSemanticIrCodec.serialize typed
+            let typedJson = TypedSemanticIrSerializer.serialize typed
             let execution = ExecutionIr.lower typed |> unwrap
-            let executionJson = ExecutionIrCodec.serialize execution
+            let executionJson = ExecutionIrSerializer.serialize execution
             for kind in kinds do
                 Assert.Contains($"\"kind\":\"{kind}\"", typedJson)
                 Assert.Contains($"\"kind\":\"{kind}\"", executionJson)

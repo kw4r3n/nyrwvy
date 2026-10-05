@@ -73,9 +73,9 @@ module StringSearchTests =
             let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
-            Assert.Contains($"\"{kind}\"", TypedSemanticIrCodec.serialize typed)
+            Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap "lower"
-            Assert.Contains($"\"{kind}\"", ExecutionIrCodec.serialize execution)
+            Assert.Contains($"\"{kind}\"", ExecutionIrSerializer.serialize execution)
             let artifact = CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit"
             Assert.Contains(emitted, artifact.Source)
             // A persisted node over a non-String operand is a validation error.

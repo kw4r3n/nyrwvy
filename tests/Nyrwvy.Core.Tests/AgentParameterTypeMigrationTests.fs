@@ -300,6 +300,29 @@ module AgentParameterTypeMigrationTests =
         |> assertRejectedCode "ParameterTypeMigrationCallerRewriteInvalid"
 
     [<Fact>]
+    let ``migration rejects a rewrite that uses the target as a callback`` () =
+        let fixture = createFixture ()
+        let ws = workspace fixture.Snapshot
+
+        // Well typed against the old String signature, so only a dedicated preflight check can
+        // reject it before the proposed snapshot fails full validation.
+        request
+            fixture
+            [ { CallerFunctionId = fixture.Process.Id
+                Replacement =
+                    ExpressionRecipe.ListAny(
+                        ExpressionRecipe.ListConstruct(stringType, [ ExpressionRecipe.Parameter fixture.ProcessInput.Id ]),
+                        fixture.Classify.Id,
+                        []
+                    ) } ]
+        |> AgentParameterTypeMigrationWorkflow.simulate ws
+        |> assertRejectedCode "ParameterTypeMigrationUnsupportedRewriteUse"
+
+        { validRequest fixture with TargetReplacement = ExpressionRecipe.FunctionReference fixture.Classify.Id }
+        |> AgentParameterTypeMigrationWorkflow.simulate ws
+        |> assertRejectedCode "ParameterTypeMigrationUnsupportedRewriteUse"
+
+    [<Fact>]
     let ``reviewed migration becomes stale after another publication`` () =
         let fixture = createFixture ()
         let ws = workspace fixture.Snapshot

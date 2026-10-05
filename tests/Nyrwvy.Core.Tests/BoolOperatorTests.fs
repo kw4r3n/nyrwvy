@@ -210,11 +210,11 @@ module BoolOperatorTests =
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
-            let typedText = TypedSemanticIrCodec.serialize typed
+            let typedText = TypedSemanticIrSerializer.serialize typed
             for kind in [ "boolNot"; "boolAnd"; "boolOr" ] do
                 Assert.Contains($"\"kind\":\"{kind}\"", typedText)
             // Execution IR keeps BoolNot as an instruction and lowers BoolAnd/BoolOr to branch blocks.
-            let executionText = ExecutionIr.lower typed |> unwrap |> ExecutionIrCodec.serialize
+            let executionText = ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize
             Assert.Contains("\"kind\":\"boolNot\"", executionText)
             Assert.Contains("/right", executionText)
             Assert.Contains("/decided", executionText)
