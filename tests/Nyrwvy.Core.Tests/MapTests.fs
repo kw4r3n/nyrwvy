@@ -265,7 +265,7 @@ module MapTests =
             // A folder with two parameters, and a key callback returning Float64, are rejected.
             define session "twoArgs" [ "s", str; "k", str ] str (parameter "s")
             Assert.Equal(
-                "PureExpressionListCallbackArityMismatch",
+                "PureExpressionCallbackArityMismatch",
                 simulateCode session [ "m", wordCounts ] str $"""{{"kind":"mapFold","map":{parameter "m"},"seed":{{"kind":"stringLiteral","value":""}},"function":"twoArgs"}}"""
             )
             define session "rowWeight" [ "r", row ] (primitive "float64") """{"kind":"int64ToFloat64","value":{"kind":"fieldAccess","source":{"kind":"parameter","name":"r"},"type":"Row","field":"n"}}"""
@@ -303,12 +303,12 @@ module MapTests =
             // A callback with one parameter, one not returning Bool, and a non-Map source are rejected.
             define session "oneArg" [ "k", str ] (primitive "bool") """{"kind":"boolLiteral","value":true}"""
             Assert.Equal(
-                "PureExpressionListCallbackArityMismatch",
+                "PureExpressionCallbackArityMismatch",
                 simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"oneArg"}}"""
             )
             define session "valueOf" [ "k", str; "v", int64Type ] int64Type (parameter "v")
             Assert.Equal(
-                "PureExpressionListCallbackInputTypeMismatch",
+                "PureExpressionCallbackInputTypeMismatch",
                 simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapFilter","map":{parameter "m"},"function":"valueOf"}}"""
             )
             Assert.Equal(
@@ -421,12 +421,12 @@ module MapTests =
             // and a declared result other than Map<K, U> are rejected.
             define session "oneArg" [ "k", str ] (primitive "bool") """{"kind":"boolLiteral","value":true}"""
             Assert.Equal(
-                "PureExpressionListCallbackArityMismatch",
+                "PureExpressionCallbackArityMismatch",
                 simulateCode session [ "m", wordCounts ] (mapOf str (primitive "bool")) $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"oneArg"}}"""
             )
             define session "intKeys" [ "k", int64Type; "v", int64Type ] int64Type (parameter "v")
             Assert.Equal(
-                "PureExpressionListCallbackInputTypeMismatch",
+                "PureExpressionCallbackInputTypeMismatch",
                 simulateCode session [ "m", wordCounts ] wordCounts $"""{{"kind":"mapMapValues","map":{parameter "m"},"function":"intKeys"}}"""
             )
             Assert.Equal(

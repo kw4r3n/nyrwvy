@@ -369,33 +369,33 @@ module ListHigherOrderTests =
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.SourceListNodeId (SemanticNodeKind.Int64Literal 9L)
         |> SnapshotValidator.validate
-        |> requireIssue "ListHigherOrderSourceTypeMismatch"
+        |> requireIssue "HigherOrderSourceTypeMismatch"
 
         let unknown = functionId "unknown-callback"
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, unknown, []))
         |> SnapshotValidator.validate
-        |> requireIssue "UnknownListCallbackFunction"
+        |> requireIssue "UnknownCallbackFunction"
 
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.TwoParameterFunctionId, []))
         |> SnapshotValidator.validate
-        |> requireIssue "ListCallbackArityMismatch"
+        |> requireIssue "CallbackArityMismatch"
 
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.WrongParameterFunctionId, []))
         |> SnapshotValidator.validate
-        |> requireIssue "ListCallbackParameterTypeMismatch"
+        |> requireIssue "CallbackParameterTypeMismatch"
 
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.MapNodeId (SemanticNodeKind.ListMap(fixture.SourceListNodeId, fixture.EffectfulFunctionId, []))
         |> SnapshotValidator.validate
-        |> requireIssue "ListCallbackEffectsNotAllowed"
+        |> requireIssue "CallbackEffectsNotAllowed"
 
         fixture.Snapshot
         |> replaceShowcaseNodeKind fixture fixture.AnyNodeId (SemanticNodeKind.ListAny(fixture.SourceListNodeId, fixture.BadResultFunctionId, []))
         |> SnapshotValidator.validate
-        |> requireIssue "ListPredicateResultTypeMismatch"
+        |> requireIssue "PredicateResultTypeMismatch"
 
     [<Fact>]
     let ``JSON and Nyason preserve higher-order List callback identity`` () =

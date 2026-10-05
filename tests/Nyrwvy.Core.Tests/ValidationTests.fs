@@ -243,3 +243,52 @@ module ValidationTests =
 
         SnapshotValidator.validate { fixture.Snapshot with Functions = functions }
         |> requireIssue "GraphNodeDependencyCycle"
+
+    [<Fact>]
+    let ``callback diagnostics of Map, Set and Task nodes are not named after lists`` () =
+        // The callback codes are shared by every higher-order node, so a client filtering on them
+        // must not read a Map or Task problem as a List problem.
+        let id (name: string) = StableId.createForTesting<GraphNodeTag> $"node-callback-{name}"
+        let mapParameterId = StableId.createForTesting<ParameterTag> "parameter-callback-map"
+        let textParameterId = StableId.createForTesting<ParameterTag> "parameter-callback-text"
+        let unknownFunctionId = StableId.createForTesting<FunctionTag> "function-callback-unknown"
+        let unaryFunctionId = StableId.createForTesting<FunctionTag> "function-callback-unary"
+        let unaryParameterId = StableId.createForTesting<ParameterTag> "parameter-callback-unary"
+        let int64Type = TypeRef.Primitive PrimitiveType.Int64
+        let stringType = TypeRef.Primitive PrimitiveType.String
+        let unary: SemanticFunction =
+            { Id = unaryFunctionId
+              DisplayName = "unary"
+              Parameters = [ { Id = unaryParameterId; DisplayName = "value"; Type = int64Type } ]
+              ResultType = int64Type
+              RequiredEffects = []
+              Body =
+                { Nodes = [ { Id = id "unary-value"; Kind = SemanticNodeKind.ParameterReference unaryParameterId } ]
+                  ResultNodeId = id "unary-value" } }
+        let probe: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "function-callback-probe"
+              DisplayName = "probe"
+              Parameters =
+                [ { Id = mapParameterId; DisplayName = "counts"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ stringType; int64Type ]) }
+                  { Id = textParameterId; DisplayName = "text"; Type = stringType } ]
+              ResultType = TypeRef.Primitive PrimitiveType.Unit
+              RequiredEffects = []
+              Body =
+                { Nodes =
+                    [ { Id = id "map"; Kind = SemanticNodeKind.ParameterReference mapParameterId }
+                      { Id = id "text"; Kind = SemanticNodeKind.ParameterReference textParameterId }
+                      { Id = id "seed"; Kind = SemanticNodeKind.Int64Literal 0L }
+                      { Id = id "map-filter"; Kind = SemanticNodeKind.MapFilter(id "map", unknownFunctionId, []) }
+                      { Id = id "map-fold"; Kind = SemanticNodeKind.MapFold(id "map", id "seed", unaryFunctionId, []) }
+                      { Id = id "set-from-list"; Kind = SemanticNodeKind.SetFromList(id "text") }
+                      { Id = id "task-start"; Kind = SemanticNodeKind.TaskStart(id "text", unknownFunctionId, [], id "seed") }
+                      { Id = id "parallel-all"; Kind = SemanticNodeKind.ParallelAll(id "text", unknownFunctionId, []) }
+                      { Id = id "result"; Kind = SemanticNodeKind.UnitLiteral } ]
+                  ResultNodeId = id "result" } }
+        let snapshot =
+            { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-callback-codes") with Functions = [ unary; probe ] }
+        let codes = SnapshotValidator.validate snapshot |> List.map (fun issue -> issue.Code)
+
+        for expected in [ "UnknownCallbackFunction"; "CallbackArityMismatch"; "HigherOrderSourceTypeMismatch" ] do
+            Assert.Contains(expected, codes)
+        Assert.Empty(codes |> List.filter (fun code -> code.StartsWith "List"))
