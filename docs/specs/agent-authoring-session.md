@@ -314,7 +314,7 @@ A `directCall` whose `function` is the display name of the function being create
 ]}
 ```
 
-The exact-ID form is `{"kind":"selfCall","arguments":[{"slot":0,"value":<recipe>}]}`, with arguments keyed by zero-based parameter slot, because the new function's IDs are system-assigned. Both persist as an ordinary `DirectCall` to the owner.
+The exact-ID form is `{"kind":"selfCall","arguments":[{"slot":0,"value":<recipe>}]}`, with arguments keyed by zero-based parameter slot, because the new function's IDs are system-assigned. Both persist as an ordinary `DirectCall` to the owner. In `simulateReplaceBody`, an exact-ID `directCall` whose `functionId` is the function being replaced stays a `directCall` in the request and is typed as a self call: its arguments must have the owner's exact parameter types, so a generic function cannot call itself at other type arguments on any of the three forms ([expression authoring](expression-authoring.md#selfcall)).
 
 A self call may add `"keepUnlisted": true` to pass every parameter it does not name through unchanged. A loop over `(deps, roots, root, stack, seen)` that only advances `root` is then written `{"kind": "directCall", "function": "visit", "keepUnlisted": true, "arguments": [{"parameter": "root", "value": …}]}`; the review and the stored graph show the full call. `keepUnlisted` on a call to another function is rejected.
 

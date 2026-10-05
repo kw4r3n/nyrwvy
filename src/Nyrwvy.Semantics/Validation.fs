@@ -1553,9 +1553,18 @@ module SnapshotValidator =
                             let pairs =
                                 arguments |> List.choose (fun argument ->
                                     match targetFunction.Parameters |> List.tryFind (fun parameter -> parameter.Id = argument.TargetParameterId), nodeType argument.ValueNodeId with
-                                    | Some parameter, Some valueType -> Some(parameter.Type, valueType)
+                                    | Some parameter, Some valueType -> Some(parameter, valueType)
                                     | _ -> None)
-                            if Option.isNone (TypeParameters.matchAll pairs) then
+                            if targetFunctionId = functionEntity.Id then
+                                // A self call takes the function's exact parameter types: there is no
+                                // polymorphic recursion, and a self call in tail position runs as a jump
+                                // that reuses the parameter locals, so `T := List<T>` has no lowering.
+                                for parameter, valueType in pairs do
+                                    if valueType <> parameter.Type then
+                                        add
+                                            "PolymorphicSelfCallUnsupported"
+                                            $"Call node '{StableId.value node.Id}' calls its own function {StableId.describe functionEntity.DisplayName functionEntity.Id} with a value of type {EquatableTypes.describe snapshot.Types valueType} for parameter {StableId.describe parameter.DisplayName parameter.Id} of type {EquatableTypes.describe snapshot.Types parameter.Type}; a function calls itself at its own parameter types."
+                            elif Option.isNone (TypeParameters.matchAll (pairs |> List.map (fun (parameter, valueType) -> parameter.Type, valueType))) then
                                 add
                                     "ArgumentTypeMismatch"
                                     $"Call node '{StableId.value node.Id}' binds a value whose type does not match its callee parameter."

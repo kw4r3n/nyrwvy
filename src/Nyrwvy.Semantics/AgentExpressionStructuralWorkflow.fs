@@ -1000,13 +1000,15 @@ module AgentExpressionStructuralWorkflow =
         let productFieldsById = index.ProductFieldsById
 
         let ty = DiagnosticText.typeRef snapshot
+        let tyPair = DiagnosticText.typeRefPair snapshot
         let callbackName = DiagnosticText.functionName
         let callbackSignature = DiagnosticText.signature snapshot
 
         let typeMismatch role side expected actual =
+            let expected, produced = tyPair expected actual
             diagnostic
                 "PureExpressionOperandTypeMismatch"
-                $"{role} {side} operand requires {ty expected}, but the recipe produces {ty actual}."
+                $"{role} {side} operand requires {expected}, but the recipe produces {produced}."
 
         let listMismatch role side actual =
             diagnostic
@@ -1228,7 +1230,8 @@ module AgentExpressionStructuralWorkflow =
                                     Error(
                                         diagnostic
                                             "PureExpressionFieldBindingTypeMismatch"
-                                            $"{role} field {StableId.describe field.DisplayName field.Id} requires {ty field.Type}, but the recipe produces {ty actual}."
+                                            (let expected, produced = tyPair field.Type actual in
+                                             $"{role} field {StableId.describe field.DisplayName field.Id} requires {expected}, but the recipe produces {produced}.")
                                     )
                                 | Ok _ -> validateFields rest
                         validateFields expectedFields
@@ -1260,21 +1263,36 @@ module AgentExpressionStructuralWorkflow =
                                     $"DirectCall is missing required parameter {StableId.describe parameter.DisplayName parameter.Id} for callee {callbackName callee}: {callbackSignature callee}."
                             )
                         | None ->
-                            // A generic callee's type arguments follow from matching each parameter type.
+                            // A call to the owner itself is a self call: it takes the owner's exact
+                            // parameter types, like SelfCall, so a generic owner never calls itself at
+                            // other type arguments (there is no polymorphic recursion, and a tail self
+                            // call runs as a jump that reuses the parameter locals).
+                            let isSelfCall = owner.SelfFunctionId = Some callee.Id
+                            // Any other generic callee's type arguments follow from matching each parameter type.
                             let rec validateParameters substitution = function
                                 | [] -> Ok substitution
                                 | (parameter: SemanticParameter) :: rest ->
                                     let _, value = bindings |> List.find (fun (parameterId, _) -> parameterId = parameter.Id)
                                     match infer frames value with
                                     | Error error -> Error error
+                                    | Ok actual when isSelfCall ->
+                                        if actual = parameter.Type then validateParameters substitution rest
+                                        else
+                                            let expected, produced = tyPair parameter.Type actual
+                                            Error(
+                                                diagnostic
+                                                    "PureExpressionCallArgumentTypeMismatch"
+                                                    $"DirectCall parameter {StableId.describe parameter.DisplayName parameter.Id} of {owner.Description} requires {expected}, but the recipe produces {produced}. A function calls itself at its own parameter types; there is no polymorphic recursion."
+                                            )
                                     | Ok actual ->
                                         match TypeParameters.matchType substitution parameter.Type actual with
                                         | Some extended -> validateParameters extended rest
                                         | None ->
+                                            let expected, produced = tyPair (TypeParameters.substitute substitution parameter.Type) actual
                                             Error(
                                                 diagnostic
                                                     "PureExpressionCallArgumentTypeMismatch"
-                                                    $"DirectCall parameter {StableId.describe parameter.DisplayName parameter.Id} of callee {callbackName callee} requires {ty (TypeParameters.substitute substitution parameter.Type)}, but the recipe produces {ty actual}."
+                                                    $"DirectCall parameter {StableId.describe parameter.DisplayName parameter.Id} of callee {callbackName callee} requires {expected}, but the recipe produces {produced}."
                                             )
                             validateParameters Map.empty callee.Parameters
 
@@ -1309,7 +1327,8 @@ module AgentExpressionStructuralWorkflow =
                                     Error(
                                         diagnostic
                                             "ExpressionCapabilityArgumentTypeMismatch"
-                                            $"CapabilityInvoke parameter {StableId.describe parameter.DisplayName parameter.Id} of operation {StableId.describe operation.DisplayName operation.Id} requires {ty parameter.Type}, but the recipe produces {ty actual}."
+                                            (let expected, produced = tyPair parameter.Type actual in
+                                             $"CapabilityInvoke parameter {StableId.describe parameter.DisplayName parameter.Id} of operation {StableId.describe operation.DisplayName operation.Id} requires {expected}, but the recipe produces {produced}.")
                                     )
                                 | Ok _ -> validateParameters rest
                         validateParameters operation.Parameters
@@ -2213,7 +2232,8 @@ module AgentExpressionStructuralWorkflow =
                                         Error(
                                             diagnostic
                                                 "PureExpressionCallArgumentTypeMismatch"
-                                                $"SelfCall parameter slot {slot} requires {ty parameter.Type}, but the recipe produces {ty actual}."
+                                                (let expected, produced = tyPair parameter.Type actual in
+                                                 $"SelfCall parameter slot {slot} requires {expected}, but the recipe produces {produced}. A function calls itself at its own parameter types; there is no polymorphic recursion.")
                                         )
                                     | Ok _ -> validateSlots rest
                             validateSlots (List.indexed owner.SelfParameters)
@@ -2257,14 +2277,18 @@ module AgentExpressionStructuralWorkflow =
             let merge role left right =
                 match GraphCompletion.merge [ Some left; Some right ] with
                 | Some result -> Ok result
-                | None -> Error(diagnostic "PureExpressionBranchTypeMismatch" $"{role} normally completing branches must produce one common type; found {DiagnosticText.completion snapshot left} and {DiagnosticText.completion snapshot right}.")
+                | None ->
+                    let leftText, rightText = DiagnosticText.completionPair snapshot left right
+                    Error(diagnostic "PureExpressionBranchTypeMismatch" $"{role} normally completing branches must produce one common type; found {leftText} and {rightText}.")
             match recipe with
             | ExpressionRecipe.Abort payload ->
                 match owner.ResultType with
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) ->
                     infer frames payload |> Result.bind (fun actual ->
                         if actual = errorType then Ok GraphCompletion.Aborts
-                        else Error(diagnostic "AbortPayloadTypeMismatch" $"Abort payload has type {ty actual}, but {owner.Description} requires {ty errorType}."))
+                        else
+                            let expected, produced = tyPair errorType actual
+                            Error(diagnostic "AbortPayloadTypeMismatch" $"Abort payload has type {produced}, but {owner.Description} requires {expected}."))
                 | _ -> Error(diagnostic "AbortOwnerResultTypeMismatch" $"Abort requires {owner.Description} to return Result<T, E>.")
             | ExpressionRecipe.Conditional(condition, whenTrue, whenFalse) ->
                 match infer frames condition with

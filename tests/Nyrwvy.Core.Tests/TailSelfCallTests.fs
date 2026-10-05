@@ -183,6 +183,17 @@ module TailSelfCallTests =
                 (ExpressionRecipe.Conditional(atMost (slot 1) (int 0L), slot 0, self [ add (slot 0) (int 1L); minus (slot 1) (int 1L) ]))
             create "foldTotal" [ "items", listType intType ] intType
                 (ExpressionRecipe.ListFold(slot 0, int 0L, (find "countDown").Id, []))
+            // Generic: repeatLength<T>(items: List<T>, n, acc) = if n <= 0 then acc else repeatLength(items, n - 1, acc + length(items)).
+            // The self call is at the owner's own type parameter, so it is a jump like any other (review 2026-10-05 E-1).
+            let t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
+            create "repeatLength" [ "items", listType t; "n", intType; "acc", intType ] intType
+                (ExpressionRecipe.Conditional(
+                    atMost (slot 1) (int 0L),
+                    slot 2,
+                    self [ slot 0; minus (slot 1) (int 1L); add (slot 2) (ExpressionRecipe.ListLength(slot 0)) ]))
+            let repeatLength = find "repeatLength"
+            create "repeatIntLength" [ "items", listType intType; "n", intType ] intType
+                (ExpressionRecipe.DirectCall(repeatLength.Id, [ repeatLength.Parameters.[0].Id, slot 0; repeatLength.Parameters.[1].Id, slot 1; repeatLength.Parameters.[2].Id, int 0L ]))
             // Effectful: logLoop(log, i, n) = if i >= n then i else (log.write(i); logLoop(log, i + 1, n)).
             createWith [ effect.Id ] "logLoop" [ "log", TypeRef.Capability log.Id; "i", intType; "n", intType ] intType
                 (ExpressionRecipe.Conditional(
@@ -234,7 +245,7 @@ module TailSelfCallTests =
         fn.Blocks |> List.filter (fun block -> block.Id <> fn.EntryBlockId && not (Set.contains block.Id targeted))
 
     let private tailFunctions =
-        [ "sumTo"; "bindLoop"; "someLoop"; "noneLoop"; "okLoop"; "errLoop"; "unionLoop"; "boolLoop"; "swap"; "abortLoop"; "countDown"; "logLoop" ]
+        [ "sumTo"; "bindLoop"; "someLoop"; "noneLoop"; "okLoop"; "errLoop"; "unionLoop"; "boolLoop"; "swap"; "abortLoop"; "countDown"; "repeatLength"; "logLoop" ]
 
     [<Fact>]
     let ``self calls in tail position lower to TailCall terminators and other self calls stay calls`` () =
@@ -255,7 +266,7 @@ module TailSelfCallTests =
             Assert.Equal(2, tailCalls (loweredFunction program (fixture.Function "unionLoop")) |> List.length)
             for fn in program.Functions do
                 Assert.Empty(unreachedBlocks fn)
-            for name in [ "sumNonTail"; "countNonTail"; "foldTotal" ] do
+            for name in [ "sumNonTail"; "countNonTail"; "foldTotal"; "repeatIntLength" ] do
                 let fn = loweredFunction program (fixture.Function name)
                 Assert.Empty(tailCalls fn)
             for name in [ "sumNonTail"; "countNonTail" ] do
@@ -292,7 +303,9 @@ module TailSelfCallTests =
             Assert.Equal(i64 4L, run fixture "unionLoop" [ i64 3L; i64 0L ])
             Assert.Equal(PureRunValue.Bool true, run fixture "boolLoop" [ i64 turns ])
             // A self call inside a ListFold folder loops in the folder's own function.
-            Assert.Equal(i64 3000000L, run fixture "foldTotal" [ PureRunValue.Int64List [ 1000000L; 2000000L ] ]))
+            Assert.Equal(i64 3000000L, run fixture "foldTotal" [ PureRunValue.Int64List [ 1000000L; 2000000L ] ])
+            // A generic loop keeps compiling: its tail call reuses the generic method's parameter locals.
+            Assert.Equal(i64 (turns * 3L), run fixture "repeatIntLength" [ PureRunValue.Int64List [ 1L; 2L; 3L ]; i64 turns ]))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``tail call arguments are assigned in parallel`` () =
