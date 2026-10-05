@@ -457,6 +457,39 @@ module SemanticFacts =
                     | SemanticNodeKind.Bind _
                     | SemanticNodeKind.MatchResult _ -> None
 
+        // Resolve every node after the nodes it reads (its value operands and the nodes of its
+        // nested graphs), so the recursion above always finds its operands memoised and its depth
+        // no longer grows with the length of a dependency chain, which only the node count bounds.
+        // The search keeps its own stack for the same reason. A node reached again while it is
+        // being resolved lies on a dependency cycle, which the validator reports; it has no
+        // derivable type, so it is memoised as None before anything resolves through it.
+        let readsOf (node: SemanticNode) =
+            SemanticNodeShape.directValueReferences node
+            @ (SemanticNodeShape.nestedGraphs node |> List.collect (fun graph -> graph.Nodes |> List.map (fun nested -> nested.Id)))
+        let finished = System.Collections.Generic.HashSet<GraphNodeId>()
+        let onPath = System.Collections.Generic.HashSet<GraphNodeId>()
+        let frames = System.Collections.Generic.Stack<struct (GraphNodeId * GraphNodeId list)>()
+        let enter nodeId =
+            match Map.tryFind nodeId nodesById with
+            | None -> ()
+            | Some node ->
+                onPath.Add nodeId |> ignore
+                frames.Push(struct (nodeId, readsOf node))
+        for KeyValue(rootId, _) in nodesById do
+            if not (finished.Contains rootId) then
+                enter rootId
+                while frames.Count > 0 do
+                    let struct (nodeId, remaining) = frames.Pop()
+                    match remaining with
+                    | [] ->
+                        onPath.Remove nodeId |> ignore
+                        finished.Add nodeId |> ignore
+                        tryCompletion Set.empty nodeId |> ignore
+                    | next :: rest ->
+                        frames.Push(struct (nodeId, rest))
+                        if onPath.Contains next then resolvedTypes[next] <- None
+                        elif not (finished.Contains next) then enter next
+
         // Keep concurrent calls to the public resolver safe without sharing
         // mutable memo state between different function resolvers.
         fun nodeId -> lock resolvedTypes (fun () -> tryCompletion Set.empty nodeId)

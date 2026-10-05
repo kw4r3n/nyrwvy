@@ -5,13 +5,18 @@ namespace Nyrwvy.Core
 [<RequireQualifiedAccess>]
 module internal GraphOrder =
     let tryUnorderedPair (dependencies: Map<GraphNodeId, GraphNodeId list>) (observable: GraphNodeId list) =
+        // A worklist rather than recursion: a dependency chain can be as long as the graph.
         let dependsOn nodeId targetId =
             let visited = System.Collections.Generic.HashSet<GraphNodeId>()
-            let rec visit currentId =
-                if currentId = targetId then true
-                elif not (visited.Add currentId) then false
-                else Map.tryFind currentId dependencies |> Option.exists (List.exists visit)
-            visit nodeId
+            let pending = System.Collections.Generic.Stack<GraphNodeId>()
+            pending.Push nodeId
+            let mutable found = false
+            while not found && pending.Count > 0 do
+                let currentId = pending.Pop()
+                if currentId = targetId then found <- true
+                elif visited.Add currentId then
+                    Map.tryFind currentId dependencies |> Option.iter (List.iter pending.Push)
+            found
         let rec pairs = function
             | [] -> None
             | first :: rest ->

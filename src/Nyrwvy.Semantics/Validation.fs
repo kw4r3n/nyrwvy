@@ -13,23 +13,37 @@ module SnapshotValidator =
     /// branches reference from outside themselves, not only on their result nodes, so a
     /// branch that references its own enclosing node is a cycle here rather than an
     /// unresolved dependency at lowering.
+    ///
+    /// The search keeps its own stack: a flat dependency chain is as long as the body has nodes,
+    /// so recursion over it would exhaust the call stack before any diagnostic is produced.
     let private hasDependencyCycle (nodesById: Map<GraphNodeId, SemanticNode>): bool =
         let acyclic = System.Collections.Generic.HashSet<GraphNodeId>()
-        let rec visit path nodeId =
-            if Set.contains nodeId path then
-                true
-            elif acyclic.Contains nodeId then
-                false
-            else
-                match Map.tryFind nodeId nodesById with
-                | None -> false
-                | Some node ->
-                    let nextPath = Set.add nodeId path
-                    let hasCycle = SemanticNodeShape.dependencies node |> List.exists (visit nextPath)
-                    if not hasCycle then acyclic.Add nodeId |> ignore
-                    hasCycle
+        let onPath = System.Collections.Generic.HashSet<GraphNodeId>()
+        // Each frame is a node on the current path with the dependencies it has not followed yet.
+        let frames = System.Collections.Generic.Stack<struct (GraphNodeId * GraphNodeId list)>()
+        let mutable cycle = false
 
-        nodesById |> Map.exists (fun nodeId _ -> visit Set.empty nodeId)
+        let enter nodeId =
+            match Map.tryFind nodeId nodesById with
+            | None -> ()
+            | Some node ->
+                onPath.Add nodeId |> ignore
+                frames.Push(struct (nodeId, SemanticNodeShape.dependencies node))
+
+        for KeyValue(rootId, _) in nodesById do
+            if not cycle && not (acyclic.Contains rootId) then
+                enter rootId
+                while not cycle && frames.Count > 0 do
+                    let struct (nodeId, remaining) = frames.Pop()
+                    match remaining with
+                    | [] ->
+                        onPath.Remove nodeId |> ignore
+                        acyclic.Add nodeId |> ignore
+                    | next :: rest ->
+                        frames.Push(struct (nodeId, rest))
+                        if onPath.Contains next then cycle <- true
+                        elif not (acyclic.Contains next) then enter next
+        cycle
 
 
     let private validateUncached (snapshot: Snapshot): ValidationIssue list =
