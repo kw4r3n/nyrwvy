@@ -40,7 +40,7 @@ Wildcard/default match arms are not part of the current accepted subset where ex
 
 `BoolNot(operand)` negates a Bool. `BoolAnd(left, right)` is true when both operands are true and `BoolOr(left, right)` when either is. Their `left` operand is an ordinary Bool value of the enclosing graph; their `right` operand is a nested value graph with the scope, typing and effect rules of a `Conditional` branch. It is evaluated at most once and only when `left` does not decide the result: for `BoolAnd` only when `left` is true, for `BoolOr` only when `left` is false. A right operand that aborts, invokes a capability or calls a failing function therefore has that effect only when it is evaluated. All operands and results are Bool; a right operand may instead abort. Each construct is the dedicated form of a checkable conditional expansion (`Conditional(operand, false, true)`, `Conditional(left, right, false)`, `Conditional(left, true, right)`); the graph keeps the dedicated node so review reads the intent directly (see the [decision](../decisions/bool-operators-and-map.md)). There is no Map or Set.
 
-`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool, Unit and Bits32 are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
+`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool, Unit and Bits32 are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, `OneShot`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
 
 ## `Int64`
 
@@ -365,6 +365,9 @@ TaskScope
 TaskStart
 TaskWait
 TaskCancel
+OneShotCreate
+OneShotComplete
+OneShotWait
 UseResource
 ListMap
 ListFilter
@@ -550,3 +553,7 @@ body function exits; ParallelAll requests cancellation on a worker Err, joins
 every worker, and chooses the lowest-index typed failure. Host-fault precedence
 is unchanged. See the [implemented contract](../specs/typed-function-abort.md)
 and [ordinary-tool example](../../examples/function-abort/README.md).
+
+## Scoped one-shot values
+
+`OneShot<T>` delivers one value between tasks owned by an existing TaskScope. Create allocates an empty cell, Complete accepts the first publication while the owner is open, and Wait observes its value as Option<T>. A timeout or waiter cancellation leaves other users unaffected; owner closure closes unresolved cells before cancelling and joining tasks. Completed values remain readable after closure. These operations are effectful, and cells cannot cross capability or runPure value boundaries. See the [contract](../specs/scoped-one-shot.md) and [runnable example](../../examples/scoped-result-handoff/README.md).

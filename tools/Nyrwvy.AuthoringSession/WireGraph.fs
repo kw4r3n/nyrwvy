@@ -191,6 +191,9 @@ module internal WireGraph =
             tagged "taskWait"
                 ([ "tasksNodeId", identity tasks; "mode", box (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all") ]
                  @ (limit |> Option.map (fun limit -> "limitNodeId", identity limit) |> Option.toList))
+        | SemanticNodeKind.OneShotCreate(scope, valueType) -> tagged "oneShotCreate" [ "scopeNodeId", identity scope; "valueType", WireEncodeCommon.typeRef valueType ]
+        | SemanticNodeKind.OneShotComplete(cell, value) -> tagged "oneShotComplete" [ "cellNodeId", identity cell; "valueNodeId", identity value ]
+        | SemanticNodeKind.OneShotWait(cell, limit) -> tagged "oneShotWait" ([ "cellNodeId", identity cell ] @ (limit |> Option.map (fun id -> "limitNodeId", identity id) |> Option.toList))
         | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
         | SemanticNodeKind.MapFromList(source, callback, bindings) -> traversal "mapFromList" source callback bindings

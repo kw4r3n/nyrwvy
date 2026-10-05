@@ -62,6 +62,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.TaskScope _
         | TypedSemanticNodeKind.TaskStart _
         | TypedSemanticNodeKind.TaskWait _
+        | TypedSemanticNodeKind.OneShotCreate _
+        | TypedSemanticNodeKind.OneShotComplete _
+        | TypedSemanticNodeKind.OneShotWait _
         | TypedSemanticNodeKind.TaskCancel _ -> true
         | TypedSemanticNodeKind.Conditional _
         | TypedSemanticNodeKind.BoolAnd _

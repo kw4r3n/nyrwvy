@@ -154,6 +154,9 @@ module FoundationTests =
                 | SemanticNodeKind.TaskScope _
                 | SemanticNodeKind.TaskStart _
                 | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.OneShotCreate _
+                | SemanticNodeKind.OneShotComplete _
+                | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _

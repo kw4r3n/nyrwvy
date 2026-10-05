@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
-    let schemaVersion = 9
+    let schemaVersion = 10
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -86,11 +86,17 @@ module ExecutionIrSerializer =
             objectValue
                 [ property "kind" (quote "set")
                   property "itemType" (writeTypeRef itemType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ resultType ]) ->
+            objectValue
+                [ property "kind" (quote "oneShot")
+                  property "valueType" (writeTypeRef resultType) ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             objectValue
                 [ property "kind" (quote "task")
                   property "resultType" (writeTypeRef resultType) ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> objectValue [ property "kind" (quote "taskScope") ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+            invalidOp $"Execution IR contains OneShot with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"Execution IR contains Task with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
@@ -605,6 +611,13 @@ module ExecutionIrSerializer =
               property "tasksValueId" (executionValueIdValue tasksValueId)
               property "mode" (quote (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all")) ]
             @ (limitValueId |> Option.map (fun limit -> property "limitValueId" (executionValueIdValue limit)) |> Option.toList)
+        | ExecutionInstructionKind.OneShotCreate(scope, valueType) ->
+            [ property "kind" (quote "oneShotCreate"); property "scopeValueId" (executionValueIdValue scope); property "valueType" (writeTypeRef valueType) ]
+        | ExecutionInstructionKind.OneShotComplete(cell, value) ->
+            [ property "kind" (quote "oneShotComplete"); property "cellValueId" (executionValueIdValue cell); property "valueValueId" (executionValueIdValue value) ]
+        | ExecutionInstructionKind.OneShotWait(cell, limit) ->
+            [ property "kind" (quote "oneShotWait"); property "cellValueId" (executionValueIdValue cell) ]
+            @ (limit |> Option.map (fun id -> property "limitValueId" (executionValueIdValue id)) |> Option.toList)
         | ExecutionInstructionKind.TaskCancel taskValueId ->
             [ property "kind" (quote "taskCancel")
               property "taskValueId" (executionValueIdValue taskValueId) ]
@@ -834,7 +847,28 @@ module ExecutionIrSerializer =
                     | _ -> false))
         let hasAbort = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)
         let hasTailCall = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.TailCall _ -> true | _ -> false)
-        let version = if hasTailCall then schemaVersion elif hasLimit then 8 elif hasAbort then 7 else 6
+        let hasOneShotSignature =
+            program.Functions |> List.exists (fun fn ->
+                TaskTypes.mentionsOneShot fn.ResultType
+                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Value.Type))
+        let hasOneShotField =
+            program.Types |> List.exists (fun ty ->
+                match ty.Kind with
+                | ExecutionTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)
+                | ExecutionTypeKind.Union variants ->
+                    variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)))
+        let hasOneShotValue =
+            blocks |> List.exists (fun block ->
+                block.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Type)
+                || block.Instructions |> List.exists (fun instruction ->
+                    TaskTypes.mentionsOneShot instruction.Result.Type
+                    || (match instruction.Kind with
+                        | ExecutionInstructionKind.OneShotCreate _
+                        | ExecutionInstructionKind.OneShotComplete _
+                        | ExecutionInstructionKind.OneShotWait _ -> true
+                        | _ -> false)))
+        let hasOneShot = hasOneShotSignature || hasOneShotField || hasOneShotValue
+        let version = if hasOneShot then schemaVersion elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
             [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)

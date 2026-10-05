@@ -6,7 +6,7 @@ const typeRef = {
   capability: { kind: "capability", name: "<capability display name>" },
   function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
   typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
-  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|set|task|taskScope>", arguments: ["<typeRef>"] },
+  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|set|task|taskScope|oneShot>", arguments: ["<typeRef>"] },
 }
 
 /**
@@ -173,6 +173,9 @@ const categories = {
     "taskScope": "(body: TaskScope -> Result<T, E>, context) -> Result<T, E>",
     "taskStart": "(scope: TaskScope, worker: T -> Result<U, E>, item: T, context) -> Task<Result<U, E>>",
     "taskWait": "(tasks: List<Task<T>>, mode: any|all, limit: Option<Int64>) -> List<Option<T>>",
+    "oneShotCreate": "(scope: TaskScope, valueType: T) -> OneShot<T>",
+    "oneShotComplete": "(cell: OneShot<T>, value: T) -> Bool (first completion wins)",
+    "oneShotWait": "(cell: OneShot<T>, limit?: Option<Int64>) -> Option<T>",
     "taskCancel": "(task: Task<T>) -> Unit",
   },
   structured: {
@@ -359,6 +362,9 @@ const references = {
   taskScope: { shape: { kind: "taskScope", body: "<function display name>", context: callbackContext }, notes: "Runs the body with a new TaskScope through its one unbound parameter; the body returns Result<T, E>, which is the result. On every exit of the body (Ok, Err or a host exception) each unfinished task of the scope is cancelled and awaited before the node completes. A task's host exception is rethrown then unless the body threw first." },
   taskStart: { shape: { kind: "taskStart", scope: recipe, worker: "<function display name>", item: recipe, context: callbackContext }, notes: "Starts the worker (item -> Result<U, E>, effects allowed, capabilities via context) as a task of the TaskScope and returns Task<Result<U, E>> at once. A task's Err does not cancel other tasks." },
   taskWait: { shape: { kind: "taskWait", tasks: recipe, mode: "<any|all>", limit: recipe }, notes: "tasks: List<Task<T>>. limit (may be omitted): Option<Int64> milliseconds; None or absent waits without a limit, a negative limit counts as 0. Waits until any (or all) listed tasks have finished or the limit elapses, and returns List<Option<T>> in input order: Some(result) when finished, None while running. Tasks keep running. any on [] returns [] at once. A handle whose scope has completed is finished." },
+  oneShotCreate: { shape: { kind: "oneShotCreate", scope: recipe, valueType: typeRef }, notes: "Scope-owned runtime handoff; live state is not persisted. A closed scope creates a closed empty cell. Payload types cannot contain TaskScope, including through generic calls or callback bindings." },
+  oneShotComplete: { shape: { kind: "oneShotComplete", cell: recipe, value: recipe }, notes: "Accepts the first exact-typed value while the owner is open. Duplicate or closed completion returns false." },
+  oneShotWait: { shape: { kind: "oneShotWait", cell: recipe, limit: "<optional recipe: Option<Int64>>" }, notes: "Some(value) for every observer after completion; None on timeout, waiter cancellation or unresolved owner closure. Completed values have priority. Check CancellationRequested even after Some when cancellation must override the outcome or prevent saving. Negative limits mean zero." },
   taskCancel: { shape: { kind: "taskCancel", task: recipe }, notes: "Unit. Requests cooperative cancellation of one task and returns without waiting; idempotent, a no-op once finished. Wait for the task to see what its worker returned." },
   useResource: { shape: { kind: "useResource", acquire: recipe, releaseCapability: recipe, capability: "<capability display name>", releaseOperation: "<operation display name>", body: "<function display name>", context: callbackContext }, notes: "acquire: Result<R, E>. The body gets R through its one unbound parameter and returns Result<T, E>. Release (R -> Unit or Result<Unit, E>) always runs after a successful acquire, on Ok, Err or a host exception; a body Err wins over a release Err." },
   listEffectFold: { shape: { kind: "listEffectFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Effectful fold, left to right, each item exactly once. The folder may use effects the enclosing function declares and receives capabilities through context. If it returns Result<S, E> for seed S, the fold stops at the first Err and yields Result<S, E>; otherwise it returns S. A pure folder is allowed and needs no effects: then it is the pure fold that stops at the first Err (seed S, not Ok(S); no pass-through Err arm)." },

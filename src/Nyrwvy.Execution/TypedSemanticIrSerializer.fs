@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
-    let schemaVersion = 9
+    let schemaVersion = 10
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -71,11 +71,17 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "set")
             writer.WritePropertyName("itemType")
             writeTypeRef writer itemType
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ resultType ]) ->
+            writer.WriteString("kind", "oneShot")
+            writer.WritePropertyName("valueType")
+            writeTypeRef writer resultType
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             writer.WriteString("kind", "task")
             writer.WritePropertyName("resultType")
             writeTypeRef writer resultType
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> writer.WriteString("kind", "taskScope")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+            invalidOp $"Typed Semantic IR contains OneShot with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"Typed Semantic IR contains Task with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
@@ -682,6 +688,19 @@ module TypedSemanticIrSerializer =
             writer.WriteString("tasksNodeId", StableId.value tasksNodeId)
             writer.WriteString("mode", (match mode with TaskWaitMode.Any -> "any" | TaskWaitMode.All -> "all"))
             limitNodeId |> Option.iter (fun limit -> writer.WriteString("limitNodeId", StableId.value limit))
+        | TypedSemanticNodeKind.OneShotCreate(scope, valueType) ->
+            writer.WriteString("kind", "oneShotCreate")
+            writer.WriteString("scopeNodeId", StableId.value scope)
+            writer.WritePropertyName("valueType")
+            writeTypeRef writer valueType
+        | TypedSemanticNodeKind.OneShotComplete(cell, value) ->
+            writer.WriteString("kind", "oneShotComplete")
+            writer.WriteString("cellNodeId", StableId.value cell)
+            writer.WriteString("valueNodeId", StableId.value value)
+        | TypedSemanticNodeKind.OneShotWait(cell, limit) ->
+            writer.WriteString("kind", "oneShotWait")
+            writer.WriteString("cellNodeId", StableId.value cell)
+            limit |> Option.iter (fun item -> writer.WriteString("limitNodeId", StableId.value item))
         | TypedSemanticNodeKind.TaskCancel taskNodeId ->
             writer.WriteString("kind", "taskCancel")
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
@@ -871,8 +890,27 @@ module TypedSemanticIrSerializer =
             graph.Nodes |> List.exists (fun node ->
                 matches node.Kind || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (has matches))
         let uses matches = program.Functions |> List.exists (fun fn -> has matches fn.Body)
+        let rec hasOneShotValue (graph: TypedSemanticGraph) =
+            graph.Nodes |> List.exists (fun node ->
+                (match node.Completion with
+                 | GraphCompletion.Normal typeRef -> TaskTypes.mentionsOneShot typeRef
+                 | GraphCompletion.Aborts -> false)
+                || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists hasOneShotValue)
+        let hasOneShotSignature =
+            program.Functions |> List.exists (fun fn ->
+                TaskTypes.mentionsOneShot fn.ResultType
+                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Type))
+        let hasOneShotField =
+            program.Types |> List.exists (fun ty ->
+                match ty.Kind with
+                | TypedSemanticTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)
+                | TypedSemanticTypeKind.Union variants ->
+                    variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)))
         let version =
-            if uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then schemaVersion
+            if hasOneShotSignature || hasOneShotField
+               || program.Functions |> List.exists (fun fn -> hasOneShotValue fn.Body) then schemaVersion
+            elif uses (function TypedSemanticNodeKind.OneShotCreate _ | TypedSemanticNodeKind.OneShotComplete _ | TypedSemanticNodeKind.OneShotWait _ -> true | _ -> false) then schemaVersion
+            elif uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then 9
             elif uses (function TypedSemanticNodeKind.Abort _ -> true | _ -> false) then 8
             else 7
         writer.WriteNumber("schemaVersion", version)

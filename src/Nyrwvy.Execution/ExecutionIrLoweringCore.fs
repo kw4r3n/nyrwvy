@@ -587,6 +587,18 @@ module ExecutionIr =
                             | Ok tasks, Ok limit -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.TaskWait(tasks, mode, limit)))
                             | Error error, _
                             | _, Error error -> Error error
+                        | TypedSemanticNodeKind.OneShotCreate(scope, valueType) ->
+                            requireNodeValue environment scope
+                            |> Result.map (fun scope -> addInstruction currentBlock node (ExecutionInstructionKind.OneShotCreate(scope, valueType)))
+                        | TypedSemanticNodeKind.OneShotComplete(cell, value) ->
+                            match requireNodeValue environment cell, requireNodeValue environment value with
+                            | Ok cell, Ok value -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.OneShotComplete(cell, value)))
+                            | Error error, _ | _, Error error -> Error error
+                        | TypedSemanticNodeKind.OneShotWait(cell, limit) ->
+                            let loweredLimit = match limit with Some id -> requireNodeValue environment id |> Result.map Some | None -> Ok None
+                            match requireNodeValue environment cell, loweredLimit with
+                            | Ok cell, Ok limit -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.OneShotWait(cell, limit)))
+                            | Error error, _ | _, Error error -> Error error
                         | TypedSemanticNodeKind.TaskCancel taskNodeId ->
                             requireNodeValue environment taskNodeId
                             |> Result.map (fun task -> addInstruction currentBlock node (ExecutionInstructionKind.TaskCancel task))

@@ -94,6 +94,7 @@ module private Encode =
         | BuiltinGenericType.Map -> "Map"
         | BuiltinGenericType.List -> "List"
         | BuiltinGenericType.Set -> "Set"
+        | BuiltinGenericType.OneShot -> "OneShot"
         | BuiltinGenericType.Task -> "Task"
         | BuiltinGenericType.TaskScope -> "TaskScope"
 

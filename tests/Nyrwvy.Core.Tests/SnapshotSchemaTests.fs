@@ -83,6 +83,11 @@ module SnapshotSchemaTests =
         [ "capability construction", SnapshotSchemaFeature.CapabilityConstruct, (fun create ->
               let ten = create "ten" [] int64Type [] (ExpressionRecipe.Int64Literal 10L)
               create "values" [] (TypeRef.Capability valuesId) [] (ExpressionRecipe.CapabilityConstruct(valuesId, [ readOperationId, ten.Id ])) |> ignore)
+          "one-shot node", SnapshotSchemaFeature.OneShot, (fun create ->
+              create "cell" [ "scope", generic BuiltinGenericType.TaskScope [] ] (generic BuiltinGenericType.OneShot [ stringType ]) [] (ExpressionRecipe.OneShotCreate(slot 0, stringType)) |> ignore)
+          "one-shot type only", SnapshotSchemaFeature.OneShot, (fun create ->
+              let cell = generic BuiltinGenericType.OneShot [ stringType ]
+              create "sameCell" [ "cell", cell ] cell [] (slot 0) |> ignore)
           "abort", SnapshotSchemaFeature.FunctionAbort, (fun create ->
               let result = generic BuiltinGenericType.Result [ stringType; stringType ]
               create "stop" [] result [] (ExpressionRecipe.Abort(ExpressionRecipe.StringLiteral "stop")) |> ignore)

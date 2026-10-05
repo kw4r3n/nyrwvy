@@ -49,6 +49,9 @@ module SnapshotValidator =
     let private validateUncached (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
         let add code message = issues.Add({ Code = code; Message = message })
+        let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
+        for nodeId in OneShotPayloadRequirements.invalidCallbackUses snapshot do
+            add "OneShotScopePayloadUnsupported" $"Callback node '{StableId.value nodeId}' instantiates a OneShot payload with a type containing TaskScope."
 
         let duplicateBy items code describe getId =
             items
@@ -259,6 +262,10 @@ module SnapshotValidator =
                         "BuiltinGenericArityMismatch"
                         $"{context} uses List with {arguments.Length} type arguments; exactly 1 is required."
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+                if arguments.Length <> 1 then add "BuiltinGenericArityMismatch" $"{context} uses OneShot with {arguments.Length} arguments; exactly 1 is required."
+                if arguments |> List.exists TaskTypes.mentionsScope then add "OneShotScopePayloadUnsupported" $"{context} cannot hide a TaskScope inside a OneShot payload."
+                arguments |> List.iter (validateTypeRef context)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
                 if arguments.Length <> 1 then
                     add
@@ -337,7 +344,7 @@ module SnapshotValidator =
             // Task handles and scopes live inside one run; they never cross the host boundary, also
             // not inside a declared type that holds a task.
             if types |> List.exists (TaskTypes.bearing snapshot.Types) then
-                add "TaskTypeAtCapabilityBoundary" $"Capability operation {StableId.describe operation.DisplayName operation.Id} uses Task or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
+                add "TaskTypeAtCapabilityBoundary" $"Capability operation {StableId.describe operation.DisplayName operation.Id} uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
         // Each type parameter belongs to one function, keeps one display name, and is introduced by
         // that function's parameter types before its result or body can use it.
         let typeParameterOwners =
@@ -1471,6 +1478,23 @@ module SnapshotValidator =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
                         | None -> ()
                         | Some _ -> add "TaskWaitLimitTypeMismatch" $"TaskWait node '{StableId.value node.Id}' requires an Option<Int64> limit."
+                    | SemanticNodeKind.OneShotCreate(scope, valueType) ->
+                        validateTypeRef "OneShotCreate payload" (TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ valueType ]))
+                        match nodeType scope with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])) | None -> ()
+                        | _ -> add "OneShotScopeTypeMismatch" "OneShotCreate requires a TaskScope."
+                    | SemanticNodeKind.OneShotComplete(cell, value) ->
+                        match nodeType cell, nodeType value with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ expected ])), Some actual when expected <> actual -> add "OneShotValueTypeMismatch" "OneShotComplete payload must match the cell's exact type."
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ _ ])), _ | None, _ -> ()
+                        | _ -> add "OneShotCellTypeMismatch" "OneShotComplete requires OneShot<T>."
+                    | SemanticNodeKind.OneShotWait(cell, limit) ->
+                        match nodeType cell with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ _ ])) | None -> ()
+                        | _ -> add "OneShotCellTypeMismatch" "OneShotWait requires OneShot<T>."
+                        match limit |> Option.bind nodeType with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ])) | None -> ()
+                        | _ -> add "OneShotLimitTypeMismatch" "OneShotWait requires Option<Int64> limit."
                     | SemanticNodeKind.TaskCancel taskNodeId ->
                         match nodeType taskNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ _ ]))
@@ -1578,10 +1602,13 @@ module SnapshotValidator =
                                         add
                                             "PolymorphicSelfCallUnsupported"
                                             $"Call node '{StableId.value node.Id}' calls its own function {StableId.describe functionEntity.DisplayName functionEntity.Id} with a value of type {EquatableTypes.describe snapshot.Types valueType} for parameter {StableId.describe parameter.DisplayName parameter.Id} of type {EquatableTypes.describe snapshot.Types parameter.Type}; a function calls itself at its own parameter types."
-                            elif Option.isNone (TypeParameters.matchAll (pairs |> List.map (fun (parameter, valueType) -> parameter.Type, valueType))) then
-                                add
-                                    "ArgumentTypeMismatch"
-                                    $"Call node '{StableId.value node.Id}' binds a value whose type does not match its callee parameter."
+                            else
+                                match TypeParameters.matchAll (pairs |> List.map (fun (parameter, valueType) -> parameter.Type, valueType)) with
+                                | None ->
+                                    add "ArgumentTypeMismatch" $"Call node '{StableId.value node.Id}' binds a value whose type does not match its callee parameter."
+                                | Some substitution when OneShotPayloadRequirements.violates oneShotPayloadRequirements.Value targetFunctionId substitution ->
+                                    add "OneShotScopePayloadUnsupported" $"Call node '{StableId.value node.Id}' instantiates a OneShot payload with a type containing TaskScope, directly or through another generic call."
+                                | Some _ -> ()
 
                             for parameter in targetFunction.Parameters do
                                 let hasBinding =
@@ -2167,6 +2194,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.TaskScope _
                 | SemanticNodeKind.TaskStart _
                 | SemanticNodeKind.TaskWait _
+                | SemanticNodeKind.OneShotCreate _
+                | SemanticNodeKind.OneShotComplete _
+                | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _

@@ -196,6 +196,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list * itemNodeId: GraphNodeId
     | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode * limitNodeId: GraphNodeId option
     | TaskCancel of taskNodeId: GraphNodeId
+    | OneShotCreate of scope: GraphNodeId * valueType: TypeRef
+    | OneShotComplete of cell: GraphNodeId * value: GraphNodeId
+    | OneShotWait of cell: GraphNodeId * limit: GraphNodeId option
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -383,6 +386,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.TaskScope _
         | TypedSemanticNodeKind.TaskStart _
         | TypedSemanticNodeKind.TaskWait _
+        | TypedSemanticNodeKind.OneShotCreate _
+        | TypedSemanticNodeKind.OneShotComplete _
+        | TypedSemanticNodeKind.OneShotWait _
         | TypedSemanticNodeKind.TaskCancel _
         | TypedSemanticNodeKind.UseResource _
         | TypedSemanticNodeKind.ListEffectFold _
@@ -545,6 +551,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.TaskWait(tasksNodeId, _, limitNodeId) -> tasksNodeId :: Option.toList limitNodeId
+        | TypedSemanticNodeKind.OneShotCreate(scope, _) -> [ scope ]
+        | TypedSemanticNodeKind.OneShotComplete(cell, value) -> [ cell; value ]
+        | TypedSemanticNodeKind.OneShotWait(cell, limit) -> cell :: Option.toList limit
         | TypedSemanticNodeKind.TaskCancel taskNodeId -> [ taskNodeId ]
         | TypedSemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
@@ -913,6 +922,9 @@ module TypedSemanticIr =
                     | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, projectContext context, itemNodeId))
                     | SemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId) -> Ok(TypedSemanticNodeKind.TaskWait(tasksNodeId, mode, limitNodeId))
+                    | SemanticNodeKind.OneShotCreate(scope, valueType) -> Ok(TypedSemanticNodeKind.OneShotCreate(scope, valueType))
+                    | SemanticNodeKind.OneShotComplete(cell, value) -> Ok(TypedSemanticNodeKind.OneShotComplete(cell, value))
+                    | SemanticNodeKind.OneShotWait(cell, limit) -> Ok(TypedSemanticNodeKind.OneShotWait(cell, limit))
                     | SemanticNodeKind.TaskCancel taskNodeId -> Ok(TypedSemanticNodeKind.TaskCancel taskNodeId)
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))

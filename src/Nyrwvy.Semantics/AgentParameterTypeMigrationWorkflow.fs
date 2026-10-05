@@ -442,6 +442,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.TaskWait(tasks, mode, None) -> one (fun tasks -> ExpressionRecipe.TaskWait(tasks, mode, None)) tasks
             | ExpressionRecipe.TaskWait(tasks, mode, Some limit) ->
                 two (fun (tasks, limit) -> ExpressionRecipe.TaskWait(tasks, mode, Some limit)) tasks limit
+            | ExpressionRecipe.OneShotCreate(scope, valueType) -> one (fun scope -> ExpressionRecipe.OneShotCreate(scope, valueType)) scope
+            | ExpressionRecipe.OneShotComplete(cell, value) -> two ExpressionRecipe.OneShotComplete cell value
+            | ExpressionRecipe.OneShotWait(cell, None) -> one (fun cell -> ExpressionRecipe.OneShotWait(cell, None)) cell
+            | ExpressionRecipe.OneShotWait(cell, Some limit) -> two (fun (cell, limit) -> ExpressionRecipe.OneShotWait(cell, Some limit)) cell limit
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
             | ExpressionRecipe.MapFromList(source, functionId, context) -> callback ExpressionRecipe.MapFromList source functionId context

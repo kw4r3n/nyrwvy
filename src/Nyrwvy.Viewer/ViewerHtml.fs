@@ -44,9 +44,13 @@ module ViewerHtml =
             "List<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
             "Set<" + typeRefText item + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ result ]) ->
+            "OneShot<" + typeRefText result + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ->
             "Task<" + typeRefText result + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+            "OneShot<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             "Task<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
@@ -249,6 +253,9 @@ module ViewerHtml =
         | ViewerNodeRole.TaskStart -> "task start"
         | ViewerNodeRole.TaskWait TaskWaitMode.Any -> "task wait (any)"
         | ViewerNodeRole.TaskWait TaskWaitMode.All -> "task wait (all)"
+        | ViewerNodeRole.OneShotCreate -> "one-shot create"
+        | ViewerNodeRole.OneShotComplete -> "one-shot complete (first value)"
+        | ViewerNodeRole.OneShotWait -> "one-shot wait"
         | ViewerNodeRole.TaskCancel -> "task cancel"
         | ViewerNodeRole.ListMap -> "List map"
         | ViewerNodeRole.MapFromList -> "Map from list"

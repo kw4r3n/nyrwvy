@@ -137,6 +137,8 @@ module NyasonCodec =
             record "list-type" [ "item", encodeTypeRef itemType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) ->
             record "set-type" [ "item", encodeTypeRef itemType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ resultType ]) ->
+            record "one-shot-type" [ "value", encodeTypeRef resultType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             record "task-type" [ "result", encodeTypeRef resultType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> record "task-scope-type" []
@@ -150,6 +152,8 @@ module NyasonCodec =
             invalidOp $"Validated List type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
             invalidOp $"Validated Set type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
+            invalidOp $"Validated OneShot type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"Validated Task type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
@@ -209,6 +213,9 @@ module NyasonCodec =
         | NyasonValue.Record("set-type", _) ->
             let fields = recordFields "set-type" [ "item" ] [] value
             TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ decodeTypeRef (require "item" fields) ])
+        | NyasonValue.Record("one-shot-type", _) ->
+            let fields = recordFields "one-shot-type" [ "value" ] [] value
+            TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ decodeTypeRef (require "value" fields) ])
         | NyasonValue.Record("task-type", _) ->
             let fields = recordFields "task-type" [ "result" ] [] value
             TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ decodeTypeRef (require "result" fields) ])
@@ -833,6 +840,9 @@ module NyasonCodec =
             record "task-wait"
                 ([ nodeId; "tasks", encodeId "node" tasksNodeId; "mode", atom modeAtom ]
                  @ (limitNodeId |> Option.map (fun limit -> "limit", encodeId "node" limit) |> Option.toList))
+        | SemanticNodeKind.OneShotCreate(scope, valueType) -> record "one-shot-create" [ nodeId; "scope", encodeId "node" scope; "value-type", encodeTypeRef valueType ]
+        | SemanticNodeKind.OneShotComplete(cell, value) -> record "one-shot-complete" [ nodeId; "cell", encodeId "node" cell; "value", encodeId "node" value ]
+        | SemanticNodeKind.OneShotWait(cell, limit) -> record "one-shot-wait" ([ nodeId; "cell", encodeId "node" cell ] @ (limit |> Option.map (fun item -> "limit", encodeId "node" item) |> Option.toList))
         | SemanticNodeKind.TaskCancel taskNodeId -> record "task-cancel" [ nodeId; "task", encodeId "node" taskNodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
@@ -1574,6 +1584,15 @@ module NyasonCodec =
                 | _ -> shape "Expected task wait mode atom 'any' or 'all'."
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.TaskWait(decodeId<GraphNodeTag> "node" (require "tasks" fields), mode, optional "limit" fields |> Option.map (decodeId<GraphNodeTag> "node")) }
+        | NyasonValue.Record("one-shot-create", _) ->
+            let fields = recordFields "one-shot-create" [ "id"; "scope"; "value-type" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.OneShotCreate(decodeId<GraphNodeTag> "node" (require "scope" fields), decodeTypeRef (require "value-type" fields)) }
+        | NyasonValue.Record("one-shot-complete", _) ->
+            let fields = recordFields "one-shot-complete" [ "id"; "cell"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.OneShotComplete(decodeId<GraphNodeTag> "node" (require "cell" fields), decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("one-shot-wait", _) ->
+            let fields = recordFields "one-shot-wait" [ "id"; "cell" ] [ "limit" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.OneShotWait(decodeId<GraphNodeTag> "node" (require "cell" fields), optional "limit" fields |> Option.map (decodeId<GraphNodeTag> "node")) }
         | NyasonValue.Record("task-cancel", _) ->
             let fields = recordFields "task-cancel" [ "id"; "task" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
