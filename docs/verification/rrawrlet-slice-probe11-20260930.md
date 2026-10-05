@@ -8,7 +8,7 @@ The port needed one rename (a display name clash) and had one bug, which the fir
 
 Baseline: nyrwvy `c689bde` (main after #263, clean); rrawrlet `714ed17`. The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`. The oracle ran rrawrlet's real functions with Python 3.11.
 
-The method was probe 10's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and no `declarations` call, and `runPure` batches of up to 40 cases through a `runCases` entry. Scripts, cases and transcripts are kept outside the repository in the project's shared files (`rrawrlet-probe11/`).
+The method was probe 10's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and no `declarations` call, and `runPure` batches of up to 40 cases through a `runCases` entry. Scripts, cases and transcripts are kept outside the repository in private files outside the repository (`rrawrlet-probe11/`).
 
 ## Why these parts
 

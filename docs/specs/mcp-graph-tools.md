@@ -28,7 +28,15 @@ Use an absolute server path. Relative snapshot paths default to the MCP server p
 
 `--workspace /absolute/path/my-project` remains an optional server-level override for a deliberately fixed workspace. In addition, `nyrwvy_open` accepts an optional `workspace` argument so an agent can supply the host-known project directory when a GUI, plugin cache, desktop host, or other MCP launcher starts the server elsewhere. The user therefore does not need to bake a program directory into ordinary MCP registration.
 
-Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly is always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server.
+Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly is always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server (see [Claude Desktop](#claude-desktop)).
+
+### What the path arguments can reach
+
+`snapshot`, `dependency` and `workspace` are **not confined** to the project: they resolve against the workspace (`..` and absolute paths included), because a dependency legitimately lives in another repository and `workspace` exists precisely to name a directory the host did not expose. `create` never overwrites an existing file; what it can do anywhere the user may write is create `<snapshot>` (plus a `<snapshot>.dependency.json` sidecar) and hold a `<snapshot>.lock` file while the session is open. `nyrwvy_view` is confined: a relative `output` resolves against the snapshot's directory, an `output` that would land outside that directory is refused with `ViewWriteFailed`, and the default location is `nyrwvy-views/` beside the snapshot. Read the auto-approval advice below with that in mind. In a project that tracks the snapshot, ignore the lock files and the view pages (`*.json.lock`, `nyrwvy-views/`); the lock file is removed on a clean close and left behind only when the process is killed.
+
+### Startup errors
+
+When the session cannot start, `nyrwvy_open` reports the session's one-line diagnostic (for example `SnapshotFileNotFound: No snapshot file at /project/planner.json. Use create ... to start a new one.`, `SnapshotFileAlreadyExists`, `LockUnavailable` for a snapshot open in another session, or `SnapshotCodecFailure` for a file that is not a snapshot) rather than a lost-response error: nothing was sent, so there is nothing to inspect or replay. A `workspace` that does not exist is reported as such before anything is launched, and a missing `dotnet` as `dotnet was not found on the PATH of this process`.
 
 ## Client configuration
 
@@ -77,6 +85,24 @@ For Claude Code, add the entry to the project `.mcp.json`, following the client'
 
 Clients with an `mcpServers` configuration use the same command/args; the settings file's location is client-specific. Reference: [Claude Code MCP](https://code.claude.com/docs/en/mcp).
 
+### Claude Desktop
+
+Claude Desktop reads the same `mcpServers` shape from `claude_desktop_config.json` (Settings, Developer, Edit Config). It is a GUI and inherits no shell PATH, so name `node` by its absolute path and make sure the directory holding `dotnet` is on the PATH the server receives; otherwise the server itself starts but every `nyrwvy_open` fails with `dotnet was not found on the PATH of this process`. The server launches outside any project, so pass `workspace` on `nyrwvy_open` or fix it with `--workspace`:
+
+```json
+{
+  "mcpServers": {
+    "nyrwvy": {
+      "command": "/absolute/path/to/node",
+      "args": ["--experimental-strip-types", "/absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mjs", "--workspace", "/absolute/path/my-project"],
+      "env": { "PATH": "/usr/local/share/dotnet:/usr/local/bin:/usr/bin:/bin" }
+    }
+  }
+}
+```
+
+Replace the `PATH` value with the directories that hold `dotnet` and `node` on your machine (`dirname "$(command -v dotnet)"`). Claude Desktop use is configuration guidance, not a live compatibility claim.
+
 ### Zed
 
 Add to Zed settings:
@@ -100,7 +126,7 @@ Reference: [Zed MCP](https://zed.dev/docs/ai/mcp). Tool availability and permiss
 
 `nyrwvy_recipe_reference` is read-only and sessionless, so it may be called before `nyrwvy_open` when a function-body or replacement recipe shape is unfamiliar. It takes no argument (the index), `category` (signatures), `kind` or `kinds` (shapes); see [agent graph tools](agent-graph-tools.md#named-recipe-reference-guide). Start an authoring session with `nyrwvy_open` arguments such as `{"mode":"create","snapshot":"planner.snapshot.json"}`. This normally resolves against the active project cwd. If the host launched MCP elsewhere but the agent knows the project directory, use `{"mode":"create","snapshot":"planner.snapshot.json","workspace":"/absolute/path/to/project"}` for that open only. Then inspect, propose, read the exact returned review, and explicitly commit/reject. Reviews are compact by default (signature, `nodeCount`, impact facts and fingerprints, no per-node graph); pass `detail: "full"` to `nyrwvy_create_function` or `nyrwvy_replace` to read the proposed graph before commit ([session contract](agent-authoring-session.md#simulate-review-detail)). Proposing never auto-commits. Exact stable-ID operations remain accessible via `nyrwvy_request`.
 
-For a dependency-backed graph, `nyrwvy_open` also accepts `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}` (and optional `workspace`). Both relative paths resolve against that workspace, not the toolchain repository. The source must be a complete standalone snapshot; its exact content is retained in the sidecar, so source updates/removal and clone/move do not require the old absolute path. Use `mode: "open"` without `dependency` to resume the existing pin. `mode: "pin"` explicitly migrates a legacy source-only selection or repairs its storage using the exact selected content; optional `dependency` may point to a relocated original copy, not a newer version. No semantic upgrade is performed. Imported edits fail at simulation, while local functions can reference imported declarations. See the [pinned dependency and recovery contract](agent-authoring-session.md#pinned-snapshot-dependency-one-level).
+For a dependency-backed graph, `nyrwvy_open` also accepts `{"mode":"create","snapshot":"planner.json","dependency":"policy.json"}` (and optional `workspace`). Both relative paths resolve against that workspace, not the toolchain repository. The source must be a complete standalone snapshot; its exact content is retained in the sidecar, so source updates/removal and clone/move do not require the old absolute path. Use `mode: "open"` without `dependency` to resume the existing pin. `mode: "pin"` explicitly migrates a legacy source-only selection or repairs its storage using the exact selected content; optional `dependency` may point to a relocated original copy, not a newer version. No semantic upgrade is performed. Imported edits fail at simulation, while local functions can reference imported declarations. See the [pinned dependency and recovery contract](agent-authoring-session.md#pinned-snapshot-dependencies).
 
 One MCP server process owns at most one active authoring session. Concurrent tool calls, including open/close, are serialized. An explicit `nyrwvy_close` starts a **5-second graceful drain deadline when received**, even if an earlier open or mutation is still awaiting a response. Earlier calls may finish normally within that window. On expiry only that close's still-pending predecessors are cancelled: sent requests receive an unknown-outcome error, and unsent queued requests are discarded. The close still waits for the shared transport's bounded termination/reaping before later open/inspect calls execute; it does not abort the server lifetime or later requests. A timed-out drain remains a close error even if the earlier failed open already cleaned up its session. Thus normal FIFO order is preserved, and the same MCP connection can explicitly reopen after an abnormal close without replaying the mutation.
 

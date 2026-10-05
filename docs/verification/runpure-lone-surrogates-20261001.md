@@ -1,6 +1,6 @@
 # Lone surrogates in runPure String values — 2026-10-01
 
-**Status:** Implemented and verified. Baseline: [runPure arguments as input and the build cache](runpure-build-cache-20261001.md) (`claude/runpure-build-cache`).
+**Status:** Implemented and verified. Baseline: [runPure arguments as input and the build cache](runpure-build-cache-20261001.md).
 
 A String in the language is any sequence of UTF-16 code units, but a `runPure` String value had to be well-formed UTF-16. The rrawrlet probes therefore escaped lone surrogates themselves: the harness sent U+10FFFE and four hex digits, and the port unescaped them (3 functions and 53 nodes in [probe 12](rrawrlet-slice-probe12-20261001.md), 5 functions and 76 nodes in [probe 13](rrawrlet-slice-probe13-20261001.md), in both directions). `runPure` now carries any sequence of code units, using JSON's own `\uD800` escapes on the wire. There is no new sentinel.
 

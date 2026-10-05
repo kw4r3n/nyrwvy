@@ -323,7 +323,7 @@ module TaskScopeTests =
             let capabilities = [ "agent", TypeRef.Capability agentId; "workspaces", TypeRef.Capability workspacesId ]
             Assert.Equal("TaskStartScopeTypeMismatch",
                 reject (capabilities @ [ "scope", stringType ]) taskType (ExpressionRecipe.TaskStart(slot 2, memberWorker.Id, context, text "x")))
-            Assert.Equal("PureExpressionListCallbackInputTypeMismatch",
+            Assert.Equal("PureExpressionCallbackInputTypeMismatch",
                 reject (capabilities @ [ "scope", scopeType ]) taskType (ExpressionRecipe.TaskStart(slot 2, memberWorker.Id, context, ExpressionRecipe.Int64Literal 1L)))
             Assert.Equal("TaskWaitInputTypeMismatch",
                 reject [ "tasks", listOf stringType ] (listOf (optionOf stringType)) (ExpressionRecipe.TaskWait(slot 0, TaskWaitMode.All, None)))

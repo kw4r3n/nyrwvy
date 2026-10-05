@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
-REPO = ROOT.parent
+REPO = ROOT.parent.parent
 SNAPSHOT = ROOT / "planner.snapshot.json"
 RUNNER = ROOT / "runner"
 PROJECT = REPO / "tools" / "Nyrwvy.AuthoringSession" / "Nyrwvy.AuthoringSession.fsproj"

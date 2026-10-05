@@ -6,7 +6,7 @@ This record captures deterministic verification for issue #161, the Capability/O
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Implementation issue: #161
 - Implementation PR: #163
 - Exact verified implementation head: `d5a000089a653e8db36a08c38cc09275a46d388b`

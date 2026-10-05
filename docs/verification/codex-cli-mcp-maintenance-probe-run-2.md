@@ -16,18 +16,20 @@ Run 1 remains a blocked result, not a success retroactively: on 2026-09-21 at 20
 
 - Host: `codex-cli 0.155.0`, noninteractive `codex exec`, local stdio MCP.
 - Requested model: `gpt-6-astra`; JSON events do not independently identify a backend model revision.
-- Nyrwvy commit: `ab74ecc435e919da76536ecff98402f2c75ba551`, unchanged from Run 1. The checkout was not advanced to the newer commit mentioned in the planning conversation.
+- Nyrwvy commit: `ab74ecc435e919da76536ecff98402f2c75ba551`, unchanged from Run 1. The checkout was deliberately not advanced to the then-newer `main`.
 - Start: `2026-09-21T20:58:27+09:00`; end: `2026-09-21T21:00:07+09:00` (Asia/Tokyo).
 - Fixture: bytes copied from `9f03d5e7:mini-work-planner/planner.snapshot.json` for Run 1, reused after verifying that the SHA-256 was still the original fixture hash.
-- Active project cwd: `/home/kw4/Work/Tools/nyrwvy/artifacts/codex-mcp-probe/workspace`.
+- Active project cwd: `<repo>/artifacts/codex-mcp-probe/workspace`.
 - User prompt, fixture, model, CLI cwd, `workspace-write` sandbox, and MCP server command were unchanged. The only deliberate run configuration change was `mcp_servers.nyrwvy.default_tools_approval_mode="approve"`.
 - No `--workspace` argument, MCP `cwd` override, global configuration edit, or sandbox bypass.
 - Existing Release server assembly from Run 1 was reused. No implementation or test changes.
 
+Paths are redacted: `<repo>` is the Nyrwvy checkout and `<node>` the absolute path of the Node executable.
+
 ```toml
 [mcp_servers.nyrwvy]
-command = "/home/kw4/.local/share/mise/installs/node/26.8.2/bin/node"
-args = ["--experimental-strip-types", "/home/kw4/Work/Tools/nyrwvy/tools/nyrwvy-mcp/server.mjs"]
+command = "<node>"
+args = ["--experimental-strip-types", "<repo>/tools/nyrwvy-mcp/server.mjs"]
 default_tools_approval_mode = "approve"
 ```
 
@@ -37,13 +39,13 @@ Exact model invocation (paths for ephemeral output differ from Run 1):
 
 ```sh
 codex exec --ignore-user-config --ephemeral --skip-git-repo-check \
-  -C /home/kw4/Work/Tools/nyrwvy/artifacts/codex-mcp-probe/workspace \
+  -C <repo>/artifacts/codex-mcp-probe/workspace \
   -m gpt-6-astra -s workspace-write \
-  -c 'mcp_servers.nyrwvy.command="/home/kw4/.local/share/mise/installs/node/26.8.2/bin/node"' \
-  -c 'mcp_servers.nyrwvy.args=["--experimental-strip-types","/home/kw4/Work/Tools/nyrwvy/tools/nyrwvy-mcp/server.mjs"]' \
+  -c 'mcp_servers.nyrwvy.command="<node>"' \
+  -c 'mcp_servers.nyrwvy.args=["--experimental-strip-types","<repo>/tools/nyrwvy-mcp/server.mjs"]' \
   -c 'mcp_servers.nyrwvy.default_tools_approval_mode="approve"' \
   --json \
-  -o /home/kw4/Work/Tools/nyrwvy/artifacts/codex-mcp-probe/run-2/final.txt \
+  -o <repo>/artifacts/codex-mcp-probe/run-2/final.txt \
   - < artifacts/codex-mcp-probe/prompt.txt \
   > artifacts/codex-mcp-probe/run-2/events.jsonl \
   2> artifacts/codex-mcp-probe/run-2/stderr.txt
@@ -56,6 +58,13 @@ This command was launched from the Nyrwvy repository root. Normal authentication
 ```text
 この project の planner.snapshot.json は Mini Work Planner の既知の pre-maintenance state です。
 Mini Work Planner の ExecutionState に fieldless variant TimedOut を追加し、既存の Failed と同じ behavior を持たせる。既存の semantic identities は維持すること。Nyrwvy MCP tools を使って変更を inspect、review、commit し、close/reopen 後に committed state を確認すること。snapshot JSON は直接読んだり編集したりせず、generated source も直接編集しないこと。snapshot は project-relative path で開くこと。
+```
+
+English translation of the prompt:
+
+```text
+This project's planner.snapshot.json is the known pre-maintenance state of the Mini Work Planner.
+Add a fieldless variant TimedOut to the Mini Work Planner's ExecutionState and give it the same behavior as the existing Failed. Preserve the existing semantic identities. Use the Nyrwvy MCP tools to inspect, review and commit the change, and confirm the committed state after close/reopen. Do not read or edit the snapshot JSON directly, and do not edit generated source directly. Open the snapshot by a project-relative path.
 ```
 
 No operation name, stable ID, or tool-call sequence was supplied. No follow-up prompt or semantic hint was sent during the run.

@@ -32,6 +32,25 @@ async function publish(context, payload) {
   await request(context, { op: "commit", proposalId: proposal.proposalId })
   return proposal
 }
+test("startup failures surface the session's own diagnostic without replay advice", { timeout: 30000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "nyrwvy-tools-startup-"))
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const snapshot = join(directory, "missing.json")
+  try {
+    await assert.rejects(openAuthoring("open", snapshot, context), error =>
+      error.message.startsWith(`AuthoringSession could not start: SnapshotFileNotFound: No snapshot file at ${snapshot}.`)
+      && /create/.test(error.message) && !/replay/.test(error.message))
+    await assert.rejects(stat(join(directory, "missing.json.lock")), { code: "ENOENT" })
+    // The failed open released its slot: the same context can create the snapshot.
+    await openAuthoring("create", snapshot, context)
+    await closeAuthoring(context)
+    await assert.rejects(stat(`${snapshot}.lock`), { code: "ENOENT" }, "a clean close removes the lock file")
+  } finally {
+    await closeAuthoring(context).catch(() => undefined)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 async function workspace(run) {
   const directory = await mkdtemp(join(tmpdir(), "nyrwvy-tools-"))
   const context = { sessionID: randomUUID(), worktree: process.cwd() }
@@ -107,7 +126,7 @@ test("ordinary tool bridge authors Verification Planner and maintains one branch
     await publish(context, fn("plan_verification", named("ChangeRequest"), named("VerificationLevel"), conditional(extended,
       conditional(live, construct("FastExtendedLive"), construct("FastExtended")),
       conditional(live, construct("FastLive"), construct("FastOnly")))))
-    const labels = ["fast tests のみ", "fast + extended", "fast + live", "fast + extended + live"]
+    const labels = ["fast tests only", "fast + extended", "fast + live", "fast + extended + live"]
     await publish(context, fn("verification_label", named("VerificationLevel"), primitive("string"), match("VerificationLevel",
       levels.map((variant, index) => ({ variant, body: { kind: "stringLiteral", value: labels[index] } })))))
 

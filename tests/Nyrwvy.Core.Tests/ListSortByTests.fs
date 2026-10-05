@@ -80,7 +80,7 @@ module ListSortByTests =
             rejects session [ "a", textType; "b", textType ] textType (ExpressionRecipe.StringLessThan(slot 0, slot 1)) |> ignore
             // The source must be a List whose items both callback parameters accept.
             Assert.Contains("PureExpressionOperandTypeMismatch", rejects session [ "items", textType ] (listOf textType) (sortBy (slot 0) fns.TextLess))
-            Assert.Contains("PureExpressionListCallbackInputTypeMismatch", rejects session [ "items", listOf intType ] (listOf intType) (sortBy (slot 0) fns.TextLess))
+            Assert.Contains("PureExpressionCallbackInputTypeMismatch", rejects session [ "items", listOf intType ] (listOf intType) (sortBy (slot 0) fns.TextLess))
             // The result is the source list type.
             rejects session [ "items", listOf textType ] textType (sortBy (slot 0) fns.TextLess) |> ignore
             // Wrong callback shapes: one parameter, a non-Bool result, a mixed signature, an unknown function.
@@ -89,16 +89,16 @@ module ListSortByTests =
                 create session "lengthDiff" [ "left", textType; "right", textType ] intType
                     (ExpressionRecipe.Int64WrappingSubtract(ExpressionRecipe.StringLength(slot 0), ExpressionRecipe.StringLength(slot 1)))
             let mixed = create session "mixed" [ "left", textType; "right", intType ] boolType (ExpressionRecipe.BoolLiteral true)
-            Assert.Contains("PureExpressionListCallbackArityMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) single))
-            Assert.Contains("PureExpressionListCallbackResultTypeMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) lengthDiff))
-            Assert.Contains("PureExpressionListCallbackInputTypeMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) mixed))
+            Assert.Contains("PureExpressionCallbackArityMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) single))
+            Assert.Contains("PureExpressionCallbackResultTypeMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) lengthDiff))
+            Assert.Contains("PureExpressionCallbackInputTypeMismatch", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) mixed))
             let unknown = StableId.createForTesting<FunctionTag> "function-missing"
-            Assert.Contains("PureExpressionListCallbackNotFound", rejects session [ "items", listOf textType ] (listOf textType) (ExpressionRecipe.ListSortBy(slot 0, unknown, [])))
+            Assert.Contains("PureExpressionCallbackNotFound", rejects session [ "items", listOf textType ] (listOf textType) (ExpressionRecipe.ListSortBy(slot 0, unknown, [])))
             // A comparator with required effects is rejected, as for ListFilter.
             session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "Clock" } |> unwrap |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let effectful = createWith session "effectfulLess" [ "left", textType; "right", textType ] boolType [ effect.Id ] (ExpressionRecipe.BoolLiteral true)
-            Assert.Contains("PureExpressionListCallbackEffectsNotAllowed", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) effectful))
+            Assert.Contains("PureExpressionCallbackEffectsNotAllowed", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) effectful))
             // Context binds a leading parameter; the two remaining ones receive the items.
             let offsetLess =
                 create session "offsetLess" [ "offset", intType; "left", intType; "right", intType ] boolType
@@ -106,7 +106,7 @@ module ListSortByTests =
             let offset = (offsetLess.Parameters |> List.head).Id
             create session "sortOffset" [ "items", listOf intType ] (listOf intType)
                 (ExpressionRecipe.ListSortBy(slot 0, offsetLess.Id, [ offset, ExpressionRecipe.Int64Literal 1L ])) |> ignore
-            Assert.Contains("PureExpressionListCallbackArityMismatch", rejects session [ "items", listOf intType ] (listOf intType) (ExpressionRecipe.ListSortBy(slot 0, offsetLess.Id, []))))
+            Assert.Contains("PureExpressionCallbackArityMismatch", rejects session [ "items", listOf intType ] (listOf intType) (ExpressionRecipe.ListSortBy(slot 0, offsetLess.Id, []))))
 
     [<Fact>]
     let ``persisted StringLessThan and ListSortBy graphs report their own codes`` () =
@@ -143,12 +143,12 @@ module ListSortByTests =
                 sourceType (nodeId "sort")
         let texts = SemanticNodeKind.ListEmpty textType
         Assert.Empty(sortWith texts (listOf textType) "less")
-        Assert.Contains("ListCallbackArityMismatch", sortWith texts (listOf textType) "single")
-        Assert.Contains("ListCallbackParameterTypeMismatch", sortWith texts (listOf textType) "wrongItem")
-        Assert.Contains("ListPredicateResultTypeMismatch", sortWith texts (listOf textType) "notBool")
-        Assert.Contains("ListCallbackEffectsNotAllowed", sortWith texts (listOf textType) "effectful")
-        Assert.Contains("UnknownListCallbackFunction", sortWith texts (listOf textType) "missing")
-        Assert.Contains("ListHigherOrderSourceTypeMismatch", sortWith (SemanticNodeKind.StringLiteral "x") (listOf textType) "less")
+        Assert.Contains("CallbackArityMismatch", sortWith texts (listOf textType) "single")
+        Assert.Contains("CallbackParameterTypeMismatch", sortWith texts (listOf textType) "wrongItem")
+        Assert.Contains("PredicateResultTypeMismatch", sortWith texts (listOf textType) "notBool")
+        Assert.Contains("CallbackEffectsNotAllowed", sortWith texts (listOf textType) "effectful")
+        Assert.Contains("UnknownCallbackFunction", sortWith texts (listOf textType) "missing")
+        Assert.Contains("HigherOrderSourceTypeMismatch", sortWith (SemanticNodeKind.StringLiteral "x") (listOf textType) "less")
         let compare leftKind rightKind =
             validate
                 [ { Id = nodeId "left"; Kind = leftKind }
@@ -294,15 +294,15 @@ module ListSortByTests =
             rejects session [ "items", listOf textType ] textType (minBy (slot 0) fns.TextLess) |> ignore
             rejects session [ "items", listOf textType ] (listOf textType) (minBy (slot 0) fns.TextLess) |> ignore
             Assert.Contains("PureExpressionOperandTypeMismatch", rejects session [ "items", textType ] (optionOf textType) (minBy (slot 0) fns.TextLess))
-            Assert.Contains("PureExpressionListCallbackInputTypeMismatch", rejects session [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.TextLess))
+            Assert.Contains("PureExpressionCallbackInputTypeMismatch", rejects session [ "items", listOf intType ] (optionOf intType) (minBy (slot 0) fns.TextLess))
             let single = create session "single" [ "value", textType ] boolType (ExpressionRecipe.StringIsEmpty(slot 0))
             let lengthDiff =
                 create session "lengthDiff" [ "left", textType; "right", textType ] intType
                     (ExpressionRecipe.Int64WrappingSubtract(ExpressionRecipe.StringLength(slot 0), ExpressionRecipe.StringLength(slot 1)))
-            Assert.Contains("PureExpressionListCallbackArityMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) single))
-            Assert.Contains("PureExpressionListCallbackResultTypeMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) lengthDiff))
+            Assert.Contains("PureExpressionCallbackArityMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) single))
+            Assert.Contains("PureExpressionCallbackResultTypeMismatch", rejects session [ "items", listOf textType ] (optionOf textType) (minBy (slot 0) lengthDiff))
             let unknown = StableId.createForTesting<FunctionTag> "function-missing"
-            Assert.Contains("PureExpressionListCallbackNotFound", rejects session [ "items", listOf textType ] (optionOf textType) (ExpressionRecipe.ListMinBy(slot 0, unknown, [])))
+            Assert.Contains("PureExpressionCallbackNotFound", rejects session [ "items", listOf textType ] (optionOf textType) (ExpressionRecipe.ListMinBy(slot 0, unknown, [])))
 
             // The persisted node keeps its kind through every codec and projection.
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
@@ -336,10 +336,10 @@ module ListSortByTests =
                 let changed = { entry with Body = { entry.Body with Nodes = nodes } }
                 SnapshotValidator.validate { graph with Functions = graph.Functions |> List.map (fun fn -> if fn.Id = entry.Id then changed else fn) }
                 |> List.map (fun issue -> issue.Code)
-            Assert.Contains("ListCallbackArityMismatch", withCallback single.Id)
-            Assert.Contains("ListPredicateResultTypeMismatch", withCallback lengthDiff.Id)
-            Assert.Contains("ListCallbackParameterTypeMismatch", withCallback fns.IntGreater.Id)
-            Assert.Contains("UnknownListCallbackFunction", withCallback unknown))
+            Assert.Contains("CallbackArityMismatch", withCallback single.Id)
+            Assert.Contains("PredicateResultTypeMismatch", withCallback lengthDiff.Id)
+            Assert.Contains("CallbackParameterTypeMismatch", withCallback fns.IntGreater.Id)
+            Assert.Contains("UnknownCallbackFunction", withCallback unknown))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``ListMinBy keeps the first smallest item and runs through runPure`` () =

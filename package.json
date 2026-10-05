@@ -2,6 +2,7 @@
   "name": "nyrwvy-adapters",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=22.6.0"
@@ -13,6 +14,7 @@
     "typecheck": "npm run typecheck:adapters && npm run typecheck:bun",
     "typecheck:adapters": "tsc --project tsconfig.adapters.json",
     "typecheck:bun": "tsc --project tsconfig.bun.json",
+    "test": "npm run test:adapters && npm run test:node",
     "test:adapters": "node --experimental-strip-types --test tools/nyrwvy-agent/*.test.mjs",
     "test:node": "node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs .opencode/tests/nyrwvy-evaluation-transport.test.mjs scripts/tests/*.test.mjs && npm test --workspace tools/nyrwvy-mcp",
     "test:bun": "bun test ./.opencode/tests/*.test.ts"

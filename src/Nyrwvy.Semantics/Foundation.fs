@@ -248,6 +248,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Each code point replaced by its Unicode simple (one-to-one) lowercase mapping, culture
     /// invariant; code points without one, including unpaired surrogates, are kept. Never fails.
     | StringToLower of valueNodeId: GraphNodeId
+    /// Each code point replaced by its Unicode simple (one-to-one) uppercase mapping, culture
+    /// invariant, the mirror of StringToLower (which undoes it); code points without one, including
+    /// unpaired surrogates, are kept, so the code-point length never changes. Never fails.
     | StringToUpper of valueNodeId: GraphNodeId
     /// The text of a String holding one byte per code point (U+0000..U+00FF), decoded as UTF-8 with
     /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
@@ -397,17 +400,28 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     /// Logical shift by the Int64 amount: amount <= 0 gives the value unchanged, amount >= 32 gives zero. Never fails.
     | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    /// The empty List<T>.
     | ListEmpty of itemType: TypeRef
+    /// The empty Set<T>. Sets hold each item once, compare items with ValueEqual (so T must be
+    /// equatable) and visit them in insertion order; they are immutable values.
     | SetEmpty of itemType: TypeRef
     /// The empty Map<K, V>. Maps are immutable and visit entries in the order keys were first inserted.
     | MapEmpty of keyType: TypeRef * valueType: TypeRef
+    /// A List<T> of the item nodes' values, in order.
     | ListConstruct of itemType: TypeRef * itemNodeIds: GraphNodeId list
+    /// The number of items as Int64, as Python len(list). Never fails.
     | ListLength of listNodeId: GraphNodeId
+    /// The values as a List<V>, in iteration order. Never fails.
     | MapValues of mapNodeId: GraphNodeId
+    /// The keys as a List<K>, in iteration order. Never fails.
     | MapKeys of mapNodeId: GraphNodeId
+    /// The items as a List<T>, in iteration order. Never fails.
     | SetToList of setNodeId: GraphNodeId
+    /// The number of entries as Int64. Never fails.
     | MapSize of mapNodeId: GraphNodeId
-    | SetFromList of setNodeId: GraphNodeId
+    /// The items of a List<T> without repeats, in first-occurrence order, as a Set<T>. Never fails.
+    | SetFromList of sourceListNodeId: GraphNodeId
+    /// The number of items as Int64. Never fails.
     | SetSize of setNodeId: GraphNodeId
     /// The items of the List<T> in reverse order, as Python list(reversed(list)). Never fails.
     | ListReverse of listNodeId: GraphNodeId
@@ -415,11 +429,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ListLast of listNodeId: GraphNodeId
     /// The List<T> without its last item; the empty list stays empty. Never fails.
     | ListDropLast of listNodeId: GraphNodeId
+    /// The List<T> with the item added at the end, as Python list + [item]. Never fails.
     | ListAppendItem of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some item` at a zero-based Int64 index in range, else `None`; never fails.
     | ListItemAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    /// The Map<K, V> without the key; unchanged when the key is absent. Never fails.
     | MapRemove of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    /// The Set<T> with the item, added last when it was absent; unchanged when present. Never fails.
     | SetInsert of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The Set<T> without the item; unchanged when it is absent. Never fails.
     | SetRemove of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// The left items in their order, then the right items not in left in theirs. Never fails.
     | SetUnion of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
@@ -427,11 +445,16 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     /// The left items that the right set does not contain, in left order. Never fails.
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// True when the map has the key, compared with ValueEqual, as Python key in map. Never fails.
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
+    /// True when the set has the item, compared with ValueEqual, as Python item in set. Never fails.
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some` zero-based position of the first item equal to the item (ValueEqual), else `None`; never fails.
     | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// `Some` zero-based position of the last item equal to the item (ValueEqual), scanning from the
+    /// end, else `None`; never fails.
     | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// `Some` value for the key, else `None`, as Python map.get(key); never fails.
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// The value for key, or the default (of the map's value type) when the key is absent. All
     /// three operands are evaluated. Never fails.
@@ -440,6 +463,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
     /// empty list). Same List<T> type as the input; never fails.
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    /// The Map<K, V> with the key set to the value: a present key keeps its position, an absent key
+    /// goes last, as Python map[key] = value on a copy. Never fails.
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     /// List callbacks reference an existing pure function. `context` binds some of its parameters,
@@ -447,6 +472,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// declaration order, receive the iteration values (accumulator and item for ListFold, the
     /// item otherwise). An empty context is the plain callback.
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
+    /// ListFold over the entries in iteration order; the folder's unbound parameters receive
+    /// (accumulator, key, value).
     | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     /// Acquires a resource with `acquire : Result<R, E>`; on Ok runs the body function with R (other
     /// parameters bound by `context`) and then always releases R through a capability operation.
@@ -472,6 +499,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | TaskCancel of taskNodeId: GraphNodeId
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// The items of a List<T> indexed by a pure `T -> K` callback, as Map<K, T>: a repeated key
+    /// keeps its first position and takes the last item, as repeated MapInsert does. K must be
+    /// equatable. Never fails.
     | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: ArgumentBinding list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     /// The entries for which a pure `(key, value) -> Bool` callback returns true, keeping their
@@ -492,6 +522,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// the first of equal items wins and any callback gives a deterministic result. Never fails.
     | ListMinBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: ArgumentBinding list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
+    /// `Some` zero-based position of the first item for which a pure `T -> Bool` callback is true,
+    /// scanning left to right and stopping there, else `None`; never fails.
     | ListFindIndex of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | ListAll of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: ArgumentBinding list
     | DirectCall of FunctionId * ArgumentBinding list
@@ -572,7 +604,8 @@ type Snapshot =
 type FunctionReferenceRole =
     /// DirectCall: called with the node's argument bindings.
     | DirectCall
-    /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny or ListAll: a callback validation requires to be pure.
+    /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny, ListAll, MapFold,
+    /// MapFromList, MapFilter or MapMapValues: a callback validation requires to be pure.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
@@ -760,21 +793,21 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapKeys sourceMapNodeId -> [ sourceMapNodeId ]
         | SemanticNodeKind.SetToList sourceSetNodeId -> [ sourceSetNodeId ]
         | SemanticNodeKind.MapSize sourceMapNodeId -> [ sourceMapNodeId ]
-        | SemanticNodeKind.SetFromList sourceSetNodeId -> [ sourceSetNodeId ]
+        | SemanticNodeKind.SetFromList sourceListNodeId -> [ sourceListNodeId ]
         | SemanticNodeKind.SetSize sourceSetNodeId -> [ sourceSetNodeId ]
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
-        | SemanticNodeKind.ListMap(listNodeId, _, context)
-        | SemanticNodeKind.MapFromList(listNodeId, _, context)
-        | SemanticNodeKind.ListFilter(listNodeId, _, context)
-        | SemanticNodeKind.MapFilter(listNodeId, _, context)
-        | SemanticNodeKind.ListSortBy(listNodeId, _, context)
-        | SemanticNodeKind.MapMapValues(listNodeId, _, context)
-        | SemanticNodeKind.ListMinBy(listNodeId, _, context)
-        | SemanticNodeKind.ListAny(listNodeId, _, context)
-        | SemanticNodeKind.ListFindIndex(listNodeId, _, context)
-        | SemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: contextValues context
+        | SemanticNodeKind.ListMap(sourceNodeId, _, context)
+        | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
+        | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
+        | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
+        | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
+        | SemanticNodeKind.ListAny(sourceNodeId, _, context)
+        | SemanticNodeKind.ListFindIndex(sourceNodeId, _, context)
+        | SemanticNodeKind.ListAll(sourceNodeId, _, context) -> sourceNodeId :: contextValues context
         | SemanticNodeKind.ListAppendItem(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListItemAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.MapRemove(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
@@ -785,16 +818,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
-        | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
-        | SemanticNodeKind.ListLastIndexOf(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
+        | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
-        | SemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context)
-        | SemanticNodeKind.MapFold(listNodeId, seedNodeId, _, context)
-        | SemanticNodeKind.ListEffectFold(listNodeId, seedNodeId, _, context) ->
-            listNodeId :: seedNodeId :: contextValues context
+        | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->
+            sourceNodeId :: seedNodeId :: contextValues context
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, _, _, context) ->
             acquireNodeId :: releaseCapabilityNodeId :: contextValues context
         | SemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
@@ -986,7 +1019,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.MapKeys sourceMapNodeId -> SemanticNodeKind.MapKeys(mapNodeId sourceMapNodeId)
             | SemanticNodeKind.SetToList sourceSetNodeId -> SemanticNodeKind.SetToList(mapNodeId sourceSetNodeId)
             | SemanticNodeKind.MapSize sourceMapNodeId -> SemanticNodeKind.MapSize(mapNodeId sourceMapNodeId)
-            | SemanticNodeKind.SetFromList sourceSetNodeId -> SemanticNodeKind.SetFromList(mapNodeId sourceSetNodeId)
+            | SemanticNodeKind.SetFromList sourceListNodeId -> SemanticNodeKind.SetFromList(mapNodeId sourceListNodeId)
             | SemanticNodeKind.SetSize sourceSetNodeId -> SemanticNodeKind.SetSize(mapNodeId sourceSetNodeId)
             | SemanticNodeKind.ListReverse listNodeId -> SemanticNodeKind.ListReverse(mapNodeId listNodeId)
             | SemanticNodeKind.ListLast listNodeId -> SemanticNodeKind.ListLast(mapNodeId listNodeId)
@@ -1011,10 +1044,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) ->
                 SemanticNodeKind.SetContains(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
-            | SemanticNodeKind.ListIndexOf(sourceSetNodeId, itemNodeId) ->
-                SemanticNodeKind.ListIndexOf(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
-            | SemanticNodeKind.ListLastIndexOf(sourceSetNodeId, itemNodeId) ->
-                SemanticNodeKind.ListLastIndexOf(mapNodeId sourceSetNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) ->
+                SemanticNodeKind.ListIndexOf(mapNodeId listNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) ->
+                SemanticNodeKind.ListLastIndexOf(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
@@ -1944,11 +1977,13 @@ module TaskTypes =
                            fields |> List.exists (fun field -> visit field.Type)))
         visit typeRef
 
-/// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, `List`,
-/// `Option` and `Result` of equatable types, and declared Products and Unions whose fields are all
-/// equatable, through any nesting and including recursive types. Float64 (NaN; use Float64Equal),
-/// function types, Task, TaskScope, capabilities, type parameters and anything reaching them are
-/// not equatable.
+/// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, Bits32,
+/// `List`, `Option` and `Result` of equatable types, and declared Products and Unions whose fields
+/// are all equatable, through any nesting and including recursive types. Float64 (NaN; use
+/// Float64Equal), function types, Task, TaskScope, Map, Set, capabilities, type parameters and
+/// anything reaching them are not equatable. A type parameter is never equatable, because nothing
+/// constrains its type arguments (there is no `T : equality`), so a Set item or Map key type is
+/// always concrete and a generic function cannot take or return `Set<T>` or `Map<T, _>`.
 [<RequireQualifiedAccess>]
 module EquatableTypes =
     /// Presentation text of a type using display names; unknown named types show their StableId.
@@ -2027,7 +2062,7 @@ module EquatableTypes =
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, _) -> "maps are not equatable"
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, _) -> "sets are not equatable"
                 | TypeRef.Capability _ -> "capability values are not equatable"
-                | TypeRef.TypeParameter _ -> "a type parameter is not known to be equatable"
+                | TypeRef.TypeParameter _ -> "type parameters are never equatable, because nothing constrains their type arguments, so a Set item or Map key type must be concrete"
                 | _ -> "it is not equatable"
             let location =
                 match path with

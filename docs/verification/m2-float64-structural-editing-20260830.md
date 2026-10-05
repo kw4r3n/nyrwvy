@@ -8,7 +8,7 @@ It supports the current [bounded structural editing specification](../specs/boun
 
 ## Verified implementation
 
-- Repository: `kw4r3n/nyrwvy-lang`
+- Repository: `kw4r3n/nyrwvy-lang` (the repository's name at the time; now `kw4r3n/nyrwvy`)
 - Implementation issue: #44
 - Implementation PR: #46
 - Exact verified implementation head: `1e1025074a87ed669366169ecc39318abf6167e7`

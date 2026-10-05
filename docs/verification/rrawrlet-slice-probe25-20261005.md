@@ -8,7 +8,7 @@ The concurrency part was expressible with task scopes, `TaskWait` (any) and `Tas
 
 Baseline: nyrwvy `800f364` (main after #352, clean); rrawrlet `4a28172` (clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The oracle ran rrawrlet's real `codex.py` on Python 3.11.15.
 
-The method was probe 19's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests, and `runPure` batches through a `runCases` entry. Probe 11's session client and probe 19's recipe helpers were reused. `dsl9.py` gained `mu2`, a `matchUnion` helper that writes order 41's `otherwise` and shared arms, and probe 9's JSON helpers now use it. The harness, cases, snapshot and transcripts are in the project's shared files (`codex-probe25/`) and are not committed.
+The method was probe 19's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests, and `runPure` batches through a `runCases` entry. Probe 11's session client and probe 19's recipe helpers were reused. `dsl9.py` gained `mu2`, a `matchUnion` helper that writes order 41's `otherwise` and shared arms, and probe 9's JSON helpers now use it. The harness, cases, snapshot and transcripts are in private files outside the repository (`codex-probe25/`) and are not committed.
 
 ## Why this part
 
@@ -125,4 +125,4 @@ The fixed cost of a run dominates. The rows stop at 240 because of the fake's li
 
 ## Reproducing
 
-The scripts are in the project's shared files under `codex-probe25/`. `author.py <snapshot>` authors the port (it execs `jsonpart.py`) and writes `author_stats.json`. `oracle.py` runs rrawrlet's `codex.py` on the virtual clock with the scripted app-server, and needs rrawrlet at `/home/claude/rrawrlet`. `mkcases.py [out.json]` builds the 490 cases and the port's fake for each. `run_cases.py <snapshot> cases.json known.json` runs them, and `scale.py <snapshot>` gives the scale rows. `run-first.txt` and `run-final.txt` are the two full runs. Run the scripts with `PYTHONPATH=codex-probe25` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.
+The scripts are in private files outside the repository (`codex-probe25/`). `author.py <snapshot>` authors the port (it execs `jsonpart.py`) and writes `author_stats.json`. `oracle.py` runs rrawrlet's `codex.py` on the virtual clock with the scripted app-server, and needs an rrawrlet checkout at a fixed local path. `mkcases.py [out.json]` builds the 490 cases and the port's fake for each. `run_cases.py <snapshot> cases.json known.json` runs them, and `scale.py <snapshot>` gives the scale rows. `run-first.txt` and `run-final.txt` are the two full runs. Run the scripts with `PYTHONPATH=codex-probe25` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.

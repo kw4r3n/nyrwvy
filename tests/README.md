@@ -4,7 +4,7 @@ Nyrwvy keeps routine validation small and separates broader execution checks fro
 
 ## fast
 
-Run during ordinary development and CI:
+Run during ordinary development (the on-demand `CI` workflow runs the same checks when the maintainer starts it). The fish wrapper is a convenience; fish is needed only for the wrapper scripts and the one fish test below, and the direct `dotnet test` / `node --test` commands in the [README](../README.md#build-and-verify) are the equivalent without it:
 
 ```fish
 ./scripts/test-fast.fish
@@ -22,7 +22,7 @@ Run for larger related changes and milestone validation:
 ./scripts/test-extended.fish
 ```
 
-`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. Run it locally with `fish scripts/test-extended.fish`; the `Extended` workflow (`.github/workflows/extended.yml`) runs it only on demand.
+`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The `m2-listmap-evaluation-summary.test.fish` script test under `scripts/tests/` exercises a fish function library and therefore needs fish; everything else runs without it. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. Run it locally with `fish scripts/test-extended.fish`; the `Extended` workflow (`.github/workflows/extended.yml`) runs it only on demand.
 
 After changing suite ownership, build the solution in Release and run
 `node scripts/check-test-suite-partition.mjs`. This discovery-only audit (also run by the `Extended` workflow)
@@ -72,11 +72,13 @@ The fast wrapper also runs the ordinary-authoring Node tests and the isolated ve
 node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
 ```
 
-CI additionally verifies the MCP adapter and the shared evaluation runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
+The on-demand CI workflow additionally verifies the MCP adapter and the shared evaluation runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
 
 ```shell
 npm run test:node
 ```
+
+`npm test` at the root runs `test:adapters` followed by `test:node`. `.node-version` names the Node release this toolchain is developed and installed with (22.22.2, the lowest that satisfies every dependency's `engines` without a warning); `engines` in `package.json` keeps the lower runtime minimum, 22.6.0.
 
 Or select an individual boundary:
 

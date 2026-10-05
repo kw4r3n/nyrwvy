@@ -11,7 +11,7 @@ The OpenCode operator for this probe (`scripts/run-mini-work-planner-authoring.f
 
 Author a second small practical Nyrwvy program with a different semantic shape from Verification Planner.
 
-The workload is deliberately adjacent to FurCrawr's task-decision problem, but it models only the next action for one work item. It does not introduce WorkGraph orchestration, concurrency, timers, model routing, durable orchestration state, or a generic state-machine abstraction.
+The workload is deliberately adjacent to the task-decision problem of another of the author's projects (a work orchestrator), but it models only the next action for one work item. It does not introduce WorkGraph orchestration, concurrency, timers, model routing, durable orchestration state, or a generic state-machine abstraction.
 
 A clean result is evidence that the current language/authoring surface handles this workload. It is not a reason to create a new semantic milestone.
 

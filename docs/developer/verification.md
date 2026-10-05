@@ -11,9 +11,11 @@ The second job can justify expensive controlled experiments. It does not make th
 
 ## Reproducible tooling and shell checks
 
-The exact .NET SDK is selected by [`global.json`](../../global.json), with
-roll-forward disabled and prerelease SDKs excluded. CI uses that same file.
-Upgrade the SDK pin deliberately and verify the build/tests with that version.
+The .NET SDK is selected by [`global.json`](../../global.json): the pinned
+version or any newer patch of the same feature band (`rollForward:
+latestPatch`), with prerelease SDKs excluded. CI uses that same file. A
+different feature band or major version is a deliberate repository change;
+verify the build/tests with that version when updating the pin.
 [`Directory.Build.props`](../../Directory.Build.props) owns the shared F# target
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
@@ -25,9 +27,12 @@ request: [`ci.yml`](../../.github/workflows/ci.yml) and
 opening a pull request, run the fast suite and the tests related to the change
 in a local or cloud session; a PR does not wait on GitHub Actions.
 
-The verification entry points require fish 3.4+ and Node 22.6+. The CI job
-runs, and a local pre-PR check mirrors, these steps after building the fast
-test graph and installing the locked Node dependencies (`npm ci`):
+The verification entry points require Node 22.6+ (22.22.2 recommended, see
+`.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts and
+the one fish script test, and the README gives the direct `dotnet test` and
+`node --test` equivalents. The CI job runs, and a local pre-PR check mirrors,
+these steps after building the fast test graph and installing the locked Node
+dependencies (`npm ci`):
 
 ```sh
 npm run typecheck

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted; implemented (issue #148). The current contract is in the [expression authoring specification](../specs/expression-authoring.md) and the [agent authoring session](../specs/agent-authoring-session.md).
 - **Date:** 2026-09-08
-- **Issue:** [#145](https://github.com/kw4r3n/nyrwvy-lang/issues/145)
+- **Issue:** [#145](https://github.com/kw4r3n/nyrwvy/issues/145)
 
 This decision extends the structural-authoring direction beyond the whole-function-body boundary established for Milestone 2. It defines a typed targeted edit, not arbitrary graph mutation. The maintained [expression authoring specification](../specs/expression-authoring.md) is authoritative for `ExpressionRecipe` itself.
 
@@ -151,4 +151,4 @@ Reuse existing persistence/lowering/backend evidence when serialized semantic sh
 
 Revisit this boundary when a concrete workflow needs only one use of a shared node changed, arbitrary existing-node reuse in a replacement, explicit expression-slot identity, global dead-node cleanup, general CSE/DAG construction, or an obligation type that can safely survive a role-changing replacement.
 
-Refs [#42](https://github.com/kw4r3n/nyrwvy-lang/issues/42), [#44](https://github.com/kw4r3n/nyrwvy-lang/issues/44), [#114](https://github.com/kw4r3n/nyrwvy-lang/issues/114), [#121](https://github.com/kw4r3n/nyrwvy-lang/issues/121), [#141](https://github.com/kw4r3n/nyrwvy-lang/issues/141).
+Refs [#42](https://github.com/kw4r3n/nyrwvy/issues/42), [#44](https://github.com/kw4r3n/nyrwvy/issues/44), [#114](https://github.com/kw4r3n/nyrwvy/issues/114), [#121](https://github.com/kw4r3n/nyrwvy/issues/121), [#141](https://github.com/kw4r3n/nyrwvy/issues/141).

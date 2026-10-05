@@ -107,13 +107,13 @@ module ListCallbackContextTests =
             | Error(AgentStructuralWorkflowError.SimulationRejected(diagnostic :: _)) -> diagnostic.Code
             | other -> failwithf "Invalid context accepted: %A" other
         let items, bound = ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1
-        Assert.Equal("PureExpressionListCallbackArityMismatch", reject (ExpressionRecipe.ListFilter(items, above.Id, [])))
+        Assert.Equal("PureExpressionCallbackArityMismatch", reject (ExpressionRecipe.ListFilter(items, above.Id, [])))
         Assert.Equal("PureExpressionCallArgumentTargetNotFound", reject (ExpressionRecipe.ListFilter(items, above.Id, [ id<ParameterTag> "foreign", bound ])))
-        Assert.Equal("PureExpressionListCallbackContextTypeMismatch",
+        Assert.Equal("PureExpressionCallbackContextTypeMismatch",
             reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", ExpressionRecipe.BoolLiteral true ])))
         Assert.Equal("PureExpressionDuplicateCallArgument",
             reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", bound; parameter above "threshold", bound ])))
-        Assert.Equal("PureExpressionListCallbackArityMismatch",
+        Assert.Equal("PureExpressionCallbackArityMismatch",
             reject (ExpressionRecipe.ListFilter(items, above.Id, [ parameter above "threshold", bound; parameter above "item", bound ])))
         // A persisted graph whose context value has the wrong type is rejected by the validator.
         let snapshot = AgentWorkspace.snapshotForStructuralEditing ws
@@ -131,7 +131,7 @@ module ListCallbackContextTests =
                                         | SemanticNodeKind.ParameterReference parameterId when parameterId = threshold.Id ->
                                             { node with Kind = SemanticNodeKind.BoolLiteral true }
                                         | _ -> node) } }) }
-        Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "ListCallbackContextTypeMismatch")
+        Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "CallbackContextTypeMismatch")
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``context callbacks run with runtime values and are authored over the wire`` () =

@@ -6,8 +6,10 @@ namespace Nyrwvy.Core
 /// unambiguous.
 [<RequireQualifiedAccess>]
 module DiagnosticText =
-    let rec typeRef (snapshot: Snapshot) (value: TypeRef): string =
-        let render = typeRef snapshot
+    /// `withTypeParameterIds` appends a type parameter's ID to its display name, for a message that
+    /// compares two type parameters of one name.
+    let rec private render (snapshot: Snapshot) (withTypeParameterIds: bool) (value: TypeRef): string =
+        let render = render snapshot withTypeParameterIds
         let generic name (arguments: TypeRef list) =
             name + "<" + (arguments |> List.map render |> String.concat ", ") + ">"
         match value with
@@ -27,6 +29,7 @@ module DiagnosticText =
             | None -> $"capability '{StableId.value capabilityId}'"
         | TypeRef.Function(parameters, result) ->
             "(" + (parameters |> List.map render |> String.concat ", ") + ") -> " + render result
+        | TypeRef.TypeParameter(id, displayName) when withTypeParameterIds -> $"{displayName} (type parameter {StableId.value id})"
         | TypeRef.TypeParameter(_, displayName) -> displayName
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) -> generic "Option" arguments
@@ -36,6 +39,18 @@ module DiagnosticText =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) -> generic "Set" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) -> generic "Task" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) -> generic "TaskScope" arguments
+
+    let typeRef (snapshot: Snapshot) (value: TypeRef): string = render snapshot false value
+
+    /// Two types of a mismatch, rendered so that they read differently: when their display texts
+    /// agree although the types differ (two type parameters named `T`, one of another function or
+    /// of the request itself), every type parameter carries its ID.
+    let typeRefPair (snapshot: Snapshot) (expected: TypeRef) (actual: TypeRef): string * string =
+        let expectedText, actualText = typeRef snapshot expected, typeRef snapshot actual
+        if expectedText = actualText && expected <> actual then
+            render snapshot true expected, render snapshot true actual
+        else
+            expectedText, actualText
 
     /// A named type with its ID, for messages that compare two named types.
     let namedType (snapshot: Snapshot) (typeId: TypeId) =
@@ -54,6 +69,12 @@ module DiagnosticText =
         match value with
         | GraphCompletion.Normal normal -> typeRef snapshot normal
         | GraphCompletion.Aborts -> "no value (the expression always aborts)"
+
+    /// Two completions of a mismatch, with type-parameter IDs when their texts would otherwise agree.
+    let completionPair (snapshot: Snapshot) (left: GraphCompletion) (right: GraphCompletion): string * string =
+        match left, right with
+        | GraphCompletion.Normal leftType, GraphCompletion.Normal rightType -> typeRefPair snapshot leftType rightType
+        | _ -> completion snapshot left, completion snapshot right
 
     /// A function by display name and ID: `'countStep' (01a0…)`.
     let functionName (functionEntity: SemanticFunction) =

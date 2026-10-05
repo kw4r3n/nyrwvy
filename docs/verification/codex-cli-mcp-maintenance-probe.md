@@ -21,17 +21,19 @@ The observed boundary is Codex's MCP approval gate in this noninteractive invoca
 - Model requested: `gpt-6-astra`; the JSON event stream does not independently identify the backend revision.
 - Nyrwvy commit: `ab74ecc435e919da76536ecff98402f2c75ba551`.
 - Fixture source: `9f03d5e7:mini-work-planner/planner.snapshot.json`.
-- Disposable active project: `/home/kw4/Work/Tools/nyrwvy/artifacts/codex-mcp-probe/workspace`.
+- Disposable active project: `<repo>/artifacts/codex-mcp-probe/workspace`.
 - Fixture path given to the model: `planner.snapshot.json`.
 - Setup: existing `npm --prefix tools/nyrwvy-mcp run setup`; Release build succeeded with zero warnings/errors. No new helper, harness, or tests.
 - Existing unrelated working-tree change: `verification-planner/transcript.jsonl`, untouched.
 
 Effective MCP configuration, supplied through CLI overrides:
 
+Paths are redacted: `<repo>` is the Nyrwvy checkout and `<node>` the absolute path of the Node executable.
+
 ```toml
 [mcp_servers.nyrwvy]
-command = "/home/kw4/.local/share/mise/installs/node/26.8.2/bin/node"
-args = ["--experimental-strip-types", "/home/kw4/Work/Tools/nyrwvy/tools/nyrwvy-mcp/server.mjs"]
+command = "<node>"
+args = ["--experimental-strip-types", "<repo>/tools/nyrwvy-mcp/server.mjs"]
 ```
 
 Neither `--workspace` nor MCP `cwd` was configured. CLI options were `--ignore-user-config --ephemeral --skip-git-repo-check`, `-C` set to the disposable project above, `-m gpt-6-astra`, `-s workspace-write`, `--json`, and `-o` for the temporary final response. The prompt was supplied on stdin. Approval policy was not explicitly overridden; the host reported `never`. User configuration was ignored to avoid unrelated user MCP servers. Normal authentication remained available. CLI exit status was 0, which indicates completion of the model turn, not task success.
@@ -41,6 +43,13 @@ Neither `--workspace` nor MCP `cwd` was configured. CLI options were `--ignore-u
 ```text
 この project の planner.snapshot.json は Mini Work Planner の既知の pre-maintenance state です。
 Mini Work Planner の ExecutionState に fieldless variant TimedOut を追加し、既存の Failed と同じ behavior を持たせる。既存の semantic identities は維持すること。Nyrwvy MCP tools を使って変更を inspect、review、commit し、close/reopen 後に committed state を確認すること。snapshot JSON は直接読んだり編集したりせず、generated source も直接編集しないこと。snapshot は project-relative path で開くこと。
+```
+
+English translation of the prompt:
+
+```text
+This project's planner.snapshot.json is the known pre-maintenance state of the Mini Work Planner.
+Add a fieldless variant TimedOut to the Mini Work Planner's ExecutionState and give it the same behavior as the existing Failed. Preserve the existing semantic identities. Use the Nyrwvy MCP tools to inspect, review and commit the change, and confirm the committed state after close/reopen. Do not read or edit the snapshot JSON directly, and do not edit generated source directly. Open the snapshot by a project-relative path.
 ```
 
 No operation name, stable ID, or tool-call sequence was supplied in the prompt.

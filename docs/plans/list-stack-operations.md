@@ -33,7 +33,7 @@ Semantics, equality, ordering, run values, Execution IR, snapshots and Nyason do
 | **Trie correctness.** Off-by-one errors at the 32-item boundaries in push, pop and tail promotion | The main implementation risk | A randomized test of operation sequences (append, drop-last, item at, slice, concat, fold, equality) against .NET `List<T>`, across sizes that cross 32, 1,024 and 32,768, through the existing compiled-driver pattern of `ListAppendTests` |
 | **Emitted-source tests.** `ListTests` asserts strings such as `Concat(NyList<T> other)` | Mechanical | Keep the public signatures; update the rest |
 
-Not affected: `NyStr` keeps its own store, the [real-time processors](realtime-processors.md) are separate from ordinary code, and `mini-work-planner/runner/Generated.cs` is a frozen copy of an older runtime that nothing regenerates.
+Not affected: `NyStr` keeps its own store, the [real-time processors](realtime-processors.md) are separate from ordinary code, and `examples/mini-work-planner/runner/Generated.cs` is a frozen copy of an older runtime that nothing regenerates.
 
 ## Acceptance criteria
 

@@ -6,13 +6,13 @@ This is the first probe outside rrawrlet's Python tooling. The numeric pressure 
 
 **Date:** 2026-10-01
 
-Baseline: nyrwvy `f9f6335` (main after #286, clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The reference ran on Python 3.11.15. The method was probe 19's: name-resolved requests over the `Nyrwvy.AuthoringSession` JSON-lines protocol, and `runPure` batches through a `runCases` entry. Probe 11's session client and recipe helpers were reused unchanged. The harness, cases, snapshot and transcript are in the project's shared files (`music-probe20/`) and are not committed.
+Baseline: nyrwvy `f9f6335` (main after #286, clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The reference ran on Python 3.11.15. The method was probe 19's: name-resolved requests over the `Nyrwvy.AuthoringSession` JSON-lines protocol, and `runPure` batches through a `runCases` entry. Probe 11's session client and recipe helpers were reused unchanged. The harness, cases, snapshot and transcript are in private files outside the repository (`music-probe20/`) and are not committed.
 
 ## Scope
 
 All seven items of #283 and two of the additions from the owner's comment (41-EDO errors in steps, minutes and seconds; the total compromise score). The equave is a parameter, with the octave as the default.
 
-Not done: **harmonym naming** and the **progression notation parser**. Both need the naming and fusion rules from LΛMPLIGHT's term dictionary, and the saved pages were not in the project files. They can be a follow-up probe when the pages are available.
+Not done: **harmonym naming** and the **progression notation parser**. Both need the naming and fusion rules from the term dictionary of the author's separate music-theory project, whose pages were not available to the session. They can be a follow-up probe when the pages are available.
 
 Where the issue leaves a rule open, the port and the reference use the same choice (these are assumptions, not the theory as written):
 
@@ -113,4 +113,4 @@ The owner queued the first cost as order 34: [`Float64RoundToInt64` and `Float64
 
 ## Reproducing
 
-The scripts are in the project's shared files under `music-probe20/`. `author.py <snapshot>` authors the module and writes `author_stats.json` with per-group counts. `ref.py` is the Python reference. `mkcases.py [out.json]` builds the 3,400 cases from it. `run_cases.py <snapshot> cases.json` runs them, and `scale.py <snapshot>` gives the scale rows. `nw.py` and `dsl9.py` are probe 11's client helpers, unchanged. Run the scripts with `PYTHONPATH=music-probe20` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.
+The scripts are in private files outside the repository under `music-probe20/`. `author.py <snapshot>` authors the module and writes `author_stats.json` with per-group counts. `ref.py` is the Python reference. `mkcases.py [out.json]` builds the 3,400 cases from it. `run_cases.py <snapshot> cases.json` runs them, and `scale.py <snapshot>` gives the scale rows. `nw.py` and `dsl9.py` are probe 11's client helpers, unchanged. Run the scripts with `PYTHONPATH=music-probe20` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.

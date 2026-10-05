@@ -249,6 +249,21 @@ module ViewerArtifactTests =
             use notHtml = send session ($"""{{"id":"view","op":"viewFunction","function":"main","output":{JsonSerializer.Serialize path}}}""")
             Assert.False(notHtml.RootElement.GetProperty("ok").GetBoolean())
             Assert.Equal("ViewWriteFailed", notHtml.RootElement.GetProperty("error").GetProperty("code").GetString())
+
+            // A relative output resolves beside the snapshot, not against the process working directory.
+            use relative = send session """{"id":"view","op":"viewFunction","function":"main","output":"pages/relative.html"}"""
+            Assert.True(relative.RootElement.GetProperty("ok").GetBoolean(), relative.RootElement.ToString())
+            Assert.Equal(Path.Combine(root, "pages", "relative.html"), relative.RootElement.GetProperty("result").GetProperty("path").GetString())
+            // Output is confined to the snapshot's directory: neither `..` nor an absolute path may leave it.
+            let outside = Path.Combine(Path.GetTempPath(), "nyrwvy-view-escape-" + Guid.NewGuid().ToString("N") + ".html")
+            for escape in [ "../escaped.html"; "pages/../../escaped.html"; outside ] do
+                use refused = send session ($"""{{"id":"view","op":"viewFunction","function":"main","output":{JsonSerializer.Serialize escape}}}""")
+                Assert.False(refused.RootElement.GetProperty("ok").GetBoolean(), escape)
+                let error = refused.RootElement.GetProperty("error")
+                Assert.Equal("ViewWriteFailed", error.GetProperty("code").GetString())
+                Assert.Contains("inside the snapshot's directory", error.GetProperty("message").GetString())
+            Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName root, "escaped.html")))
+            Assert.False(File.Exists outside)
             use both = send session ($"""{{"id":"view","op":"viewFunction","function":"main","functionId":"{StableId.value fixture.MainFunctionId}"}}""")
             Assert.False(both.RootElement.GetProperty("ok").GetBoolean())
             use unknown = send session """{"id":"view","op":"viewFunction","function":"missing"}"""

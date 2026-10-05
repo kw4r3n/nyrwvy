@@ -1087,7 +1087,9 @@ module SnapshotCodec =
     /// Whether a function body nests graphs deeper than any encoding of `maxJsonDepth` can hold:
     /// every graph level costs at least three containers (graph, node list, node). Checked before
     /// validation, whose recursion over nested graphs would otherwise overflow the stack first.
-    /// The probe stops at the limit, so it cannot overflow itself.
+    /// The probe stops at the limit, so it cannot overflow itself. Flat dependency chains inside
+    /// one graph need no bound here: the passes that follow them (`SnapshotValidator`'s cycle
+    /// check, `SemanticFacts`, `GraphOrder`) keep their own stacks.
     let internal nestsBeyondMaxDepth (snapshot: Snapshot) =
         let rec beyond remaining (graph: ValueGraph) =
             remaining = 0

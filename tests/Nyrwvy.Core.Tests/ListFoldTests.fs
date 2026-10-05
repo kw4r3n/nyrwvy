@@ -436,7 +436,7 @@ module ListFoldTests =
                 folder.Id, []) }
         match AgentExpressionStructuralWorkflow.simulate ws request with
         | Error(AgentStructuralWorkflowError.SimulationRejected errors) ->
-            Assert.Contains(errors, fun error -> error.Code = "PureExpressionListCallbackInputTypeMismatch")
+            Assert.Contains(errors, fun error -> error.Code = "PureExpressionCallbackInputTypeMismatch")
         | other -> failwithf "Expected typed folder rejection, got %A" other
 
         let corrupted =
@@ -457,5 +457,5 @@ module ListFoldTests =
                                                     { node with Kind = SemanticNodeKind.ListFold(source, seed, search.Id, []) }
                                                 | _ -> node) } }) }
         let issues = SnapshotValidator.validate corrupted
-        Assert.Contains(issues, fun issue -> issue.Code = "ListCallbackParameterTypeMismatch")
-        Assert.Contains(issues, fun issue -> issue.Code = "ListCallbackResultTypeMismatch")
+        Assert.Contains(issues, fun issue -> issue.Code = "CallbackParameterTypeMismatch")
+        Assert.Contains(issues, fun issue -> issue.Code = "CallbackResultTypeMismatch")

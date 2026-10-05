@@ -13,7 +13,7 @@ This area holds explorations, evaluation protocols, and measurements that are no
 
 ## Authoring probes
 
-- [Mini Work Planner authoring probe](mini-work-planner-authoring.md), producing [`mini-work-planner/`](../../mini-work-planner/README.md); a smaller sibling program is [`verification-planner/`](../../verification-planner/README.md)
+- [Mini Work Planner authoring probe](mini-work-planner-authoring.md), producing [`mini-work-planner/`](../../examples/mini-work-planner/README.md); a smaller sibling program is [`verification-planner/`](../../examples/verification-planner/README.md)
 - [M6 medium-scale authoring pressure probe](m6-medium-scale-authoring-probe.md)
 
 ## Representation experiments

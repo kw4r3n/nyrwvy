@@ -5,7 +5,7 @@ set -l variant high
 set -l head (git rev-parse HEAD 2>/dev/null)
 
 if test -z "$head"
-    echo "ERROR: run from the nyrwvy-lang repository."
+    echo "ERROR: run from the nyrwvy repository."
     exit 1
 end
 

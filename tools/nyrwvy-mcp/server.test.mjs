@@ -67,6 +67,12 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     await failed(first, "recipe_reference", { kind: "__proto__" })
     await failed(first, "inspect", { view: "status", extra: true })
     await failed(second, "inspect", { view: "status" })
+    // A session that cannot start reports its own diagnostic, not a lost response.
+    const missing = await failed(first, "open", { mode: "open", snapshot: "missing.json" })
+    assert.match(missing.content[0].text, /SnapshotFileNotFound: No snapshot file at .*missing\.json.*create/)
+    assert.doesNotMatch(missing.content[0].text, /replay/)
+    const noWorkspace = await failed(first, "open", { mode: "create", snapshot: "workspace.json", workspace: join(root, "absent") })
+    assert.match(noWorkspace.content[0].text, /^workspace directory does not exist: /)
     const opened = await call(first, "open", { mode: "create", snapshot: "workspace.json" })
     assert.equal(opened.snapshot, join(workspace, "workspace.json"))
     // Host C# sources are server configuration, off by default, and never enabled per request.
@@ -99,6 +105,12 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(page.path, join(workspace, "views", "value.html"))
     assert.equal(page.functionId, functionId)
     assert.match(await readFile(page.path, "utf8"), /Function Focus/)
+    // Output is confined to the snapshot's directory, so an auto-approved model cannot overwrite other files.
+    for (const output of ["../escaped.html", join(root, "escaped.html")]) {
+      const refused = await failed(first, "view", { function: "value", output })
+      assert.equal(refused.structuredContent.error.code, "ViewWriteFailed")
+    }
+    await assert.rejects(readFile(join(root, "escaped.html")), { code: "ENOENT" })
     const discard = (await call(first, "replace", { function: "value", replacement: bool(true) })).result
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
@@ -116,6 +128,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
 
     // EOF must release the actual AuthoringSession lock without nyrwvy_close.
     await first.close()
+    await assert.rejects(readFile(join(workspace, "workspace.json.lock")), { code: "ENOENT" }, "a clean close removes the lock file")
     const reopened = await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
     assert.equal(reopened.snapshot, opened.snapshot)
     const resumed = (await call(second, "inspect", { view: "function", functionId })).result.function

@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-10-01
+- **Updated:** 2026-10-05
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -138,7 +138,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 <a id="immediate-execution-queue"></a>
 
-The language/tool implementation queue lives in this document. Its orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-51 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
+The language/tool implementation queue lives in this document. An *order* is one numbered, bounded language or tool change with its evidence and decision; a *probe* is one numbered live porting or authoring session recorded under [verification](../verification/README.md#live-agent-probes). The orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-55 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
 
 ### Orders 1-39
 
@@ -217,7 +217,7 @@ Counts come from the "Candidate hit counts" tables of the [probe 18](../verifica
 
 ### Queue from the 2026-09-25 probe
 
-The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in the project's shared files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
+The probe (main `05e3d24`, rrawrlet `d02990a`; recorded in private files, not in this repository) authored rrawrlet's `summarize`/`usage_is_complete` and a spawn → parallel members → integrate skeleton through the maintained session and `runPure` only. The data processing matched Python on 5 cases, and the skeleton passed 4 fake scenarios using `UseResource`, `ParallelAll` and `ListEffectFold`. It found the blockers and costs below, in order of impact. Function values were not needed for that slice.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
@@ -450,7 +450,7 @@ The owner queued both probe 22 costs in this order. For order 50 the owner accep
 
 ### Queue from the 2026-10-05 probe 23 owner choice
 
-Probe 23's comb was built on purpose, but the owner counts a constructed input when its shape could occur in a real program ("意図的に作っていたとしても現実的にありえる範囲なら対応したい"): a node whose first dependency is a leaf is ordinary. That meets the [order 50 decision](../decisions/list-last-and-drop-last.md#revisit-conditions)'s revisit condition. After order 52 left the components over the limit, the owner queued order 53 for their two remaining linear steps, and after the state-Product follow-up, order 54 for probe 23's second cost.
+Probe 23's comb was built on purpose, but the owner counts a constructed input when its shape could occur in a real program (the owner's rule: even a deliberately constructed case should be handled when it is realistically possible): a node whose first dependency is a leaf is ordinary. That meets the [order 50 decision](../decisions/list-last-and-drop-last.md#revisit-conditions)'s revisit condition. After order 52 left the components over the limit, the owner queued order 53 for their two remaining linear steps, and after the state-Product follow-up, order 54 for probe 23's second cost.
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |

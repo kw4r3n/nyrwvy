@@ -4,7 +4,7 @@
 
 Nyrwvy documentation is organized by semantic purpose. A document should answer one primary kind of question, make its authority clear, and avoid competing silently with another representation of the same decision or contract.
 
-The shared model is intentionally compatible with the corresponding FuwaFuwa documentation structure.
+The shared model is the purpose-oriented structure the author uses across projects.
 
 ## Purpose-oriented taxonomy
 
@@ -137,3 +137,10 @@ The frozen pre-Issue-30 documentation snapshot is kept under [`../../docs-archiv
 - Add a user-facing entry point only when there is enough stable user workflow documentation to justify one.
 
 Entry points should direct readers to authoritative material rather than becoming exhaustive inventories of every file.
+
+## Recurring terms
+
+- **The owner** (or **the project owner**) is the maintainer, the decision authority named in decision records and roadmap entries ("owner choice").
+- **Order N** is the N-th entry of the [implementation queue](../plans/post-m2-roadmap.md#immediate-execution-queue): one bounded language or tool change with its evidence and decision. Specs and reference documents link the decision instead of citing the order number.
+- **Probe N** is the N-th live porting or authoring session recorded under [verification](../verification/README.md#live-agent-probes). Probe numbers appear in roadmap and verification records, not in normative documents.
+- **rrawrlet** is the separate Python application most probes ported slices of; see the verification index for what the records do and do not let a reader reproduce.

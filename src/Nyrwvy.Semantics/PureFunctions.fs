@@ -20,10 +20,9 @@ module PureFunctions =
                 | Some fn ->
                     let nodes = ValueGraph.collectNodes fn.Body
                     let effectful = nodes |> List.exists SemanticNodeShape.isIntrinsicallyEffectful
-                    // Every named function, in any role. The UseResource and TaskScope bodies and the
-                    // ParallelAll and TaskStart workers were left out of this list before; including
-                    // them changes nothing, because those kinds make `effectful` true and the targets
-                    // are visited only when it is false.
+                    // Every named function, in any role, must itself be pure. The UseResource and TaskScope
+                    // bodies and the ParallelAll and TaskStart workers belong to kinds that are effectful
+                    // themselves, so they are listed for uniformity: `effectful` already decides those.
                     let targets =
                         nodes
                         |> List.collect (SemanticNodeShape.functionReferences >> List.map (fun reference -> reference.FunctionId))

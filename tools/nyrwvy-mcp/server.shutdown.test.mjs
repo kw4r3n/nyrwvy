@@ -145,7 +145,8 @@ describe("MCP abnormal authoring children", { concurrency: true }, () => {
     })))
   })
 
-  test("MCP explicit close gracefully drains earlier calls without disturbing close/open/inspect order", { timeout: 10000 }, async t => {
+  // The close waits out real 5 s drain/EOF deadlines; give it the same headroom as its siblings for a loaded runner.
+  test("MCP explicit close gracefully drains earlier calls without disturbing close/open/inspect order", { timeout: 30000 }, async t => {
     const api = await abnormalServer(t, "graceful")
     assert.notEqual((await api.tool("open", { mode: "create", snapshot: "workspace.json" })).result.isError, true)
     const committing = api.tool("commit", { proposalId: "sent-once" })

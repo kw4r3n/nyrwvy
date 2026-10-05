@@ -8,7 +8,7 @@ No cost limits reach. The three recurring costs came back: `matchUnion` needs ev
 
 Baseline: nyrwvy `601dfe4` (main after #279, clean); rrawrlet `4276240` (clean). The session server was built with `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` on .NET SDK 10.0.112. The oracle ran rrawrlet's real `verify` functions on Python 3.11.15.
 
-The method was probe 16's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and no `declarations` call, and `runPure` batches through a `runCases` entry. Probe 11's session client and recipe helpers were reused unchanged. Probe 9's JSON helpers and `json.dumps` and probe 15's `round1` were reused as source. The harness, cases, snapshot and transcripts are in the project's shared files (`rrawrlet-probe17/`) and are not committed.
+The method was probe 16's: the `Nyrwvy.AuthoringSession` JSON-lines protocol with name-resolved requests and no `declarations` call, and `runPure` batches through a `runCases` entry. Probe 11's session client and recipe helpers were reused unchanged. Probe 9's JSON helpers and `json.dumps` and probe 15's `round1` were reused as source. The harness, cases, snapshot and transcripts are in private files outside the repository (`rrawrlet-probe17/`) and are not committed.
 
 ## Why this part
 
@@ -113,4 +113,4 @@ Not needed this time: Map (the one dict is built once and looked up once, so a f
 
 ## Reproducing
 
-The scripts are in the project's shared files under `rrawrlet-probe17/`. `author.py <snapshot>` authors the port (it execs `jsonpart.py`, probe 9's JSON helpers and `json.dumps`) and writes `author_stats.json`. `oracle.py` runs `rrawrlet.verify` with the scripted host and records the calls; it needs rrawrlet at `/home/claude/rrawrlet`. `mkcases.py [out.json]` builds the 1,094 cases under `/tmp/v17`. `run_cases.py <snapshot> cases.json` runs them. `scale.py <snapshot copy>` gives the scale rows and `test_round.py <snapshot copy>` the rounding check. `nw.py` and `dsl9.py` are probe 11's client helpers, unchanged. Run the scripts with `PYTHONPATH=rrawrlet-probe17` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.
+The scripts are in private files outside the repository under `rrawrlet-probe17/`. `author.py <snapshot>` authors the port (it execs `jsonpart.py`, probe 9's JSON helpers and `json.dumps`) and writes `author_stats.json`. `oracle.py` runs `rrawrlet.verify` with the scripted host and records the calls; it needs an rrawrlet checkout at a fixed local path. `mkcases.py [out.json]` builds the 1,094 cases under `/tmp/v17`. `run_cases.py <snapshot> cases.json` runs them. `scale.py <snapshot copy>` gives the scale rows and `test_round.py <snapshot copy>` the rounding check. `nw.py` and `dsl9.py` are probe 11's client helpers, unchanged. Run the scripts with `PYTHONPATH=rrawrlet-probe17` and `NW_BIN` set to the built `Nyrwvy.AuthoringSession`.

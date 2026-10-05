@@ -85,7 +85,7 @@ module StructuralDiagnosticTextTests =
     let ``a ListFold folder with swapped parameters is named with its actual and expected signature`` () =
         let code, message =
             reject [ "xs", listOf S ] I """{"kind":"listFold","source":{"kind":"parameter","name":"xs"},"seed":{"kind":"int64Literal","value":0},"function":"countStep"}"""
-        Assert.Equal("PureExpressionListCallbackInputTypeMismatch", code)
+        Assert.Equal("PureExpressionCallbackInputTypeMismatch", code)
         Assert.Equal(
             $"ListFold folder 'countStep' ({StableId.value countStepId}) must have type (accumulator, item) -> accumulator, here (Int64, String) -> Int64; "
             + "the folder has type (line: String, acc: Int64) -> Int64. At body (listFold).",
@@ -107,7 +107,7 @@ module StructuralDiagnosticTextTests =
     let ``a comparator-style sort callback is named with its result type`` () =
         let code, message =
             reject [ "xs", listOf S ] (listOf S) """{"kind":"listSortBy","source":{"kind":"parameter","name":"xs"},"function":"cmpLen"}"""
-        Assert.Equal("PureExpressionListCallbackResultTypeMismatch", code)
+        Assert.Equal("PureExpressionCallbackResultTypeMismatch", code)
         Assert.Equal(
             $"ListSortBy less-than callback 'cmpLen' ({StableId.value cmpLenId}) must return Bool; it has type (a: String, b: String) -> Int64. At body (listSortBy).",
             message

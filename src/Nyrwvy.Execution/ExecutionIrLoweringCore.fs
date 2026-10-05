@@ -106,6 +106,19 @@ module ExecutionIr =
                 block.Instructions.Add instruction
                 value
 
+            /// A self call whose arguments have the function's exact parameter types. Validation
+            /// already rejects any other self call (there is no polymorphic recursion); the check
+            /// here keeps the jump below, which reuses the parameter locals, from ever being emitted
+            /// for one, so an unvalidated snapshot lowers it as an ordinary call instead.
+            let isExactSelfCall (graph: TypedSemanticGraph) (target: FunctionId) (arguments: TypedSemanticArgument list) =
+                target = functionEntity.Id
+                && arguments
+                   |> List.forall (fun (argument: TypedSemanticArgument) ->
+                       match Map.tryFind argument.TargetParameterId parameterValues,
+                             graph.Nodes |> List.tryFind (fun (node: TypedSemanticNode) -> node.OriginNodeId = argument.ValueNodeId) with
+                       | Some parameter, Some { Completion = GraphCompletion.Normal valueType } -> valueType = parameter.Type
+                       | _ -> false)
+
             /// The node of a graph in tail position, when it leads to a self DirectCall in tail
             /// position (the call itself, or a structured node with such a call in an arm or body).
             /// The graph's result must be one of its own nodes that no other node of the graph uses;
@@ -114,16 +127,16 @@ module ExecutionIr =
                 graph.Nodes
                 |> List.tryFind (fun (node: TypedSemanticNode) -> node.OriginNodeId = graph.ResultNodeId)
                 |> Option.filter (fun (result: TypedSemanticNode) ->
-                    leadsToTailSelfCall result
+                    leadsToTailSelfCall graph result
                     && graph.Nodes
                        |> List.forall (fun (other: TypedSemanticNode) ->
                            other.OriginNodeId = result.OriginNodeId
                            || not (List.contains result.OriginNodeId (ExecutionIrAnalysis.dependencies other))))
 
-            and leadsToTailSelfCall (node: TypedSemanticNode): bool =
+            and leadsToTailSelfCall (graph: TypedSemanticGraph) (node: TypedSemanticNode): bool =
                 let any (graphs: TypedSemanticGraph list) = graphs |> List.exists (tailSelfCallNode >> Option.isSome)
                 match node.Kind with
-                | TypedSemanticNodeKind.DirectCall(target, _) -> target = functionEntity.Id
+                | TypedSemanticNodeKind.DirectCall(target, arguments) -> isExactSelfCall graph target arguments
                 | TypedSemanticNodeKind.Bind(_, body) -> any [ body.Body ]
                 | TypedSemanticNodeKind.Conditional(_, whenTrue, whenFalse) -> any [ whenTrue; whenFalse ]
                 | TypedSemanticNodeKind.BoolAnd(_, right)
