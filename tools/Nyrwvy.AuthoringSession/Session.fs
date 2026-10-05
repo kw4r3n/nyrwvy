@@ -103,6 +103,22 @@ module private SessionStorage =
         | :? IOException -> Error(AuthoringSessionError.LockUnavailable path)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+    /// Releases the lock and removes its file, so a clean close or a failed open leaves nothing
+    /// behind. The file is unlinked before the handle closes where the OS allows it (POSIX), so a
+    /// concurrent opener either fails against the still-held lock or creates a fresh file; where it
+    /// does not (Windows), the delete is retried after the close and fails harmlessly if another
+    /// session has already taken the lock. Session commits verify the persisted source digest, so
+    /// the remaining POSIX window (an opener between its open and lock calls) cannot corrupt a snapshot.
+    let releaseLock (path: string) (lockHandle: FileStream) =
+        let tryDelete () =
+            try File.Delete(lockPath path); true
+            with
+            | :? IOException
+            | :? UnauthorizedAccessException -> false
+        let deleted = tryDelete ()
+        lockHandle.Dispose()
+        if not deleted then tryDelete () |> ignore
+
     let readText (path: string): Result<string, AuthoringSessionError> =
         try Ok(File.ReadAllText(path, Encoding.UTF8))
         with
@@ -852,7 +868,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     member _.Close() =
         if not closed then
             closed <- true
-            lockHandle.Dispose()
+            SessionStorage.releaseLock path lockHandle
 
     interface IDisposable with
         member this.Dispose() = this.Close()
@@ -882,7 +898,7 @@ module AuthoringSession =
             | Ok lockHandle ->
                 match SessionStorage.readText path with
                 | Error error ->
-                    lockHandle.Dispose()
+                    SessionStorage.releaseLock path lockHandle
                     Error error
                 | Ok source ->
                     let loaded = PinnedDependency.load path sourceOverride
@@ -899,7 +915,7 @@ module AuthoringSession =
                                 | true, Some selected -> PinnedDependency.persistPin path source selected |> Result.map Some
                             prepared |> Result.map (fun selected -> selected, workspace))) with
                     | Error error ->
-                        lockHandle.Dispose()
+                        SessionStorage.releaseLock path lockHandle
                         Error error
                     | Ok(selected, workspace) ->
                         Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
@@ -956,7 +972,7 @@ module AuthoringSession =
                                         |> Result.map (fun () -> upgradedSource, workspace, plan.Selection)))))
                 match result with
                 | Error error ->
-                    lockHandle.Dispose()
+                    SessionStorage.releaseLock path lockHandle
                     Error error
                 | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, lockHandle, Some selected))
 
@@ -976,7 +992,7 @@ module AuthoringSession =
             | Error error -> Error error
             | Ok lockHandle ->
                 if File.Exists path || File.Exists(path + ".dependency.json") then
-                    lockHandle.Dispose()
+                    SessionStorage.releaseLock path lockHandle
                     Error(AuthoringSessionError.SnapshotFileAlreadyExists path)
                 else
                     let pinOne = PinnedDependency.pinSource path
@@ -994,7 +1010,7 @@ module AuthoringSession =
                             |> Result.map Some
                     match selection with
                     | Error error ->
-                        lockHandle.Dispose()
+                        SessionStorage.releaseLock path lockHandle
                         Error error
                     | Ok selected ->
                         let snapshot = Snapshot.empty (StableIdAllocator.newSnapshotId ())
@@ -1005,7 +1021,7 @@ module AuthoringSession =
                             | Some imported -> AgentWorkspace.createResolved imported snapshot
                         match workspaceResult with
                         | Error issues ->
-                            lockHandle.Dispose()
+                            SessionStorage.releaseLock path lockHandle
                             Error(AuthoringSessionError.WorkspaceValidationFailure issues)
                         | Ok workspace ->
                             let serialized =
@@ -1014,7 +1030,7 @@ module AuthoringSession =
                                 | Some imported -> AgentWorkspace.serializeWithDependency imported workspace
                             match serialized with
                             | Error error ->
-                                lockHandle.Dispose()
+                                SessionStorage.releaseLock path lockHandle
                                 Error(AuthoringSessionError.SnapshotCodecFailure error)
                             | Ok source ->
                                 let manifestResult =
@@ -1022,12 +1038,12 @@ module AuthoringSession =
                                     | None -> Ok()
                                     | Some selected -> SessionStorage.createAtomically (path + ".dependency.json") selected.Manifest
                                 match manifestResult with
-                                | Error error -> lockHandle.Dispose(); Error error
+                                | Error error -> SessionStorage.releaseLock path lockHandle; Error error
                                 | Ok() ->
                                     match SessionStorage.createAtomically path source with
                                     | Error error ->
                                         if selected.IsSome then SessionStorage.cleanupTemporary (path + ".dependency.json")
-                                        lockHandle.Dispose()
+                                        SessionStorage.releaseLock path lockHandle
                                         Error error
                                     | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
 

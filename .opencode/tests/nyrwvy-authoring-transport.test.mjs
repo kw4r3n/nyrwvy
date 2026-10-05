@@ -4,6 +4,8 @@ import childProcess, { spawn } from "node:child_process"
 import { syncBuiltinESMExports } from "node:module"
 import { randomUUID } from "node:crypto"
 import { once } from "node:events"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { AuthoringClient, openAuthoring, closeAuthoring } from "../lib/nyrwvy-authoring.ts"
 
 function child(source) {
@@ -68,6 +70,15 @@ test("cancelling a sent request rejects its queue without replaying mutations", 
     process.kill()
     await client.close().catch(() => undefined)
   }
+})
+
+test("a missing workspace directory is reported before anything is launched", { timeout: 5000 }, async () => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const missing = join(tmpdir(), `nyrwvy-missing-${randomUUID()}`)
+  await assert.rejects(openAuthoring("create", "workspace.json", context, missing), error =>
+    error.message === `workspace directory does not exist: ${missing}`)
+  await assert.rejects(openAuthoring("create", "workspace.json", { ...context, worktree: missing }), /workspace directory does not exist/)
+  assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
 })
 
 test("lost responses reject pending and queued calls without retrying mutations", { timeout: 5000 }, async () => {

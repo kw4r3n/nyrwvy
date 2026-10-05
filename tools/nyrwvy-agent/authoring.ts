@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
+import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 
 /**
@@ -42,9 +43,28 @@ export class AuthoringClient {
   private termination?: Promise<void>
   private reaped = false
   private stderr = ""
+  private replies = 0
+  private exitCode: number | string | null = null
+  private spawnError?: NodeJS.ErrnoException
   private exited: Promise<number | null>
 
   get isReaped(): boolean { return this.reaped }
+
+  /**
+   * Why a child that never answered has gone, worded for the person who launched it: startup
+   * errors (the session's own stderr line, or a missing dotnet) are configuration problems, not
+   * lost responses, so they carry no replay advice.
+   */
+  get startupFailure(): string | undefined {
+    if (!this.reaped || this.replies > 0) return undefined
+    if (this.spawnError?.code === "ENOENT") {
+      return `dotnet was not found on the PATH of this process (${this.spawnError.message}). Install the .NET 10 SDK or make dotnet available to the host that launches the server.`
+    }
+    // A child killed by this client (a signal, not an exit code) hung rather than failed to start.
+    if (typeof this.exitCode !== "number") return undefined
+    const detail = this.stderr.trim()
+    return detail === "" ? `AuthoringSession exited with code ${this.exitCode} before answering its first request.` : `AuthoringSession could not start: ${detail}`
+  }
 
   private child: ChildProcessWithoutNullStreams
 
@@ -61,6 +81,7 @@ export class AuthoringClient {
         }
         const pending = this.pending
         this.pending = undefined
+        this.replies += 1
         pending.resolve(line)
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error(String(error)))
@@ -71,11 +92,12 @@ export class AuthoringClient {
         this.fail(new Error(`AuthoringSession closed its response stream. ${this.stderr}`))
       }
     })
-    child.on("error", (error) => this.fail(error))
+    child.on("error", (error) => { this.spawnError ??= error; this.fail(error) })
     child.stdin.on("error", (error) => this.fail(error))
     this.exited = new Promise((finish) => {
       child.once("close", (code) => {
         this.reaped = true
+        this.exitCode = code ?? child.signalCode
         if (code !== 0 || this.pending || !this.closing) {
           this.fail(new Error(`AuthoringSession exited (${code ?? child.signalCode ?? "signal"}). ${this.stderr}`), false)
         }
@@ -183,6 +205,8 @@ export async function openAuthoring(
   const sessionKey = key(context)
   if (sessions.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")
+  // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
+  if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
   const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
   const args = [assembly, mode, "--snapshot", workspace]
@@ -210,6 +234,8 @@ export async function openAuthoring(
     } finally {
       if (client.isReaped && sessions.get(sessionKey) === client) sessions.delete(sessionKey)
     }
+    const startupFailure = client.startupFailure
+    if (startupFailure !== undefined) throw new Error(startupFailure, { cause: error })
     throw error
   }
 }

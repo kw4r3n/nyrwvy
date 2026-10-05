@@ -435,6 +435,56 @@ module AuthoringSessionTests =
         document
 
     [<Fact>]
+    let ``close removes the lock file and a failed open leaves none behind`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        let lockPath = path + ".lock"
+        try
+            let session = createSession path
+            Assert.True(File.Exists lockPath)
+            match AuthoringSession.openExisting path with
+            | Error(AuthoringSessionError.LockUnavailable _) -> ()
+            | result -> failwithf "Expected the second writer to be rejected, got %A" result
+            session.Close()
+            Assert.False(File.Exists lockPath)
+            File.WriteAllText(path, "not a snapshot")
+            match AuthoringSession.openExisting path with
+            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | result -> failwithf "Expected a codec failure, got %A" result
+            Assert.False(File.Exists lockPath)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``startup failures are one worded stderr line with exit status 2`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        let run mode =
+            use child = startTool mode path
+            child.StandardInput.Close()
+            let stderr = child.StandardError.ReadToEnd()
+            child.WaitForExit()
+            child.ExitCode, stderr.TrimEnd()
+        try
+            let missingCode, missing = run "open"
+            Assert.Equal(2, missingCode)
+            Assert.StartsWith($"SnapshotFileNotFound: No snapshot file at {Path.GetFullPath path}.", missing)
+            Assert.Contains("create", missing)
+            Assert.DoesNotContain("\n", missing)
+            File.WriteAllText(path, """{"x":1}""")
+            let shapeCode, shape = run "open"
+            Assert.Equal(2, shapeCode)
+            Assert.StartsWith("SnapshotCodecFailure: The snapshot does not have the expected shape: ", shape)
+            Assert.DoesNotContain("InvalidShape", shape)
+            let existsCode, exists = run "create"
+            Assert.Equal(2, existsCode)
+            Assert.StartsWith("SnapshotFileAlreadyExists: ", exists)
+            Assert.Contains("open", exists)
+            Assert.False(File.Exists(path + ".lock"))
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``JSONL rejects duplicate properties without publishing or consuming the reviewed proposal`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")

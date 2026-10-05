@@ -6,9 +6,30 @@ module internal WireEncode =
     open WireJson
     open WireEncodeCommon
 
+    let private rename (value: SymbolRename) =
+        let kind, id, oldName, newName =
+            match value with
+            | SymbolRename.TypeRenamed(typeId, oldName, newName) -> "type", StableId.value typeId, oldName, newName
+            | SymbolRename.FunctionRenamed(functionId, oldName, newName) -> "function", StableId.value functionId, oldName, newName
+        objectValue [ "kind", box kind; "id", box id; "oldDisplayName", box oldName; "newDisplayName", box newName ]
+
+    let private requiredEffectChange (value: FunctionRequiredEffectChange) =
+        let kind, functionId, effectId =
+            match value with
+            | FunctionRequiredEffectChange.Added(functionId, effectId) -> "added", functionId, effectId
+            | FunctionRequiredEffectChange.Removed(functionId, effectId) -> "removed", functionId, effectId
+        objectValue [ "kind", box kind; "functionId", box (StableId.value functionId); "effectId", box (StableId.value effectId) ]
+
+    let private affectedUse (value: AgentExpressionStructuralWorkflow.Targeted.Use) =
+        match value with
+        | AgentExpressionStructuralWorkflow.Targeted.Use.NodeDependency(consumerNodeId, role) ->
+            objectValue [ "kind", box "nodeDependency"; "consumerNodeId", box (StableId.value consumerNodeId); "role", box (dependencyRole role) ]
+        | AgentExpressionStructuralWorkflow.Targeted.Use.GraphResult ownerNodeId ->
+            objectValue [ "kind", box "graphResult"; "ownerNodeId", ownerNodeId |> Option.map (StableId.value >> box) |> Option.defaultValue null ]
+
     let private semanticDiff (value: SemanticDiff) =
         objectValue
-            [ "renames", value.Renames |> List.map (sprintf "%A" >> box) |> arrayValue
+            [ "renames", value.Renames |> List.map rename |> arrayValue
               "parametersAdded",
                 value.ParametersAdded
                 |> List.map (fun item ->
@@ -113,7 +134,7 @@ module internal WireEncode =
                           "valueNodeId", box (StableId.value item.ValueNodeId) ])
                 |> arrayValue
               "requiredEffectsChanged",
-                value.FunctionRequiredEffectsChanged |> List.map (sprintf "%A" >> box) |> arrayValue ]
+                value.FunctionRequiredEffectsChanged |> List.map requiredEffectChange |> arrayValue ]
 
     let private bodyDiff (value: FunctionBodyReplacementDiff) =
         objectValue
@@ -150,7 +171,7 @@ module internal WireEncode =
                 |> List.map (fun binding -> box (StableId.value binding.Id))
                 |> arrayValue
               "retainedSharedDependencies", value.RetainedSharedDependencies |> List.map nodeSummary |> arrayValue
-              "affectedUses", value.AffectedUses |> List.map (sprintf "%A" >> box) |> arrayValue ]
+              "affectedUses", value.AffectedUses |> List.map affectedUse |> arrayValue ]
 
     let private parameterTypeMigrationDiff (value: AgentParameterTypeMigrationDiff) =
         objectValue
@@ -351,51 +372,87 @@ module internal WireEncode =
         |> List.map (fun item -> objectValue [ "code", box item.Code; "message", box item.Message ])
         |> arrayValue
 
+    let private issues (values: ValidationIssue list) =
+        values
+        |> List.map (fun item -> objectValue [ "code", box item.Code; "message", box item.Message ])
+        |> arrayValue
+
+    /// One sentence for a validation issue list, with the first issue spelled out; details carry them all.
+    let private issuesMessage (subject: string) (values: ValidationIssue list) =
+        match values with
+        | [] -> $"{subject} is invalid."
+        | [ issue ] -> $"{subject} is invalid: {issue.Code}: {issue.Message}"
+        | issue :: rest -> $"{subject} is invalid: {issue.Code}: {issue.Message} ({List.length rest + 1} issues; see details)"
+
+    /// Worded codec failure for the wire and for startup diagnostics; details list validation issues when there are any.
+    let describeCodecError (error: SnapshotCodecError) =
+        match error with
+        | SnapshotCodecError.InvalidJson message -> $"The snapshot is not valid JSON: {message}", None
+        | SnapshotCodecError.InvalidShape message -> $"The snapshot does not have the expected shape: {message}", None
+        | SnapshotCodecError.UnsupportedSchemaVersion version -> $"Snapshot schema version {version} is not supported.", None
+        | SnapshotCodecError.InvalidSnapshot values -> issuesMessage "The snapshot" values, Some(objectValue [ "issues", issues values ])
+        | SnapshotCodecError.MaximumDepthExceeded depth -> $"The graph would nest deeper than the codec's {depth} JSON levels (MaximumDepthExceeded).", None
+
+    /// Code, message and optional details for every session error. Messages are worded for a
+    /// reader without F# knowledge; the startup ones carry the recovery hint a first-time user needs.
+    let private describe (value: AuthoringSessionError) =
+        match value with
+        | AuthoringSessionError.SnapshotFileNotFound path ->
+            "SnapshotFileNotFound", $"No snapshot file at {path}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", None
+        | AuthoringSessionError.SnapshotFileAlreadyExists path ->
+            "SnapshotFileAlreadyExists", $"A snapshot already exists at {path}. Use open to resume it; create never overwrites.", None
+        | AuthoringSessionError.LockUnavailable path -> "LockUnavailable", $"{path} is open in another authoring session. Close that session first.", None
+        | AuthoringSessionError.IoFailure message -> "IoFailure", message, None
+        | AuthoringSessionError.SnapshotCodecFailure error ->
+            let message, details = describeCodecError error
+            "SnapshotCodecFailure", message, details
+        | AuthoringSessionError.WorkspaceValidationFailure values ->
+            "WorkspaceValidationFailure", issuesMessage "The workspace graph" values, Some(objectValue [ "issues", issues values ])
+        | AuthoringSessionError.ProposalNotFound proposalId ->
+            "ProposalNotFound", $"No pending proposal has the ID '{proposalId}'; it was committed, rejected, or discarded when its session closed.", None
+        | AuthoringSessionError.SessionClosed -> "SessionClosed", "The session is closed.", None
+        | AuthoringSessionError.ExternalModification -> "ExternalModification", "The snapshot file changed outside this session.", None
+        | AuthoringSessionError.SessionInvalidated -> "SessionInvalidated", "The session was invalidated by external modification.", None
+        | AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected values) ->
+            "SimulationRejected", "The requested operations were rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.WorkflowSimulationFailure other -> "WorkflowSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values) ->
+            "SimulationRejected", "The structural request was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.TypeDeclarationSimulationFailure(AgentTypeDeclarationWorkflowError.SimulationRejected values) ->
+            "SimulationRejected", "The type declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.TypeDeclarationSimulationFailure other ->
+            "TypeDeclarationSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.EffectDeclarationSimulationFailure(AgentEffectDeclarationWorkflowError.SimulationRejected values) ->
+            "SimulationRejected", "The effect declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.EffectDeclarationSimulationFailure other ->
+            "EffectDeclarationSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.CapabilityDeclarationSimulationFailure(AgentCapabilityDeclarationWorkflowError.SimulationRejected values) ->
+            "SimulationRejected", "The capability declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.CapabilityDeclarationSimulationFailure other ->
+            "CapabilityDeclarationSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.CommitRejected values ->
+            "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
+        | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
+        | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
+        | AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired(functionId, nodeId, capabilityId, operationId)) ->
+            "ConcurrentCapabilityBindingRequired",
+            "An operation reachable from a ParallelAll or TaskStart worker requires a capability binding that supports concurrent calls.",
+            Some(objectValue
+                [ "functionId", box (StableId.value functionId)
+                  "nodeId", box (StableId.value nodeId)
+                  "capabilityId", box (StableId.value capabilityId)
+                  "operationId", box (StableId.value operationId) ])
+        | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
+        | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
+
+    /// The one-line stderr text for a session that could not start.
+    let startupMessage (value: AuthoringSessionError) =
+        let code, message, _ = describe value
+        $"{code}: {message}"
+
     let error (value: AuthoringSessionError) =
-        let code, message, details =
-            match value with
-            | AuthoringSessionError.SnapshotFileNotFound path -> "SnapshotFileNotFound", path, None
-            | AuthoringSessionError.SnapshotFileAlreadyExists path -> "SnapshotFileAlreadyExists", path, None
-            | AuthoringSessionError.LockUnavailable path -> "LockUnavailable", path, None
-            | AuthoringSessionError.IoFailure message -> "IoFailure", message, None
-            | AuthoringSessionError.SnapshotCodecFailure error -> "SnapshotCodecFailure", sprintf "%A" error, None
-            | AuthoringSessionError.WorkspaceValidationFailure issues -> "WorkspaceValidationFailure", sprintf "%A" issues, None
-            | AuthoringSessionError.ProposalNotFound proposalId -> "ProposalNotFound", proposalId, None
-            | AuthoringSessionError.SessionClosed -> "SessionClosed", "The session is closed.", None
-            | AuthoringSessionError.ExternalModification -> "ExternalModification", "The snapshot file changed outside this session.", None
-            | AuthoringSessionError.SessionInvalidated -> "SessionInvalidated", "The session was invalidated by external modification.", None
-            | AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected values) ->
-                "SimulationRejected", "The requested operations were rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.WorkflowSimulationFailure other -> "WorkflowSimulationFailure", sprintf "%A" other, None
-            | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values) ->
-                "SimulationRejected", "The structural request was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", sprintf "%A" other, None
-            | AuthoringSessionError.TypeDeclarationSimulationFailure(AgentTypeDeclarationWorkflowError.SimulationRejected values) ->
-                "SimulationRejected", "The type declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.TypeDeclarationSimulationFailure other ->
-                "TypeDeclarationSimulationFailure", sprintf "%A" other, None
-            | AuthoringSessionError.EffectDeclarationSimulationFailure(AgentEffectDeclarationWorkflowError.SimulationRejected values) ->
-                "SimulationRejected", "The effect declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.EffectDeclarationSimulationFailure other ->
-                "EffectDeclarationSimulationFailure", sprintf "%A" other, None
-            | AuthoringSessionError.CapabilityDeclarationSimulationFailure(AgentCapabilityDeclarationWorkflowError.SimulationRejected values) ->
-                "SimulationRejected", "The capability declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.CapabilityDeclarationSimulationFailure other ->
-                "CapabilityDeclarationSimulationFailure", sprintf "%A" other, None
-            | AuthoringSessionError.CommitRejected values ->
-                "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
-            | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
-            | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
-            | AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired(functionId, nodeId, capabilityId, operationId)) ->
-                "ConcurrentCapabilityBindingRequired",
-                "An operation reachable from a ParallelAll or TaskStart worker requires a capability binding that supports concurrent calls.",
-                Some(objectValue
-                    [ "functionId", box (StableId.value functionId)
-                      "nodeId", box (StableId.value nodeId)
-                      "capabilityId", box (StableId.value capabilityId)
-                      "operationId", box (StableId.value operationId) ])
-            | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
-            | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
+        let code, message, details = describe value
         match details with
         | None -> objectValue [ "code", box code; "message", box message ]
         | Some detail -> objectValue [ "code", box code; "message", box message; "details", detail ]

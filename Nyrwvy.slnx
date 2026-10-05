@@ -10,6 +10,7 @@
     <Project Path="tools/Nyrwvy.AgentEval/Nyrwvy.AgentEval.fsproj" />
     <Project Path="tools/Nyrwvy.AgentEval.Structural/Nyrwvy.AgentEval.Structural.fsproj" />
     <Project Path="tools/Nyrwvy.AgentEval.ListMapStructural/Nyrwvy.AgentEval.ListMapStructural.fsproj" />
+    <Project Path="tools/Nyrwvy.AgentEval.PureExpression/Nyrwvy.AgentEval.PureExpression.fsproj" />
     <Project Path="tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj" />
     <Project Path="tools/Nyrwvy.EvaluationFixtureExport/Nyrwvy.EvaluationFixtureExport.fsproj" />
   </Folder>

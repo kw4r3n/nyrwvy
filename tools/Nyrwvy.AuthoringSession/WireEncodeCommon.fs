@@ -185,6 +185,9 @@ module internal WireEncodeCommon =
             let cut = if Char.IsHighSurrogate value[summaryStringLimit - 1] then summaryStringLimit - 1 else summaryStringLimit
             objectValue [ "kind", box "string"; "value", box (value.Substring(0, cut)); "truncated", box true; "length", box value.Length ]
 
+    /// Value-dependency roles are fieldless or carry one index/ID; the case text is their wire name.
+    let dependencyRole (role: ValueDependencyRole) = sprintf "%A" role
+
     let nodeSummary (value: StructuralNodeSummary) =
         objectValue
             [ "nodeId", box (StableId.value value.NodeId)
@@ -195,7 +198,7 @@ module internal WireEncodeCommon =
                 value.ValueDependencies
                 |> List.map (fun dependency ->
                     objectValue
-                        [ "role", box (sprintf "%A" dependency.Role)
+                        [ "role", box (dependencyRole dependency.Role)
                           "nodeId", box (StableId.value dependency.NodeId) ])
                 |> arrayValue
               "parameterId", optional value.ParameterId (StableId.value >> box)

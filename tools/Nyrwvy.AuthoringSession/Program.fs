@@ -47,7 +47,7 @@ let main argv =
             | StartupMode.Upgrade(source, replaces, fingerprint) -> AuthoringSession.upgradeDependency path source replaces fingerprint
         match result with
         | Error error ->
-            Console.Error.WriteLine(sprintf "%A" error)
+            Console.Error.WriteLine(WireEncode.startupMessage error)
             2
         | Ok session ->
             use session = session

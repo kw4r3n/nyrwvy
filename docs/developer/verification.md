@@ -25,9 +25,12 @@ request: [`ci.yml`](../../.github/workflows/ci.yml) and
 opening a pull request, run the fast suite and the tests related to the change
 in a local or cloud session; a PR does not wait on GitHub Actions.
 
-The verification entry points require fish 3.4+ and Node 22.6+. The CI job
-runs, and a local pre-PR check mirrors, these steps after building the fast
-test graph and installing the locked Node dependencies (`npm ci`):
+The verification entry points require Node 22.6+ (22.22.2 recommended, see
+`.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts and
+the one fish script test, and the README gives the direct `dotnet test` and
+`node --test` equivalents. The CI job runs, and a local pre-PR check mirrors,
+these steps after building the fast test graph and installing the locked Node
+dependencies (`npm ci`):
 
 ```sh
 npm run typecheck
