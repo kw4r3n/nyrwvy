@@ -79,18 +79,7 @@ module ChangeVerification =
                         let affected = view.FunctionIds |> Set.ofList |> expand |> Set.toList
                         let concurrent context functionId =
                             context.Project functionId
-                            |> Result.map (fun program ->
-                                // Retained declarations can need NyTask classes without this entry
-                                // performing any concurrent operation. Classify its reachable instructions,
-                                // not the backend's runtime-emission flag for all declared field types.
-                                program.Functions
-                                |> List.collect ExecutionCallGraph.instructions
-                                |> List.exists (fun instruction ->
-                                    ExecutionInstructionKind.uses instruction.Kind
-                                    |> List.exists (function
-                                        | ExecutionInstructionUse.TaskRuntime
-                                        | ExecutionInstructionUse.ConcurrencyRuntime -> true
-                                        | _ -> false)))
+                            |> Result.map ExecutionCallGraph.usesConcurrentOperations
                             |> Result.defaultValue true
                         let observations = cases |> List.map (fun item ->
                             let before = PureRun.runContext baseline item.FunctionId item.Arguments None

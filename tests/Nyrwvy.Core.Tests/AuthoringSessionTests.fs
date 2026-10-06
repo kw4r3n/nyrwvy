@@ -137,10 +137,16 @@ module AuthoringSessionTests =
             let manifestPath = plannerPath + ".dependency.json"
             let manifest = File.ReadAllText(manifestPath)
             File.Delete(manifestPath)
+            let sourceBeforeMissingOpen = File.ReadAllBytes plannerPath
             match AuthoringSession.openExisting plannerPath with
-            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | Error(AuthoringSessionError.DependencyFailure message) ->
+                Assert.Contains(manifestPath, message)
+                Assert.Contains("Restore the exact sidecar", message)
             | Ok session -> session.Close(); failwith "Removed dependency manifest was accepted."
             | Error error -> failwithf "Unexpected missing-manifest error: %A" error
+            Assert.Equal<byte>(sourceBeforeMissingOpen, File.ReadAllBytes plannerPath)
+            Assert.False(File.Exists manifestPath, "Failed open must not guess or recreate the lost selection.")
+            Assert.False(File.Exists(plannerPath + ".lock"), "Failed open must release the workspace lock.")
             File.WriteAllText(manifestPath, manifest)
 
             use plannerBeforePolicyUpdate = openSession plannerPath

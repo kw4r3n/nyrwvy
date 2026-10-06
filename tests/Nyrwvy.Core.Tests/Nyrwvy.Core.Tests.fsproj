@@ -133,6 +133,7 @@
     <Compile Include="ParameterAdditionNonCallUseTests.fs" />
     <Compile Include="PureRunTests.fs" />
     <Compile Include="PureRunEntryProjectionTests.fs" />
+    <Compile Include="EntrySelectionFastTests.fs" />
     <Compile Include="ChangeVerificationTests.fs" />
     <Compile Include="PureRunProductTests.fs" />
     <Compile Include="PureRunUnionTests.fs" />

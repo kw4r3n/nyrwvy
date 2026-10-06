@@ -31,6 +31,19 @@ module ExecutionCallGraph =
 
     let instructions (fn: ExecutionFunction) = fn.Blocks |> List.collect (fun block -> block.Instructions)
 
+    /// Observable concurrent operations in the selected functions, independently of runtime
+    /// classes needed merely to declare unused Task fields. The caller supplies the entry's
+    /// selected projection; semantic reachability is conservative across reference roles.
+    let usesConcurrentOperations (program: ExecutionProgram) =
+        program.Functions
+        |> List.collect instructions
+        |> List.exists (fun instruction ->
+            ExecutionInstructionKind.uses instruction.Kind
+            |> List.exists (function
+                | ExecutionInstructionUse.TaskRuntime
+                | ExecutionInstructionUse.ConcurrencyRuntime -> true
+                | _ -> false))
+
     let targets (instruction: ExecutionInstruction) =
         ExecutionInstructionKind.callbackTargets instruction.Kind |> List.map snd
 

@@ -863,7 +863,12 @@ module PureRun =
             | PureRunValue.ResultErr _ -> count 1
             | PureRunValue.FakeCapability(_, operations) ->
                 count (operations |> List.sumBy (fun op ->
-                    op.Cases |> Option.defaultValue [] |> List.sumBy (fun item -> 1 + item.Arguments.Length + item.Responses.Length)))
+                    match op.Cases with
+                    | Some cases -> cases |> List.sumBy (fun item -> 1 + item.Arguments.Length + item.Responses.Length)
+                    | None -> op.Responses |> List.sumBy (fun response ->
+                        match PureRunFakeResponse.immediate response with
+                        | PureRunFakeResponse.Throw _ -> 1
+                        | _ -> 0)))
                 && (children value |> List.forall (visit (depth + 1)))
             | _ -> children value |> List.forall (visit (depth + 1))
         visit 0 value

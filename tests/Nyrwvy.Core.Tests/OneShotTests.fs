@@ -214,3 +214,24 @@ module OneShotTests =
                 Assert.Equal<byte>(before, File.ReadAllBytes path)
             Assert.Empty(SnapshotValidator.validate (read path))
             session.EmitCSharp CSharpBackendProfile.empty |> unwrap |> ignore)
+
+    [<Fact>]
+    let ``helper extraction preserves one shot ordering checks through multiple direct calls`` () =
+        withFixture (fun session path ->
+            let parameters = $"""[{{"displayName":"cell","type":{cellJson}}},{{"displayName":"value","type":{stringJson}}}]"""
+            create session "finishHop" parameters boolJson """{"kind":"directCall","function":"finish","arguments":[{"parameter":"cell","value":{"kind":"parameter","name":"cell"}},{"parameter":"value","value":{"kind":"parameter","name":"value"}}]}"""
+            let call name value = $"""{{"kind":"directCall","function":"{name}","arguments":[{{"parameter":"cell","value":{{"kind":"parameter","name":"cell"}}}},{{"parameter":"value","value":{{"kind":"stringLiteral","value":"{value}"}}}}]}}"""
+            for helper in [ "finish"; "finishHop" ] do
+                create session (helper + "Unordered") ($"""[{{"displayName":"cell","type":{cellJson}}}]""") boolJson
+                    ($"""{{"kind":"valueEqual","left":{call helper "a"},"right":{call helper "b"}}}""")
+                let before = File.ReadAllBytes path
+                match session.ProjectExecution() with
+                | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder _)) -> ()
+                | other -> failwithf "Unordered helper completions were lowered: %A" other
+                Assert.Equal<byte>(before, File.ReadAllBytes path)
+                let response =
+                    execute session "simulateReplaceBodyByName"
+                        ($"""{{"function":"{helper}Unordered","replacement":{{"kind":"bind","value":{call helper "a"},"body":{call helper "b"}}}}}""")
+                let proposal = requireSuccess response
+                execute session "commit" ($"""{{"proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""") |> requireSuccess |> ignore
+                session.ProjectExecution() |> unwrap |> ignore)

@@ -1,6 +1,7 @@
 module Nyrwvy.Tools.AuthoringSession.Program
 
 open System
+open System.Text.Json
 open Nyrwvy.Tools.AuthoringSession
 
 [<RequireQualifiedAccess>]
@@ -8,10 +9,12 @@ type private StartupMode =
     | Open
     | Create
     | Pin
+    | SelectionUpgrade of AuthoringDependencySelectionUpgrade * reviewFingerprint: string
+    | Upgrades of AuthoringDependencyUpgrade list * reviewFingerprint: string
     | Upgrade of source: string * replaces: string option * expectedFingerprint: string
 
 module private CommandLine =
-    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default."
+    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default."
 
     let rec private dependencies collected = function
         | [] -> Ok(List.rev collected)
@@ -30,6 +33,40 @@ module private CommandLine =
             Ok(StartupMode.Upgrade(source, None, fingerprint), path, [])
         | [ "upgrade"; "--snapshot"; path; "--dependency"; source; "--expect"; fingerprint; "--replaces"; replaces ] ->
             Ok(StartupMode.Upgrade(source, Some replaces, fingerprint), path, [])
+        | [ "upgrade"; "--snapshot"; path; "--upgrades"; payload; "--review"; fingerprint ] ->
+            try
+                use document = JsonDocument.Parse payload
+                let root = document.RootElement
+                if root.ValueKind <> JsonValueKind.Array || root.GetArrayLength() = 0 then Error usage
+                else
+                    let upgrades = root.EnumerateArray() |> Seq.map (fun item ->
+                        if item.ValueKind <> JsonValueKind.Object
+                           || (item.EnumerateObject() |> Seq.map (fun property -> property.Name) |> Seq.sort |> Seq.toList) <> [ "replaces"; "source" ] then
+                            invalidArg "upgrades" "Every replacement needs exactly source and replaces."
+                        { Source = item.GetProperty("source").GetString(); Replaces = item.GetProperty("replaces").GetString() }) |> Seq.toList
+                    if String.IsNullOrWhiteSpace fingerprint || (upgrades |> List.exists (fun item -> String.IsNullOrWhiteSpace item.Source || String.IsNullOrWhiteSpace item.Replaces)) then Error usage
+                    else Ok(StartupMode.Upgrades(upgrades, fingerprint), path, [])
+            with
+            | :? JsonException
+            | :? InvalidOperationException
+            | :? ArgumentException
+            | :? Collections.Generic.KeyNotFoundException -> Error usage
+        | [ "upgrade"; "--snapshot"; path; "--selection"; payload; "--review"; fingerprint ] ->
+            try
+                use document = JsonDocument.Parse payload
+                let root = document.RootElement
+                if root.ValueKind <> JsonValueKind.Object
+                   || (root.EnumerateObject() |> Seq.map (fun property -> property.Name) |> Seq.sort |> Seq.toList) <> [ "replaces"; "sources" ] then Error usage
+                else
+                    let strings (name: string) = root.GetProperty(name).EnumerateArray() |> Seq.map (fun item -> item.GetString()) |> Seq.toList
+                    let selection = { Sources = strings "sources"; Replaces = strings "replaces" }
+                    if String.IsNullOrWhiteSpace fingerprint then Error usage
+                    else Ok(StartupMode.SelectionUpgrade(selection, fingerprint), path, [])
+            with
+            | :? JsonException
+            | :? InvalidOperationException
+            | :? ArgumentException
+            | :? Collections.Generic.KeyNotFoundException -> Error usage
         | _ -> Error usage
 
 [<EntryPoint>]
@@ -44,6 +81,8 @@ let main argv =
             | StartupMode.Open -> AuthoringSession.openExisting path
             | StartupMode.Create -> AuthoringSession.createNewWithDependencies path dependency
             | StartupMode.Pin -> AuthoringSession.pinExistingDependency path (List.tryHead dependency)
+            | StartupMode.SelectionUpgrade(selection, fingerprint) -> AuthoringSession.upgradeDependencySelection path selection fingerprint
+            | StartupMode.Upgrades(upgrades, fingerprint) -> AuthoringSession.upgradeDependencies path upgrades fingerprint
             | StartupMode.Upgrade(source, replaces, fingerprint) -> AuthoringSession.upgradeDependency path source replaces fingerprint
         match result with
         | Error error ->

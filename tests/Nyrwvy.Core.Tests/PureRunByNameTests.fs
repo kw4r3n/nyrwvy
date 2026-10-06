@@ -254,3 +254,32 @@ module PureRunByNameTests =
             let code, message = rejected session (line (fake 4088))
             Assert.Equal("ProtocolError", code)
             Assert.Equal("Run values may contain at most 8192 value nodes.", message))
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``queued throw messages count once at the same protocol and direct run budget`` delayed =
+        withSession (fun session _ ->
+            let operations = [ 0 .. 31 ] |> List.map (fun n ->
+                $"""{{"displayName":"op{n}","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"effect":"io"}}""") |> String.concat ","
+            publish session $"""{{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"ThrowBudget","operations":[{operations}]}}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"ignoreThrows","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"ThrowBudget"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"cancellationRequested"}}""" |> ignore
+            let response = if delayed then """{"kind":"throw","message":"","delayMillis":1}""" else """{"kind":"throw","message":""}"""
+            let script lastCount =
+                let ops = [ 0 .. 31 ] |> List.map (fun n ->
+                    let responses = List.replicate (if n = 31 then lastCount else 256) response |> String.concat ","
+                    $"""{{"operation":"op{n}","responses":[{responses}]}}""") |> String.concat ","
+                $"""{{"kind":"fakeCapability","capability":"ThrowBudget","operations":[{ops}]}}"""
+            let accepted = (runValue session "ignoreThrows" (script 255)).GetProperty("actual") // root + 8191
+            Assert.Equal("bool", accepted.GetProperty("kind").GetString())
+            Assert.False(accepted.GetProperty("value").GetBoolean())
+            budgetRejected session "ignoreThrows" (script 256) // root + 8192
+            let capability = session.Declarations().Capabilities |> List.find (fun c -> c.DisplayName = "ThrowBudget")
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "ignoreThrows")
+            let throw = PureRunFakeResponse.Throw ""
+            let throw = if delayed then PureRunFakeResponse.Delayed(1, throw) else throw
+            let fake = PureRunValue.FakeCapability(capability.Id, capability.Operations |> List.map (fun op ->
+                { OperationId = op.Id; Responses = List.replicate 256 throw; Cases = None }))
+            match PureRun.run session fn.Id [ fake ] None with
+            | Error(PureRunError.Unsupported("RunArgumentTooLarge", _)) -> ()
+            | other -> failwithf "Direct API admitted queued throws outside the budget: %A" other)

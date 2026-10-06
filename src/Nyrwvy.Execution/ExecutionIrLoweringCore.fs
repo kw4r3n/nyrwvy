@@ -19,10 +19,10 @@ module ExecutionIr =
           PatternValues: Map<PatternBindingId, ExecutionValueId> }
 
     let private lowerFunction
-        (functionsById: Map<FunctionId, TypedSemanticFunction>)
+        (observable: Set<FunctionId>)
         (functionEntity: TypedSemanticFunction)
         : Result<ExecutionFunction, ExecutionIrError> =
-        match ExecutionIrAnalysis.validateEffectOrder functionEntity.Id functionsById functionEntity.Body with
+        match ExecutionIrAnalysis.validateEffectOrder functionEntity.Id observable functionEntity.Body with
         | Error error -> Error error
         | Ok () ->
             let blocks = Dictionary<ExecutionBlockId, MutableBlock>()
@@ -971,7 +971,7 @@ module ExecutionIr =
 
         program.Functions
         |> List.sortBy (fun (functionEntity: TypedSemanticFunction) -> StableId.value functionEntity.Id)
-        |> ResultList.traverse (lowerFunction functionsById)
+        |> ResultList.traverse (lowerFunction (ExecutionIrAnalysis.observableFunctions functionsById))
         |> Result.map (fun functions ->
             { SourceSnapshotId = program.SourceSnapshotId
               Types =

@@ -7,10 +7,12 @@ open Xunit
 
 /// "Which node is an observable effect" is decided twice: by `GraphOrder` on semantic nodes (abort
 /// ordering before publication) and by `ExecutionIrAnalysis` on typed nodes (effect ordering at
-/// lowering). Both predicates are private, so each is probed through its public ordering check: a
+/// lowering). The nominal/local classifications are probed through the public ordering check: a
 /// candidate node is placed next to an unordered `Abort` witness, and the check reports an ordering
 /// conflict exactly when the candidate is observable. Every union case is built by reflection, so a
-/// new node kind is covered automatically and a kind classified on only one side fails here.
+/// new node kind is covered automatically and a nominal/local classification mismatch fails here.
+/// Lowering additionally derives transitive intrinsic behavior; semantic admission retains the
+/// historical callee-contract rule so persisted older graphs remain openable for repair.
 module EffectClassificationConsistencyTests =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private probeId = StableId.createForTesting<FunctionTag> "a-effect-probe"
@@ -136,6 +138,16 @@ module EffectClassificationConsistencyTests =
             { OriginNodeId = witnessId
               Completion = GraphCompletion.Aborts
               Kind = TypedSemanticNodeKind.Abort(freshNode ()) }
+        let latentId = StableId.createForTesting<FunctionTag> "t-latent-hop"
+        let body (kind: TypedSemanticNodeKind): TypedSemanticGraph =
+            let id = freshNode ()
+            { Nodes = [ { OriginNodeId = id; Completion = GraphCompletion.Normal unitType; Kind = kind } ]; ResultNodeId = id }
+        let target =
+            match variant.Name with
+            | "intrinsic" -> typedFunction effectfulTargetId [] (body TypedSemanticNodeKind.CancellationRequested)
+            | "transitive" -> typedFunction effectfulTargetId [] (body (TypedSemanticNodeKind.DirectCall(latentId, [])))
+            | "calleeAbort" -> typedFunction effectfulTargetId [] (body (TypedSemanticNodeKind.Abort(freshNode ())))
+            | _ -> typedFunction effectfulTargetId [ effectId ] (typedGraph pureVariant)
         let program: TypedSemanticProgram =
             { SourceSnapshotId = StableId.createForTesting "effect-probe-snapshot"
               Types = []
@@ -143,7 +155,8 @@ module EffectClassificationConsistencyTests =
               Capabilities = []
               Functions =
                 [ typedFunction probeId [] { Nodes = [ candidate; witness ]; ResultNodeId = witnessId }
-                  typedFunction effectfulTargetId [ effectId ] (typedGraph pureVariant)
+                  target
+                  typedFunction latentId [] (body TypedSemanticNodeKind.CancellationRequested)
                   typedFunction pureTargetId [] (typedGraph pureVariant) ] }
         // Effect ordering is validated before anything else is lowered (the probe sorts first), so
         // any later failure of this synthetic program means the ordering check passed.
@@ -194,3 +207,23 @@ module EffectClassificationConsistencyTests =
             Assert.False(observable pureVariant name, $"{name} is not observable with pure operands.")
         for name in [ "ListMap"; "ListFold"; "FunctionInvoke"; "Int64Literal" ] do
             Assert.False(observable effectfulVariant name, $"{name} is never observable.")
+
+    [<Fact>]
+    let ``runtime ordering closure terminates pure and seeded recursive call cycles`` () =
+        let a, b, c = probeId, effectfulTargetId, pureTargetId
+        let pureCycle = Map.ofList [ a, (false, [ b ]); b, (false, [ a ]); c, (false, []) ]
+        Assert.Empty(GraphOrder.observableClosure pureCycle)
+        let seeded = pureCycle |> Map.add b (true, [ a ])
+        Assert.Equal<Set<FunctionId>>(set [ a; b ], GraphOrder.observableClosure seeded)
+        let downstream = seeded |> Map.add c (false, [ a ])
+        Assert.Equal<Set<FunctionId>>(set [ a; b; c ], GraphOrder.observableClosure downstream)
+
+    [<Fact>]
+    let ``lowering propagates intrinsic helpers through calls effect folders and workers`` () =
+        for name in [ "DirectCall"; "ListEffectFold"; "ParallelAll" ] do
+            let typedCase = typedCases |> Array.find (fun case -> case.Name = name)
+            for variantName in [ "intrinsic"; "transitive" ] do
+                let variant = { Name = variantName; TargetFunctionId = effectfulTargetId; NestedEffectful = false }
+                Assert.True(typedEffectful variant typedCase, $"{variantName} {name} lost runtime observability.")
+            let abortOnly = { Name = "calleeAbort"; TargetFunctionId = effectfulTargetId; NestedEffectful = false }
+            Assert.False(typedEffectful abortOnly typedCase, $"{name} treats a callee's local Abort Result as a runtime effect.")

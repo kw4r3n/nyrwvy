@@ -25,6 +25,28 @@ module internal GraphOrder =
                 | None -> pairs rest
         observable |> List.sortBy StableId.value |> pairs
 
+    /// Derive transitive runtime observability with a reverse worklist. A recursive call cycle
+    /// is observable exactly when it reaches a seed; pure cycles do not invent effects.
+    /// Typed lowering supplies intrinsic seeds and executed callees; historical semantic
+    /// admission remains unchanged so persisted graphs can still be opened and repaired.
+    let observableClosure (descriptors: Map<FunctionId, bool * FunctionId list>) =
+        let callers = System.Collections.Generic.Dictionary<FunctionId, ResizeArray<FunctionId>>()
+        let observable = System.Collections.Generic.HashSet<FunctionId>()
+        let pending = System.Collections.Generic.Queue<FunctionId>()
+        for KeyValue(id, (seed, targets)) in descriptors do
+            if seed && observable.Add id then pending.Enqueue id
+            for target in targets do
+                match callers.TryGetValue target with
+                | true, values -> values.Add id
+                | false, _ -> callers.Add(target, ResizeArray [ id ])
+        while pending.Count > 0 do
+            match callers.TryGetValue(pending.Dequeue()) with
+            | true, values ->
+                for caller in values do
+                    if observable.Add caller then pending.Enqueue caller
+            | false, _ -> ()
+        observable |> Set.ofSeq
+
     /// Only functions with a local exit (Abort) are ordered here, so that such a function cannot be
     /// published or reopened unordered; graphs without one are ordered by the same rule at lowering
     /// (`ExecutionIrAnalysis.validateEffectOrder`).
