@@ -41,6 +41,13 @@ type AuthoringDeclarations =
       Effects: SemanticEffect list
       Capabilities: SemanticCapability list }
 
+/// Read-only execution inputs; candidate projection never publishes into the session.
+type internal AuthoringExecutionContext =
+    { SnapshotId: SnapshotId
+      Fingerprint: string
+      Declarations: AuthoringDeclarations
+      Project: unit -> Result<ExecutionProgram, AuthoringSessionError> }
+
 [<RequireQualifiedAccess>]
 type AuthoringProposalReview =
     | Operations of AgentChangeReview
@@ -928,6 +935,36 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         match AgentExecution.projectTypedSemanticIr workspace with
         | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
         | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure
+
+    member internal this.ExecutionContext(proposalId: string option): Result<AuthoringExecutionContext, AuthoringSessionError> =
+        let context snapshot =
+            SnapshotFingerprint.compute snapshot
+            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+            |> Result.map (fun fingerprint ->
+                { SnapshotId = snapshot.Id
+                  Fingerprint = SnapshotFingerprint.value fingerprint
+                  Declarations = { Functions = snapshot.Functions; Types = snapshot.Types; Effects = snapshot.Effects; Capabilities = snapshot.Capabilities }
+                  Project = fun () ->
+                    TypedSemanticIr.project snapshot
+                    |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
+                    |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure) })
+        this.VerifyPersistedSource()
+        |> Result.bind (fun () ->
+            match proposalId with
+            | None ->
+                this.Status()
+                |> Result.map (fun status ->
+                    { SnapshotId = status.SnapshotId
+                      Fingerprint = SnapshotFingerprint.value status.SnapshotFingerprint
+                      Declarations = this.Declarations()
+                      Project = this.ProjectExecution })
+            | Some id ->
+                this.PendingProposalView id
+                |> Result.bind (fun view ->
+                    if not view.BaseIsCommitted then Error AuthoringSessionError.ExternalModification
+                    else match view.ProposedSnapshot with
+                         | Some snapshot -> context snapshot
+                         | None -> Error(AuthoringSessionError.DependencyFailure "Candidate execution is unsupported for operations proposals.")))
 
     member this.EmitCSharp(profile: CSharpBackendProfile): Result<CSharpArtifact, AuthoringSessionError> =
         this.ProjectExecution()

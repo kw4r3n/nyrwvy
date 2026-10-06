@@ -168,3 +168,14 @@ module ViewerFile =
             | _, Some proposed -> proposalReview view proposed committedFocus
             | _, None -> Error "The proposal has no proposed snapshot to render."
         artifact |> Result.bind (write snapshotPath requested)
+
+    /// One review artifact contains the structural proposal and the computed behavioral evidence.
+    let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus evidenceJson =
+        let artifact =
+            match view.ProposedSnapshot with
+            | Some proposed -> proposalReview view proposed committedFocus
+            | None -> Error "Candidate verification is unsupported for this proposal."
+        artifact |> Result.bind (fun artifact ->
+            let evidence = "<section><h2>Experimental change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
+            let content = artifact.Content.Replace("</body>", evidence + "</body>")
+            write snapshotPath requested { artifact with Content = content })

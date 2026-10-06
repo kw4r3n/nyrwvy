@@ -1065,6 +1065,48 @@ module AuthoringProtocol =
                               "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
                               "functionCount", box execution.Functions.Length ])
                 | Error error -> sessionFailure requestId error
+            | "verifyChange" ->
+                ensureFields "verifyChange request" [ "id"; "op"; "proposalId"; "cases"; "output" ] [ "id"; "op"; "proposalId"; "cases" ] root
+                let cases = array "cases" root |> List.map (fun item ->
+                    ensureFields "verification case" [ "label"; "functionId"; "arguments"; "expectedCandidate" ] [ "label"; "functionId"; "arguments" ] item
+                    { Label = requiredString "label" item
+                      FunctionId = id<FunctionTag> "functionId" item
+                      Arguments = array "arguments" item |> List.map (pureValue None)
+                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue None) })
+                match ChangeVerification.verify session (requiredString "proposalId" root) cases with
+                | Error error -> sessionFailure requestId error
+                | Ok evidence ->
+                    let names = runNames (session.Declarations())
+                    let observation = function
+                        | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
+                        | Error error -> objectValue [ "unknown", box (sprintf "%A" error) ]
+                    let encodeCase item =
+                        objectValue
+                            [ "label", box item.Case.Label
+                              "functionId", box (StableId.value item.Case.FunctionId)
+                              "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
+                              "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue names) |> Option.defaultValue null
+                              "status", box item.Status
+                              "baseline", observation item.Baseline
+                              "candidate", observation item.Candidate ]
+                    let encoded =
+                        objectValue
+                            [ "proposalId", box evidence.ProposalId
+                              "baselineSnapshotId", box (StableId.value evidence.BaselineSnapshotId)
+                              "candidateSnapshotId", box (StableId.value evidence.CandidateSnapshotId)
+                              "baselineFingerprint", box evidence.BaselineFingerprint
+                              "candidateFingerprint", box evidence.CandidateFingerprint
+                              "coverage", box "Explicit cases only; no proof of equivalence. Failures and concurrent executions are unknown. Effects must be preserved."
+                              "affectedFunctionIds", evidence.AffectedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
+                              "cases", evidence.Observations |> List.map encodeCase |> arrayValue ]
+                    let json = System.Text.Json.JsonSerializer.Serialize(encoded, System.Text.Json.JsonSerializerOptions(WriteIndented = true, MaxDepth = WireJson.responseMaxJsonDepth))
+                    let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
+                    match session.PendingProposalView evidence.ProposalId with
+                    | Error error -> sessionFailure requestId error
+                    | Ok view ->
+                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) json with
+                        | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
+                        | Ok(path, _) -> success requestId (objectValue [ "evidence", encoded; "reviewPath", box path ])
             | "runPure" | "runPureByName" as op ->
                 let names = if op = "runPureByName" then Some(session.Declarations()) else None
                 let functionKey = if names.IsSome then "function" else "functionId"

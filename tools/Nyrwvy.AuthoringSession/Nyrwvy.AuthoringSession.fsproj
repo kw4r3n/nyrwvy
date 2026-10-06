@@ -9,6 +9,7 @@
     <Compile Include="Session.fs" />
     <Compile Include="GeneratedBuild.fs" />
     <Compile Include="PureRun.fs" />
+    <Compile Include="ChangeVerification.fs" />
     <Compile Include="WireJson.fs" />
     <Compile Include="WireInput.fs" />
     <Compile Include="WireSymbolic.fs" />
