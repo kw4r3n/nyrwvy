@@ -1,5 +1,7 @@
 # Semantic change verification experiment
 
+**Status:** Experimental
+
 Branch: `experiment/semantic-change-verification`, based on remote main
 `c65d5ad92cdb1f78a3623c02f828e7b0a198da81` (OneShot #362).
 
@@ -89,7 +91,7 @@ input and changed-effect expectations are deferred.
 ## Acceptance and cost
 
 ```sh
-dotnet build tools/Nyrwvy.AuthoringSession
+dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
 python3 scripts/experimental/semantic-change-verification.py
 # Retain snapshots, evidence JSON and review HTML in an empty directory:
 python3 scripts/experimental/semantic-change-verification.py artifacts/semantic-change-verification
@@ -114,11 +116,68 @@ existing snapshot/storage contracts, and design explicit changed-effect and
 concurrent observation policies. This experiment does not claim general language
 equivalence, cleanup/cancellation equivalence, or bounded proofs.
 
-Validation in this isolated clone: build succeeded with zero warnings/errors;
+Initial validation before independent review: build succeeded with zero warnings/errors;
 all 41 filtered PureRun regression tests passed; the graph-tools adapter test
-passed; every executable acceptance assertion passed. Final retained evidence is
+passed; every executable acceptance assertion passed. Initial retained evidence is
 under `artifacts/semantic-change-verification-final/evidence.json`, with a separate
 HTML review for each observation. These generated artifacts are local and ignored
 by Git. rrawrlet tools were absent from this task's callable catalog; no provider
 job was launched. Original checkout and its untracked verification-planner were
 left intact. No push, PR, merge or release was performed.
+
+
+## Audit boundaries
+
+The maintained fast regression file `ChangeVerificationTests.fs` rejects empty,
+oversized and blank-label suites, rejects wire-submitted forged evidence, and
+checks source and dependency-selection invalidation without publication. The
+executable acceptance script additionally changes fake return values and explicit
+observations on the same proposal (forcing fresh execution), reverses sequential
+fake calls with the same returned value, and checks concurrent agreement remains
+unknown. It writes distinct HTML pages for these comparisons.
+
+Full graph fingerprints and base-snapshot identity intentionally invalidate all
+proposal evidence after any committed edit, even an unrelated definition. This
+costs extra reruns but avoids a dependency-selective cache with an incomplete
+closure (types, capability declarations, callbacks, bindings, observation policy).
+The caller closure is an impact view, not a cache key. Fake scripts and requested
+expectations are included in evidence and recomputed on every invocation; the exact wire case JSON and its SHA-256 digest are also recorded. There
+is no signature or external evidence authority. Identical graphs with changed
+fakes or observations can therefore produce fresh, different evidence without
+changing the graph fingerprints. Saved HTML/JSON is editable and unauthenticated;
+it is never accepted by verifyChange or commit as evidence authority.
+
+An embedded dependency's original source path is provenance. Editing that source
+does not alter the pinned embedded graph; editing the selection manifest, actual
+legacy pinned source, or committed graph invalidates the session/proposal. Testing
+dependency upgrades against old behavior is not supported by this slice because
+upgrade previews do not expose the structural candidate contract used here.
+
+Equality covers ordered fake-operation calls and canonical argument/result values,
+not compiler allocations, duration, internal state, unused script responses,
+or arbitrary environment behavior. Capability parameter identity distinguishes
+independently supplied environments. Stable operation/parameter IDs are required;
+a signature migration can produce a conservative counterexample or unknown.
+Only one run per side/case is performed; sampled agreement cannot rule out latent
+nondeterminism. Programs using the known task/concurrency runtime are always
+unknown. Failure/cleanup/cancellation behavioral equivalence remains deferred;
+a failure, timeout, unsupported baseline, or failed candidate cannot pass even
+with an explicit expectedCandidate. No proof or automatic approval is issued.
+
+Reopening a saved report supports historical inspection, not revalidation or
+restoration of proposal handles. Conditions can be retained in JSON/script by the
+caller; a reopened workspace requires a fresh proposal and rerun. A persisted
+condition/evidence contract and commit gating are intentionally deferred.
+
+
+Each wire report includes the exact submitted `caseRequest` JSON, `casesDigest`
+(SHA-256 of that UTF-8 JSON), verifier/observation-policy version, .NET runtime
+version, existing generated-build context fingerprint, and compiled module IDs
+for authoring, semantics, execution, and backend. These distinguish historical
+runs using different code, policies, fakes or conditions. A digest is not a
+signature; editable reports remain unauthenticated and cannot authorize commit.
+The prominent review heading separates structural readiness from behavioral
+counterexample/unknown/tested evidence, so structural validity does not imply a
+behavioral pass. The summary always includes case-status counts and no-proof scope.
+
+Review-fixed audit acceptance evidence is retained under `artifacts/semantic-change-verification-review-fixed/evidence.json`. It includes separate counterexample, unknown, tested, effect-order and concurrency review pages with prominent behavioral summaries. Final aggregate counts are reported for the frozen commit in the task validation report.

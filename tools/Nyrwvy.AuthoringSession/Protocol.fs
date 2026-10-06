@@ -1094,6 +1094,17 @@ module AuthoringProtocol =
                             [ "proposalId", box evidence.ProposalId
                               "baselineSnapshotId", box (StableId.value evidence.BaselineSnapshotId)
                               "candidateSnapshotId", box (StableId.value evidence.CandidateSnapshotId)
+                              "caseRequest", box ((property "cases" root).GetRawText())
+                              "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
+                              "verifierIdentity", objectValue
+                                  [ "version", box "nyrwvy-change-verification-v1"
+                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v1; sequential-only; failures-unknown; explicit-result-changes-only"
+                                    "runtimeVersion", box (System.Environment.Version.ToString())
+                                    "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
+                                    "authoringModule", box (typeof<AuthoringSession>.Module.ModuleVersionId.ToString())
+                                    "semanticsModule", box (typeof<Snapshot>.Module.ModuleVersionId.ToString())
+                                    "executionModule", box (typeof<ExecutionProgram>.Module.ModuleVersionId.ToString())
+                                    "backendModule", box (typeof<CSharpBackendProfile>.Module.ModuleVersionId.ToString()) ]
                               "baselineFingerprint", box evidence.BaselineFingerprint
                               "candidateFingerprint", box evidence.CandidateFingerprint
                               "coverage", box "Explicit cases only; no proof of equivalence. Failures and concurrent executions are unknown. Effects must be preserved."
@@ -1104,7 +1115,7 @@ module AuthoringProtocol =
                     match session.PendingProposalView evidence.ProposalId with
                     | Error error -> sessionFailure requestId error
                     | Ok view ->
-                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) json with
+                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) evidence json with
                         | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
                         | Ok(path, _) -> success requestId (objectValue [ "evidence", encoded; "reviewPath", box path ])
             | "runPure" | "runPureByName" as op ->

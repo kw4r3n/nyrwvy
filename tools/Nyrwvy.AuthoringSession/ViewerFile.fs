@@ -170,12 +170,25 @@ module ViewerFile =
         artifact |> Result.bind (write snapshotPath requested)
 
     /// One review artifact contains the structural proposal and the computed behavioral evidence.
-    let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus evidenceJson =
+    let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus (evidence: ChangeVerificationEvidence) evidenceJson =
         let artifact =
             match view.ProposedSnapshot with
             | Some proposed -> proposalReview view proposed committedFocus
             | None -> Error "Candidate verification is unsupported for this proposal."
         artifact |> Result.bind (fun artifact ->
-            let evidence = "<section><h2>Experimental change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
-            let content = artifact.Content.Replace("</body>", evidence + "</body>")
+            let evidenceSection = "<section><h2>Experimental change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
+            let counts = evidence.Observations |> List.countBy (fun item -> item.Status) |> Map.ofList
+            let count status = Map.tryFind status counts |> Option.defaultValue 0
+            let counterexamples, unknown = count "counterexample", count "unknown"
+            let summary =
+                if counterexamples > 0 then "counterexample"
+                elif unknown > 0 then "unknown"
+                else "tested agreement / explicit intended results; no proof"
+            let agreement, intended = count "tested-agreement", count "intended-change-tested"
+            let banner = $"<p class=\"status\">Behavioral verification: {summary}</p><p>{counterexamples} counterexample(s), {unknown} unknown, {agreement} tested agreement, {intended} intended result(s). Explicit cases only; this historical report does not gate commit.</p>"
+            let content =
+                artifact.Content
+                    .Replace("<p class=\"status\">Readiness:", "<p class=\"status\">Structural readiness:")
+                    .Replace("</header>", banner + "</header>")
+                    .Replace("</body>", evidenceSection + "</body>")
             write snapshotPath requested { artifact with Content = content })
