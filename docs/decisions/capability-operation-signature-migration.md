@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
-- **Roadmap:** [post-M2 owner choices of 2026-10-06 and 2026-10-07](../plans/post-m2-roadmap.md#owner-choices-of-2026-10-06-and-2026-10-07), order 57; the T1 row of the [general-purpose programming roadmap](../plans/general-purpose-programming-roadmap.md#current-coverage)
+- **Roadmap:** [post-M2 owner choices of 2026-10-06 and 2026-10-07](../plans/post-m2-roadmap.md#owner-choices-of-2026-10-06-and-2026-10-07), order 58; the T1 row of the [general-purpose programming roadmap](../plans/general-purpose-programming-roadmap.md#current-coverage)
 
 T1 listed Capability signature migration as a remaining boundary: an operation's argument or result type could not change once functions invoked or implemented it. The [config-request batch example](../../examples/config-request-batch/README.md) needed to distinguish retryable from permanent fetch failures, which requires changing `fetch` from `Result<String,String>` to `Result<String,FetchFailure>`.
 

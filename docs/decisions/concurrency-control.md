@@ -113,6 +113,8 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 | Cancelled as a distinct runtime state of `Task<T>` | Needs a builtin state Union, and it duplicates what the worker already reports through its own `Err`. |
 | A time type and a clock capability now | Only `TaskWait` needs time today. A general time value can come later without changing `TaskWait`'s `Int64` milliseconds. |
 
+Unstructured futures stay rejected. A future owned by a scope was added later as the [scoped one-shot cell](../specs/scoped-one-shot.md) (order 56): it closes with its `TaskScope`, so N6 holds. Channels, a time value and a zero-time yield are discussed in the [design note on communication between tasks and time](../plans/task-communication-and-time.md).
+
 ## Consequences
 
 - Validation gains: `TaskStart` worker shape (same rules and diagnostics family as `ParallelAll`), `TaskWait` element type agreement, `TaskScope` body shape (same family as `UseResource`), and the effect rule that all three are effectful.
