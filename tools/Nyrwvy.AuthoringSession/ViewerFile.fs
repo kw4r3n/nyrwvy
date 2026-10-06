@@ -176,7 +176,7 @@ module ViewerFile =
             | Some proposed -> proposalReview view proposed committedFocus
             | None -> Error "Candidate verification is unsupported for this proposal."
         artifact |> Result.bind (fun artifact ->
-            let evidenceSection = "<section><h2>Experimental change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
+            let evidenceSection = "<section><h2>Change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
             let counts = evidence.Observations |> List.countBy (fun item -> item.Status) |> Map.ofList
             let count status = Map.tryFind status counts |> Option.defaultValue 0
             let counterexamples, unknown = count "counterexample", count "unknown"

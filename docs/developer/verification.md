@@ -190,3 +190,14 @@ Prefer a single scripted validation command over a sequence of manual commands w
 Do not measure confidence by the total number of tests executed.
 
 A change is sufficiently verified when the completion criteria for its actual claim are met with the smallest credible evidence set. At an important research or milestone boundary that evidence may be deliberately rigorous. During ordinary development it should remain focused and inexpensive.
+
+## Opt-in change verification checks
+
+The maintained `verifyChange` contract is in
+[agent-authoring-session](../specs/agent-authoring-session.md#opt-in-change-verification).
+Classifier/guard/UI tests run in the existing fast partition; real candidate
+execution, canonical expectations, effect traces, host refusal and proposal
+lifecycle tests run in the extended partition. The existing MCP contract test
+also compares a pending candidate without publication. No new CI workflow or
+commit gate is required. The standalone acceptance script and practical trial
+remain reproducible supplementary evidence, not the only product regression tests.

@@ -99,6 +99,15 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     const replacement = (await call(first, "replace", { function: "value", targetNodeId: target, replacement: bool(false), detail: "full" })).result
     assert.equal(replacement.review.proposedFocus.function.body.nodes[0].kind.value, false)
     assert.equal((await call(first, "inspect", { view: "status" })).result.snapshotId, before.snapshotId)
+    // verifyChange is opt-in and evaluates the pending candidate without publication.
+    const snapshotBytes = await readFile(opened.snapshot)
+    const verified = (await call(first, "request", { op: "verifyChange", arguments: {
+      proposalId: replacement.proposalId, cases: [{ label: "explicit false result", functionId, arguments: [], expectedCandidate: { kind: "bool", value: false } }], output: "views/verified.html"
+    } })).result
+    assert.equal(verified.evidence.cases[0].status, "intended-change-tested")
+    assert.equal(verified.evidence.cases[0].candidate.matches, true)
+    assert.deepEqual(await readFile(opened.snapshot), snapshotBytes)
+    assert.match(await readFile(verified.reviewPath, "utf8"), /not dynamic coverage/)
     await call(first, "commit", { proposalId: replacement.proposalId })
     // A human-readable page of the committed function, written relative to the project.
     const page = (await call(first, "view", { function: "value", output: "views/value.html" })).result

@@ -140,6 +140,27 @@ module ChangeVerificationTests =
             match observation.Candidate with
             | Error(PureRunError.RuntimeFailure failure) -> Assert.True(failure.BindingExhausted)
             | other -> failwithf "Expected exhausted fake: %A" other
+            let fakeJson = sprintf "{\"kind\":\"fakeCapability\",\"capabilityId\":\"%s\",\"operations\":[{\"operationId\":\"%s\",\"responses\":[{\"kind\":\"return\",\"value\":{\"kind\":\"int64\",\"value\":\"7\"}}]}]}" (StableId.value capability.Id) (StableId.value operation.Id)
+            let wire argument = sprintf "{\"id\":\"failure\",\"op\":\"verifyChange\",\"proposalId\":\"%s\",\"cases\":[{\"label\":\"failure boundary\",\"functionId\":\"%s\",\"arguments\":[%s]}]}" proposal.ProposalId (StableId.value fn.Id) argument
+            use reply = AuthoringProtocol.executeLine session (wire fakeJson) |> JsonDocument.Parse
+            Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+            let item = reply.RootElement.GetProperty("result").GetProperty("evidence").GetProperty("cases")[0]
+            Assert.Equal("counterexample", item.GetProperty("status").GetString())
+            let error = item.GetProperty("candidate").GetProperty("error")
+            Assert.Equal("RunBindingExhausted", error.GetProperty("code").GetString())
+            Assert.Equal("FakeResponsesExhaustedException", error.GetProperty("exceptionType").GetString())
+            Assert.Equal(2, error.GetProperty("calls").GetArrayLength())
+            Assert.Contains(error.GetProperty("frames").EnumerateArray(), fun frame -> frame.GetProperty("kind").GetString() = "function" && frame.GetProperty("functionId").GetString() = StableId.value fn.Id)
+            Assert.False(item.GetProperty("candidate").TryGetProperty("unknown") |> fst)
+            // Operator host enablement applies to runPure only, never to verifyChange.
+            session.HostSourcesAllowed <- true
+            let hostJson = sprintf "{\"kind\":\"hostCapability\",\"capabilityId\":\"%s\",\"implementation\":\"UnregisteredHost\"}" (StableId.value capability.Id)
+            use refused = AuthoringProtocol.executeLine session (wire hostJson) |> JsonDocument.Parse
+            Assert.True(refused.RootElement.GetProperty("ok").GetBoolean())
+            let refusedCase = refused.RootElement.GetProperty("result").GetProperty("evidence").GetProperty("cases")[0]
+            Assert.Equal("unknown", refusedCase.GetProperty("status").GetString())
+            for side in [ "baseline"; "candidate" ] do
+                Assert.Equal("VerificationHostUnsupported", refusedCase.GetProperty(side).GetProperty("error").GetProperty("code").GetString())
             session.Reject proposal.ProposalId |> unwrap |> ignore
             Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path))
 
@@ -300,3 +321,71 @@ module ChangeVerificationTests =
                         Assert.Equal(observation.GetProperty("baseline").GetProperty("actual").ToString(), candidate.GetProperty("actual").ToString())
                 session.Reject proposal.ProposalId |> unwrap |> ignore
                 Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``real comparisons preserve results and compare effect arguments and order`` () =
+        withSession (fun session ->
+            let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let integer = TypeRef.Primitive PrimitiveType.Int64
+            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
+            let effect = session.Declarations().Effects |> List.exactlyOne
+            session.SimulateCreateCapability
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
+                  Operations = [ { DisplayName = "read"; Parameters = [ { DisplayName = "key"; Type = integer } ]; ResultType = integer; FailureType = None; EffectId = effect.Id } ] }
+            |> unwrap |> publish
+            let capability = session.Declarations().Capabilities |> List.exactlyOne
+            let operation = capability.Operations |> List.exactlyOne
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                  Parameters = [ { DisplayName = "provider"; Type = TypeRef.Capability capability.Id } ]
+                  ResultType = integer; RequiredEffects = [ effect.Id ]
+                  Body = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, operation.Id, [ operation.Parameters.Head.Id, ExpressionRecipe.Int64Literal 1L ]) }
+            |> unwrap |> publish
+            let fn () = session.Declarations().Functions |> List.exactlyOne
+            let invoke key = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.Parameter (fn ()).Parameters.Head.Id, operation.Id, [ operation.Parameters.Head.Id, ExpressionRecipe.Int64Literal key ])
+            let propose body = session.SimulateReplaceBody
+                                   { TargetFunctionId = (fn ()).Id; ExpectedBaseSnapshotId = session.SnapshotId; ExpectedCurrentResultNodeId = (fn ()).Body.ResultNodeId; Replacement = body } |> unwrap
+            let fake count = PureRunValue.FakeCapability(capability.Id,
+                               [ { OperationId = operation.Id; Responses = List.replicate count (PureRunFakeResponse.Return(PureRunValue.Int64 7L)); Cases = None } ])
+            let check body count status =
+                let bytes = File.ReadAllBytes session.Path
+                let proposal = propose body
+                let observation = ChangeVerification.verify session proposal.ProposalId [ { sample with FunctionId = (fn ()).Id; Arguments = [ fake count ] } ] |> unwrap |> fun e -> List.exactlyOne e.Observations
+                Assert.Equal(status, observation.Status)
+                Assert.Equal((observation.Baseline |> unwrap).Actual, (observation.Candidate |> unwrap).Actual)
+                if status = "counterexample" then Assert.NotEqual<PureRunCall list>((observation.Baseline |> unwrap).Calls, (observation.Candidate |> unwrap).Calls)
+                session.Reject proposal.ProposalId |> unwrap |> ignore
+                Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path)
+            check (invoke 1L) 1 "tested-agreement"
+            check (invoke 2L) 1 "counterexample"
+            propose (ExpressionRecipe.Bind(invoke 1L, invoke 2L)) |> publish
+            check (ExpressionRecipe.Bind(invoke 2L, invoke 1L)) 2 "counterexample")
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``successful evidence cannot authorize rejected stale or reopened proposals`` () =
+        withSession (fun session ->
+            let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "value"; Parameters = []
+                  ResultType = TypeRef.Primitive PrimitiveType.Unit; RequiredEffects = []; Body = ExpressionRecipe.UnitLiteral } |> unwrap |> publish
+            let fn = session.Declarations().Functions |> List.exactlyOne
+            let propose () = session.SimulateReplaceBody
+                                 { TargetFunctionId = fn.Id; ExpectedBaseSnapshotId = session.SnapshotId; ExpectedCurrentResultNodeId = (session.Declarations().Functions |> List.exactlyOne).Body.ResultNodeId; Replacement = ExpressionRecipe.UnitLiteral } |> unwrap
+            let cases = [ { sample with FunctionId = fn.Id } ]
+            let verify id = ChangeVerification.verify session id cases
+            let bytes = File.ReadAllBytes session.Path
+            let rejected = propose ()
+            Assert.Equal("tested-agreement", (verify rejected.ProposalId |> unwrap).Observations.Head.Status)
+            session.Reject rejected.ProposalId |> unwrap |> ignore
+            Assert.True(verify rejected.ProposalId |> Result.isError)
+            Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path)
+            let stale = propose ()
+            Assert.Equal("tested-agreement", (verify stale.ProposalId |> unwrap).Observations.Head.Status)
+            propose () |> publish
+            let committedBytes = File.ReadAllBytes session.Path
+            Assert.True(verify stale.ProposalId |> Result.isError)
+            session.Close()
+            use reopened = AuthoringSession.openExisting session.Path |> unwrap
+            Assert.True(ChangeVerification.verify reopened stale.ProposalId cases |> Result.isError)
+            Assert.Equal<byte>(committedBytes, File.ReadAllBytes session.Path)
+            Assert.Equal(PureRunValue.Unit, (PureRun.run reopened fn.Id [] None |> unwrap).Actual))

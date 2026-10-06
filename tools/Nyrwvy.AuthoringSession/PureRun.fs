@@ -1513,7 +1513,7 @@ module PureRun =
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []
 
-    /// Experimental read-only candidate execution, restricted to scripted fake capabilities.
+    /// Read-only candidate execution, restricted to scripted fake capabilities.
     let internal runContext context functionId arguments expected =
         if arguments @ Option.toList expected |> List.exists (boundedValue >> not) then
             Error(diagnostic "RunArgumentTooLarge" "Verification values exceed the runPure bound.")

@@ -68,7 +68,7 @@ with contextlib.nullcontext(str(destination)) if destination else tempfile.Tempo
     assert safe_result["evidence"]["caseEntryFunctionIds"] == [function_id]
     assert wrapper_id in safe_result['evidence']['affectedFunctionIds']
     safe_html = pathlib.Path(safe_result['reviewPath']).read_text()
-    assert 'Experimental change verification' in safe_html
+    assert 'Change verification' in safe_html
     assert 'Structural readiness:' in safe_html
     assert 'Behavioral verification: tested agreement' in safe_html
     assert '1 affected function(s) directly targeted, 1 without a direct case' in safe_html
@@ -103,7 +103,7 @@ with contextlib.nullcontext(str(destination)) if destination else tempfile.Tempo
     loop = propose(dict(kind='directCall', function='increment', arguments=[dict(parameter='x', value=parameter('x'))]))
     timeout = verify(loop)
     assert timeout['evidence']['cases'][0]['status'] == 'unknown', timeout
-    assert 'RunTimeout' in timeout['evidence']['cases'][0]['candidate']['unknown'], timeout
+    assert timeout['evidence']['cases'][0]['candidate']['error']['code'] == 'RunTimeout', timeout
     session.request('reject', proposalId=loop)
     # Same returned value but different effect arguments must be a counterexample.
     session.publish('simulateCreateEffect', displayName='io')

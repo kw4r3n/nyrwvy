@@ -499,6 +499,24 @@ module AuthoringProtocol =
         | PureRunFrame.CapabilityOperation operationId ->
             objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
+    /// Shared wire diagnostics for committed and candidate execution.
+    let private encodeRunError names functionId = function
+        | PureRunError.SessionFailure error -> WireEncode.error error
+        | PureRunError.RuntimeFailure runtime ->
+            objectValue
+                ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
+                   "message", runString runtime.Message
+                   "functionId", box (StableId.value runtime.FunctionId) ]
+                 @ named names "function" runtime.FunctionId
+                 @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                     "exceptionType", box runtime.ExceptionType
+                     "frames", runtime.Frames |> List.map (encodeFrame names) |> arrayValue
+                     "calls", runtime.Calls |> List.map (encodeCall names) |> arrayValue ])
+        | PureRunError.Unsupported(code, message) ->
+            objectValue
+                ([ "code", box code; "message", box message; "functionId", box (StableId.value functionId) ]
+                 @ named names "function" functionId)
+
     let private currentSnapshotId (session: AuthoringSession) = session.SnapshotId
 
     let private typeFieldIntent (item: JsonElement): AgentTypeFieldIntent =
@@ -1077,9 +1095,10 @@ module AuthoringProtocol =
                 | Error error -> sessionFailure requestId error
                 | Ok evidence ->
                     let names = runNames (session.Declarations())
-                    let observation = function
+                    let candidateNames = session.ExecutionContext(Some evidence.ProposalId) |> Result.map (fun context -> runNames context.Declarations) |> Result.defaultValue names
+                    let observation names functionId = function
                         | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
-                        | Error error -> objectValue [ "unknown", box (sprintf "%A" error) ]
+                        | Error error -> objectValue [ "error", encodeRunError names functionId error ]
                     let encodeCase item =
                         objectValue
                             [ "label", box item.Case.Label
@@ -1087,8 +1106,8 @@ module AuthoringProtocol =
                               "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
                               "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue names) |> Option.defaultValue null
                               "status", box item.Status
-                              "baseline", observation item.Baseline
-                              "candidate", observation item.Candidate ]
+                              "baseline", observation names item.Case.FunctionId item.Baseline
+                              "candidate", observation candidateNames item.Case.FunctionId item.Candidate ]
                     let encoded =
                         objectValue
                             [ "proposalId", box evidence.ProposalId
@@ -1097,8 +1116,8 @@ module AuthoringProtocol =
                               "caseRequest", box ((property "cases" root).GetRawText())
                               "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
                               "verifierIdentity", objectValue
-                                  [ "version", box "nyrwvy-change-verification-v3"
-                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v3; canonical-explicit-expectations; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
+                                  [ "version", box "nyrwvy-change-verification-v4"
+                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v4; structured-run-diagnostics; canonical-explicit-expectations; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
                                     "runtimeVersion", box (System.Environment.Version.ToString())
                                     "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
                                     "authoringModule", box (typeof<AuthoringSession>.Module.ModuleVersionId.ToString())
@@ -1154,25 +1173,7 @@ module AuthoringProtocol =
                                  "matches", result.Matches |> Option.map box |> Option.defaultValue null
                                  "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
                                  "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
-                | Error(PureRunError.RuntimeFailure runtime) ->
-                    failure requestId
-                        (objectValue
-                            ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
-                               "message", runString runtime.Message
-                               "functionId", box (StableId.value runtime.FunctionId) ]
-                             @ named runNames "function" runtime.FunctionId
-                             @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
-                                 "exceptionType", box runtime.ExceptionType
-                                 "frames", runtime.Frames |> List.map (encodeFrame runNames) |> arrayValue
-                                 "calls", runtime.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error(PureRunError.Unsupported(code, message)) ->
-                    failure requestId
-                        (objectValue
-                            ([ "code", box code
-                               "message", box message
-                               "functionId", box (StableId.value functionId) ]
-                             @ named runNames "function" functionId))
+                | Error error -> failure requestId (encodeRunError runNames functionId error)
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"

@@ -1,5 +1,9 @@
 # Semantic change verification experiment
 
+Historical design and measurements. The maintained opt-in API contract is now
+in [agent authoring session](../specs/agent-authoring-session.md#opt-in-change-verification).
+Experimental protocols below are not an alternative authority.
+
 **Status:** Experimental
 
 Branch: `experiment/semantic-change-verification`, based on remote main
@@ -218,3 +222,12 @@ real wire tests cover reordered Pair, Union containing Pair, and Product contain
 Union/List of Pair; changing a nested value still gives a counterexample and
 mismatch. Wire observations expose `matches` alongside mismatch. Earlier v2 reports
 retain their historical meaning; the v3 policy identity distinguishes this fix.
+
+### Adoption follow-up (v4)
+
+The maintained contract now specifies opt-in verification and structured runPure
+failure observations (`error`, never debug-string `unknown`). Candidate failures
+retain codes, frames and calls even when classified as counterexamples. Essential
+preservation/effect/lifecycle/host-refusal checks and an MCP round trip are in the
+ordinary maintained suites. The practical trial remains an experimental example,
+not a requirement for users to maintain a second specification.
