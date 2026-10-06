@@ -36,7 +36,17 @@ module internal ConfinedDirectory =
     let private eNoEnt, eExist, eNotDir, eLoop = 2, 17, 20, 40
 
     /// Whether this platform writes through directory handles. Elsewhere the caller keeps its own checks.
-    let supported = OperatingSystem.IsLinux() && Option.isSome flags
+    /// `close(-1)` only fails with EBADF; it probes that `libc` resolves (it may not on musl), so a missing
+    /// library falls back to the path-based write instead of throwing from the first write.
+    let supported =
+        OperatingSystem.IsLinux()
+        && Option.isSome flags
+        && (try
+                close -1 |> ignore
+                true
+            with
+            | :? DllNotFoundException
+            | :? EntryPointNotFoundException -> false)
 
     let private oDirectory, oNoFollow = flags |> Option.defaultValue (0, 0)
 
@@ -86,15 +96,21 @@ module internal ConfinedDirectory =
         let fd = openat(directory.Fd, temporary, oWrOnly ||| oCreat ||| oExcl ||| oNoFollow ||| oCloexec, 0o666)
         if fd < 0 then failure "create" temporary
         else
-            let written =
-                try
-                    use stream = new FileStream(new SafeFileHandle(nativeint fd, true), FileAccess.Write)
-                    stream.Write(content, 0, content.Length)
-                    stream.Flush()
-                    Ok()
-                with
-                | :? IOException as error -> Error $"I/O error: {error.Message}"
-            let renamed =
-                written |> Result.bind (fun () -> if renameat(directory.Fd, temporary, directory.Fd, name) = 0 then Ok() else failure "rename" name)
-            if Result.isError renamed then unlinkat(directory.Fd, temporary, 0) |> ignore
-            renamed
+            // The temporary file is removed on every path that does not rename it, exceptions included.
+            let mutable renamed = false
+            try
+                let written =
+                    try
+                        use stream = new FileStream(new SafeFileHandle(nativeint fd, true), FileAccess.Write)
+                        stream.Write(content, 0, content.Length)
+                        stream.Flush()
+                        Ok()
+                    with
+                    | :? IOException as error -> Error $"I/O error: {error.Message}"
+                    | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}"
+                let result =
+                    written |> Result.bind (fun () -> if renameat(directory.Fd, temporary, directory.Fd, name) = 0 then Ok() else failure "rename" name)
+                renamed <- Result.isOk result
+                result
+            finally
+                if not renamed then unlinkat(directory.Fd, temporary, 0) |> ignore
