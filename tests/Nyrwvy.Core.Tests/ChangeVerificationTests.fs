@@ -162,7 +162,9 @@ module ChangeVerificationTests =
               OperationId = StableId.createForTesting<CapabilityOperationTag> "read"
               Arguments = [ StableId.createForTesting<CapabilityParameterTag> "key", PureRunValue.Int64 key ] }
         let run value calls = Ok(result (PureRunValue.Int64 value) calls)
-        let check expected intent before after = Assert.Equal(expected, ChangeVerification.classify false intent before after)
+        let check expected intent before after =
+            let observed = after |> Result.map (fun fresh -> { fresh with Expected = intent; Matches = intent |> Option.map ((=) fresh.Actual) })
+            Assert.Equal(expected, ChangeVerification.classify false intent before observed)
         check "tested-agreement" None (run 7L []) (run 7L [])
         check "counterexample" None (run 7L []) (run 8L [])
         check "intended-change-tested" (Some(PureRunValue.Int64 8L)) (run 7L []) (run 8L [])
@@ -170,6 +172,8 @@ module ChangeVerificationTests =
         check "counterexample" None (run 7L [ call 1L ]) (run 7L [ call 2L ])
         check "counterexample" None (run 7L [ call 1L; call 2L ]) (run 7L [ call 2L; call 1L ])
         check "counterexample" (Some(PureRunValue.Int64 7L)) (run 7L []) (run 7L [ call 1L ])
+        // A raw equal expectation does not override an absent validated runner match.
+        Assert.Equal("counterexample", ChangeVerification.classify false (Some(PureRunValue.Int64 7L)) (run 7L []) (run 7L []))
         // Preservation observes a new result type rather than rejecting an injected old expectation.
         check "counterexample" None (run 7L []) (Ok(result (PureRunValue.String "seven") []))
         Assert.Equal("unknown", ChangeVerification.classify true None (run 7L []) (run 7L []))
@@ -246,3 +250,53 @@ module ChangeVerificationTests =
             Assert.Contains("Impact: 2 affected function(s)", header)
             Assert.Contains("1 affected function(s) directly targeted, 1 without a direct case", header)
             Assert.Contains("not dynamic coverage", header))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``wire explicit intentions canonicalize reordered and nested product union fields`` () =
+        withSession (fun session ->
+            let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let integer = TypeRef.Primitive PrimitiveType.Int64
+            let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
+            let createType name kind =
+                session.SimulateCreateType { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name; Kind = kind } |> unwrap |> publish
+                session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
+            let pair = createType "Pair" (AgentTypeDeclarationKindIntent.Product [ field "a" integer; field "b" integer ])
+            let answer = createType "Answer" (AgentTypeDeclarationKindIntent.Union
+                             [ { DisplayName = "Found"; Fields = [ field "pair" (TypeRef.Named pair.Id); field "count" integer ] } ])
+            let envelope = createType "Envelope" (AgentTypeDeclarationKindIntent.Product
+                               [ field "answer" (TypeRef.Named answer.Id); field "pairs" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named pair.Id ])) ])
+            let productFields (t: SemanticType) = match t.Kind with SemanticTypeKind.Product fields -> fields | _ -> failwith "product"
+            let variant = match answer.Kind with SemanticTypeKind.Union variants -> List.exactlyOne variants | _ -> failwith "union"
+            let intValue n = sprintf "{\"kind\":\"int64\",\"value\":\"%d\"}" n
+            let encodeFields reverse (fields: SemanticField list) values =
+                let ordered = fields |> List.sortBy (fun item -> StableId.value item.Id) |> fun items -> if reverse then List.rev items else items
+                ordered |> List.map (fun item -> sprintf "{\"fieldId\":\"%s\",\"value\":%s}" (StableId.value item.Id) (Map.find item.DisplayName values)) |> String.concat ","
+            let product (t: SemanticType) reverse values = sprintf "{\"kind\":\"product\",\"typeId\":\"%s\",\"fields\":[%s]}" (StableId.value t.Id) (encodeFields reverse (productFields t) values)
+            let pairValue reverse wrong = product pair reverse (Map.ofList [ "a", intValue (if wrong then 99 else 1); "b", intValue 2 ])
+            let unionValue reverse wrong = sprintf "{\"kind\":\"union\",\"typeId\":\"%s\",\"variantId\":\"%s\",\"fields\":[%s]}" (StableId.value answer.Id) (StableId.value variant.Id)
+                                              (encodeFields reverse variant.Fields (Map.ofList [ "pair", pairValue reverse wrong; "count", intValue 3 ]))
+            let envelopeValue reverse wrong = product envelope reverse (Map.ofList [ "answer", unionValue reverse wrong; "pairs", sprintf "{\"kind\":\"list\",\"itemType\":{\"kind\":\"named\",\"typeId\":\"%s\"},\"items\":[%s]}" (StableId.value pair.Id) (pairValue reverse false) ])
+            for t, value in [ pair, pairValue; answer, unionValue; envelope, envelopeValue ] do
+                session.SimulateCreateFunction
+                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "identity" + t.DisplayName
+                      Parameters = [ { DisplayName = "value"; Type = TypeRef.Named t.Id } ]; ResultType = TypeRef.Named t.Id
+                      RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap |> publish
+                let fn = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "identity" + t.DisplayName)
+                let proposal = session.SimulateReplaceBody
+                                   { TargetFunctionId = fn.Id; ExpectedBaseSnapshotId = session.SnapshotId; ExpectedCurrentResultNodeId = fn.Body.ResultNodeId
+                                     Replacement = ExpressionRecipe.Parameter fn.Parameters.Head.Id } |> unwrap
+                let bytes = File.ReadAllBytes session.Path
+                for wrong in [ false; true ] do
+                    let request = sprintf "{\"id\":\"canonical-intent\",\"op\":\"verifyChange\",\"proposalId\":\"%s\",\"cases\":[{\"label\":\"canonical explicit intent\",\"functionId\":\"%s\",\"arguments\":[%s],\"expectedCandidate\":%s}]}" proposal.ProposalId (StableId.value fn.Id) (value false false) (value true wrong)
+                    use reply = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
+                    Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+                    let observation = reply.RootElement.GetProperty("result").GetProperty("evidence").GetProperty("cases")[0]
+                    Assert.Equal((if wrong then "counterexample" else "intended-change-tested"), observation.GetProperty("status").GetString())
+                    let candidate = observation.GetProperty("candidate")
+                    Assert.Equal(not wrong, candidate.GetProperty("matches").GetBoolean())
+                    if wrong then Assert.NotEqual(JsonValueKind.Null, candidate.GetProperty("mismatch").ValueKind)
+                    if not wrong then
+                        Assert.Equal(JsonValueKind.Null, candidate.GetProperty("mismatch").ValueKind)
+                        Assert.Equal(observation.GetProperty("baseline").GetProperty("actual").ToString(), candidate.GetProperty("actual").ToString())
+                session.Reject proposal.ProposalId |> unwrap |> ignore
+                Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path))

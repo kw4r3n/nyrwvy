@@ -208,3 +208,13 @@ remain unexercised, and a directly targeted entry may still be unknown. Wire
 reports include `caseEntryFunctionIds`; historical v1 reports keep their original
 identity and meaning. The policy/module identity changes for v2; no old report is
 silently upgraded. Commit remains independent of this opt-in evidence.
+
+### Canonical explicit-intent follow-up (v3)
+
+Explicit intent uses the candidate runner's validated `Matches`, which recursively
+canonicalizes Product and Union field order, including nested containers. It does
+not compare the raw request expectation with canonical actual output. Maintained
+real wire tests cover reordered Pair, Union containing Pair, and Product containing
+Union/List of Pair; changing a nested value still gives a counterexample and
+mismatch. Wire observations expose `matches` alongside mismatch. Earlier v2 reports
+retain their historical meaning; the v3 policy identity distinguishes this fix.

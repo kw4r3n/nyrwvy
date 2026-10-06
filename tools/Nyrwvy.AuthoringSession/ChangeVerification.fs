@@ -47,7 +47,9 @@ module ChangeVerification =
                 if old.Calls <> fresh.Calls then "counterexample"
                 else
                     match expectedCandidate with
-                    | Some expected -> if fresh.Actual = expected then "intended-change-tested" else "counterexample"
+                    // runPure recursively canonicalizes expected Product/Union/container values.
+                    // Compare its validated match, not the caller's raw field ordering.
+                    | Some _ -> if fresh.Matches = Some true then "intended-change-tested" else "counterexample"
                     | None -> if old.Actual = fresh.Actual then "tested-agreement" else "counterexample"
             | Ok _, Error(PureRunError.RuntimeFailure failure) when concreteFailure failure -> "counterexample"
             | _ -> "unknown"

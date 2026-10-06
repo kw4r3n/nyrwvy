@@ -1078,7 +1078,7 @@ module AuthoringProtocol =
                 | Ok evidence ->
                     let names = runNames (session.Declarations())
                     let observation = function
-                        | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
+                        | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
                         | Error error -> objectValue [ "unknown", box (sprintf "%A" error) ]
                     let encodeCase item =
                         objectValue
@@ -1097,8 +1097,8 @@ module AuthoringProtocol =
                               "caseRequest", box ((property "cases" root).GetRawText())
                               "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
                               "verifierIdentity", objectValue
-                                  [ "version", box "nyrwvy-change-verification-v2"
-                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v2; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
+                                  [ "version", box "nyrwvy-change-verification-v3"
+                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v3; canonical-explicit-expectations; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
                                     "runtimeVersion", box (System.Environment.Version.ToString())
                                     "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
                                     "authoringModule", box (typeof<AuthoringSession>.Module.ModuleVersionId.ToString())
