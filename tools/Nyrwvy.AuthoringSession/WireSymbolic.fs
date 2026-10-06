@@ -44,6 +44,9 @@ module internal WireSymbolic =
     let capabilityOperation (capability: SemanticCapability) displayName =
         exactOne $"operation on {capability.DisplayName}" displayName capability.Operations (fun item -> item.DisplayName)
 
+    let functionParameter (fn: SemanticFunction) displayName =
+        exactOne $"parameter on {fn.DisplayName}" displayName fn.Parameters (fun item -> item.DisplayName)
+
     let capabilityParameter (operation: SemanticCapabilityOperation) displayName =
         exactOne $"parameter on operation {operation.DisplayName}" displayName operation.Parameters (fun item -> item.DisplayName)
 
@@ -863,6 +866,20 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "errBody" element)
             )
         | value -> fail $"Unsupported symbolic expression recipe kind '{value}'."
+
+    /// Keep the identities of type parameters already declared by a repaired function.
+    let resolveFunctionTypeParameters (fn: SemanticFunction) current =
+        let declared = TypeParameters.ofFunction fn
+        let substitution =
+            TypeParameters.occurring current
+            |> List.map (fun (id, name) ->
+                let originalId, originalName = exactOne $"type parameter on {fn.DisplayName}" name declared snd
+                id, TypeRef.TypeParameter(originalId, originalName))
+            |> Map.ofList
+        TypeParameters.substitute substitution current
+
+    let typeRefForExistingFunction declarations fn element =
+        typeRef declarations element |> resolveFunctionTypeParameters fn
 
     let recipeForNewFunction declarations displayName parameters element =
         recipe declarations (ParameterContext.NewFunction(displayName, parameters)) element

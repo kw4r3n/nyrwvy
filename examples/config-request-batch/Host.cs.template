@@ -58,15 +58,17 @@ public class Files : @@FILES@@
         catch (FileNotFoundException) { return NyResult<@@CONFIG@@, NyStr>.Err("config missing"); }
     }
 
-    public virtual NyResult<NyStr, NyStr> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    public virtual NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr handle, NyStr request, long attempt)
     {
         string root = handle;
         Trace(root, $"fetch {request} {attempt}");
+        if (File.Exists(Path.Combine(root, "responses", $"{request}.permanent")))
+            return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_PERMANENT@@);
         try
         {
-            return NyResult<NyStr, NyStr>.Ok(File.ReadAllText(Path.Combine(root, "responses", $"{request}.{attempt}.txt")));
+            return NyResult<NyStr, @@FETCH_ERROR@@>.Ok(File.ReadAllText(Path.Combine(root, "responses", $"{request}.{attempt}.txt")));
         }
-        catch (FileNotFoundException) { return NyResult<NyStr, NyStr>.Err("missing"); }
+        catch (FileNotFoundException) { return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_MISSING@@); }
     }
 
     public NyResult<NyUnit, NyStr> @@SAVE@@(NyStr handle, NyStr path, NyStr contents)
@@ -94,12 +96,12 @@ public sealed class WaitingFiles : Files
 {
     internal static readonly ManualResetEventSlim RequestEntered = new(false);
 
-    public override NyResult<NyStr, NyStr> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    public override NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr handle, NyStr request, long attempt)
     {
         Trace(handle, $"fetch {request} {attempt}");
         RequestEntered.Set();
         NyRuntime.WaitForCancellation();
-        return NyResult<NyStr, NyStr>.Err("cancelled");
+        return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_CANCELLED@@);
     }
 }
 

@@ -6,6 +6,11 @@ module internal WireEncode =
     open WireJson
     open WireEncodeCommon
 
+    let private operationSignature (op: SemanticCapabilityOperation) =
+        objectValue [ "id", box (StableId.value op.Id); "displayName", box op.DisplayName
+                      "parameters", op.Parameters |> List.map (fun p -> objectValue [ "id", box (StableId.value p.Id); "displayName", box p.DisplayName; "type", typeRef p.Type ]) |> arrayValue
+                      "resultType", typeRef op.ResultType ]
+
     let private rename (value: SymbolRename) =
         let kind, id, oldName, newName =
             match value with
@@ -269,6 +274,18 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "diff", resultTypeMigrationDiff item.ResultingChange
+                      "functionEffects", functionEffects item.FunctionEffects ]
+            | AuthoringProposalReview.CapabilityOperationSignatureMigration item ->
+                withRewritten
+                    [ "kind", box "capabilityOperationSignatureMigration"
+                      "receipt", receipt item.Receipt
+                      "readiness", readiness item.Readiness
+                      "diff", objectValue
+                          [ "capabilityId", box (StableId.value item.ResultingChange.CapabilityId)
+                            "oldOperation", operationSignature item.ResultingChange.OldOperation
+                            "newOperation", operationSignature item.ResultingChange.NewOperation
+                            "signatureChanges", item.ResultingChange.SignatureChanges |> List.map (fun (before, after) -> objectValue [ "before", functionSummary before; "after", functionSummary after ]) |> arrayValue
+                            "bodyRewrites", item.ResultingChange.BodyRewrites |> List.map bodyDiff |> arrayValue ]
                       "functionEffects", functionEffects item.FunctionEffects ]
             | AuthoringProposalReview.ProductFieldTypeMigration item ->
                 withRewritten

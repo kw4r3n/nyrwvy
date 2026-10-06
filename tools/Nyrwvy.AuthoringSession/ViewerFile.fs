@@ -92,6 +92,7 @@ module ViewerFile =
         | AuthoringProposalReview.CreateFunction _ -> "createFunction"
         | AuthoringProposalReview.ParameterTypeMigration _ -> "parameterTypeMigration"
         | AuthoringProposalReview.ResultTypeMigration _ -> "resultTypeMigration"
+        | AuthoringProposalReview.CapabilityOperationSignatureMigration _ -> "capabilityOperationSignatureMigration"
         | AuthoringProposalReview.ProductFieldTypeMigration _ -> "productFieldTypeMigration"
         | AuthoringProposalReview.CreateType _ -> "createType"
         | AuthoringProposalReview.CreateTypeGroup _ -> "createTypes"
@@ -107,6 +108,7 @@ module ViewerFile =
         | AuthoringProposalReview.CreateFunction item -> item.Readiness
         | AuthoringProposalReview.ParameterTypeMigration item -> item.Readiness
         | AuthoringProposalReview.ResultTypeMigration item -> item.Readiness
+        | AuthoringProposalReview.CapabilityOperationSignatureMigration item -> item.Readiness
         | AuthoringProposalReview.ProductFieldTypeMigration item -> item.Readiness
         | AuthoringProposalReview.CreateType item -> item.Readiness
         | AuthoringProposalReview.CreateTypeGroup item -> item.Readiness
