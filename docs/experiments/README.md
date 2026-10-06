@@ -20,3 +20,8 @@ This area holds explorations, evaluation protocols, and measurements that are no
 
 - [Nyason v0](nyason-v0.md)
 - [Exact-bit representation](bit-representation.md)
+
+## Change verification
+
+- [Semantic change verification experiment](semantic-change-verification.md): computed, revision-bound sequential differential evidence; not a current verification contract.
+- [Practical batch change-verification trial](change-verification-practical-trial.md): real formatter refactor/improvement, observed cost and deliberately missed coverage control.

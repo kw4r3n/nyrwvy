@@ -9,3 +9,4 @@ Small, self-contained programs that exercise the maintained authoring tools. Eac
 - [`mini-work-planner/`](mini-work-planner/README.md): a next-action planner for one work item, the fixture used by the [Codex CLI MCP maintenance probe](../docs/verification/codex-cli-mcp-maintenance-probe-run-2.md).
 
 The snapshot files are the programs; `runner/Generated.cs` files are projections written by `emitCSharp` and are never edited by hand.
+- [`change-verification-batch/`](change-verification-batch/README.md): experimental precommit comparison of real v2 batch formatter changes, explicit intended results and negative controls.

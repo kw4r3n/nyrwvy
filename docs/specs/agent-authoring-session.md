@@ -239,6 +239,131 @@ Every `simulate*` request accepts optional `"detail": "compact" | "full"`; anyth
 - **compact** renders every function in the review (`createdFunction`, `proposedFunction`, the `function` of `baseFocus`/`proposedFocus`/`functionFocus` entries) as its identity, display name, parameters (IDs, display names, types), result type and `requiredEffects`, with `body: { "resultNodeId", "nodeCount" }` in place of the node list, and omits the per-node `nodeTypes` of a focus. Everything else is kept: the receipt (transaction, base and proposed snapshot IDs and fingerprints), readiness with blocking obligation IDs, the diff (added/removed node IDs or summaries, affected uses, call sites and body rewrites), `bodyEffectRequirements` with evidence, `aborts`, and a focus's `callers`, `callees` and `openObligations`. Node summaries in diffs (`previousTarget`, `proposedTarget`, `removedNodes`, `addedNodes`, `retainedSharedDependencies`, body rewrites) are the same at both levels: `nodeId`, `role`, `type`, dependencies, `parameterId`/`functionId`, `float64Bits`, plus `literal` for Bool, Int64 and String literals (`{ "kind": "bool", "value": false }`, `{ "kind": "int64", "value": "-42" }` as an exact decimal string, `{ "kind": "string", "value": "..." }`; a String longer than 256 UTF-16 code units is cut to that prefix with `"truncated": true` and its full `length`) and `referenceDisplayName`, the display name of the parameter, function, field, variant, Product type, capability operation or capability the node names directly (both null otherwise). A compact review can therefore tell sibling literals apart and show which value a targeted edit replaces. Type, effect and capability reviews contain no bodies and are the same at both levels.
 - **full** adds the per-node graph and `nodeTypes`. Parameter-type, result-type and Product-field-type migrations and union-variant evolutions have no function focus, so at `full` their review adds `rewrittenFunctions`: the complete proposed function (signature and body) of every function in `bodyRewrites` or `repairedFunctionIds`, in that order. Nodes are rendered as before: `kind` as a debug string, or with `structuredReview: true` as the structured scoped graph of `readFunction`. `structuredReview` alone does not select `full`.
 
+### Opt-in change verification
+
+`verifyChange` is a maintained, optional comparison of a pending structural
+proposal with the current committed baseline. It reuses the runPure execution
+path; it is not a new runtime, approval gate, proof system or specification
+language. Calling it neither commits nor rejects the proposal. Ordinary commit
+policy remains unchanged. Operations proposals and dependency-upgrade previews
+without a structural candidate snapshot are unsupported.
+
+```json
+{
+  "id": "compare",
+  "op": "verifyChange",
+  "proposalId": "<pending proposal ID>",
+  "cases": [{
+    "label": "preserve formatted result for this request",
+    "functionId": "<stable function ID>",
+    "arguments": [{ "kind": "string", "value": "request" }]
+  }],
+  "output": "views/change-check.html"
+}
+```
+
+Each case has exactly `label`, `functionId`, `arguments`, and optionally
+`expectedCandidate`. There must be 1–32 cases and each label must be nonblank.
+Arguments and expectations use the exact-ID runPure value format, including
+scripted fake capabilities. Omit `expectedCandidate` to preserve the baseline
+result; supplying it requires that explicit result on the candidate. It is not
+inferred from candidate output. Product/Union field order is canonicalized
+recursively by runPure, including nested containers; actual field values remain
+significant. Float64 uses the existing canonical NaN and signed-zero semantics.
+There is no name-resolved verifyChange operation. Unknown request/case fields,
+including caller-supplied evidence, are rejected.
+
+The caller can be an agent: concretize user intent into labels, reuse applicable
+existing inputs/fake scripts, and supply independently chosen expectations for
+intended changes before comparing the candidate. Conditions remain caller-owned;
+changing them to fit candidate output is not verification. No separate formal
+specification or manually maintained duplicate set of conditions is required.
+
+Both sides run once with the same arguments and fresh identical fake response
+queues. Successful sequential observations compare canonical results and the
+complete ordered fake calls, including parameter/operation IDs and arguments.
+Explicit expectations permit result changes only: differing effects still count
+as counterexamples. Duration, allocations, unused fake responses and arbitrary
+external state are not observations of this contract.
+
+| Case status | Meaning under the supplied input/script |
+| --- | --- |
+| `tested-agreement` | Both sequential runs succeeded with equal results and ordered calls. |
+| `intended-change-tested` | Both sequential runs succeeded, calls agree, and the candidate matches the explicit canonical expectation. |
+| `counterexample` | Successful sequential runs differ in preserved observations, the explicit result mismatches, or a successful baseline is followed by a recognized mapped candidate program/fake failure. |
+| `unknown` | The supported comparison cannot establish one of those observations. |
+
+The recognized candidate-only failures are `FakeCapabilityException`,
+`FakeArgumentsUnmatchedException`, `FakeResponsesExhaustedException`, and the
+System exceptions `ArgumentException`, `ArgumentOutOfRangeException`,
+`InvalidOperationException`, `DivideByZeroException`, `OverflowException`,
+`IndexOutOfRangeException`, and `NullReferenceException`. A semantic frame for
+that failure's entry function must be present. The closed list does not treat an
+arbitrary exception message as a concrete regression. These are observed
+counterexamples under the given fake scripts, not a claim about every valid
+implementation/environment or deterministic behavior over all inputs.
+
+Baseline failure, failure on both sides, unrecognized/unmapped exceptions,
+stack/heap exhaustion, cancellation, invalid/unsupported values, compiler,
+harness, process, IO and timeout diagnostics remain unknown. Known concurrent
+or task-runtime entries remain unknown even if both outputs happen to agree or
+the candidate alone fails. New functions lacking a runnable baseline are unknown.
+Failure/cleanup/cancellation equivalence and concurrent partial-order trace
+comparison are not implemented. Nothing here proves equivalence over a full
+input domain. A program Result.Err is an ordinary successful result, not a runner
+failure.
+
+The outer success is `{ "evidence": ..., "reviewPath": "..." }`: it means a
+report was computed/written, not that all cases passed. Evidence contains
+`proposalId`, baseline/candidate snapshot IDs and fingerprints, the exact
+`caseRequest` JSON string and its SHA-256 `casesDigest`, `verifierIdentity`,
+`coverage`, `affectedFunctionIds`, `caseEntryFunctionIds`, and `cases`.
+Verifier identity records observation policy/version, runtime/build context and
+module identities. Current observation schema/policy is
+`nyrwvy-change-verification-v4`; earlier experimental reports retain their
+historical schemas and must not be interpreted as current observations.
+
+Each reported case contains its label, function ID, arguments, optional expectation
+(encoded as null when omitted), status and baseline/candidate observations.
+A successful observation is `{ "actual", "calls", "matches", "mismatch" }`;
+nullable matches/mismatch have the same meaning as runPure. A failed observation
+is `{ "error": ... }` with the existing structured runPure diagnostic: `code`,
+`message`, and applicable function/source snapshot IDs, exception type, semantic
+frames and complete calls. For example an exhausted candidate has error code
+`RunBindingExhausted` even when its case status is counterexample. Session errors
+use the existing session-error shape. Display names are optional labels next to
+stable IDs and use each side's declarations; names do not establish identity.
+Unsupported input is a per-case unknown, whereas malformed wire input, invalid
+case count/labels, stale/unavailable proposals or invalid session source fail the
+outer request. Invalid case sets/unsupported proposal forms currently use
+`DependencyFailure`; a stale committed base uses `ExternalModification`.
+
+Source and pinned dependency selection are rechecked before execution and before
+returning evidence. A proposal must still have the current committed base.
+Rejected handles cannot be evaluated; another commit makes old-base handles
+stale; closing/reopening drops in-memory proposal handles. Full resolved graph
+fingerprints conservatively include dependencies and unrelated edits. They
+identify revisions, not behavioral equivalence. Reports are historical,
+unauthenticated artifacts; neither verifyChange nor commit accepts them back as
+evidence authority. No successful verification-result cache or durable obligation
+is introduced. Rerun against a new proposal after editing/reopening.
+
+The review distinguishes structural readiness, behavioral status, affected
+functions, and unique direct case entry points. Impact is the touched functions
+and transitive callers across both graphs. Direct entry counts are requests, not
+dynamic path/function coverage; a directly targeted function can still be unknown,
+and callers without direct cases may remain unexercised.
+
+Candidate execution denies hostCapability arguments even when the operator
+allowed host sources for ordinary runPure. No hostSources field is accepted.
+The existing runner's validation, value/output bounds, 30-second compilation
+limit, five-second child execution limit, process cleanup and compilation cache
+are reused. Up to 64 child executions can occur across 32 comparisons, sequentially;
+there is no shorter aggregate-request deadline or latency guarantee. This is not
+an OS sandbox. Verification preserves snapshot/dependency bytes, but writes the
+requested HTML review and ordinary runner temporary/cache files. Output path
+validation is the same snapshot-directory confinement as existing views.
+
 ### Inspected base snapshot
 
 Every `simulate*` request accepts optional `"expectedSnapshotId": "<SnapshotId>"`, the snapshot the caller inspected (from `status`, or the `publishedSnapshotId` of its last commit receipt). When it is present it becomes the request's expected base, so a snapshot published in between, for example by another adapter on the same workspace, rejects the request with the workflow's existing stale-base code instead of simulating against the newer snapshot: `StructuralExpectedBaseMismatch` (body, target and function-creation requests), `ParameterTypeMigrationExpectedBaseMismatch`, `ResultTypeMigrationExpectedBaseMismatch`, `FieldTypeMigrationExpectedBaseMismatch`, `TypeDeclarationExpectedBaseMismatch`, `UnionVariantEvolutionExpectedBaseMismatch`, `EffectDeclarationExpectedBaseMismatch`, `CapabilityDeclarationExpectedBaseMismatch`, or `StaleBaseSnapshot` for `simulateOperations`/`simulateOperationsByName`, each inside a `SimulationRejected` error. `simulateReplaceBodyByName` also accepts optional `"expectedResultNodeId"`, the result node the caller read; a different current result node is `StructuralExpectedResultMismatch`, as for `expectedCurrentResultNodeId` on `simulateReplaceBody`. Omitting either property simulates against the current snapshot and result node, as before. A `…ByName` request resolves names against the current snapshot first, so a name that no longer resolves is still a `ProtocolError`.

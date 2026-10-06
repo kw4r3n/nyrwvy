@@ -1,0 +1,29 @@
+{
+  "status": "experimental requirements fixed before candidates",
+  "baseline": "config-request-batch/v2 missingLine",
+  "refactor": "For every request/error string, preserve exactly skipped + space + request + colon-space + error + LF; preserve IDs/signature/effects and pinned dependency bytes.",
+  "improvement": "Escape embedded CR as literal backslash-r and LF as literal backslash-n in request/error only. Preserve prefix, separator, final LF, all other characters and ordinary report cases. This is a new requirement, not an asserted historical bug. Escaping need not be reversible.",
+  "observations": ["canonical returned string", "empty fake call history for formatter", "snapshot/dependency bytes unchanged until explicit local graph commit", "affected caller closure", "ordinary five saved host/cleanup cases remain unchanged"],
+  "sampledInputs": [
+    {"request": "beta", "error": "missing"},
+    {"request": "", "error": ""},
+    {"request": "beta", "error": ""},
+    {"request": "名前🙂", "error": "不存在: détail"},
+    {"request": "a:b\\n", "error": "literal \\r\\n"},
+    {"request": "a\nb", "error": "missing"},
+    {"request": "beta", "error": "a\rb"},
+    {"request": "a\r\nb", "error": "c\r\nd"},
+    {"request": "\n\r", "error": "\r\n"}
+  ],
+  "heldOutInputs": [
+    {"request": "delta-outside", "error": "missing"},
+    {"request": "hold\nend\r", "error": "start\r\nend\n"}
+  ],
+  "negativeControls": [
+    "Structurally valid wrong prefix: missing instead of skipped; expect counterexamples.",
+    "Structurally valid omit LF escaping in error only; expect counterexamples on CRLF/error boundaries.",
+    "Structurally valid delta-outside-only changed output absent from sampled suite; expect sampled tested agreement but held-out counterexample. Demonstrates missed behavior, not proof."
+  ],
+  "ordinaryComparison": "Run existing config-request-batch/v2 authoring/reopen/move/refusal tests before candidates; replay unchanged five saved cases after genuine commits and the separate temporary coverage-gap control. Use frozen runPure expected assertions on formatter candidates after local commits, then restore the real improvement snapshot through proposal rejection / resimulation rather than editing snapshots.",
+  "deferred": ["whole program host equivalence", "cleanup/cancellation equivalence", "dependency upgrade differential equality", "all strings proof", "signed or durable obligations"]
+}

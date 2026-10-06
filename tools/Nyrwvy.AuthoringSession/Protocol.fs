@@ -499,6 +499,24 @@ module AuthoringProtocol =
         | PureRunFrame.CapabilityOperation operationId ->
             objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
+    /// Shared wire diagnostics for committed and candidate execution.
+    let private encodeRunError names functionId = function
+        | PureRunError.SessionFailure error -> WireEncode.error error
+        | PureRunError.RuntimeFailure runtime ->
+            objectValue
+                ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
+                   "message", runString runtime.Message
+                   "functionId", box (StableId.value runtime.FunctionId) ]
+                 @ named names "function" runtime.FunctionId
+                 @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                     "exceptionType", box runtime.ExceptionType
+                     "frames", runtime.Frames |> List.map (encodeFrame names) |> arrayValue
+                     "calls", runtime.Calls |> List.map (encodeCall names) |> arrayValue ])
+        | PureRunError.Unsupported(code, message) ->
+            objectValue
+                ([ "code", box code; "message", box message; "functionId", box (StableId.value functionId) ]
+                 @ named names "function" functionId)
+
     let private currentSnapshotId (session: AuthoringSession) = session.SnapshotId
 
     let private typeFieldIntent (item: JsonElement): AgentTypeFieldIntent =
@@ -1065,6 +1083,61 @@ module AuthoringProtocol =
                               "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
                               "functionCount", box execution.Functions.Length ])
                 | Error error -> sessionFailure requestId error
+            | "verifyChange" ->
+                ensureFields "verifyChange request" [ "id"; "op"; "proposalId"; "cases"; "output" ] [ "id"; "op"; "proposalId"; "cases" ] root
+                let cases = array "cases" root |> List.map (fun item ->
+                    ensureFields "verification case" [ "label"; "functionId"; "arguments"; "expectedCandidate" ] [ "label"; "functionId"; "arguments" ] item
+                    { Label = requiredString "label" item
+                      FunctionId = id<FunctionTag> "functionId" item
+                      Arguments = array "arguments" item |> List.map (pureValue None)
+                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue None) })
+                match ChangeVerification.verify session (requiredString "proposalId" root) cases with
+                | Error error -> sessionFailure requestId error
+                | Ok evidence ->
+                    let names = runNames (session.Declarations())
+                    let candidateNames = session.ExecutionContext(Some evidence.ProposalId) |> Result.map (fun context -> runNames context.Declarations) |> Result.defaultValue names
+                    let observation names functionId = function
+                        | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
+                        | Error error -> objectValue [ "error", encodeRunError names functionId error ]
+                    let encodeCase item =
+                        objectValue
+                            [ "label", box item.Case.Label
+                              "functionId", box (StableId.value item.Case.FunctionId)
+                              "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
+                              "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue names) |> Option.defaultValue null
+                              "status", box item.Status
+                              "baseline", observation names item.Case.FunctionId item.Baseline
+                              "candidate", observation candidateNames item.Case.FunctionId item.Candidate ]
+                    let encoded =
+                        objectValue
+                            [ "proposalId", box evidence.ProposalId
+                              "baselineSnapshotId", box (StableId.value evidence.BaselineSnapshotId)
+                              "candidateSnapshotId", box (StableId.value evidence.CandidateSnapshotId)
+                              "caseRequest", box ((property "cases" root).GetRawText())
+                              "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
+                              "verifierIdentity", objectValue
+                                  [ "version", box "nyrwvy-change-verification-v4"
+                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v4; structured-run-diagnostics; canonical-explicit-expectations; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
+                                    "runtimeVersion", box (System.Environment.Version.ToString())
+                                    "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
+                                    "authoringModule", box (typeof<AuthoringSession>.Module.ModuleVersionId.ToString())
+                                    "semanticsModule", box (typeof<Snapshot>.Module.ModuleVersionId.ToString())
+                                    "executionModule", box (typeof<ExecutionProgram>.Module.ModuleVersionId.ToString())
+                                    "backendModule", box (typeof<CSharpBackendProfile>.Module.ModuleVersionId.ToString()) ]
+                              "baselineFingerprint", box evidence.BaselineFingerprint
+                              "candidateFingerprint", box evidence.CandidateFingerprint
+                              "coverage", box "Explicit cases only; no proof of equivalence. Recognized mapped candidate-only program/fake failures are counterexamples after baseline success; other failures and concurrency are unknown. Effects must be preserved. Entry points are not dynamic coverage."
+                              "caseEntryFunctionIds", evidence.Observations |> List.map (fun item -> item.Case.FunctionId) |> List.distinct |> List.map (StableId.value >> box) |> arrayValue
+                              "affectedFunctionIds", evidence.AffectedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
+                              "cases", evidence.Observations |> List.map encodeCase |> arrayValue ]
+                    let json = System.Text.Json.JsonSerializer.Serialize(encoded, System.Text.Json.JsonSerializerOptions(WriteIndented = true, MaxDepth = WireJson.responseMaxJsonDepth))
+                    let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
+                    match session.PendingProposalView evidence.ProposalId with
+                    | Error error -> sessionFailure requestId error
+                    | Ok view ->
+                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) evidence json with
+                        | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
+                        | Ok(path, _) -> success requestId (objectValue [ "evidence", encoded; "reviewPath", box path ])
             | "runPure" | "runPureByName" as op ->
                 let names = if op = "runPureByName" then Some(session.Declarations()) else None
                 let functionKey = if names.IsSome then "function" else "functionId"
@@ -1100,25 +1173,7 @@ module AuthoringProtocol =
                                  "matches", result.Matches |> Option.map box |> Option.defaultValue null
                                  "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
                                  "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error(PureRunError.SessionFailure error) -> sessionFailure requestId error
-                | Error(PureRunError.RuntimeFailure runtime) ->
-                    failure requestId
-                        (objectValue
-                            ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
-                               "message", runString runtime.Message
-                               "functionId", box (StableId.value runtime.FunctionId) ]
-                             @ named runNames "function" runtime.FunctionId
-                             @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
-                                 "exceptionType", box runtime.ExceptionType
-                                 "frames", runtime.Frames |> List.map (encodeFrame runNames) |> arrayValue
-                                 "calls", runtime.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error(PureRunError.Unsupported(code, message)) ->
-                    failure requestId
-                        (objectValue
-                            ([ "code", box code
-                               "message", box message
-                               "functionId", box (StableId.value functionId) ]
-                             @ named runNames "function" functionId))
+                | Error error -> failure requestId (encodeRunError runNames functionId error)
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"

@@ -988,13 +988,13 @@ module PureRun =
             "    }\n}\n" ]
 
     let private runVerified
-        (session: AuthoringSession)
+        (context: AuthoringExecutionContext)
         (functionId: FunctionId)
         (arguments: PureRunValue list)
         (expected: PureRunValue option)
         (hostSources: (string * string) list)
         : Result<PureRunResult, PureRunError> =
-        let declarations = session.Declarations()
+        let declarations = context.Declarations
         let supported = typeSupport declarations.Types
         let arguments = arguments |> List.map canonicalValue
         let expected = expected |> Option.map canonicalValue
@@ -1042,7 +1042,7 @@ module PureRun =
             // Check only functions reachable from this entry; unrelated parallel functions do not
             // make a sequential host binding require a concurrency assertion.
             let emitted =
-                session.ProjectExecution()
+                context.Project()
                 |> Result.bind (fun program ->
                     let program = ExecutionCallGraph.forEntry program functionId
                     let operationIds = program.Capabilities |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id))
@@ -1076,7 +1076,7 @@ module PureRun =
                     | _ -> false) ->
                 Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
             | Ok(program, artifact) ->
-                let snapshotId = session.SnapshotId
+                let snapshotId = context.SnapshotId
                 let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                 try
                     try
@@ -1503,6 +1503,20 @@ module PureRun =
                    && (not (List.isEmpty hostSources)
                        || arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) ->
             Error(diagnostic "RunHostSourcesDisabled" "Host sources and hostCapability bindings compile and run arbitrary C# with the user's permissions, so they are disabled unless the session was started with --allow-host-sources. Use fakeCapability bindings, or ask the operator to enable host sources.")
-        | Ok() -> readHostSources session hostSources |> Result.bind (runVerified session functionId arguments expected)
+        | Ok() ->
+            let context =
+                { SnapshotId = session.SnapshotId
+                  Fingerprint = ""
+                  Declarations = session.Declarations()
+                  Project = session.ProjectExecution }
+            readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected)
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []
+
+    /// Read-only candidate execution, restricted to scripted fake capabilities.
+    let internal runContext context functionId arguments expected =
+        if arguments @ Option.toList expected |> List.exists (boundedValue >> not) then
+            Error(diagnostic "RunArgumentTooLarge" "Verification values exceed the runPure bound.")
+        elif arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false) then
+            Error(diagnostic "VerificationHostUnsupported" "Change verification accepts fake capabilities only.")
+        else runVerified context functionId arguments expected []
