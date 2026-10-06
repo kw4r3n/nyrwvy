@@ -845,6 +845,50 @@ module AuthoringProtocol =
                       TargetReplacement = recipe (property "targetReplacement" root)
                       CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
                 proposalResponse (session.SimulateResultTypeMigration request)
+            | "simulateCapabilityOperationSignatureMigrationByName" ->
+                ensureFields "operation signature migration by name" [ "id"; "op"; "capability"; "operation"; "parameterTypes"; "resultType"; "functionRepairs"; "structuredReview"; "detail"; "expectedSnapshotId" ] [ "id"; "op"; "capability"; "operation"; "parameterTypes"; "resultType"; "functionRepairs" ] root
+                let declarations = session.Declarations()
+                let cap = WireSymbolic.resolveCapability declarations (requiredString "capability" root)
+                let operation = WireSymbolic.capabilityOperation cap (requiredString "operation" root)
+                let request: AgentCapabilityOperationSignatureMigrationRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      OperationId = operation.Id
+                      ParameterTypes = array "parameterTypes" root |> List.map (fun item ->
+                          ensureFields "operation parameter type" [ "parameter"; "type" ] [ "parameter"; "type" ] item
+                          let name = requiredString "parameter" item
+                          let parameter = WireSymbolic.capabilityParameter operation name
+                          { ParameterId = parameter.Id; Type = WireSymbolic.typeRef declarations (property "type" item) })
+                      ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
+                      FunctionRepairs = array "functionRepairs" root |> List.map (fun item ->
+                          ensureFields "function repair" [ "function"; "parameterTypes"; "resultType"; "replacement" ] [ "function"; "parameterTypes"; "resultType"; "replacement" ] item
+                          let fn = WireSymbolic.resolveFunction declarations (requiredString "function" item)
+                          { FunctionId = fn.Id
+                            ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                                ensureFields "function parameter type" [ "parameter"; "type" ] [ "parameter"; "type" ] parameter
+                                let name = requiredString "parameter" parameter
+                                let p = WireSymbolic.functionParameter fn name
+                                { ParameterId = p.Id; Type = WireSymbolic.typeRefForExistingFunction declarations fn (property "type" parameter) })
+                            ResultType = WireSymbolic.typeRefForExistingFunction declarations fn (property "resultType" item)
+                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) |> ExpressionRecipeTypes.map (WireSymbolic.resolveFunctionTypeParameters fn) }) }
+                proposalResponse (session.SimulateCapabilityOperationSignatureMigration request)
+            | "simulateCapabilityOperationSignatureMigration" ->
+                ensureFields "operation signature migration" [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs"; "structuredReview"; "detail"; "expectedSnapshotId" ] [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs" ] root
+                let request: AgentCapabilityOperationSignatureMigrationRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      OperationId = id<CapabilityOperationTag> "operationId" root
+                      ParameterTypes = array "parameterTypes" root |> List.map (fun item ->
+                          ensureFields "operation parameter type" [ "parameterId"; "type" ] [ "parameterId"; "type" ] item
+                          { ParameterId = id<CapabilityParameterTag> "parameterId" item; Type = typeRef (property "type" item) })
+                      ResultType = typeRef (property "resultType" root)
+                      FunctionRepairs = array "functionRepairs" root |> List.map (fun item ->
+                          ensureFields "function repair" [ "functionId"; "parameterTypes"; "resultType"; "replacement" ] [ "functionId"; "parameterTypes"; "resultType"; "replacement" ] item
+                          { FunctionId = id<FunctionTag> "functionId" item
+                            ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                                ensureFields "function parameter type" [ "parameterId"; "type" ] [ "parameterId"; "type" ] parameter
+                                { ParameterId = id<ParameterTag> "parameterId" parameter; Type = typeRef (property "type" parameter) })
+                            ResultType = typeRef (property "resultType" item)
+                            Replacement = recipe (property "replacement" item) }) }
+                proposalResponse (session.SimulateCapabilityOperationSignatureMigration request)
             | "simulateProductFieldTypeMigration" ->
                 ensureFields
                     "simulateProductFieldTypeMigration request"

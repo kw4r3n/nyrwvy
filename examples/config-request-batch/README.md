@@ -60,3 +60,15 @@ The Nyrwvy graph owns configuration validation, branching, retry limits, transfo
 The cancellation fixture additionally provides an entry barrier and a request waiting for cancellation. `runPure` schedules concurrency with its deterministic virtual clock; the barrier cooperates through the existing `NyVirtualClock.Block`, and the request uses `NyRuntime.WaitForCancellation`. Without a runner clock the barrier uses a bounded real wait. This case demonstrates cooperative cancellation, not interruption of arbitrary blocking file I/O. The worker is consumed inside its `TaskScope`; no scope handoff or new core abstraction is needed.
 
 All responses are local fixtures. No network, models, provider credentials or paid calls are used. `runPure` host-source execution uses the existing explicitly enabled trusted-host boundary, rather than an OS sandbox. This example has no transaction or crash-recovery guarantee for report writes.
+
+## Evolve the fetch operation signature
+
+```sh
+node examples/config-request-batch/run.mjs --signature
+```
+
+This mode authors v1, then declares `FetchFailure = Retryable(message: String) | Permanent(message: String)` and reviews one `simulateCapabilityOperationSignatureMigrationByName` proposal. It changes `BatchFiles.fetch` to `Result<String,FetchFailure>` and replaces `fetchWithRetry` together. The caller returns its existing `Result<String,String>` by explicitly extracting the error message. Retryable errors retry to the configured limit, even for messages other than `missing`; permanent errors stop immediately, even when their message is `missing`.
+
+The operation parameter type map and each repaired function's parameter type map cover every retained parameter exactly once. IDs, ordering and names remain stable. This API also supports argument type changes and affected implementation/function signature repairs, demonstrated by maintained regressions. It does not add/remove parameters or alter effects/FailureType.
+
+`signature-evolution.json` records stable identities, rejected incomplete/stale/mistyped requests and explicit old/new fake queues. No equivalence is asserted across changed response types. `cases.before-signature.json` retains the old host cases; final `cases.json` adds a permanent failure with exactly one attempt. Generated host signatures and error constructors come from the symbol manifest. The graph proposal publishes atomically; updating/deploying the external host is an explicit separate boundary action. Reopen, moved pins, exception/cancellation and one release per acquired handle are executed against the final bundle.

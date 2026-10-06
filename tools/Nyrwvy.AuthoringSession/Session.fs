@@ -57,6 +57,7 @@ type AuthoringProposalReview =
     | ParameterTypeMigration of AgentParameterTypeMigrationReview
     | ResultTypeMigration of AgentResultTypeMigrationReview
     | ProductFieldTypeMigration of AgentProductFieldTypeMigrationReview
+    | CapabilityOperationSignatureMigration of AgentCapabilityOperationSignatureMigrationReview
     | CreateType of AgentTypeDeclarationReview
     | CreateTypeGroup of AgentTypeDeclarationGroupReview
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionReview
@@ -101,6 +102,7 @@ type private PendingProposal =
     | ParameterTypeMigration of AgentParameterTypeMigrationProposal
     | ResultTypeMigration of AgentResultTypeMigrationProposal
     | ProductFieldTypeMigration of AgentProductFieldTypeMigrationProposal
+    | CapabilityOperationSignatureMigration of AgentCapabilityOperationSignatureMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
     | CreateTypeGroup of AgentTypeDeclarationGroupProposal
     | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
@@ -116,6 +118,7 @@ module private PendingProposal =
         | PendingProposal.CreateFunction proposal -> Some(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.proposedSnapshot proposal)
         | PendingProposal.ParameterTypeMigration proposal -> Some(AgentParameterTypeMigrationProposal.proposedSnapshot proposal)
         | PendingProposal.ResultTypeMigration proposal -> Some(AgentResultTypeMigrationProposal.proposedSnapshot proposal)
+        | PendingProposal.CapabilityOperationSignatureMigration proposal -> Some(AgentCapabilityOperationSignatureMigrationProposal.proposedSnapshot proposal)
         | PendingProposal.ProductFieldTypeMigration proposal -> Some(AgentProductFieldTypeMigrationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateType proposal -> Some(AgentTypeDeclarationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateTypeGroup proposal -> Some(AgentTypeDeclarationGroupProposal.proposedSnapshot proposal)
@@ -136,6 +139,8 @@ module private ProposalReview =
         | AuthoringProposalReview.ParameterTypeMigration item ->
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
         | AuthoringProposalReview.ResultTypeMigration item ->
+            item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
+        | AuthoringProposalReview.CapabilityOperationSignatureMigration item ->
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
         | AuthoringProposalReview.ProductFieldTypeMigration item ->
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
@@ -542,6 +547,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
                 || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.OwnerCapabilityId)))
+            | AuthoringProposalReview.CapabilityOperationSignatureMigration item, Some imported ->
+                imported.Capabilities |> List.exists (fun c -> c.Id = item.ResultingChange.CapabilityId)
             | _ -> false
         if functions |> List.exists (fun id -> Set.contains id importedFunctionIds)
            || types |> List.exists (fun id -> Set.contains id importedTypeIds)
@@ -743,6 +750,16 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 registerWith (AgentProductFieldTypeMigrationProposal.proposedFunctions proposal) (AgentProductFieldTypeMigrationProposal.transactionId proposal) (PendingProposal.ProductFieldTypeMigration proposal) (AuthoringProposalReview.ProductFieldTypeMigration(AgentProductFieldTypeMigrationProposal.review proposal))
 
+    member _.SimulateCapabilityOperationSignatureMigration(request: AgentCapabilityOperationSignatureMigrationRequest): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentCapabilityOperationSignatureMigrationWorkflow.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                registerWith (AgentCapabilityOperationSignatureMigrationProposal.proposedFunctions proposal) (AgentCapabilityOperationSignatureMigrationProposal.transactionId proposal) (PendingProposal.CapabilityOperationSignatureMigration proposal) (AuthoringProposalReview.CapabilityOperationSignatureMigration(AgentCapabilityOperationSignatureMigrationProposal.review proposal))
+
     member _.SimulateCreateType(request: AgentCreateTypeDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
@@ -856,6 +873,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 match AgentProductFieldTypeMigrationWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentProductFieldTypeMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentProductFieldTypeMigrationCommitResult.Committed(candidate, publication) ->
+                    commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, (_, PendingProposal.CapabilityOperationSignatureMigration proposal) ->
+                match AgentCapabilityOperationSignatureMigrationWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentCapabilityOperationSignatureMigrationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | AgentCapabilityOperationSignatureMigrationCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
             | true, (_, PendingProposal.CreateType proposal) ->
                 match AgentTypeDeclarationWorkflow.commitWithPolicy workspace proposal policy with

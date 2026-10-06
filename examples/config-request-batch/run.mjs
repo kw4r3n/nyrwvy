@@ -10,8 +10,9 @@ import { createGraphTools } from "../../tools/nyrwvy-agent/graph-tools.mjs"
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url))
 const replay = process.argv[2] === "--replay"
 const evolve = process.argv[2] === "--v2"
+const signature = process.argv[2] === "--signature"
 if (replay && !process.argv[3]) throw new Error("Usage: run.mjs --replay <bundle-directory>")
-const requestedOutput = replay || evolve ? process.argv[3] : process.argv[2]
+const requestedOutput = replay || evolve || signature ? process.argv[3] : process.argv[2]
 const output = requestedOutput ? resolve(requestedOutput) : await mkdtemp(join(tmpdir(), "nyrwvy-file-batch-"))
 const original = join(output, "original"), moved = join(output, "moved")
 if (!replay) {
@@ -155,7 +156,11 @@ async function writeHost(directory) {
   const files = declarations.capabilities.find(c => c.displayName === "BatchFiles")
   const control = declarations.capabilities.find(c => c.displayName === "CancellationControl")
   const config = declarations.types.find(t => t.displayName === "BatchConfig")
+  const failure = declarations.types.find(t => t.displayName === "FetchFailure")
+  const failureType = failure ? symbol("types", failure.id) : "NyStr"
+  const failureValue = (variant, message) => failure ? `new ${symbol("variants", failure.typeKind.variants.find(v => v.displayName === variant).id)}(${JSON.stringify(message)})` : JSON.stringify(message)
   const substitutions = {
+    FETCH_ERROR: failureType, FETCH_MISSING: failureValue("Retryable", "missing"), FETCH_CANCELLED: failureValue("Permanent", "cancelled"), FETCH_PERMANENT: failureValue("Permanent", "denied"),
     FILES: symbol("capabilities", files.id), CONTROL: symbol("capabilities", control.id), CONFIG: symbol("types", config.id),
     CONFIG_ARGUMENTS: config.typeKind.fields.map(f => `${symbol("fields", f.id)}: ` + ({ requests: 'NyList<NyStr>.Create(settings.GetProperty("requests").EnumerateArray().Select(item => (NyStr)item.GetString()!).ToArray())',
       maxAttempts: 'settings.GetProperty("maxAttempts").GetInt64()', output: '(NyStr)settings.GetProperty("output").GetString()!' })[f.displayName]).join(",\n                "),
@@ -217,11 +222,12 @@ async function runSaved(directory) {
     assert.equal(trace[0], "open", name)
     assert.equal(trace.at(-1), "close disposed", name)
     assert.equal(trace.filter(line => line === "close disposed").length, 1, name)
-    if (["success", "retry-and-missing"].includes(name)) {
+    if (["success", "retry-and-missing", "permanent"].includes(name)) {
       const expectedContents = savedCase.expected.value.fields.find(f => f.field === "contents").value.value
       assert.equal(await readFile(join(root, "report.txt"), "utf8"), expectedContents)
     } else await assert.rejects(readFile(join(root, "report.txt")), { code: "ENOENT" })
     if (name === "retry-and-missing") assert.deepEqual(trace.filter(line => line.startsWith("fetch")), ["fetch alpha 1", "fetch beta 1", "fetch beta 2", "fetch gamma 1", "fetch gamma 2"])
+    if (name === "permanent") assert.deepEqual(trace.filter(line => line.startsWith("fetch")), ["fetch alpha 1", "fetch beta 1", "fetch gamma 1"])
     if (name === "cancelled") assert.deepEqual(trace, ["open", "readConfig", "fetch pause 1", "close disposed"])
     console.log(`${name}: ${name === "host-error" ? "host exception" : "expected value"}; cleanup confirmed`)
   }
@@ -248,6 +254,10 @@ try {
   await call("close")
   await call("open", { mode: "open", snapshot: join(original, "batch.json") })
   await runSaved(original)
+  if (signature) {
+    const { evolveSignature } = await import("./evolve-signature.mjs")
+    await evolveSignature({ directory: original, call, exchange, publish, writeHost, runSaved })
+  }
   if (evolve) {
     const { evolveV2 } = await import("./evolve-v2.mjs")
     await evolveV2({ directory: original, library, call, exchange, publish, writeHost, runSaved })
