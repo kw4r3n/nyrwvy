@@ -2,7 +2,7 @@
 
 - **Status:** Current planning context
 - **Prepared:** 2026-09-15
-- **Updated:** 2026-10-05
+- **Updated:** 2026-10-07
 - **Current baseline:** Maintained ordinary AI graph tools and stdio MCP, with qualified Codex maintenance evidence and an on-demand expression-recipe reference driven by an independent consumer task
 - **Purpose:** Record the maintained authoring baseline and define the evidence-triggered boundary for later work.
 
@@ -138,7 +138,7 @@ Judge committed semantic state and execution behavior rather than the model's st
 
 <a id="immediate-execution-queue"></a>
 
-The language/tool implementation queue lives in this document. An *order* is one numbered, bounded language or tool change with its evidence and decision; a *probe* is one numbered live porting or authoring session recorded under [verification](../verification/README.md#live-agent-probes). The orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-55 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
+The language/tool implementation queue lives in this document. An *order* is one numbered, bounded language or tool change with its evidence and decision; a *probe* is one numbered live porting or authoring session recorded under [verification](../verification/README.md#live-agent-probes). The orders came from rrawrlet slice probes (the first on 2026-09-25), one music-logic probe, the gaps recorded in [Semantic independence](../concepts/semantic-independence.md#current-gaps), and owner choices under the [selection rule](#selection-rule-from-here). Orders 1-57 are all done, and no order is pending. The next order is chosen from the [open candidates](#open-candidates) when a task shows the cost again or the owner chooses one; record the reason with it. The [general-purpose programming roadmap](general-purpose-programming-roadmap.md) records the bounded G1-G4/T1-T3 outcomes, completed on 2026-09-25. The per-probe sections below keep each order's evidence and rationale; the details of each probe are in its linked verification record.
 
 ### Orders 1-39
 
@@ -473,6 +473,17 @@ The owner queued probe 24's queue cost; the first step of order 55 was to choose
 ### Findings from the 2026-10-05 probe 25
 
 [Probe 25](../verification/rrawrlet-slice-probe25-20261005.md) authored rrawrlet's `codex.py`, the last module no probe had covered: the JSON-RPC client with its reader, request timeouts, tool-call handlers, turn deadlines and `close`, `codex_error`, and the process-group shutdown over `/proc`, with the process and pipes behind a 21-operation `Host`. Against the real Python on a virtual-clock event loop it matched 489/490 cases and 7,433 host calls in order, after two port bugs were fixed; the remaining case is a same-instant ordering asyncio allows and Nyrwvy cannot write. Nothing is blocked. The new costs are concurrency ones: no futures or channels between tasks, no time value, and no zero-time yield. Strict decoding with Python's error text came back as a second consumer of the UTF-8 decode decision's revisit condition. All are in the [open candidates](#open-candidates), none queued.
+
+### Owner choices of 2026-10-06 and 2026-10-07
+
+After probe 25 nothing was blocked. The owner chose two tool changes that no probe had counted: checking the behavior of a pending change before committing it, and the Capability signature migration that the general-purpose roadmap's T1 row still listed as a remaining boundary.
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 56 | **Done: opt-in behavioral verification of a pending change** (#363) | Structural review shows what a proposal changes in the graph, not whether outputs change; the [experiment](../experiments/semantic-change-verification.md) and its [practical trial](../experiments/change-verification-practical-trial.md) ran real batch-formatter changes and coverage controls | `verifyChange` runs chosen cases against the committed baseline and the pending candidate through the `runPure` path (fake capabilities only) and reports observations, fingerprints, counterexamples and unknowns with a Change Review artifact; optional, not an approval gate or proof ([session contract](../specs/agent-authoring-session.md#opt-in-change-verification), [verification policy](../developer/verification.md)) |
+| 57 | **Done: Capability operation signature migration** (#365) | T1's remaining boundary; the [config-request batch example](../../examples/config-request-batch/README.md) needed `fetch` to return `Result<String,FetchFailure>` to retry only retryable failures | `simulateCapabilityOperationSignatureMigration` (and `…ByName`) changes one operation's argument and result types with a complete set of repairs for its implementations and affected callers, in one reviewed publication; IDs, parameter shape, effects and `FailureType` unchanged ([decision](../decisions/capability-operation-signature-migration.md)) |
+
+#364 fixed confined viewer writes to return errors instead of throwing; it is a fix, not an order.
 
 ## Evidence and authority pointers
 
