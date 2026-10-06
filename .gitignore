@@ -12,3 +12,4 @@ nyrwvy-views/
 
 # Agent worktrees created by Claude Code
 .claude/worktrees/
+verification-planner/
