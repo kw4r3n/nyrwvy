@@ -27,6 +27,31 @@ type ChangeVerificationEvidence =
 
 [<RequireQualifiedAccess>]
 module ChangeVerification =
+    /// A closed observation policy: only mapped, recognized program/fake failures are
+    /// counterexamples. Resource exhaustion, cancellation and unrecognized exceptions
+    /// remain unknown, as do all runner, compiler, process and validation diagnostics.
+    let classify isConcurrent expectedCandidate before after =
+        let concreteFailure (failure: PureRunRuntimeFailure) =
+            let recognized =
+                match failure.ExceptionType with
+                | "FakeCapabilityException" | "FakeArgumentsUnmatchedException" | "FakeResponsesExhaustedException"
+                | "System.ArgumentException" | "System.ArgumentOutOfRangeException"
+                | "System.InvalidOperationException" | "System.DivideByZeroException"
+                | "System.OverflowException" | "System.IndexOutOfRangeException" | "System.NullReferenceException" -> true
+                | _ -> false
+            recognized && (failure.Frames |> List.exists (function PureRunFrame.Function id -> id = failure.FunctionId | _ -> false))
+        if isConcurrent then "unknown"
+        else
+            match before, after with
+            | Ok old, Ok fresh ->
+                if old.Calls <> fresh.Calls then "counterexample"
+                else
+                    match expectedCandidate with
+                    | Some expected -> if fresh.Actual = expected then "intended-change-tested" else "counterexample"
+                    | None -> if old.Actual = fresh.Actual then "tested-agreement" else "counterexample"
+            | Ok _, Error(PureRunError.RuntimeFailure failure) when concreteFailure failure -> "counterexample"
+            | _ -> "unknown"
+
     /// Computed evidence: no successful cache can outlive an edit, reject, close, or reopen.
     let verify (session: AuthoringSession) proposalId cases =
         let fail message = Error(AuthoringSessionError.DependencyFailure message)
@@ -56,19 +81,9 @@ module ChangeVerification =
                             |> Result.defaultValue true
                         let observations = cases |> List.map (fun item ->
                             let before = PureRun.runContext baseline item.FunctionId item.Arguments None
-                            let expectation = item.ExpectedCandidate |> Option.orElseWith (fun () -> before |> Result.toOption |> Option.map (fun result -> result.Actual))
-                            let after = PureRun.runContext candidate item.FunctionId item.Arguments expectation
-                            let status =
-                                match before, after with
-                                | Ok old, Ok fresh ->
-                                    let callsAgree = old.Calls = fresh.Calls
-                                    let valuesAgree = old.Actual = fresh.Actual
-                                    if concurrent baseline item.FunctionId || concurrent candidate item.FunctionId then "unknown"
-                                    elif not callsAgree then "counterexample"
-                                    else match item.ExpectedCandidate with
-                                         | Some _ -> if fresh.Matches = Some true then "intended-change-tested" else "counterexample"
-                                         | None -> if valuesAgree then "tested-agreement" else "counterexample"
-                                | _ -> "unknown"
+                            // Preserve the actual observation even if the candidate result type changed.
+                            let after = PureRun.runContext candidate item.FunctionId item.Arguments item.ExpectedCandidate
+                            let status = classify (concurrent baseline item.FunctionId || concurrent candidate item.FunctionId) item.ExpectedCandidate before after
                             { Case = item; Status = status; Baseline = before; Candidate = after })
                         // Detect source changes during the bounded child runs before reporting evidence.
                         session.VerifyPersistedSource()

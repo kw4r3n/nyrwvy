@@ -22,15 +22,25 @@ this prototype does not silently allow them.
 
 Successful sequential runs compare canonical returned values and complete ordered
 fake call histories (capability parameter identity, operation identity, arguments).
-Preservation comparisons reuse runPure's mismatch paths. Float64 follows existing
+Explicit expected results retain runPure's mismatch paths. Preservation compares
+actual results directly, so a changed result type remains observable. Float64 follows existing
 canonical NaN and signed-zero semantics. A differing observation is a
 `counterexample`; matching observations are `tested-agreement` or
 `intended-change-tested`. These labels apply only to supplied cases, not the full
 input domain. No case is a proof.
 
-Failures, exhausted fakes, unsupported inputs/projections, process limits and all
-concurrent/task/cancellation executions are `unknown`. Full run errors remain in
-both observations. Exceptions are not treated as successful agreement even if
+Policy v2 reports a `counterexample` when the baseline succeeds and the candidate
+raises a recognized program/fake failure with mapped semantic frames. The closed
+exception list includes fake throw/unmatched/exhausted responses and ordinary
+argument, invalid-operation, divide-by-zero, overflow, index and null-reference
+exceptions. This is a difference under the supplied scripts, not evidence that
+the scripts describe every valid environment. A runtime error alone does not
+establish determinism or universal regression.
+
+Unmapped or unrecognized exceptions, resource exhaustion (including stack/heap),
+cancellation, unsupported inputs/projections, compiler/harness/process diagnostics,
+timeouts and all concurrent/task executions remain `unknown`. Baseline failure
+and failure on both sides remain unknown. Full run errors remain in both observations. Exceptions are not treated as successful agreement even if
 both executions fail identically. Concurrent traces need a partial-order/allowed
 observation policy before they can support either agreement or a counterexample.
 The existing runner performs its usual bounded process execution and cleanup.
@@ -181,3 +191,20 @@ counterexample/unknown/tested evidence, so structural validity does not imply a
 behavioral pass. The summary always includes case-status counts and no-proof scope.
 
 Review-fixed audit acceptance evidence is retained under `artifacts/semantic-change-verification-review-fixed/evidence.json`. It includes separate counterexample, unknown, tested, effect-order and concurrency review pages with prominent behavioral summaries. Final aggregate counts are reported for the frozen commit in the task validation report.
+
+### Review follow-up: observation policy v2
+
+Maintained xUnit tests exercise the classifier directly across result agreement,
+explicit intent, different results/types, changed call arguments/order, asymmetric
+and bilateral failures, recognized/mapped exception boundaries, cancellation,
+resources, unsupported/timeout/process errors and concurrent entries. An extended
+integration regression executes a candidate's duplicated fake call and checks
+that exhaustion is a counterexample without publishing or changing saved bytes.
+
+Change Review displays affected function count separately from unique explicit
+case entry points and how many affected functions have direct cases. These are
+requested entry points, not dynamic coverage: callers without direct cases may
+remain unexercised, and a directly targeted entry may still be unknown. Wire
+reports include `caseEntryFunctionIds`; historical v1 reports keep their original
+identity and meaning. The policy/module identity changes for v2; no old report is
+silently upgraded. Commit remains independent of this opt-in evidence.

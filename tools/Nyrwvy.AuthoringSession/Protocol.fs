@@ -1097,8 +1097,8 @@ module AuthoringProtocol =
                               "caseRequest", box ((property "cases" root).GetRawText())
                               "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
                               "verifierIdentity", objectValue
-                                  [ "version", box "nyrwvy-change-verification-v1"
-                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v1; sequential-only; failures-unknown; explicit-result-changes-only"
+                                  [ "version", box "nyrwvy-change-verification-v2"
+                                    "observationPolicy", box "canonical-result-and-ordered-fake-calls-v2; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
                                     "runtimeVersion", box (System.Environment.Version.ToString())
                                     "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
                                     "authoringModule", box (typeof<AuthoringSession>.Module.ModuleVersionId.ToString())
@@ -1107,7 +1107,8 @@ module AuthoringProtocol =
                                     "backendModule", box (typeof<CSharpBackendProfile>.Module.ModuleVersionId.ToString()) ]
                               "baselineFingerprint", box evidence.BaselineFingerprint
                               "candidateFingerprint", box evidence.CandidateFingerprint
-                              "coverage", box "Explicit cases only; no proof of equivalence. Failures and concurrent executions are unknown. Effects must be preserved."
+                              "coverage", box "Explicit cases only; no proof of equivalence. Recognized mapped candidate-only program/fake failures are counterexamples after baseline success; other failures and concurrency are unknown. Effects must be preserved. Entry points are not dynamic coverage."
+                              "caseEntryFunctionIds", evidence.Observations |> List.map (fun item -> item.Case.FunctionId) |> List.distinct |> List.map (StableId.value >> box) |> arrayValue
                               "affectedFunctionIds", evidence.AffectedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
                               "cases", evidence.Observations |> List.map encodeCase |> arrayValue ]
                     let json = System.Text.Json.JsonSerializer.Serialize(encoded, System.Text.Json.JsonSerializerOptions(WriteIndented = true, MaxDepth = WireJson.responseMaxJsonDepth))

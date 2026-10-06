@@ -65,11 +65,14 @@ with contextlib.nullcontext(str(destination)) if destination else tempfile.Tempo
     session.request('verifyChange', ok=False, proposalId=safe, cases=[], evidence=dict(status='tested-agreement'))
     assert safe_result['evidence']['cases'][0]['status'] == 'tested-agreement', safe_result
     assert function_id in safe_result['evidence']['affectedFunctionIds']
+    assert safe_result["evidence"]["caseEntryFunctionIds"] == [function_id]
     assert wrapper_id in safe_result['evidence']['affectedFunctionIds']
     safe_html = pathlib.Path(safe_result['reviewPath']).read_text()
     assert 'Experimental change verification' in safe_html
     assert 'Structural readiness:' in safe_html
     assert 'Behavioral verification: tested agreement' in safe_html
+    assert '1 affected function(s) directly targeted, 1 without a direct case' in safe_html
+    assert 'not dynamic coverage' in safe_html
     assert path.read_bytes() == baseline
     changed = propose(addition(parameter('x'), literal(2)))
     caught = verify(changed)

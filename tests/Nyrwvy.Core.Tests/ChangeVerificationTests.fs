@@ -101,4 +101,148 @@ module ChangeVerificationTests =
             Assert.Contains("Structural readiness: semantically ready", header)
             Assert.Contains("Behavioral verification: " + expectedSummary, header)
             Assert.DoesNotContain("class=\"status\">Readiness:", header)
-            Assert.Contains("does not gate commit", header))
+            Assert.Contains("does not gate commit", header)
+            Assert.Contains("Explicit case entry points: 1", header)
+            Assert.Contains("not dynamic coverage", header))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``candidate extra fake call is a counterexample without publishing`` () =
+        withSession (fun session ->
+            let publish (proposal: AuthoringProposal) =
+                session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
+            let effect = session.Declarations().Effects |> List.exactlyOne
+            session.SimulateCreateCapability
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
+                  Operations = [ { DisplayName = "read"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64; FailureType = None; EffectId = effect.Id } ] }
+            |> unwrap |> publish
+            let capability = session.Declarations().Capabilities |> List.exactlyOne
+            let operation = capability.Operations |> List.exactlyOne
+            let invoke value = ExpressionRecipe.CapabilityInvoke(value, operation.Id, [])
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                  Parameters = [ { DisplayName = "provider"; Type = TypeRef.Capability capability.Id } ]
+                  ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = [ effect.Id ]
+                  Body = invoke (ExpressionRecipe.ParameterSlot 0) }
+            |> unwrap |> publish
+            let fn = session.Declarations().Functions |> List.exactlyOne
+            let body = invoke (ExpressionRecipe.Parameter fn.Parameters.Head.Id)
+            let proposal = session.SimulateReplaceBody
+                               { TargetFunctionId = fn.Id; ExpectedBaseSnapshotId = session.SnapshotId
+                                 ExpectedCurrentResultNodeId = fn.Body.ResultNodeId; Replacement = ExpressionRecipe.Bind(body, body) } |> unwrap
+            let bytes = File.ReadAllBytes session.Path
+            let fake = PureRunValue.FakeCapability(capability.Id,
+                         [ { OperationId = operation.Id; Responses = [ PureRunFakeResponse.Return(PureRunValue.Int64 7L) ]; Cases = None } ])
+            let evidence = ChangeVerification.verify session proposal.ProposalId
+                               [ { sample with FunctionId = fn.Id; Arguments = [ fake ] } ] |> unwrap
+            let observation = evidence.Observations |> List.exactlyOne
+            Assert.Equal("counterexample", observation.Status)
+            match observation.Candidate with
+            | Error(PureRunError.RuntimeFailure failure) -> Assert.True(failure.BindingExhausted)
+            | other -> failwithf "Expected exhausted fake: %A" other
+            session.Reject proposal.ProposalId |> unwrap |> ignore
+            Assert.Equal<byte>(bytes, File.ReadAllBytes session.Path))
+
+    let private result value calls: PureRunResult =
+        { SnapshotId = StableId.createForTesting<SnapshotTag> "classifier-snapshot"
+          FunctionId = sample.FunctionId; Actual = value; Expected = None
+          Matches = None; Mismatch = None; Calls = calls }
+
+    let private runtimeFailure exceptionType mapped =
+        PureRunError.RuntimeFailure
+            { SnapshotId = StableId.createForTesting<SnapshotTag> "classifier-snapshot"
+              FunctionId = sample.FunctionId; ExceptionType = exceptionType; Message = "fixture"
+              Frames = if mapped then [ PureRunFrame.Function sample.FunctionId ] else []
+              BindingExhausted = exceptionType = "FakeResponsesExhaustedException"; Calls = [] }
+
+    [<Fact>]
+    let ``classifier checks results explicit intentions and ordered calls`` () =
+        let call key: PureRunCall =
+            { ParameterId = StableId.createForTesting<ParameterTag> "binding"
+              OperationId = StableId.createForTesting<CapabilityOperationTag> "read"
+              Arguments = [ StableId.createForTesting<CapabilityParameterTag> "key", PureRunValue.Int64 key ] }
+        let run value calls = Ok(result (PureRunValue.Int64 value) calls)
+        let check expected intent before after = Assert.Equal(expected, ChangeVerification.classify false intent before after)
+        check "tested-agreement" None (run 7L []) (run 7L [])
+        check "counterexample" None (run 7L []) (run 8L [])
+        check "intended-change-tested" (Some(PureRunValue.Int64 8L)) (run 7L []) (run 8L [])
+        check "counterexample" (Some(PureRunValue.Int64 9L)) (run 7L []) (run 8L [])
+        check "counterexample" None (run 7L [ call 1L ]) (run 7L [ call 2L ])
+        check "counterexample" None (run 7L [ call 1L; call 2L ]) (run 7L [ call 2L; call 1L ])
+        check "counterexample" (Some(PureRunValue.Int64 7L)) (run 7L []) (run 7L [ call 1L ])
+        // Preservation observes a new result type rather than rejecting an injected old expectation.
+        check "counterexample" None (run 7L []) (Ok(result (PureRunValue.String "seven") []))
+        Assert.Equal("unknown", ChangeVerification.classify true None (run 7L []) (run 7L []))
+
+    [<Theory>]
+    [<InlineData("FakeCapabilityException")>]
+    [<InlineData("FakeArgumentsUnmatchedException")>]
+    [<InlineData("FakeResponsesExhaustedException")>]
+    [<InlineData("System.ArgumentException")>]
+    [<InlineData("System.ArgumentOutOfRangeException")>]
+    [<InlineData("System.InvalidOperationException")>]
+    [<InlineData("System.DivideByZeroException")>]
+    [<InlineData("System.OverflowException")>]
+    [<InlineData("System.IndexOutOfRangeException")>]
+    [<InlineData("System.NullReferenceException")>]
+    let ``only mapped recognized candidate failure after successful baseline is counterexample`` exceptionType =
+        let success = Ok(result (PureRunValue.Int64 7L) [])
+        let failure = Error(runtimeFailure exceptionType true)
+        Assert.Equal("counterexample", ChangeVerification.classify false None success failure)
+        Assert.Equal("counterexample", ChangeVerification.classify false (Some(PureRunValue.Int64 8L)) success failure)
+        Assert.Equal("unknown", ChangeVerification.classify false None failure success)
+        Assert.Equal("unknown", ChangeVerification.classify false None failure failure)
+        Assert.Equal("unknown", ChangeVerification.classify true None success failure)
+        Assert.Equal("unknown", ChangeVerification.classify false None success (Error(runtimeFailure exceptionType false)))
+        let foreign = match runtimeFailure exceptionType true with
+                      | PureRunError.RuntimeFailure failure -> PureRunError.RuntimeFailure { failure with Frames = [ PureRunFrame.Function(StableId.createForTesting<FunctionTag> "unrelated") ] }
+                      | other -> other
+        Assert.Equal("unknown", ChangeVerification.classify false None success (Error foreign))
+
+    [<Theory>]
+    [<InlineData("RunTimeout")>]
+    [<InlineData("RunOutputTimeout")>]
+    [<InlineData("RunProcessFailure")>]
+    [<InlineData("RunStartupFailure")>]
+    [<InlineData("RunReapFailure")>]
+    [<InlineData("RunIoFailure")>]
+    [<InlineData("RunExpectedTypeMismatch")>]
+    [<InlineData("RunBindingShapeMismatch")>]
+    [<InlineData("VerificationHostUnsupported")>]
+    [<InlineData("FutureUnsupportedDiagnostic")>]
+    let ``runner validation compiler timeout and unsupported diagnostics stay unknown`` code =
+        let success = Ok(result PureRunValue.Unit [])
+        let failure = Error(PureRunError.Unsupported(code, "fixture"))
+        Assert.Equal("unknown", ChangeVerification.classify false None success failure)
+        Assert.Equal("unknown", ChangeVerification.classify false None failure success)
+        Assert.Equal("unknown", ChangeVerification.classify false None failure failure)
+        Assert.Equal("unknown", ChangeVerification.classify false None success (Error(PureRunError.SessionFailure AuthoringSessionError.ExternalModification)))
+
+    [<Theory>]
+    [<InlineData("System.StackOverflowException")>]
+    [<InlineData("System.OutOfMemoryException")>]
+    [<InlineData("System.OperationCanceledException")>]
+    [<InlineData("System.Threading.Tasks.TaskCanceledException")>]
+    [<InlineData("RunnerException")>]
+    [<InlineData("UnknownHarnessException")>]
+    let ``resource cancellation harness and unknown runtime exceptions stay unknown`` exceptionType =
+        Assert.Equal("unknown", ChangeVerification.classify false None (Ok(result PureRunValue.Unit [])) (Error(runtimeFailure exceptionType true)))
+
+    [<Fact>]
+    let ``review distinguishes impact from direct case entry points`` () =
+        withSession (fun session ->
+            let proposal = session.SimulateCreateFunction
+                               { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unitValue"; Parameters = []
+                                 ResultType = TypeRef.Primitive PrimitiveType.Unit; RequiredEffects = []; Body = ExpressionRecipe.UnitLiteral } |> unwrap
+            let view = session.PendingProposalView proposal.ProposalId |> unwrap
+            let other = StableId.createForTesting<FunctionTag> "affected-caller"
+            let evidence: ChangeVerificationEvidence =
+                { ProposalId = proposal.ProposalId; BaselineSnapshotId = session.SnapshotId; CandidateSnapshotId = view.ProposedSnapshot.Value.Id
+                  BaselineFingerprint = "baseline"; CandidateFingerprint = "candidate"
+                  AffectedFunctionIds = [ sample.FunctionId; other ]
+                  Observations = [ { Case = sample; Status = "tested-agreement"; Baseline = Ok(result PureRunValue.Unit []); Candidate = Ok(result PureRunValue.Unit []) } ] }
+            let _, artifact = ViewerFile.writeVerificationReview session.Path None view (fun _ -> None) evidence "{}" |> unwrap
+            let header = artifact.Content.Split("</header>")[0]
+            Assert.Contains("Impact: 2 affected function(s)", header)
+            Assert.Contains("1 affected function(s) directly targeted, 1 without a direct case", header)
+            Assert.Contains("not dynamic coverage", header))

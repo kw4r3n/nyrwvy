@@ -185,7 +185,11 @@ module ViewerFile =
                 elif unknown > 0 then "unknown"
                 else "tested agreement / explicit intended results; no proof"
             let agreement, intended = count "tested-agreement", count "intended-change-tested"
-            let banner = $"<p class=\"status\">Behavioral verification: {summary}</p><p>{counterexamples} counterexample(s), {unknown} unknown, {agreement} tested agreement, {intended} intended result(s). Explicit cases only; this historical report does not gate commit.</p>"
+            let entries = evidence.Observations |> List.map (fun item -> item.Case.FunctionId) |> Set.ofList
+            let affected = evidence.AffectedFunctionIds |> Set.ofList
+            let explicitAffected = Set.intersect entries affected |> Set.count
+            let coverage = $"Impact: {Set.count affected} affected function(s). Explicit case entry points: {Set.count entries}; {explicitAffected} affected function(s) directly targeted, {Set.count affected - explicitAffected} without a direct case. This counts requested entry points, not dynamic coverage or proof that callers were exercised."
+            let banner = $"<p class=\"status\">Behavioral verification: {summary}</p><p>{counterexamples} counterexample(s), {unknown} unknown, {agreement} tested agreement, {intended} intended result(s). Explicit cases only; this historical report does not gate commit.</p><p>" + coverage + "</p>"
             let content =
                 artifact.Content
                     .Replace("<p class=\"status\">Readiness:", "<p class=\"status\">Structural readiness:")
