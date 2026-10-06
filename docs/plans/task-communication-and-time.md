@@ -1,6 +1,6 @@
 # Communication between tasks, and time (design note)
 
-**Status:** Decided 2026-10-07: the owner accepted all three recommendations below (A: measure `OneShot` on probe 25's code before designing a channel; D: no time value yet; no zero-time yield). The measurement is queued as probe 26. The analysis below is kept as written.
+**Status:** Decided 2026-10-07: the owner accepted all three recommendations below (A: measure `OneShot` on probe 25's code before designing a channel; D: no time value yet; no zero-time yield). The measurement is [probe 26](../verification/task-communication-probe26-20261007.md): the `OneShot` version passed the same scenarios as the event loop at about the same size (491 and 508 nodes), so no channel is queued. The analysis below is kept as written, except for the correction in section 1.
 
 ## Context
 
@@ -35,6 +35,8 @@ A running task sees only its start arguments, and Nyrwvy has no shared mutable s
 - To wait for a pipe chunk and a registration at once, the reader starts one task per source (one for `Host.read`, one for `OneShotWait` on the tail) and uses `TaskWait(Any)`. This is what the probe already does for reads and timers.
 
 Whether this chain is cheaper than the probe's event loop is the open question. It may well not be: every requester must find the current tail, which itself needs a cell or an argument passed down.
+
+**Correction (probe 26).** In `codex.py` only the sequential driver issues requests, so one producer is enough and no requester races another for the tail. [Probe 26](../verification/task-communication-probe26-20261007.md) wrote it that way. Option B's case is now a program with several concurrent producers into one consumer, or one where racing a cell against a task is a large share of the cost.
 
 ### Options
 
