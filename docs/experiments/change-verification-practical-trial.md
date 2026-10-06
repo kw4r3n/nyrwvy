@@ -43,7 +43,7 @@ execution/cleanup; they are not upgraded to equivalence claims.
 | Control | Structural checks | Sampled verifier | Ordinary existing saved tests | Held-out challenge |
 | --- | --- | --- | --- | --- |
 | Wrong `missing ` prefix | Accept valid graph | 9 counterexamples | Expected report assertion fails | Not needed |
-| Omit error CR/LF escaping | Accept valid graph | 3 counterexamples, 6 intended results tested | Existing fixture errors are plain `missing`; no boundary coverage | Boundary strings already in sampled suite |
+| Omit error LF escaping while preserving CR escaping | Accept valid graph | 2 counterexamples, 7 intended results tested | Existing fixture errors are plain `missing`; no boundary coverage | Boundary strings already in sampled suite |
 | Change only `delta-outside` request output | Accept valid graph | All 9 intended results tested; defect missed | All 5 pass; defect missed | 1 counterexample, 1 agreement |
 
 The deliberately missed control violates the global requirement but agrees with
@@ -98,7 +98,8 @@ case set and existing runPure/host tests; measure another effectful sequential
 program before extending policy. A lightweight conversion from existing
 supported case files may be useful later, but this trial does not justify a
 new condition registry, runtime, scheduler or concurrency prover. No verifier
-runtime changes were required. The runner was corrected to refresh its copied
+runtime changes were required. Inspection also aligned the LF-only negative control
+with its frozen requirement; exploratory runs had omitted both CR and LF. The runner was corrected to refresh its copied
 working projection as well as archived stages, preventing an exported C# file
 from appearing current after the graph changed.
 

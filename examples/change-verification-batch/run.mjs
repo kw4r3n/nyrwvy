@@ -51,6 +51,7 @@ const parameter = name => ({ kind: "parameter", name })
 const type = { kind: "primitive", primitive: "string" }
 const joinText = list => ({ kind: "stringJoin", separator: text(""), list: { kind: "listConstruct", itemType: type, items: list } })
 const line = (request = parameter("request"), error = parameter("error"), prefix = "skipped ") => joinText([text(prefix), request, text(": "), error, text("\n")])
+const escapeCR = value => ({ kind: "stringJoin", separator: text("\\r"), list: { kind: "stringSplit", value, separator: text("\r") } })
 const escape = value => ({ kind: "stringJoin", separator: text("\\n"), list: {
   kind: "stringSplit", separator: text("\n"), value: { kind: "stringJoin", separator: text("\\r"), list: { kind: "stringSplit", value, separator: text("\r") } }
 } })
@@ -190,11 +191,12 @@ try {
   // is deliberately unavailable, so an isolated copied control bundle is committed for replay.
   for (const [name, replacement, cases] of [
     ["negative-prefix", line(escape(parameter("request")), escape(parameter("error")), "missing "), intendedCases],
-    ["negative-error-LF", line(escape(parameter("request")), parameter("error")), intendedCases]
+    ["negative-error-LF", line(escape(parameter("request")), escapeCR(parameter("error"))), intendedCases]
   ]) {
     const proposal = await call("replace", { function: "missingLine", replacement })
     const result = await verify(proposal, cases, name)
     assert.ok(result.evidence.cases.some(item => item.status === "counterexample"))
+    if (name === "negative-error-LF") assert.equal(result.evidence.cases.filter(item => item.status === "counterexample").length, 2)
     await call("request", { op: "reject", arguments: { proposalId: proposal.proposalId } })
     evidence.stages.push({ name, synthetic: true, evidence: result, structuralReadiness: proposal.review.readiness })
   }
