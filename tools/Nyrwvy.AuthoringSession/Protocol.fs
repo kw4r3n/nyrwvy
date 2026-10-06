@@ -81,19 +81,18 @@ module AuthoringProtocol =
         let kind = requiredString "kind" item
         if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
+        // Tagged child values are charged by their recursive parse, exactly once. Only flat
+        // scalar payloads and fake-case metadata have no recursive parse and need precharging.
         let children =
             match kind with
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
-            | "product" | "union" -> (array "fields" item).Length
-            | "map" -> 2 * (array "entries" item).Length
-            | "set" -> (array "items" item).Length
-            | "result" -> 1
+            | "result" when tryProperty "okType" item |> Option.isNone -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
             | "fakeCapability" ->
                 array "operations" item |> List.sumBy (fun operation ->
                     match tryProperty "cases" operation with
                     | Some _ -> array "cases" operation |> List.sumBy (fun item -> 1 + (array "arguments" item).Length + (array "responses" item).Length)
-                    | None -> (array "responses" operation).Length)
+                    | None -> 0)
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
@@ -869,7 +868,7 @@ module AuthoringProtocol =
                                 let p = WireSymbolic.functionParameter fn name
                                 { ParameterId = p.Id; Type = WireSymbolic.typeRefForExistingFunction declarations fn (property "type" parameter) })
                             ResultType = WireSymbolic.typeRefForExistingFunction declarations fn (property "resultType" item)
-                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) |> ExpressionRecipeTypes.map (WireSymbolic.resolveFunctionTypeParameters fn) }) }
+                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) }) }
                 proposalResponse (session.SimulateCapabilityOperationSignatureMigration request)
             | "simulateCapabilityOperationSignatureMigration" ->
                 ensureFields "operation signature migration" [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs"; "structuredReview"; "detail"; "expectedSnapshotId" ] [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs" ] root

@@ -10,3 +10,10 @@ module AgentExecution =
         : Result<TypedSemanticProgram, TypedSemanticIrError> =
         AgentWorkspace.snapshotForExecution workspace
         |> TypedSemanticIr.project
+
+    /// Project one entry without exposing the workspace's authoritative snapshot.
+    /// Selection precedes readiness and lowering; all declarations remain retained.
+    let projectEntryTypedSemanticIr (workspace: AgentWorkspace) entry =
+        AgentWorkspace.snapshotForExecution workspace
+        |> fun snapshot -> ExecutionCallGraph.forSnapshotEntry snapshot entry
+        |> TypedSemanticIr.project

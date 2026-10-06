@@ -1042,7 +1042,7 @@ module PureRun =
             // Check only functions reachable from this entry; unrelated parallel functions do not
             // make a sequential host binding require a concurrency assertion.
             let emitted =
-                context.Project()
+                context.Project functionId
                 |> Result.bind (fun program ->
                     let program = ExecutionCallGraph.forEntry program functionId
                     let operationIds = program.Capabilities |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id))
@@ -1504,12 +1504,10 @@ module PureRun =
                        || arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) ->
             Error(diagnostic "RunHostSourcesDisabled" "Host sources and hostCapability bindings compile and run arbitrary C# with the user's permissions, so they are disabled unless the session was started with --allow-host-sources. Use fakeCapability bindings, or ask the operator to enable host sources.")
         | Ok() ->
-            let context =
-                { SnapshotId = session.SnapshotId
-                  Fingerprint = ""
-                  Declarations = session.Declarations()
-                  Project = session.ProjectExecution }
-            readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected)
+            session.ExecutionContext None
+            |> Result.mapError PureRunError.SessionFailure
+            |> Result.bind (fun context ->
+                readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected))
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []
 

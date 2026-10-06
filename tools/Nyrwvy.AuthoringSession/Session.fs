@@ -46,7 +46,7 @@ type internal AuthoringExecutionContext =
     { SnapshotId: SnapshotId
       Fingerprint: string
       Declarations: AuthoringDeclarations
-      Project: unit -> Result<ExecutionProgram, AuthoringSessionError> }
+      Project: FunctionId -> Result<ExecutionProgram, AuthoringSessionError> }
 
 [<RequireQualifiedAccess>]
 type AuthoringProposalReview =
@@ -958,6 +958,12 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
         | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure
 
+    member internal _.ProjectEntryExecution(entry): Result<ExecutionProgram, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        AgentExecution.projectEntryTypedSemanticIr workspace entry
+        |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
+        |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+
     member internal this.ExecutionContext(proposalId: string option): Result<AuthoringExecutionContext, AuthoringSessionError> =
         let context snapshot =
             SnapshotFingerprint.compute snapshot
@@ -966,8 +972,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 { SnapshotId = snapshot.Id
                   Fingerprint = SnapshotFingerprint.value fingerprint
                   Declarations = { Functions = snapshot.Functions; Types = snapshot.Types; Effects = snapshot.Effects; Capabilities = snapshot.Capabilities }
-                  Project = fun () ->
-                    TypedSemanticIr.project snapshot
+                  Project = fun entry ->
+                    use _scope = SnapshotComputationScope.Start()
+                    ExecutionCallGraph.forSnapshotEntry snapshot entry
+                    |> TypedSemanticIr.project
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure) })
         this.VerifyPersistedSource()
@@ -979,7 +987,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     { SnapshotId = status.SnapshotId
                       Fingerprint = SnapshotFingerprint.value status.SnapshotFingerprint
                       Declarations = this.Declarations()
-                      Project = this.ProjectExecution })
+                      Project = this.ProjectEntryExecution })
             | Some id ->
                 this.PendingProposalView id
                 |> Result.bind (fun view ->

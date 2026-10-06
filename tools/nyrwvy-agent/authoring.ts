@@ -137,9 +137,19 @@ export class AuthoringClient {
       const id = randomUUID()
       // The caller passes structured arguments, never a program that constructs JSONL.
       const payload = { ...request, id }
-      const line = JSON.stringify(payload, (_key, value) => {
+      const line = JSON.stringify(payload, function (key, value) {
+        // A Float64 run-value number already denotes an IEEE binary64 value, including
+        // exactly representable integral values outside JavaScript's safe Int64 range.
+        // Inspect the typed leaf, not its surrounding container or the request operation:
+        // arguments, expectations and fake responses all use this same value shape.
+        if (key === "value" && this?.kind === "float64" && typeof value === "number") {
+          if (!Number.isFinite(value)) {
+            throw new Error('Non-finite Float64 values must use "NaN", "Infinity" or "-Infinity" strings.')
+          }
+          return Object.is(value, -0) ? "-0" : value
+        }
         if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
-          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64 or bits for Float64.")
+          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64/Bits32. Float64 run values accept finite JSON numbers or special strings.")
         }
         return value
       })

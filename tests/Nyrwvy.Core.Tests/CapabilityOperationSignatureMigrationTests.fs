@@ -222,8 +222,13 @@ module CapabilityOperationSignatureMigrationTests =
                                 Body = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, op.Id, [ op.Parameters.Head.Id, ExpressionRecipe.Int64Literal 7L ]) } |> unwrap
             session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let before = session.Declarations().Functions.Head
-            let request = """{"id":"generic","op":"simulateCapabilityOperationSignatureMigrationByName","capability":"Values","operation":"read","parameterTypes":[{"parameter":"input","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"string"},"functionRepairs":[{"function":"genericInvoke","parameterTypes":[{"parameter":"values","type":{"kind":"capability","name":"Values"}},{"parameter":"extra","type":{"kind":"typeParameter","name":"T"}}],"resultType":{"kind":"primitive","primitive":"string"},"replacement":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"values"},"capability":"Values","operation":"read","arguments":[{"parameter":"input","value":{"kind":"int64Literal","value":"7"}}]}}],"structuredReview":true}"""
+            let request = """{"id":"generic","op":"simulateCapabilityOperationSignatureMigrationByName","capability":"Values","operation":"read","parameterTypes":[{"parameter":"input","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"string"},"functionRepairs":[{"function":"genericInvoke","parameterTypes":[{"parameter":"values","type":{"kind":"capability","name":"Values"}},{"parameter":"extra","type":{"kind":"typeParameter","name":"T"}}],"resultType":{"kind":"primitive","primitive":"string"},"replacement":{"kind":"bind","value":{"kind":"optionNone","itemType":{"kind":"typeParameter","name":"T"}},"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"values"},"capability":"Values","operation":"read","arguments":[{"parameter":"input","value":{"kind":"int64Literal","value":"7"}}]}}}],"structuredReview":true}"""
             use response = System.Text.Json.JsonDocument.Parse(AuthoringProtocol.executeLine session request)
             Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
             session.Commit(response.RootElement.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            Assert.Equal<(TypeParameterId * string) list>(TypeParameters.ofFunction before, TypeParameters.ofFunction (session.Declarations().Functions.Head)))
+            let after = session.Declarations().Functions.Head
+            Assert.Equal<(TypeParameterId * string) list>(TypeParameters.ofFunction before, TypeParameters.ofFunction after)
+            Assert.Contains(ValueGraph.collectNodes after.Body, fun node ->
+                match node.Kind with
+                | SemanticNodeKind.OptionNone(TypeRef.TypeParameter(id, "T")) -> id = fst (TypeParameters.ofFunction before).Head
+                | _ -> false))
