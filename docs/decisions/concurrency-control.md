@@ -159,4 +159,4 @@ Accepted on 2026-09-25:
 
 - A probe needs a task that outlives its scope, or cross-scope cancellation.
 - A capability implementation cannot tolerate concurrent calls, and host-side serialization is not acceptable (Q-010).
-- A time value is needed outside waiting (timestamps, schedules).
+- A time value is needed outside waiting (timestamps, schedules). On 2026-10-07 the owner judged that probe 25's deadline over several waits alone does not meet this condition ([design note](../plans/task-communication-and-time.md#2-a-monotonic-time-value)).

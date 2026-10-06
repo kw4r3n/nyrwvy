@@ -1,6 +1,6 @@
 # Communication between tasks, and time (design note)
 
-**Status:** Proposed 2026-10-07; waiting on the owner's choices at the end. Nothing here is queued.
+**Status:** Decided 2026-10-07: the owner accepted all three recommendations below (A: measure `OneShot` on probe 25's code before designing a channel; D: no time value yet; no zero-time yield). The measurement is queued as probe 26. The analysis below is kept as written.
 
 ## Context
 
