@@ -322,7 +322,8 @@ module AuthoringProtocol =
     /// ID value. Each name uses the property key of the name-resolved input form (`type`, `variant`, `field`,
     /// `function`, `capability`, `operation`, `parameter`); IDs remain the identity.
     type private RunNames =
-        { Names: Collections.Generic.Dictionary<string, string>
+        { Declarations: AuthoringDeclarations
+          Names: Collections.Generic.Dictionary<string, string>
           OperationCapabilities: Collections.Generic.Dictionary<string, string> }
 
     let private runNames (declarations: AuthoringDeclarations) =
@@ -347,7 +348,7 @@ module AuthoringProtocol =
                 add operation.Id operation.DisplayName
                 operationCapabilities.TryAdd(StableId.value operation.Id, capability.DisplayName) |> ignore
                 operation.Parameters |> List.iter (fun parameter -> add parameter.Id parameter.DisplayName)
-        { Names = names; OperationCapabilities = operationCapabilities }
+        { Declarations = declarations; Names = names; OperationCapabilities = operationCapabilities }
 
     /// The `key: displayName` property for a known ID; empty when the ID is not declared.
     let private named (names: RunNames) key id =
@@ -502,8 +503,8 @@ module AuthoringProtocol =
             objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
     /// Shared wire diagnostics for committed and candidate execution.
-    let private encodeRunError names functionId = function
-        | PureRunError.SessionFailure error -> WireEncode.error error
+    let private encodeRunError (names: RunNames) functionId inputIssue = function
+        | PureRunError.SessionFailure error -> WireEncode.errorWithDeclarations names.Declarations error
         | PureRunError.RuntimeFailure runtime ->
             objectValue
                 ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
@@ -517,7 +518,12 @@ module AuthoringProtocol =
         | PureRunError.Unsupported(code, message) ->
             objectValue
                 ([ "code", box code; "message", box message; "functionId", box (StableId.value functionId) ]
-                 @ named names "function" functionId)
+                 @ named names "function" functionId
+                 @ (inputIssue |> Option.map (fun (issue: PureRunInputIssue) ->
+                     [ "details", objectValue [ "path", issue.Path |> List.map box |> arrayValue
+                                                "expectedType", issue.ExpectedType |> Option.map WireEncodeCommon.typeRef |> Option.defaultValue null
+                                                "actualType", issue.ActualType |> Option.map WireEncodeCommon.typeRef |> Option.defaultValue null
+                                                "reason", box issue.Reason ] ]) |> Option.defaultValue []))
 
     let private currentSnapshotId (session: AuthoringSession) = session.SnapshotId
 
@@ -611,6 +617,7 @@ module AuthoringProtocol =
         use _scope = SnapshotComputationScope.Start()
         let mutable requestId: string = null
         try
+            let sessionFailure id error = failure id (WireEncode.errorWithDeclarations (session.Declarations()) error)
             // A blank line is answered like any other malformed line, so a client that waits
             // for one reply per line never stalls.
             if String.IsNullOrWhiteSpace line then
@@ -1236,7 +1243,7 @@ module AuthoringProtocol =
                     let candidateNames = session.ExecutionContext(Some evidence.ProposalId) |> Result.map (fun context -> runNames context.Declarations) |> Result.defaultValue names
                     let observation names functionId = function
                         | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
-                        | Error error -> objectValue [ "error", encodeRunError names functionId error ]
+                        | Error error -> objectValue [ "error", encodeRunError names functionId None error ]
                     let encodeCase item =
                         objectValue
                             [ "label", box item.Case.Label
@@ -1311,7 +1318,7 @@ module AuthoringProtocol =
                                  "matches", result.Matches |> Option.map box |> Option.defaultValue null
                                  "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
                                  "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error error -> failure requestId (encodeRunError runNames functionId error)
+                | Error error -> failure requestId (encodeRunError runNames functionId (PureRun.inputIssue runNames.Declarations functionId arguments expected) error)
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"

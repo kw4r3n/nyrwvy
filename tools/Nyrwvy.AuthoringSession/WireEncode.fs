@@ -485,3 +485,34 @@ module internal WireEncode =
         match details with
         | None -> objectValue [ "code", box code; "message", box message ]
         | Some detail -> objectValue [ "code", box code; "message", box message; "details", detail ]
+
+    /// Retain the established lowering error code and exact IDs, adding actionable context.
+    let errorWithDeclarations (declarations: AuthoringDeclarations) value =
+        match value with
+        | AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
+            let fn = declarations.Functions |> List.tryFind (fun f -> f.Id = functionId)
+            let displayName = fn |> Option.map (fun f -> f.DisplayName) |> Option.defaultValue (StableId.value functionId)
+            let nodes = fn |> Option.map (fun f -> ValueGraph.collectNodes f.Body) |> Option.defaultValue []
+            let operand id =
+                let node = nodes |> List.tryFind (fun n -> n.Id = id)
+                let kind, name =
+                    match node with
+                    | Some n ->
+                        let case, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(n.Kind, typeof<SemanticNodeKind>)
+                        let name =
+                            match n.Kind with
+                            | SemanticNodeKind.DirectCall(callee, _) -> declarations.Functions |> List.tryFind (fun f -> f.Id = callee) |> Option.map (fun f -> "Call to " + f.DisplayName)
+                            | SemanticNodeKind.CapabilityInvoke(_, operation, _) -> declarations.Capabilities |> List.tryPick (fun c -> c.Operations |> List.tryFind (fun o -> o.Id = operation) |> Option.map (fun o -> c.DisplayName + "." + o.DisplayName))
+                            | _ -> None
+                        case.Name, Option.defaultValue case.Name name
+                    | None -> "unknown", StableId.value id
+                objectValue [ "nodeId", box (StableId.value id); "kind", box kind; "displayName", box name ]
+            objectValue
+                [ "code", box "ExecutionLoweringFailure"
+                  "message", box $"Function '{displayName}' has unordered observable operations. Sequence them with Bind in the intended order, then simulate and review the edit."
+                  "details", objectValue
+                      [ "cause", box "AmbiguousEffectOrder"
+                        "functionId", box (StableId.value functionId); "function", box displayName
+                        "operands", [ operand first; operand second ] |> arrayValue
+                        "repair", objectValue [ "kind", box "Bind"; "requiresExplicitOrder", box true ] ] ]
+        | _ -> error value
