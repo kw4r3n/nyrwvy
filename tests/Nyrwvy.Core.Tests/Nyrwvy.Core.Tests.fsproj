@@ -48,6 +48,7 @@
     <Compile Include="AuthoringSessionTests.fs" />
     <Compile Include="AuthoringDependencyTests.fs" />
     <Compile Include="AuthoringDependencySetTests.fs" />
+    <Compile Include="DependencyLocalRepairTests.fs" />
     <Compile Include="PinnedDependencyRecoveryTests.fs" />
     <Compile Include="AuthoringParameterMigrationSessionTests.fs" />
     <Compile Include="AuthoringDiscoveryTests.fs" />

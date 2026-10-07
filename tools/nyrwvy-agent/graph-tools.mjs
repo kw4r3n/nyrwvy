@@ -148,6 +148,12 @@ export function createGraphTools(schema) {
       /** @param {{ function: string; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),
     }),
+    upgrade_dependencies: defineTool({
+      description: "Propose a dependency selection update together with explicit local field, function signature/body and Capability operation repairs. Supply exactly one of upgrades or selection. Resolve names against the final imports; imported declarations stay read-only. repairs uses fields:[{type,field,newType}], functions:[{function,parameterTypes:[{parameter,type}],resultType,replacement}], operations:[{capability,operation,parameterTypes:[{parameter,type}],resultType}]. Review the proposal and commit its exact proposalId; stale pins, sources or local edits are refused. " + reviewDetail,
+      args: { upgrades: schema.array(object).optional(), selection: object.optional(), repairs: object, detail },
+      /** @param {{ upgrades?: Record<string, unknown>[]; selection?: Record<string, unknown>; repairs: Record<string, unknown>; detail?: "compact" | "full" }} args */
+      execute: (args, context) => requestAuthoring({ op: "simulateDependencyUpgradeByName", ...args }, context),
+    }),
     commit: defineTool({
       description: "Publish exactly the reviewed proposalId. Does not regenerate or retry stale proposals. Reinspect and resimulate after a stale rejection.",
       args: { proposalId: schema.string() },

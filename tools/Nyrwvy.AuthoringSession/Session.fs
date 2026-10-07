@@ -49,8 +49,60 @@ type internal AuthoringExecutionContext =
       Declarations: AuthoringDeclarations
       Project: FunctionId -> Result<ExecutionProgram, AuthoringSessionError> }
 
+type AuthoringDependencyChange =
+    { Kind: string
+      Id: string }
+
+/// The reviewed impact of replacing one pinned dependency with a new version.
+type AuthoringDependencyUpgradePreview =
+    { ReplacedSnapshotId: string
+      ReplacedFingerprint: string
+      NewSnapshotId: string
+      /// Confirms the exact reviewed version when the upgrade is applied.
+      NewFingerprint: string
+      Added: AuthoringDependencyChange list
+      Removed: AuthoringDependencyChange list
+      Changed: AuthoringDependencyChange list
+      /// Validation issues of the local graph against the upgraded imports; empty when compatible.
+      Issues: ValidationIssue list }
+
+/// An explicit replacement of one current dependency member.
+type AuthoringDependencyUpgrade =
+    { Source: string
+      Replaces: string }
+
+/// Arbitrary-cardinality replacement of explicit current members by complete sources.
+type AuthoringDependencySelectionUpgrade =
+    { Sources: string list
+      Replaces: string list }
+
+type AuthoringDependencyMember =
+    { SnapshotId: string
+      Fingerprint: string }
+
+/// One review of the final combined imports; no intermediate dependency graph is persisted.
+type AuthoringDependencyUpgradesPreview =
+    { ReviewFingerprint: string
+      Upgrades: AuthoringDependencyUpgradePreview list
+      Replaced: AuthoringDependencyMember list
+      Selected: AuthoringDependencyMember list
+      Added: AuthoringDependencyChange list
+      Removed: AuthoringDependencyChange list
+      Changed: AuthoringDependencyChange list
+      Issues: ValidationIssue list }
+
+[<RequireQualifiedAccess>]
+type AuthoringDependencyChangeRequest =
+    | Upgrades of AuthoringDependencyUpgrade list
+    | Selection of AuthoringDependencySelectionUpgrade
+
+type AuthoringDependencyRepairReview =
+    { Upgrade: AuthoringDependencyUpgradesPreview
+      Repair: AgentDependencyUpgradeReview }
+
 [<RequireQualifiedAccess>]
 type AuthoringProposalReview =
+    | DependencyUpgrade of AuthoringDependencyRepairReview
     | Operations of AgentChangeReview
     | ReplaceBody of AgentExpressionStructuralChangeReview
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Review
@@ -96,6 +148,7 @@ type AuthoringRejectionReceipt =
 
 [<RequireQualifiedAccess>]
 type private PendingProposal =
+    | DependencyUpgrade of AgentDependencyUpgradeProposal * AuthoringDependencyChangeRequest * string
     | Operations of AgentChangeProposal
     | ReplaceBody of AgentExpressionStructuralChangeProposal
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Proposal
@@ -113,6 +166,7 @@ type private PendingProposal =
 module private PendingProposal =
     let proposedSnapshot (pending: PendingProposal): Snapshot option =
         match pending with
+        | PendingProposal.DependencyUpgrade(proposal, _, _) -> Some(AgentDependencyUpgradeProposal.proposedSnapshot proposal)
         | PendingProposal.Operations _ -> None
         | PendingProposal.ReplaceBody proposal -> Some(AgentExpressionStructuralChangeProposal.proposedSnapshot proposal)
         | PendingProposal.ReplaceTarget proposal -> Some(AgentExpressionStructuralWorkflow.Targeted.Proposal.proposedSnapshot proposal)
@@ -132,6 +186,7 @@ module private ProposalReview =
     /// intent: signature/variant edits can rewrite other callers or match owners.
     let touched (review: AuthoringProposalReview): FunctionId list * TypeId list =
         match review with
+        | AuthoringProposalReview.DependencyUpgrade item -> item.Repair.ChangedFunctions |> List.map (fun f -> f.Id), item.Repair.ChangedTypes |> List.map (fun t -> t.Id)
         | AuthoringProposalReview.Operations item ->
             item.ResultingChange.AffectedFunctionIds @ (item.ResultingChange.Diff.FunctionsRemoved |> List.map (fun removed -> removed.FunctionId)),
             item.ResultingChange.AffectedTypeIds @ (item.ResultingChange.Diff.TypesRemoved |> List.map (fun removed -> removed.TypeId))
@@ -275,6 +330,24 @@ module private SessionStorage =
     let replaceAtomically path content =
         SnapshotComputationScope.Measure("persistence.replace", fun () -> replaceAtomicallyCore path content)
 
+    /// One shared persistence boundary for startup upgrades and reviewed repairs.
+    let replaceDependencyPair path previousSource previousManifest nextSource nextManifest =
+        let sidecar = path + ".dependency.json"
+        match readText path, readText sidecar with
+        | Ok source, Ok manifest when source = previousSource && manifest = previousManifest ->
+            replaceAtomically sidecar nextManifest
+            |> Result.bind (fun () ->
+                match replaceAtomically path nextSource with
+                | Ok() -> Ok()
+                | Error error ->
+                    match replaceAtomically sidecar previousManifest with
+                    | Ok() -> Error error
+                    | Error rollback ->
+                        let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
+                        Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback}"))
+        | Error error, _ | _, Error error -> Error error
+        | _ -> Error AuthoringSessionError.ExternalModification
+
     let ensureParentDirectory (path: string): Result<unit, AuthoringSessionError> =
         try
             Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
@@ -284,48 +357,6 @@ module private SessionStorage =
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
 /// One imported declaration that an upgrade adds, removes or changes.
-type AuthoringDependencyChange =
-    { Kind: string
-      Id: string }
-
-/// The reviewed impact of replacing one pinned dependency with a new version.
-type AuthoringDependencyUpgradePreview =
-    { ReplacedSnapshotId: string
-      ReplacedFingerprint: string
-      NewSnapshotId: string
-      /// Confirms the exact reviewed version when the upgrade is applied.
-      NewFingerprint: string
-      Added: AuthoringDependencyChange list
-      Removed: AuthoringDependencyChange list
-      Changed: AuthoringDependencyChange list
-      /// Validation issues of the local graph against the upgraded imports; empty when compatible.
-      Issues: ValidationIssue list }
-
-/// An explicit replacement of one current dependency member.
-type AuthoringDependencyUpgrade =
-    { Source: string
-      Replaces: string }
-
-/// Arbitrary-cardinality replacement of explicit current members by complete sources.
-type AuthoringDependencySelectionUpgrade =
-    { Sources: string list
-      Replaces: string list }
-
-type AuthoringDependencyMember =
-    { SnapshotId: string
-      Fingerprint: string }
-
-/// One review of the final combined imports; no intermediate dependency graph is persisted.
-type AuthoringDependencyUpgradesPreview =
-    { ReviewFingerprint: string
-      Upgrades: AuthoringDependencyUpgradePreview list
-      Replaced: AuthoringDependencyMember list
-      Selected: AuthoringDependencyMember list
-      Added: AuthoringDependencyChange list
-      Removed: AuthoringDependencyChange list
-      Changed: AuthoringDependencyChange list
-      Issues: ValidationIssue list }
-
 type internal PinnedDependencySelection =
     { Imported: Snapshot
       Manifest: string
@@ -656,9 +687,14 @@ module private PinnedDependency =
                                           Upgrades = []; Replaced = List.map describe replaced; Selected = List.map describe selected
                                           Added = added; Removed = removed; Changed = changed; Issues = issues } })))
 
+    let planChange path source current = function
+        | AuthoringDependencyChangeRequest.Upgrades upgrades -> planUpgrades path source current upgrades
+        | AuthoringDependencyChangeRequest.Selection request -> planSelectionUpgrade path source current request
+
 type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream, selection: PinnedDependencySelection option) =
-    let dependency = selection |> Option.map (fun item -> item.Imported)
-    let dependencyManifest = selection |> Option.map (fun item -> item.Manifest)
+    let mutable selection = selection
+    let mutable dependency = selection |> Option.map (fun item -> item.Imported)
+    let mutable dependencyManifest = selection |> Option.map (fun item -> item.Manifest)
     let proposals = Dictionary<string, TransactionId * PendingProposal>(StringComparer.Ordinal)
     // The registered review and the snapshot it was simulated against, for review pages.
     let registered = Dictionary<string, AuthoringProposal * SnapshotId>(StringComparer.Ordinal)
@@ -672,10 +708,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         elif invalidated then Error AuthoringSessionError.SessionInvalidated
         else Ok()
 
-    let importedFunctionIds =
+    let mutable importedFunctionIds =
         dependency |> Option.map (fun snapshot -> snapshot.Functions |> List.map (fun item -> item.Id) |> Set.ofList)
         |> Option.defaultValue Set.empty
-    let importedTypeIds =
+    let mutable importedTypeIds =
         dependency |> Option.map (fun snapshot -> snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
         |> Option.defaultValue Set.empty
 
@@ -802,6 +838,36 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             match selection with
             | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
             | Some current -> PinnedDependency.planSelectionUpgrade path persistedSource current request |> Result.map (fun plan -> plan.Preview))
+
+    member _.DependencyUpgradeDeclarations(request: AuthoringDependencyChangeRequest): Result<AuthoringDeclarations, AuthoringSessionError> =
+        ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
+        |> Result.bind (fun () ->
+            match selection with
+            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+            | Some current ->
+                PinnedDependency.planChange path persistedSource current request
+                |> Result.map (fun plan ->
+                    let combined = SnapshotCodec.resolveDependency plan.Selection.Imported plan.Local
+                    { Functions = combined.Functions; Types = combined.Types; Capabilities = combined.Capabilities; Effects = combined.Effects }))
+
+    member _.SimulateDependencyUpgrade(request: AuthoringDependencyChangeRequest, repairs: AgentDependencyLocalRepairs, expectedSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
+        ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
+        |> Result.bind (fun () ->
+            if expectedSnapshotId <> AgentWorkspace.currentSnapshotId workspace then
+                Error(AuthoringSessionError.DependencyFailure "The dependency repair targets a different base snapshot.")
+            else
+                match selection with
+                | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+                | Some current ->
+                    PinnedDependency.planChange path persistedSource current request
+                    |> Result.bind (fun plan ->
+                        AgentDependencyUpgradeWorkflow.simulate workspace current.Imported plan.Selection.Imported repairs
+                        |> Result.mapError AuthoringSessionError.StructuralSimulationFailure
+                        |> Result.bind (fun proposal ->
+                            let review = AgentDependencyUpgradeProposal.review proposal
+                            registerWith review.ChangedFunctions review.Receipt.TransactionId
+                                (PendingProposal.DependencyUpgrade(proposal, request, plan.Preview.ReviewFingerprint))
+                                (AuthoringProposalReview.DependencyUpgrade { Upgrade = plan.Preview; Repair = review }))))
 
     /// Read-only execution must not run a stale in-memory graph after the selected
     /// snapshot or its pinned dependency was changed outside the session.
@@ -998,6 +1064,36 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Ok() ->
             match proposals.TryGetValue proposalId with
             | false, _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
+            | true, (_, PendingProposal.DependencyUpgrade(proposal, request, reviewed)) ->
+                match selection with
+                | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency selection.")
+                | Some current ->
+                    checkPersistedSource ()
+                    |> Result.bind (fun () -> PinnedDependency.planChange path persistedSource current request)
+                    |> Result.bind (fun plan ->
+                        if plan.Preview.ReviewFingerprint <> reviewed then
+                            Error(AuthoringSessionError.DependencyFailure "The workspace, pins, targets or selected source changed after dependency repair review. Simulate again.")
+                        else
+                            AgentDependencyUpgradeWorkflow.commitWithPolicy workspace proposal policy
+                            |> Result.mapError AuthoringSessionError.CommitRejected
+                            |> Result.bind (fun candidate ->
+                                AgentWorkspace.serializeWithDependency plan.Selection.Imported candidate
+                                |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                |> Result.bind (fun source ->
+                                    checkPersistedSource () |> Result.bind (fun () ->
+                                        SessionStorage.replaceDependencyPair path persistedSource current.Manifest source plan.Selection.Manifest)
+                                    |> Result.map (fun () ->
+                                        workspace <- candidate
+                                        persistedSource <- source
+                                        selection <- Some plan.Selection
+                                        dependency <- Some plan.Selection.Imported
+                                        dependencyManifest <- Some plan.Selection.Manifest
+                                        importedFunctionIds <- plan.Selection.Imported.Functions |> List.map (fun f -> f.Id) |> Set.ofList
+                                        importedTypeIds <- plan.Selection.Imported.Types |> List.map (fun t -> t.Id) |> Set.ofList
+                                        proposals.Remove proposalId |> ignore
+                                        registered.Remove proposalId |> ignore
+                                        let review = AgentDependencyUpgradeProposal.review proposal
+                                        { TransactionId = review.Receipt.TransactionId; PublishedSnapshotId = review.Receipt.ProposedSnapshotId; Readiness = review.Readiness }))))
             | true, (_, PendingProposal.Operations proposal) ->
                 match AgentWorkflow.commitWithPolicy workspace proposal policy with
                 | AgentCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
@@ -1248,25 +1344,8 @@ module AuthoringSession =
                                         |> Result.bind (fun upgradedSource ->
                                             workspaceFromSource (Some selection.Imported) upgradedSource
                                             |> Result.bind (fun workspace ->
-                                                let sidecar = path + ".dependency.json"
-                                                // The lock coordinates sessions; external writers need not honor it.
-                                                // Compare both sources immediately before the first replacement.
-                                                match SessionStorage.readText path, SessionStorage.readText sidecar with
-                                                | Ok actualSource, Ok previousManifest when actualSource = source && previousManifest = current.Manifest ->
-                                                    SessionStorage.replaceAtomically sidecar selection.Manifest
-                                                    |> Result.bind (fun () ->
-                                                        match SessionStorage.replaceAtomically path upgradedSource with
-                                                        | Ok() -> Ok(upgradedSource, workspace, selection)
-                                                        | Error error ->
-                                                            match SessionStorage.replaceAtomically sidecar previousManifest with
-                                                            | Ok() -> Error error
-                                                            | Error rollback ->
-                                                                let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
-                                                                Error(AuthoringSessionError.IoFailure
-                                                                    $"{text error} Restoring the previous dependency selection also failed: {text rollback}"))
-                                                | Error error, _
-                                                | _, Error error -> Error error
-                                                | _ -> Error AuthoringSessionError.ExternalModification)))))
+                                                SessionStorage.replaceDependencyPair path source current.Manifest upgradedSource selection.Manifest
+                                                |> Result.map (fun () -> upgradedSource, workspace, selection))))))
                 match result with
                 | Error error ->
                     SessionStorage.releaseLock path lockHandle

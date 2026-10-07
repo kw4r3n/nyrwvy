@@ -86,6 +86,7 @@ module ViewerFile =
 
     let private proposalKind (review: AuthoringProposalReview) =
         match review with
+        | AuthoringProposalReview.DependencyUpgrade _ -> "dependencyUpgrade"
         | AuthoringProposalReview.Operations _ -> "operations"
         | AuthoringProposalReview.ReplaceBody _ -> "replaceBody"
         | AuthoringProposalReview.ReplaceTarget _ -> "replaceTarget"
@@ -102,6 +103,7 @@ module ViewerFile =
 
     let private readiness (review: AuthoringProposalReview) =
         match review with
+        | AuthoringProposalReview.DependencyUpgrade item -> item.Repair.Readiness
         | AuthoringProposalReview.Operations item -> item.Readiness
         | AuthoringProposalReview.ReplaceBody item -> item.Readiness
         | AuthoringProposalReview.ReplaceTarget item -> item.Readiness

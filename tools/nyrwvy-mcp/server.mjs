@@ -90,6 +90,7 @@ if (values.help) {
     register("create_type", definitions.create_type)
     register("create_function", definitions.create_function)
     register("replace", definitions.replace)
+    register("upgrade_dependencies", definitions.upgrade_dependencies)
     register("commit", definitions.commit)
     register("reject", definitions.reject)
     register("request", definitions.request)

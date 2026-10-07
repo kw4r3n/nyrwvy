@@ -227,6 +227,18 @@ module internal WireEncode =
             else objectValue fields
         let review =
             match value.Review with
+            | AuthoringProposalReview.DependencyUpgrade item ->
+                let changes (items: AuthoringDependencyChange list) = items |> List.map (fun c -> objectValue [ "kind", box c.Kind; "id", box c.Id ]) |> arrayValue
+                let members (items: AuthoringDependencyMember list) = items |> List.map (fun m -> objectValue [ "snapshotId", box m.SnapshotId; "fingerprint", box m.Fingerprint ]) |> arrayValue
+                withRewritten
+                    [ "kind", box "dependencyUpgrade"
+                      "receipt", receipt item.Repair.Receipt
+                      "readiness", readiness item.Repair.Readiness
+                      "dependencies", objectValue [ "replaced", members item.Upgrade.Replaced; "selected", members item.Upgrade.Selected;
+                                                     "added", changes item.Upgrade.Added; "removed", changes item.Upgrade.Removed; "changed", changes item.Upgrade.Changed ]
+                      "changedFunctions", item.Repair.ChangedFunctions |> List.map functionEntity |> arrayValue
+                      "changedTypes", item.Repair.ChangedTypes |> List.map semanticType |> arrayValue
+                      "changedCapabilities", item.Repair.ChangedCapabilities |> List.map capabilityEntity |> arrayValue ]
             | AuthoringProposalReview.Operations item ->
                 objectValue
                     [ "kind", box "operations"

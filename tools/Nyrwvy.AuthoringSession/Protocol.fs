@@ -675,6 +675,66 @@ module AuthoringProtocol =
                               "removed", changes preview.Removed
                               "changed", changes preview.Changed
                               "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
+            | "simulateDependencyUpgrade" | "simulateDependencyUpgradeByName" ->
+                ensureFields "dependency upgrade repair" [ "id"; "op"; "upgrades"; "selection"; "repairs"; "expectedSnapshotId"; "structuredReview"; "detail" ] [ "id"; "op"; "repairs" ] root
+                let change =
+                    match tryProperty "upgrades" root, tryProperty "selection" root with
+                    | Some _, None ->
+                        AuthoringDependencyChangeRequest.Upgrades(array "upgrades" root |> List.map (fun item ->
+                            ensureFields "dependency replacement" [ "source"; "replaces" ] [ "source"; "replaces" ] item
+                            { Source = requiredString "source" item; Replaces = requiredString "replaces" item }))
+                    | None, Some selected ->
+                        ensureFields "dependency selection" [ "sources"; "replaces" ] [ "sources"; "replaces" ] selected
+                        let strings name = array name selected |> List.map (fun item ->
+                            if item.ValueKind <> JsonValueKind.String then fail "Selection entries must be strings."
+                            item.GetString())
+                        AuthoringDependencyChangeRequest.Selection { Sources = strings "sources"; Replaces = strings "replaces" }
+                    | _ -> fail "Name exactly one of upgrades or selection."
+                match session.DependencyUpgradeDeclarations change with
+                | Error error -> sessionFailure requestId error
+                | Ok declarations ->
+                    let named = operationName.EndsWith("ByName", StringComparison.Ordinal)
+                    let values = property "repairs" root
+                    ensureFields "local repairs" [ "fields"; "functions"; "operations" ] [] values
+                    let items name = match tryProperty name values with None -> [] | Some _ -> array name values
+                    let resolveType item = if named then WireSymbolic.typeRef declarations item else typeRef item
+                    let fields = items "fields" |> List.map (fun item ->
+                        if named then
+                            ensureFields "local field repair" [ "type"; "field"; "newType" ] [ "type"; "field"; "newType" ] item
+                            let owner = WireSymbolic.resolveType declarations (requiredString "type" item)
+                            { TypeId = owner.Id; FieldId = (WireSymbolic.productField owner (requiredString "field" item)).Id; NewType = resolveType (property "newType" item) }
+                        else
+                            ensureFields "local field repair" [ "typeId"; "fieldId"; "newType" ] [ "typeId"; "fieldId"; "newType" ] item
+                            { TypeId = id<TypeTag> "typeId" item; FieldId = id<FieldTag> "fieldId" item; NewType = resolveType (property "newType" item) })
+                    let functions = items "functions" |> List.map (fun item ->
+                        let key = if named then "function" else "functionId"
+                        ensureFields "local function repair" [ key; "parameterTypes"; "resultType"; "replacement" ] [ key; "parameterTypes"; "resultType"; "replacement" ] item
+                        let fn = if named then WireSymbolic.resolveFunction declarations (requiredString key item) else
+                                     declarations.Functions |> List.tryFind (fun f -> f.Id = id<FunctionTag> key item) |> Option.defaultWith (fun () -> fail "Unknown repair function.")
+                        let resolve = if named then WireSymbolic.typeRefForExistingFunction declarations fn else typeRef
+                        { FunctionId = fn.Id
+                          ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                              let key = if named then "parameter" else "parameterId"
+                              ensureFields "function parameter type" [ key; "type" ] [ key; "type" ] parameter
+                              { ParameterId = if named then (WireSymbolic.functionParameter fn (requiredString key parameter)).Id else id<ParameterTag> key parameter
+                                Type = resolve (property "type" parameter) })
+                          ResultType = resolve (property "resultType" item)
+                          Replacement = if named then WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) else recipe (property "replacement" item) })
+                    let operations = items "operations" |> List.map (fun item ->
+                        let keys = if named then [ "capability"; "operation" ] else [ "operationId" ]
+                        ensureFields "local operation repair" (keys @ [ "parameterTypes"; "resultType" ]) (keys @ [ "parameterTypes"; "resultType" ]) item
+                        let operation = if named then
+                                            let cap = WireSymbolic.resolveCapability declarations (requiredString "capability" item)
+                                            WireSymbolic.capabilityOperation cap (requiredString "operation" item)
+                                        else declarations.Capabilities |> List.collect (fun c -> c.Operations) |> List.tryFind (fun o -> o.Id = id<CapabilityOperationTag> "operationId" item) |> Option.defaultWith (fun () -> fail "Unknown repair operation.")
+                        { OperationId = operation.Id
+                          ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                              let key = if named then "parameter" else "parameterId"
+                              ensureFields "operation parameter type" [ key; "type" ] [ key; "type" ] parameter
+                              { ParameterId = if named then (WireSymbolic.capabilityParameter operation (requiredString key parameter)).Id else id<CapabilityParameterTag> key parameter
+                                Type = resolveType (property "type" parameter) })
+                          ResultType = resolveType (property "resultType" item) })
+                    proposalResponse(session.SimulateDependencyUpgrade(change, { Fields = fields; Functions = functions; Operations = operations }, expectedSnapshotId ()))
             | "previewDependencyUpgrades" ->
                 ensureFields "previewDependencyUpgrades request" [ "id"; "op"; "upgrades"; "selection" ] [ "id"; "op" ] root
                 let preview =
