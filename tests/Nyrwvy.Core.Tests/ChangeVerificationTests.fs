@@ -27,6 +27,100 @@ module ChangeVerificationTests =
           ExpectedCandidate = None }
 
     [<Fact>]
+    let ``wire review preserves candidate input and candidate-only expectation diagnostics`` () =
+        withSession (fun session ->
+            let wire text =
+                use reply = AuthoringProtocol.executeLine session text |> JsonDocument.Parse
+                Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+                reply.RootElement.GetProperty("result").Clone()
+            let publish text =
+                let proposal = (wire text).GetProperty("proposalId").GetString()
+                session.Commit(proposal, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            publish """{"id":"type","op":"simulateCreateTypeByName","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"amount","type":{"kind":"primitive","primitive":"int64"}}]}}"""
+            publish """{"id":"echo","op":"simulateCreateFunctionByName","displayName":"echo","parameters":[{"displayName":"input","type":{"kind":"named","name":"Box"}}],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"parameter","name":"input"}}"""
+            publish """{"id":"make","op":"simulateCreateFunctionByName","displayName":"make","parameters":[],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"productConstruct","type":"Box","fields":[{"field":"amount","value":{"kind":"int64Literal","value":"1"}}]}}"""
+            let box = session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Box")
+            let field = match box.Kind with SemanticTypeKind.Product fields -> fields.Head | _ -> failwith "fixture"
+            let echo, make = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "echo"), session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "make")
+            let migration =
+                sprintf """{"id":"migration","op":"simulateProductFieldTypeMigration","fieldId":"%s","newFieldType":{"kind":"primitive","primitive":"string"},"functionRewrites":[{"functionId":"%s","replacement":{"kind":"productConstruct","typeId":"%s","fields":[{"fieldId":"%s","value":{"kind":"stringLiteral","value":"1"}}]}}]}"""
+                    (StableId.value field.Id) (StableId.value make.Id) (StableId.value box.Id) (StableId.value field.Id)
+                |> wire
+            let product kind value = sprintf """{"kind":"product","typeId":"%s","fields":[{"fieldId":"%s","value":{"kind":"%s","value":%s}}]}""" (StableId.value box.Id) (StableId.value field.Id) kind value
+            let request =
+                sprintf """{"id":"review","op":"verifyChange","proposalId":"%s","cases":[{"label":"old input","functionId":"%s","arguments":[%s]},{"label":"candidate expectation","functionId":"%s","arguments":[],"expectedCandidate":%s},{"label":"new input","functionId":"%s","arguments":[%s]}]}"""
+                    (migration.GetProperty("proposalId").GetString()) (StableId.value echo.Id) (product "int64" "\"1\"") (StableId.value make.Id) (product "bool" "true") (StableId.value echo.Id) (product "string" "\"1\"")
+            let before = File.ReadAllBytes session.Path
+            let cases = (wire request).GetProperty("evidence").GetProperty("cases")
+            for index, code, root, actual in [ 0, "RunProductShapeMismatch", "arguments", "int64"; 1, "RunProductShapeMismatch", "expected", "bool" ] do
+                let case = cases[index]
+                Assert.Equal("unknown", case.GetProperty("status").GetString())
+                Assert.True(case.GetProperty("baseline").TryGetProperty("actual") |> fst)
+                Assert.False(case.GetProperty("baseline").TryGetProperty("error") |> fst)
+                let error = case.GetProperty("candidate").GetProperty("error")
+                Assert.Equal(code, error.GetProperty("code").GetString())
+                let details = error.GetProperty("details")
+                let path = details.GetProperty("path")
+                Assert.Equal(root, path[0].GetString())
+                Assert.Equal("amount", path[path.GetArrayLength() - 1].GetString())
+                Assert.Equal("string", details.GetProperty("expectedType").GetProperty("primitive").GetString())
+                Assert.Equal(actual, details.GetProperty("actualType").GetProperty("primitive").GetString())
+            let reverse = cases[2]
+            Assert.Equal("unknown", reverse.GetProperty("status").GetString())
+            Assert.True(reverse.GetProperty("candidate").TryGetProperty("actual") |> fst)
+            let baselineDetails = reverse.GetProperty("baseline").GetProperty("error").GetProperty("details")
+            Assert.Equal("int64", baselineDetails.GetProperty("expectedType").GetProperty("primitive").GetString())
+            Assert.Equal("string", baselineDetails.GetProperty("actualType").GetProperty("primitive").GetString())
+            Assert.Equal<byte>(before, File.ReadAllBytes session.Path))
+
+    [<Fact>]
+    let ``wire review never decorates generic entry refusal as an input defect`` () =
+        withSession (fun session ->
+            let t = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "review-diagnostic-T", "T")
+            let created = session.SimulateCreateFunction { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"; Parameters = [ { DisplayName = "value"; Type = t } ]; ResultType = t; RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap
+            session.Commit(created.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let fn = session.Declarations().Functions |> List.exactlyOne
+            let proposal = session.SimulateReplaceBody { TargetFunctionId = fn.Id; ExpectedBaseSnapshotId = session.SnapshotId; ExpectedCurrentResultNodeId = fn.Body.ResultNodeId; Replacement = ExpressionRecipe.Parameter fn.Parameters.Head.Id } |> unwrap
+            let text = sprintf """{"id":"generic","op":"verifyChange","proposalId":"%s","cases":[{"label":"unsupported entry","functionId":"%s","arguments":[{"kind":"string","value":"bad"}]}]}""" proposal.ProposalId (StableId.value fn.Id)
+            use reply = AuthoringProtocol.executeLine session text |> JsonDocument.Parse
+            Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+            let case = reply.RootElement.GetProperty("result").GetProperty("evidence").GetProperty("cases")[0]
+            Assert.Equal("unknown", case.GetProperty("status").GetString())
+            for side in [ "baseline"; "candidate" ] do
+                let error = case.GetProperty(side).GetProperty("error")
+                Assert.Equal("RunGenericEntryUnsupported", error.GetProperty("code").GetString())
+                Assert.False(error.TryGetProperty("details") |> fst))
+
+    [<Fact>]
+    let ``wire candidate expectations and observations use captured candidate names`` () =
+        withSession (fun rootSession ->
+            let libraryPath = Path.Combine(Path.GetDirectoryName rootSession.Path, "library.json")
+            use library = AuthoringSession.createNew libraryPath |> unwrap
+            let publish proposal = library.Commit((unwrap proposal).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            library.SimulateCreateType { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "Box"; Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } |> publish
+            let box = library.Declarations().Types.Head
+            let field = match box.Kind with SemanticTypeKind.Product fields -> fields.Head | _ -> failwith "fixture"
+            library.SimulateCreateFunction { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "echo"; Parameters = [ { DisplayName = "input"; Type = TypeRef.Named box.Id } ]; ResultType = TypeRef.Named box.Id; RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> publish
+            let fn, oldPin = library.Declarations().Functions.Head, library.SnapshotId
+            use session = AuthoringSession.createNewWithDependencies (Path.Combine(Path.GetDirectoryName rootSession.Path, "consumer.json")) [ libraryPath ] |> unwrap
+            library.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Type box.Id, "RenamedBox") ] |> publish
+            let change = AuthoringDependencyChangeRequest.Selection { Sources = [ libraryPath ]; Replaces = [ StableId.value oldPin ] }
+            let proposal = session.SimulateDependencyUpgrade(change, { Fields = []; Functions = []; Operations = [] }, session.SnapshotId) |> unwrap
+            let value = sprintf """{"kind":"product","typeId":"%s","fields":[{"fieldId":"%s","value":{"kind":"int64","value":"1"}}]}""" (StableId.value box.Id) (StableId.value field.Id)
+            let line = sprintf """{"id":"names","op":"verifyChange","proposalId":"%s","cases":[{"label":"renamed type","functionId":"%s","arguments":[%s],"expectedCandidate":%s}]}""" proposal.ProposalId (StableId.value fn.Id) value value
+            let before = File.ReadAllBytes session.Path, File.ReadAllBytes(session.Path + ".dependency.json")
+            use reply = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
+            Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+            let case = reply.RootElement.GetProperty("result").GetProperty("evidence").GetProperty("cases")[0]
+            let arguments = case.GetProperty("arguments")
+            Assert.Equal("Box", arguments[0].GetProperty("type").GetString())
+            Assert.Equal("Box", case.GetProperty("baseline").GetProperty("actual").GetProperty("type").GetString())
+            Assert.Equal("RenamedBox", case.GetProperty("candidate").GetProperty("actual").GetProperty("type").GetString())
+            Assert.Equal("RenamedBox", case.GetProperty("expectedCandidate").GetProperty("type").GetString())
+            Assert.Equal("intended-change-tested", case.GetProperty("status").GetString())
+            Assert.Equal(before, (File.ReadAllBytes session.Path, File.ReadAllBytes(session.Path + ".dependency.json"))))
+
+    [<Fact>]
     let ``empty oversized and blank conditions never produce evidence`` () =
         withSession (fun session ->
             for cases in [ []; List.replicate 33 sample; [ { sample with Label = " " } ] ] do
@@ -88,6 +182,8 @@ module ChangeVerificationTests =
                 { ProposalId = proposal.ProposalId
                   BaselineSnapshotId = session.SnapshotId
                   CandidateSnapshotId = view.ProposedSnapshot.Value.Id
+                  BaselineDeclarations = session.Declarations()
+                  CandidateDeclarations = (session.ExecutionContext(Some proposal.ProposalId) |> unwrap).Declarations
                   BaselineFingerprint = "fixture-baseline"
                   CandidateFingerprint = "fixture-candidate"
                   AffectedFunctionIds = []
@@ -263,6 +359,7 @@ module ChangeVerificationTests =
             let other = StableId.createForTesting<FunctionTag> "affected-caller"
             let evidence: ChangeVerificationEvidence =
                 { ProposalId = proposal.ProposalId; BaselineSnapshotId = session.SnapshotId; CandidateSnapshotId = view.ProposedSnapshot.Value.Id
+                  BaselineDeclarations = session.Declarations(); CandidateDeclarations = (session.ExecutionContext(Some proposal.ProposalId) |> unwrap).Declarations
                   BaselineFingerprint = "baseline"; CandidateFingerprint = "candidate"
                   AffectedFunctionIds = [ sample.FunctionId; other ]
                   Observations = [ { Case = sample; Status = "tested-agreement"; Baseline = Ok(result PureRunValue.Unit []); Candidate = Ok(result PureRunValue.Unit []) } ] }

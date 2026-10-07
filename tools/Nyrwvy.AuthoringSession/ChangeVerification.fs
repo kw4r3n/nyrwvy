@@ -22,6 +22,9 @@ type ChangeVerificationEvidence =
       CandidateSnapshotId: SnapshotId
       BaselineFingerprint: string
       CandidateFingerprint: string
+      /// Captured from the same immutable contexts that produced the observations.
+      BaselineDeclarations: AuthoringDeclarations
+      CandidateDeclarations: AuthoringDeclarations
       AffectedFunctionIds: FunctionId list
       Observations: ChangeVerificationObservation list }
 
@@ -95,5 +98,7 @@ module ChangeVerification =
                               CandidateSnapshotId = candidate.SnapshotId
                               BaselineFingerprint = baseline.Fingerprint
                               CandidateFingerprint = candidate.Fingerprint
+                              BaselineDeclarations = baseline.Declarations
+                              CandidateDeclarations = candidate.Declarations
                               AffectedFunctionIds = affected
                               Observations = observations }))))

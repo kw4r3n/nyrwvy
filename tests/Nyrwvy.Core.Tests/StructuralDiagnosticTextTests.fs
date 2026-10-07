@@ -11,6 +11,26 @@ open Xunit
 /// with their actual signature, and end with the recipe path of the node that failed
 /// (probe 4, friction 4).
 module StructuralDiagnosticTextTests =
+    let private diagnosticOwnerId<'tag> value = StableId.createForTesting<'tag> ("diagnostic-owner-" + value)
+
+    [<Fact>]
+    let ``validator node errors carry the exact owner despite equal display names`` () =
+        let ownerId, otherId = diagnosticOwnerId<FunctionTag> "owner", diagnosticOwnerId<FunctionTag> "other"
+        let input, result, otherResult = diagnosticOwnerId<GraphNodeTag> "input", diagnosticOwnerId<GraphNodeTag> "result", diagnosticOwnerId<GraphNodeTag> "other-result"
+        let make functionId resultType nodes resultId =
+            { Id = functionId; DisplayName = "summary"; Parameters = []; ResultType = resultType; RequiredEffects = []; Body = { Nodes = nodes; ResultNodeId = resultId } }
+        let owner = make ownerId (TypeRef.Primitive PrimitiveType.String)
+                        [ { Id = input; Kind = SemanticNodeKind.StringLiteral(StableId.value otherId) }
+                          { Id = result; Kind = SemanticNodeKind.Int64ToString input } ] result
+        let other = make otherId (TypeRef.Primitive PrimitiveType.Int64) [ { Id = otherResult; Kind = SemanticNodeKind.Int64Literal 0L } ] otherResult
+        let issue = SnapshotValidator.validate { Snapshot.empty (diagnosticOwnerId<SnapshotTag> "base") with Functions = [ other; owner ] }
+                    |> List.find (fun issue -> issue.Code = "Int64IntrinsicTypeMismatch")
+        Assert.Contains("In function", issue.Message)
+        Assert.Contains("summary", issue.Message)
+        Assert.Contains(StableId.value ownerId, issue.Message)
+        Assert.Contains(StableId.value result, issue.Message)
+        Assert.DoesNotContain(StableId.value otherId, issue.Message)
+
     let private id<'tag> name = StableId.createForTesting<'tag> ("diag-text-" + name)
     let private stringType = TypeRef.Primitive PrimitiveType.String
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64

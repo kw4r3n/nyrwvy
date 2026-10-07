@@ -1590,7 +1590,7 @@ module PureRun =
         match session.VerifyPersistedSource() with
         | Error error -> Error(PureRunError.SessionFailure error)
         | Ok() when arguments @ Option.toList expected |> List.exists (boundedValue >> not) ->
-            Error(diagnostic "RunArgumentTooLarge" $"Values are limited to {maxValueLayers} nested composite layers and 8192 total value nodes.")
+            Error(diagnostic "RunArgumentTooLarge" $"Each argument or expected value is limited to {maxValueLayers} nested composite layers and 8192 value nodes. Split the input into smaller batches or return an aggregate.")
         | Ok() when not session.HostSourcesAllowed
                    && (not (List.isEmpty hostSources)
                        || arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) ->

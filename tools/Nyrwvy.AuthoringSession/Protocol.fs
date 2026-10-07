@@ -98,7 +98,7 @@ module AuthoringProtocol =
                         if requiredString "kind" response = "throw" then 1 else 0))
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
-        if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
+        if remaining.Value < 0 then raise (RunValueNodeBudgetExceeded(8192 - remaining.Value))
         let key idKey nameKey = if names.IsSome then nameKey else idKey
         let typeRef element =
             match names with
@@ -296,7 +296,10 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
-    let private pureValue names item = pureValueAt names (ref 8192) 0 item
+    let private pureValue names location item =
+        try pureValueAt names (ref 8192) 0 item
+        with RunValueNodeBudgetExceeded charged ->
+            fail $"Run values may contain at most 8192 value nodes per argument or expected value. At {location}: at least {charged} nodes were charged, including containers and their values. Split the input into smaller batches or build it inside the graph and return an aggregate."
 
     /// Writes a Float64 run value: the shortest round-trip decimal as a JSON number for finite values
     /// other than -0.0, and the strings "NaN", "Infinity", "-Infinity" and "-0" otherwise.
@@ -1230,29 +1233,31 @@ module AuthoringProtocol =
                 | Error error -> sessionFailure requestId error
             | "verifyChange" ->
                 ensureFields "verifyChange request" [ "id"; "op"; "proposalId"; "cases"; "output" ] [ "id"; "op"; "proposalId"; "cases" ] root
-                let cases = array "cases" root |> List.map (fun item ->
+                let cases = array "cases" root |> List.mapi (fun caseIndex item ->
                     ensureFields "verification case" [ "label"; "functionId"; "arguments"; "expectedCandidate" ] [ "label"; "functionId"; "arguments" ] item
                     { Label = requiredString "label" item
                       FunctionId = id<FunctionTag> "functionId" item
-                      Arguments = array "arguments" item |> List.map (pureValue None)
-                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue None) })
+                      Arguments = array "arguments" item |> List.mapi (fun index value -> pureValue None $"cases[{caseIndex}].arguments[{index}]" value)
+                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue None $"cases[{caseIndex}].expectedCandidate") })
                 match ChangeVerification.verify session (requiredString "proposalId" root) cases with
                 | Error error -> sessionFailure requestId error
                 | Ok evidence ->
-                    let names = runNames (session.Declarations())
-                    let candidateNames = session.ExecutionContext(Some evidence.ProposalId) |> Result.map (fun context -> runNames context.Declarations) |> Result.defaultValue names
-                    let observation names functionId = function
+                    let names = runNames evidence.BaselineDeclarations
+                    let candidateNames = runNames evidence.CandidateDeclarations
+                    let observation names functionId arguments expected = function
                         | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
-                        | Error error -> objectValue [ "error", encodeRunError names functionId None error ]
+                        | Error error ->
+                            let issue = PureRun.inputIssueForError names.Declarations functionId arguments expected error
+                            objectValue [ "error", encodeRunError names functionId issue error ]
                     let encodeCase item =
                         objectValue
                             [ "label", box item.Case.Label
                               "functionId", box (StableId.value item.Case.FunctionId)
                               "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
-                              "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue names) |> Option.defaultValue null
+                              "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue candidateNames) |> Option.defaultValue null
                               "status", box item.Status
-                              "baseline", observation names item.Case.FunctionId item.Baseline
-                              "candidate", observation candidateNames item.Case.FunctionId item.Candidate ]
+                              "baseline", observation names item.Case.FunctionId item.Case.Arguments None item.Baseline
+                              "candidate", observation candidateNames item.Case.FunctionId item.Case.Arguments item.Case.ExpectedCandidate item.Candidate ]
                     let encoded =
                         objectValue
                             [ "proposalId", box evidence.ProposalId
@@ -1261,7 +1266,7 @@ module AuthoringProtocol =
                               "caseRequest", box ((property "cases" root).GetRawText())
                               "casesDigest", box (System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes((property "cases" root).GetRawText())) |> System.Convert.ToHexString)
                               "verifierIdentity", objectValue
-                                  [ "version", box "nyrwvy-change-verification-v4"
+                                  [ "version", box "nyrwvy-change-verification-v5"
                                     "observationPolicy", box "canonical-result-and-ordered-fake-calls-v4; structured-run-diagnostics; canonical-explicit-expectations; sequential-only; mapped-recognized-candidate-only-failures-counterexample; other-failures-unknown; explicit-result-changes-only"
                                     "runtimeVersion", box (System.Environment.Version.ToString())
                                     "buildContextFingerprint", box (GeneratedBuild.fingerprint [])
@@ -1295,8 +1300,8 @@ module AuthoringProtocol =
                     match names with
                     | Some declarations -> (WireSymbolic.resolveFunctionAt declarations functionKey root).Id
                     | None -> id<FunctionTag> functionKey root
-                let arguments = array "arguments" root |> List.map (pureValue names)
-                let expected = tryProperty "expected" root |> Option.map (pureValue names)
+                let arguments = array "arguments" root |> List.mapi (fun index value -> pureValue names $"arguments[{index}]" value)
+                let expected = tryProperty "expected" root |> Option.map (pureValue names "expected")
                 let hostSources =
                     tryProperty "hostSources" root
                     |> Option.map (fun _ ->
