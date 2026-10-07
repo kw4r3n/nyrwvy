@@ -151,7 +151,10 @@ module internal WireEncodeCommon =
                       "displayName", box effect.DisplayName ])
         let capabilities = value.Capabilities |> List.map capabilityEntity
         objectValue
-            [ "functions", value.Functions |> List.map functionDeclaration |> arrayValue
+            [ "provenance", value.Provenance |> List.map (fun p ->
+                  objectValue [ "kind", box p.Kind; "id", box p.Id; "ownership", box (if p.IsLocal then "local" else "imported")
+                                "sources", p.Sources |> List.map (fun source -> objectValue [ "snapshotId", box source.SnapshotId; "fingerprint", box source.Fingerprint ]) |> arrayValue ]) |> arrayValue
+              "functions", value.Functions |> List.map functionDeclaration |> arrayValue
               "types", value.Types |> List.map semanticType |> arrayValue
               "effects", arrayValue effects
               "capabilities", arrayValue capabilities ]

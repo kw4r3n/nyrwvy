@@ -145,7 +145,7 @@ module AuthoringProtocol =
             ensureFields "Host capability" [ "kind"; capabilityKey; "implementation"; "supportsConcurrentCalls" ] [ "kind"; capabilityKey; "implementation" ] item
             let capabilityId =
                 match names with
-                | Some declarations -> (WireSymbolic.resolveCapability declarations (requiredString capabilityKey item)).Id
+                | Some declarations -> (WireSymbolic.resolveCapabilityAt declarations capabilityKey item).Id
                 | None -> id<CapabilityTag> capabilityKey item
             PureRunValue.HostCapability(capabilityId, requiredString "implementation" item, optionalBool "supportsConcurrentCalls" false item)
         | "fakeCapability" ->
@@ -154,7 +154,7 @@ module AuthoringProtocol =
             ensureFields "Fake capability" [ "kind"; capabilityKey; "operations" ] [ "kind"; capabilityKey; "operations" ] item
             let operations = array "operations" item
             if operations.Length > 256 then fail "A fake capability may script at most 256 operations."
-            let capability = names |> Option.map (fun declarations -> WireSymbolic.resolveCapability declarations (requiredString capabilityKey item))
+            let capability = names |> Option.map (fun declarations -> WireSymbolic.resolveCapabilityAt declarations capabilityKey item)
             PureRunValue.FakeCapability(
                 (match capability with
                  | Some capability -> capability.Id
@@ -223,7 +223,7 @@ module AuthoringProtocol =
                     (if kind = "union" then Some(id<VariantTag> variantKey item) else None),
                     fun field -> id<FieldTag> fieldKey field
                 | Some declarations ->
-                    let owner = WireSymbolic.resolveType declarations (requiredString typeKey item)
+                    let owner = WireSymbolic.resolveTypeAt declarations typeKey item
                     if kind = "union" then
                         let variant = WireSymbolic.unionVariant owner (requiredString variantKey item)
                         owner.Id, Some variant.Id, fun field -> (WireSymbolic.variantField variant (requiredString fieldKey field)).Id
@@ -322,7 +322,8 @@ module AuthoringProtocol =
     /// ID value. Each name uses the property key of the name-resolved input form (`type`, `variant`, `field`,
     /// `function`, `capability`, `operation`, `parameter`); IDs remain the identity.
     type private RunNames =
-        { Names: Collections.Generic.Dictionary<string, string>
+        { Declarations: AuthoringDeclarations
+          Names: Collections.Generic.Dictionary<string, string>
           OperationCapabilities: Collections.Generic.Dictionary<string, string> }
 
     let private runNames (declarations: AuthoringDeclarations) =
@@ -347,7 +348,7 @@ module AuthoringProtocol =
                 add operation.Id operation.DisplayName
                 operationCapabilities.TryAdd(StableId.value operation.Id, capability.DisplayName) |> ignore
                 operation.Parameters |> List.iter (fun parameter -> add parameter.Id parameter.DisplayName)
-        { Names = names; OperationCapabilities = operationCapabilities }
+        { Declarations = declarations; Names = names; OperationCapabilities = operationCapabilities }
 
     /// The `key: displayName` property for a known ID; empty when the ID is not declared.
     let private named (names: RunNames) key id =
@@ -502,8 +503,8 @@ module AuthoringProtocol =
             objectValue ([ "kind", box "capabilityOperation"; "operationId", box (StableId.value operationId) ] @ operationNamed names operationId)
 
     /// Shared wire diagnostics for committed and candidate execution.
-    let private encodeRunError names functionId = function
-        | PureRunError.SessionFailure error -> WireEncode.error error
+    let private encodeRunError (names: RunNames) functionId inputIssue = function
+        | PureRunError.SessionFailure error -> WireEncode.errorWithDeclarations names.Declarations error
         | PureRunError.RuntimeFailure runtime ->
             objectValue
                 ([ "code", box (if runtime.BindingExhausted then "RunBindingExhausted" elif runtime.ExceptionType = "FakeArgumentsUnmatchedException" then "RunBindingNoMatch" else "RunRuntimeFailure")
@@ -517,7 +518,12 @@ module AuthoringProtocol =
         | PureRunError.Unsupported(code, message) ->
             objectValue
                 ([ "code", box code; "message", box message; "functionId", box (StableId.value functionId) ]
-                 @ named names "function" functionId)
+                 @ named names "function" functionId
+                 @ (inputIssue |> Option.map (fun (issue: PureRunInputIssue) ->
+                     [ "details", objectValue [ "path", issue.Path |> List.map box |> arrayValue
+                                                "expectedType", issue.ExpectedType |> Option.map WireEncodeCommon.typeRef |> Option.defaultValue null
+                                                "actualType", issue.ActualType |> Option.map WireEncodeCommon.typeRef |> Option.defaultValue null
+                                                "reason", box issue.Reason ] ]) |> Option.defaultValue []))
 
     let private currentSnapshotId (session: AuthoringSession) = session.SnapshotId
 
@@ -611,6 +617,7 @@ module AuthoringProtocol =
         use _scope = SnapshotComputationScope.Start()
         let mutable requestId: string = null
         try
+            let sessionFailure id error = failure id (WireEncode.errorWithDeclarations (session.Declarations()) error)
             // A blank line is answered like any other malformed line, so a client that waits
             // for one reply per line never stalls.
             if String.IsNullOrWhiteSpace line then
@@ -675,6 +682,66 @@ module AuthoringProtocol =
                               "removed", changes preview.Removed
                               "changed", changes preview.Changed
                               "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
+            | "simulateDependencyUpgrade" | "simulateDependencyUpgradeByName" ->
+                ensureFields "dependency upgrade repair" [ "id"; "op"; "upgrades"; "selection"; "repairs"; "expectedSnapshotId"; "structuredReview"; "detail" ] [ "id"; "op"; "repairs" ] root
+                let change =
+                    match tryProperty "upgrades" root, tryProperty "selection" root with
+                    | Some _, None ->
+                        AuthoringDependencyChangeRequest.Upgrades(array "upgrades" root |> List.map (fun item ->
+                            ensureFields "dependency replacement" [ "source"; "replaces" ] [ "source"; "replaces" ] item
+                            { Source = requiredString "source" item; Replaces = requiredString "replaces" item }))
+                    | None, Some selected ->
+                        ensureFields "dependency selection" [ "sources"; "replaces" ] [ "sources"; "replaces" ] selected
+                        let strings name = array name selected |> List.map (fun item ->
+                            if item.ValueKind <> JsonValueKind.String then fail "Selection entries must be strings."
+                            item.GetString())
+                        AuthoringDependencyChangeRequest.Selection { Sources = strings "sources"; Replaces = strings "replaces" }
+                    | _ -> fail "Name exactly one of upgrades or selection."
+                match session.DependencyUpgradeDeclarations change with
+                | Error error -> sessionFailure requestId error
+                | Ok declarations ->
+                    let named = operationName.EndsWith("ByName", StringComparison.Ordinal)
+                    let values = property "repairs" root
+                    ensureFields "local repairs" [ "fields"; "functions"; "operations" ] [] values
+                    let items name = match tryProperty name values with None -> [] | Some _ -> array name values
+                    let resolveType item = if named then WireSymbolic.typeRef declarations item else typeRef item
+                    let fields = items "fields" |> List.map (fun item ->
+                        if named then
+                            ensureFields "local field repair" [ "type"; "field"; "newType" ] [ "type"; "field"; "newType" ] item
+                            let owner = WireSymbolic.resolveTypeAt declarations "type" item
+                            { TypeId = owner.Id; FieldId = (WireSymbolic.productField owner (requiredString "field" item)).Id; NewType = resolveType (property "newType" item) }
+                        else
+                            ensureFields "local field repair" [ "typeId"; "fieldId"; "newType" ] [ "typeId"; "fieldId"; "newType" ] item
+                            { TypeId = id<TypeTag> "typeId" item; FieldId = id<FieldTag> "fieldId" item; NewType = resolveType (property "newType" item) })
+                    let functions = items "functions" |> List.map (fun item ->
+                        let key = if named then "function" else "functionId"
+                        ensureFields "local function repair" [ key; "parameterTypes"; "resultType"; "replacement" ] [ key; "parameterTypes"; "resultType"; "replacement" ] item
+                        let fn = if named then WireSymbolic.resolveFunctionAt declarations key item else
+                                     declarations.Functions |> List.tryFind (fun f -> f.Id = id<FunctionTag> key item) |> Option.defaultWith (fun () -> fail "Unknown repair function.")
+                        let resolve = if named then WireSymbolic.typeRefForExistingFunction declarations fn else typeRef
+                        { FunctionId = fn.Id
+                          ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                              let key = if named then "parameter" else "parameterId"
+                              ensureFields "function parameter type" [ key; "type" ] [ key; "type" ] parameter
+                              { ParameterId = if named then (WireSymbolic.functionParameter fn (requiredString key parameter)).Id else id<ParameterTag> key parameter
+                                Type = resolve (property "type" parameter) })
+                          ResultType = resolve (property "resultType" item)
+                          Replacement = if named then WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) else recipe (property "replacement" item) })
+                    let operations = items "operations" |> List.map (fun item ->
+                        let keys = if named then [ "capability"; "operation" ] else [ "operationId" ]
+                        ensureFields "local operation repair" (keys @ [ "parameterTypes"; "resultType" ]) (keys @ [ "parameterTypes"; "resultType" ]) item
+                        let operation = if named then
+                                            let cap = WireSymbolic.resolveCapabilityAt declarations "capability" item
+                                            WireSymbolic.capabilityOperation cap (requiredString "operation" item)
+                                        else declarations.Capabilities |> List.collect (fun c -> c.Operations) |> List.tryFind (fun o -> o.Id = id<CapabilityOperationTag> "operationId" item) |> Option.defaultWith (fun () -> fail "Unknown repair operation.")
+                        { OperationId = operation.Id
+                          ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
+                              let key = if named then "parameter" else "parameterId"
+                              ensureFields "operation parameter type" [ key; "type" ] [ key; "type" ] parameter
+                              { ParameterId = if named then (WireSymbolic.capabilityParameter operation (requiredString key parameter)).Id else id<CapabilityParameterTag> key parameter
+                                Type = resolveType (property "type" parameter) })
+                          ResultType = resolveType (property "resultType" item) })
+                    proposalResponse(session.SimulateDependencyUpgrade(change, { Fields = fields; Functions = functions; Operations = operations }, expectedSnapshotId ()))
             | "previewDependencyUpgrades" ->
                 ensureFields "previewDependencyUpgrades request" [ "id"; "op"; "upgrades"; "selection" ] [ "id"; "op" ] root
                 let preview =
@@ -728,7 +795,7 @@ module AuthoringProtocol =
                 let functionId =
                     match tryProperty "function" root, tryProperty "functionId" root with
                     | Some _, None ->
-                        (WireSymbolic.resolveFunction (session.Declarations()) (requiredString "function" root)).Id
+                        (WireSymbolic.resolveFunctionAt (session.Declarations()) "function" root).Id
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
@@ -743,7 +810,7 @@ module AuthoringProtocol =
                 let functionId =
                     match tryProperty "function" root, tryProperty "functionId" root with
                     | Some _, None ->
-                        (WireSymbolic.resolveFunction (session.Declarations()) (requiredString "function" root)).Id
+                        (WireSymbolic.resolveFunctionAt (session.Declarations()) "function" root).Id
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "viewFunction requires exactly one of function and functionId."
                 let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
@@ -882,7 +949,7 @@ module AuthoringProtocol =
             | "simulateCapabilityOperationSignatureMigrationByName" ->
                 ensureFields "operation signature migration by name" [ "id"; "op"; "capability"; "operation"; "parameterTypes"; "resultType"; "functionRepairs"; "structuredReview"; "detail"; "expectedSnapshotId" ] [ "id"; "op"; "capability"; "operation"; "parameterTypes"; "resultType"; "functionRepairs" ] root
                 let declarations = session.Declarations()
-                let cap = WireSymbolic.resolveCapability declarations (requiredString "capability" root)
+                let cap = WireSymbolic.resolveCapabilityAt declarations "capability" root
                 let operation = WireSymbolic.capabilityOperation cap (requiredString "operation" root)
                 let request: AgentCapabilityOperationSignatureMigrationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
@@ -895,7 +962,7 @@ module AuthoringProtocol =
                       ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
                       FunctionRepairs = array "functionRepairs" root |> List.map (fun item ->
                           ensureFields "function repair" [ "function"; "parameterTypes"; "resultType"; "replacement" ] [ "function"; "parameterTypes"; "resultType"; "replacement" ] item
-                          let fn = WireSymbolic.resolveFunction declarations (requiredString "function" item)
+                          let fn = WireSymbolic.resolveFunctionAt declarations "function" item
                           { FunctionId = fn.Id
                             ParameterTypes = array "parameterTypes" item |> List.map (fun parameter ->
                                 ensureFields "function parameter type" [ "parameter"; "type" ] [ "parameter"; "type" ] parameter
@@ -1083,7 +1150,7 @@ module AuthoringProtocol =
                     root
                 let declarations = session.Declarations()
                 let functionEntity =
-                    WireSymbolic.resolveFunction declarations (requiredString "function" root)
+                    WireSymbolic.resolveFunctionAt declarations "function" root
                 let request: AgentReplaceFunctionBodyWithExpressionRecipe =
                     { TargetFunctionId = functionEntity.Id
                       ExpectedBaseSnapshotId = expectedSnapshotId ()
@@ -1116,7 +1183,7 @@ module AuthoringProtocol =
                     [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
                     root
                 let declarations = session.Declarations()
-                let functionEntity = WireSymbolic.resolveFunction declarations (requiredString "function" root)
+                let functionEntity = WireSymbolic.resolveFunctionAt declarations "function" root
                 let request: AgentExpressionStructuralWorkflow.Targeted.Request =
                     { TargetFunctionId = functionEntity.Id
                       ExpectedBaseSnapshotId = expectedSnapshotId ()
@@ -1176,7 +1243,7 @@ module AuthoringProtocol =
                     let candidateNames = session.ExecutionContext(Some evidence.ProposalId) |> Result.map (fun context -> runNames context.Declarations) |> Result.defaultValue names
                     let observation names functionId = function
                         | Ok result -> objectValue [ "actual", encodePureValue names result.Actual; "calls", result.Calls |> List.map (encodeCall names) |> arrayValue; "matches", result.Matches |> Option.map box |> Option.defaultValue null; "mismatch", result.Mismatch |> Option.map (encodeMismatch names) |> Option.defaultValue null ]
-                        | Error error -> objectValue [ "error", encodeRunError names functionId error ]
+                        | Error error -> objectValue [ "error", encodeRunError names functionId None error ]
                     let encodeCase item =
                         objectValue
                             [ "label", box item.Case.Label
@@ -1226,7 +1293,7 @@ module AuthoringProtocol =
                     root
                 let functionId =
                     match names with
-                    | Some declarations -> (WireSymbolic.resolveFunction declarations (requiredString functionKey root)).Id
+                    | Some declarations -> (WireSymbolic.resolveFunctionAt declarations functionKey root).Id
                     | None -> id<FunctionTag> functionKey root
                 let arguments = array "arguments" root |> List.map (pureValue names)
                 let expected = tryProperty "expected" root |> Option.map (pureValue names)
@@ -1251,7 +1318,7 @@ module AuthoringProtocol =
                                  "matches", result.Matches |> Option.map box |> Option.defaultValue null
                                  "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
                                  "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error error -> failure requestId (encodeRunError runNames functionId error)
+                | Error error -> failure requestId (encodeRunError runNames functionId (PureRun.inputIssueForError runNames.Declarations functionId arguments expected error) error)
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"

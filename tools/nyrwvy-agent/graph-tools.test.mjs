@@ -18,6 +18,7 @@ const samples = {
     invalid: { displayName: "Identity", parameters: [{ displayName: 42, type: {} }], resultType: {}, requiredEffects: [], body: {} },
   },
   replace: { valid: { function: "Identity", replacement: {} }, invalid: { function: "Identity", replacement: [] } },
+  upgrade_dependencies: { valid: { selection: { sources: ["new.json"], replaces: ["old"] }, repairs: {} }, invalid: { selection: {}, repairs: [] } },
   commit: { valid: { proposalId: "proposal" }, invalid: { proposalId: 42 } },
   reject: { valid: { proposalId: "proposal" }, invalid: {} },
   request: { valid: { op: "status", arguments: {} }, invalid: { op: "status", arguments: [] } },

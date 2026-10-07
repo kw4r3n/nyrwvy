@@ -24,6 +24,37 @@ module internal WireSymbolic =
     let resolveCapability (declarations: AuthoringDeclarations) displayName =
         exactOne "capability" displayName declarations.Capabilities (fun item -> item.DisplayName)
 
+    /// Explicit selectors lower immediately to current exact semantic identities.
+    /// An optional name/pin/ownership is a guard, never a fallback for an unknown ID.
+    let private resolveSelector kind (declarations: AuthoringDeclarations) items getId getName (selector: JsonElement) =
+        if selector.ValueKind = JsonValueKind.String then exactOne kind (selector.GetString()) items getName
+        else
+            ensureFields (kind + " selector") [ "id"; "name"; "dependencySnapshotId"; "ownership" ] [] selector
+            let text key = tryProperty key selector |> Option.map (fun _ -> requiredString key selector)
+            let id, name, dependency, ownership = text "id", text "name", text "dependencySnapshotId", text "ownership"
+            if id.IsNone && name.IsNone then fail "A declaration selector needs id or name."
+            if ownership |> Option.exists (fun value -> value <> "local" && value <> "imported") then fail "Selector ownership must be local or imported."
+            let candidates = items |> List.filter (fun item ->
+                let itemId = getId item
+                let provenance = declarations.Provenance |> List.tryFind (fun p -> p.Kind = kind && p.Id = itemId)
+                (id |> Option.forall ((=) itemId))
+                && (name |> Option.forall ((=) (getName item)))
+                && (dependency |> Option.forall (fun selected -> provenance |> Option.exists (fun p -> p.Sources |> List.exists (fun source -> source.SnapshotId = selected))))
+                && (ownership |> Option.forall (fun owned -> provenance |> Option.exists (fun p -> p.IsLocal = (owned = "local")))))
+            match candidates with
+            | [ item ] -> item
+            | [] -> fail $"No current {kind} matches the explicit declaration selector; inspect declarations and its provenance."
+            | _ -> fail $"Ambiguous {kind} selector; specify an exact id or a providing dependencySnapshotId."
+
+    let resolveTypeSelector declarations selector = resolveSelector "type" declarations declarations.Types (fun (t: SemanticType) -> StableId.value t.Id) (fun t -> t.DisplayName) selector
+    let resolveFunctionSelector declarations selector = resolveSelector "function" declarations declarations.Functions (fun (f: SemanticFunction) -> StableId.value f.Id) (fun f -> f.DisplayName) selector
+    let resolveEffectSelector declarations selector = resolveSelector "effect" declarations declarations.Effects (fun (e: SemanticEffect) -> StableId.value e.Id) (fun e -> e.DisplayName) selector
+    let resolveCapabilitySelector declarations selector = resolveSelector "capability" declarations declarations.Capabilities (fun (c: SemanticCapability) -> StableId.value c.Id) (fun c -> c.DisplayName) selector
+    let resolveTypeAt declarations key element = resolveTypeSelector declarations (property key element)
+    let resolveFunctionAt declarations key element = resolveFunctionSelector declarations (property key element)
+    let resolveEffectAt declarations key element = resolveEffectSelector declarations (property key element)
+    let resolveCapabilityAt declarations key element = resolveCapabilitySelector declarations (property key element)
+
     let productField (owner: SemanticType) displayName =
         match owner.Kind with
         | SemanticTypeKind.Product fields ->
@@ -62,13 +93,14 @@ module internal WireSymbolic =
             primitiveType element
         | "named" ->
             ensureFields "named type" [ "kind"; "name" ] [ "kind"; "name" ] element
-            let name = requiredString "name" element
-            match Map.tryFind name group with
+            let selector = property "name" element
+            let reference = if selector.ValueKind = JsonValueKind.String then Map.tryFind (selector.GetString()) group else None
+            match reference with
             | Some reference -> TypeRef.Named reference
-            | None -> TypeRef.Named((resolveType declarations name).Id)
+            | None -> TypeRef.Named((resolveTypeSelector declarations selector).Id)
         | "capability" ->
             ensureFields "capability type" [ "kind"; "name" ] [ "kind"; "name" ] element
-            TypeRef.Capability((resolveCapability declarations (requiredString "name" element)).Id)
+            TypeRef.Capability((resolveCapabilityAt declarations "name" element).Id)
         | "builtinGeneric" ->
             builtinGenericType (typeRef declarations) element
         | "typeParameter" ->
@@ -140,7 +172,7 @@ module internal WireSymbolic =
                   Type = typeRef declarations (property "type" parameter) })
           ResultType = typeRef declarations (property "resultType" item)
           FailureType = failureType
-          EffectId = (resolveEffect declarations (requiredString "effect" item)).Id }
+          EffectId = (resolveEffectAt declarations "effect" item).Id }
 
     let functionParameters declarations (element: JsonElement) =
         array "parameters" element
@@ -154,9 +186,7 @@ module internal WireSymbolic =
     let requiredEffects declarations (element: JsonElement) =
         array "requiredEffects" element
         |> List.map (fun item ->
-            if item.ValueKind <> JsonValueKind.String then
-                fail "requiredEffects entries must be effect display-name strings."
-            (resolveEffect declarations (item.GetString())).Id)
+            (resolveEffectSelector declarations item).Id)
 
     [<RequireQualifiedAccess>]
     type private ParameterContext =
@@ -165,7 +195,8 @@ module internal WireSymbolic =
 
     /// Resolves a callback, worker or function value. Only a `directCall` naming the function being
     /// created becomes a self call, so a reference naming it has no function to resolve to yet.
-    let private resolveReferencedFunction (declarations: AuthoringDeclarations) context displayName =
+    let private resolveReferencedFunction (declarations: AuthoringDeclarations) context (selector: JsonElement) =
+        let displayName = if selector.ValueKind = JsonValueKind.String then selector.GetString() else null
         match context with
         | ParameterContext.NewFunction(ownerName, _) when
             ownerName = displayName
@@ -173,7 +204,7 @@ module internal WireSymbolic =
             ->
             fail
                 $"Function '{displayName}' is the function being created: only a directCall to it is a self call. A callback, worker or functionReference naming it (and mutual recursion through another new function) needs it to exist, so create it with a placeholder body, create the functions it calls back, then give it the real body with simulateReplaceBodyByName."
-        | _ -> resolveFunction declarations displayName
+        | _ -> resolveFunctionSelector declarations selector
 
     let private parameterRecipe context displayName =
         match context with
@@ -250,7 +281,7 @@ module internal WireSymbolic =
                     [ "kind"; "scopeDepth"; "slot"; "type"; "variant"; "field" ]
                     [ "kind"; "scopeDepth"; "slot"; "type"; "variant"; "field" ]
                     element
-                let owner = resolveType declarations (requiredString "type" element)
+                let owner = resolveTypeAt declarations "type" element
                 let variant = unionVariant owner (requiredString "variant" element)
                 let field = variantField variant (requiredString "field" element)
                 ExpressionRecipe.PatternReference
@@ -543,7 +574,7 @@ module internal WireSymbolic =
         | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.ListFold(
                 recipe declarations parameterContext (property "source" element),
                 recipe declarations parameterContext (property "seed" element),
@@ -552,7 +583,7 @@ module internal WireSymbolic =
             )
         | "mapFold" ->
             ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "function"; "context" ] [ "kind"; "map"; "seed"; "function" ] element
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapFold(
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "seed" element),
@@ -561,7 +592,7 @@ module internal WireSymbolic =
             )
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.ListEffectFold(
                 recipe declarations parameterContext (property "source" element),
                 recipe declarations parameterContext (property "seed" element),
@@ -574,9 +605,9 @@ module internal WireSymbolic =
                 [ "kind"; "acquire"; "releaseCapability"; "capability"; "releaseOperation"; "body"; "context" ]
                 [ "kind"; "acquire"; "releaseCapability"; "capability"; "releaseOperation"; "body" ]
                 element
-            let capability = resolveCapability declarations (requiredString "capability" element)
+            let capability = resolveCapabilityAt declarations "capability" element
             let operation = capabilityOperation capability (requiredString "releaseOperation" element)
-            let body = resolveReferencedFunction declarations parameterContext (requiredString "body" element)
+            let body = resolveReferencedFunction declarations parameterContext (property "body" element)
             ExpressionRecipe.UseResource(
                 recipe declarations parameterContext (property "acquire" element),
                 recipe declarations parameterContext (property "releaseCapability" element),
@@ -585,18 +616,18 @@ module internal WireSymbolic =
                 callbackContext body)
         | "parallelAll" ->
             ensureFields "parallel-all recipe" [ "kind"; "source"; "worker"; "context" ] [ "kind"; "source"; "worker" ] element
-            let worker = resolveReferencedFunction declarations parameterContext (requiredString "worker" element)
+            let worker = resolveReferencedFunction declarations parameterContext (property "worker" element)
             ExpressionRecipe.ParallelAll(recipe declarations parameterContext (property "source" element), worker.Id, callbackContext worker)
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
         | "taskScope" ->
             ensureFields "task-scope recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
-            let body = resolveReferencedFunction declarations parameterContext (requiredString "body" element)
+            let body = resolveReferencedFunction declarations parameterContext (property "body" element)
             ExpressionRecipe.TaskScope(body.Id, callbackContext body)
         | "taskStart" ->
             ensureFields "task-start recipe" [ "kind"; "scope"; "worker"; "item"; "context" ] [ "kind"; "scope"; "worker"; "item" ] element
-            let worker = resolveReferencedFunction declarations parameterContext (requiredString "worker" element)
+            let worker = resolveReferencedFunction declarations parameterContext (property "worker" element)
             ExpressionRecipe.TaskStart(
                 recipe declarations parameterContext (property "scope" element),
                 worker.Id,
@@ -622,11 +653,11 @@ module internal WireSymbolic =
             ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapMapValues(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
         | "listMap"
         | "mapFromList"
@@ -638,7 +669,7 @@ module internal WireSymbolic =
         | "listAll" as kind ->
             ensureFields $"{kind} recipe" [ "kind"; "source"; "function"; "context" ] [ "kind"; "source"; "function" ] element
             let source = recipe declarations parameterContext (property "source" element)
-            let callback = resolveReferencedFunction declarations parameterContext (requiredString "function" element)
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             let context = callbackContext callback
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
@@ -651,7 +682,7 @@ module internal WireSymbolic =
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->
             ensureFields "product-construct recipe" [ "kind"; "type"; "fields" ] [ "kind"; "type"; "fields" ] element
-            let owner = resolveType declarations (requiredString "type" element)
+            let owner = resolveTypeAt declarations "type" element
             let fields =
                 array "fields" element
                 |> List.map (fun item ->
@@ -665,7 +696,7 @@ module internal WireSymbolic =
                 [ "kind"; "source"; "type"; "field" ]
                 [ "kind"; "source"; "type"; "field" ]
                 element
-            let owner = resolveType declarations (requiredString "type" element)
+            let owner = resolveTypeAt declarations "type" element
             let field = productField owner (requiredString "field" element)
             ExpressionRecipe.FieldAccess(
                 recipe declarations parameterContext (property "source" element),
@@ -677,7 +708,7 @@ module internal WireSymbolic =
                 [ "kind"; "type"; "source"; "fields" ]
                 [ "kind"; "type"; "source"; "fields" ]
                 element
-            let owner = resolveType declarations (requiredString "type" element)
+            let owner = resolveTypeAt declarations "type" element
             let fields =
                 array "fields" element
                 |> List.map (fun item ->
@@ -691,7 +722,7 @@ module internal WireSymbolic =
                 [ "kind"; "type"; "variant"; "fields" ]
                 [ "kind"; "type"; "variant"; "fields" ]
                 element
-            let owner = resolveType declarations (requiredString "type" element)
+            let owner = resolveTypeAt declarations "type" element
             let variant = unionVariant owner (requiredString "variant" element)
             let fields =
                 array "fields" element
@@ -721,15 +752,15 @@ module internal WireSymbolic =
             )
         | "capabilityConstruct" ->
             ensureFields "Capability construction recipe" [ "kind"; "capability"; "implementations" ] [ "kind"; "capability"; "implementations" ] element
-            let capability = resolveCapability declarations (requiredString "capability" element)
+            let capability = resolveCapabilityAt declarations "capability" element
             let implementations = array "implementations" element |> List.map (fun item ->
                 ensureFields "Capability implementation" [ "operation"; "function" ] [ "operation"; "function" ] item
                 (capabilityOperation capability (requiredString "operation" item)).Id,
-                (resolveReferencedFunction declarations parameterContext (requiredString "function" item)).Id)
+                (resolveReferencedFunction declarations parameterContext (property "function" item)).Id)
             ExpressionRecipe.CapabilityConstruct(capability.Id, implementations)
         | "functionReference" ->
             ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
-            ExpressionRecipe.FunctionReference((resolveReferencedFunction declarations parameterContext (requiredString "function" element)).Id)
+            ExpressionRecipe.FunctionReference((resolveReferencedFunction declarations parameterContext (property "function" element)).Id)
         | "functionInvoke" ->
             ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
             ExpressionRecipe.FunctionInvoke(recipe declarations parameterContext (property "functionValue" element), array "arguments" element |> List.map (recipe declarations parameterContext))
@@ -739,7 +770,13 @@ module internal WireSymbolic =
                 [ "kind"; "function"; "arguments"; "keepUnlisted" ]
                 [ "kind"; "function"; "arguments" ]
                 element
-            let calleeName = requiredString "function" element
+            let calleeSelector = property "function" element
+            let calleeName = if calleeSelector.ValueKind = JsonValueKind.String then calleeSelector.GetString() else null
+            // Resolve object guards before classifying recursion; matching the display name
+            // alone could turn an explicitly selected same-named other function into self.
+            let selectedCallee =
+                if calleeSelector.ValueKind = JsonValueKind.String then None
+                else Some(resolveFunctionSelector declarations calleeSelector)
             let keepUnlisted = optionalBool "keepUnlisted" false element
             // A call naming the function being created or replaced resolves to SelfCall,
             // with arguments keyed by the owner's parameter slots.
@@ -752,6 +789,8 @@ module internal WireSymbolic =
                 | ParameterContext.ExistingFunction owner when owner.DisplayName = calleeName ->
                     // The owner's ID is known: its own name is a self call even if another
                     // function shares that name.
+                    Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
+                | ParameterContext.ExistingFunction owner when selectedCallee |> Option.exists (fun callee -> callee.Id = owner.Id) ->
                     Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
                 | _ -> None
             match selfParameters with
@@ -782,7 +821,7 @@ module internal WireSymbolic =
             | None when keepUnlisted ->
                 fail $"keepUnlisted applies only to a call of the function being created or replaced; '{calleeName}' is another function."
             | None ->
-                let callee = resolveFunction declarations calleeName
+                let callee = selectedCallee |> Option.defaultWith (fun () -> resolveFunctionSelector declarations calleeSelector)
                 let arguments =
                     array "arguments" element
                     |> List.map (fun item ->
@@ -801,7 +840,7 @@ module internal WireSymbolic =
                 [ "kind"; "capabilityValue"; "capability"; "operation"; "arguments" ]
                 [ "kind"; "capabilityValue"; "capability"; "operation"; "arguments" ]
                 element
-            let capability = resolveCapability declarations (requiredString "capability" element)
+            let capability = resolveCapabilityAt declarations "capability" element
             let operation = capabilityOperation capability (requiredString "operation" element)
             let arguments =
                 array "arguments" element
@@ -830,7 +869,7 @@ module internal WireSymbolic =
             )
         | "matchUnion" ->
             ensureFields "match-union recipe" [ "kind"; "type"; "input"; "arms"; "otherwise" ] [ "kind"; "type"; "input"; "arms" ] element
-            let owner = resolveType declarations (requiredString "type" element)
+            let owner = resolveTypeAt declarations "type" element
             let arms =
                 unionArms "variant" "variants" (fun name -> (unionVariant owner name).Id) (recipe declarations parameterContext) element
             ExpressionRecipe.MatchUnion(

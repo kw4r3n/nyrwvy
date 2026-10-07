@@ -43,6 +43,7 @@
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
     <Compile Include="AgentCapabilityOperationSignatureMigrationWorkflow.fs" />
+    <Compile Include="AgentDependencyUpgradeWorkflow.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflow.fs" />
   </ItemGroup>
 </Project>

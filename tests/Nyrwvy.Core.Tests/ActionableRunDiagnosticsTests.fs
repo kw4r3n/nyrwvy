@@ -1,0 +1,166 @@
+namespace Nyrwvy.Core.Tests
+
+open System
+open System.IO
+open System.Text.Json
+open Nyrwvy.Core
+open Nyrwvy.Tools.AuthoringSession
+open Xunit
+
+module ActionableRunDiagnosticsTests =
+    let private id<'tag> name = StableId.createForTesting<'tag> ("input-diagnostic-" + name)
+    let private intType = TypeRef.Primitive PrimitiveType.Int64
+    let private exprId, literalId, pairId = id<TypeTag> "expr", id<VariantTag> "literal", id<VariantTag> "pair"
+    let private amountId, leftId, rightId = id<FieldTag> "amount", id<FieldTag> "left", id<FieldTag> "right"
+    let private exprType = TypeRef.Named exprId
+    let private expr =
+        { Id = exprId; DisplayName = "Expr"
+          Kind = SemanticTypeKind.Union
+              [ { Id = literalId; DisplayName = "Literal"; Fields = [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
+                { Id = pairId; DisplayName = "Pair"; Fields = [ { Id = leftId; DisplayName = "left"; Type = exprType }; { Id = rightId; DisplayName = "right"; Type = exprType } ] } ] }
+    let private unwrap = function Ok v -> v | Error e -> failwithf "%A" e
+    let private withSession test =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-run-diagnostic-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        try
+            let path = Path.Combine(root, "graph.json")
+            let parameter, node = id<ParameterTag> "input", id<GraphNodeTag> "input"
+            let fn = { Id = id<FunctionTag> "identity"; DisplayName = "identity"; Parameters = [ { Id = parameter; DisplayName = "input"; Type = exprType } ]; ResultType = exprType; RequiredEffects = []
+                       Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference parameter } ]; ResultNodeId = node } }
+            File.WriteAllText(path, SnapshotCodec.serialize { Snapshot.empty (id<SnapshotTag> "base") with Types = [ expr ]; Functions = [ fn ] } |> unwrap)
+            use session = AuthoringSession.openExisting path |> unwrap
+            test session fn path
+        finally Directory.Delete(root, true)
+    let private literal value = PureRunValue.Union(exprId, literalId, [ amountId, value ])
+
+    [<Fact>]
+    let ``recursive input error names exact nested field and expected actual types`` () =
+        withSession (fun session fn path ->
+            let before = File.ReadAllBytes path
+            let value = PureRunValue.Union(exprId, pairId, [ rightId, literal(PureRunValue.String "3"); leftId, literal(PureRunValue.Int64 2L) ])
+            let issue = PureRun.inputIssue (session.Declarations()) fn.Id [ value ] None |> Option.get
+            Assert.Equal<string list>([ "arguments"; "input"; "Expr"; "Pair"; "right"; "Expr"; "Literal"; "amount" ], issue.Path)
+            Assert.Equal(Some intType, issue.ExpectedType)
+            Assert.Equal(Some(TypeRef.Primitive PrimitiveType.String), issue.ActualType)
+            match PureRun.run session fn.Id [ value ] None with
+            | Error(PureRunError.Unsupported(code, message)) -> Assert.Equal("RunUnionShapeMismatch", code); Assert.Contains("right.Expr.Literal.amount", message)
+            | other -> failwithf "%A" other
+            Assert.Equal<byte>(before, File.ReadAllBytes path))
+
+    [<Fact>]
+    let ``missing duplicate and foreign fields have precise diagnostic paths`` () =
+        withSession (fun session fn _ ->
+            let missing = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, []) ] None |> Option.get
+            Assert.Equal("amount", List.last missing.Path)
+            Assert.True(missing.ActualType.IsNone)
+            let duplicate = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, [ amountId, PureRunValue.Int64 1L; amountId, PureRunValue.Int64 2L ]) ] None |> Option.get
+            Assert.Contains("more than once", duplicate.Reason)
+            let foreign = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, [ leftId, PureRunValue.Int64 1L ]) ] None |> Option.get
+            Assert.Contains(StableId.value leftId, List.last foreign.Path)
+            Assert.True(foreign.ExpectedType.IsNone))
+
+    [<Fact>]
+    let ``expectation defect and scalar wire representation have distinct repair diagnostics`` () =
+        withSession (fun session fn _ ->
+            let issue = PureRun.inputIssue (session.Declarations()) fn.Id [ literal(PureRunValue.Int64 1L) ] (Some(literal(PureRunValue.Bool true))) |> Option.get
+            Assert.Equal("expected", issue.Path.Head)
+            let declarations = session.Declarations()
+            let listFn = { fn with Parameters = [ { fn.Parameters.Head with Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) } ] }
+            let names = { declarations with Functions = [ listFn ] }
+            let issue = PureRun.inputIssue names fn.Id [ PureRunValue.ListValue(intType, [ PureRunValue.Int64 1L ]) ] None |> Option.get
+            Assert.Contains("itemKind", issue.Reason)
+            Assert.Equal<string list>([ "arguments"; "input" ], issue.Path))
+
+    [<Fact>]
+    let ``generic and task entry refusal never reports an input defect`` () =
+        withSession (fun session _ path ->
+            let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "T", "T")
+            for name, parameterType, resultType, body, code in
+                [ "generic", genericType, genericType, ExpressionRecipe.ParameterSlot 0, "RunGenericEntryUnsupported"
+                  "task", TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ intType ]), intType, ExpressionRecipe.Int64Literal 0L, "RunTaskTypeUnsupported" ] do
+                session.SimulateCreateFunction
+                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                      Parameters = [ { DisplayName = "x"; Type = parameterType } ]; ResultType = resultType
+                      RequiredEffects = []; Body = body } |> publish
+                let before = File.ReadAllBytes path
+                use response = JsonDocument.Parse(AuthoringProtocol.executeLine session ($"""{{"id":"test","op":"runPureByName","function":"{name}","arguments":[{{"kind":"int64","value":"1"}}]}}"""))
+                let error = response.RootElement.GetProperty("error")
+                Assert.Equal(code, error.GetProperty("code").GetString())
+                Assert.False(error.TryGetProperty("details") |> fst)
+                Assert.DoesNotContain("At arguments", error.GetProperty("message").GetString())
+                Assert.Equal<byte>(before, File.ReadAllBytes path))
+
+    [<Fact>]
+    let ``diagnostic path follows runner error category across multiple invalid arguments`` () =
+        withSession (fun session _ _ ->
+            let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            session.SimulateCreateType
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
+                  Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = intType } ] } |> publish
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "mixed"
+                  Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) }
+                                 { DisplayName = "p"; Type = TypeRef.Named((session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id) } ]
+                  ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
+            use response = JsonDocument.Parse(AuthoringProtocol.executeLine session """{"id":"mixed","op":"runPureByName","function":"mixed","arguments":[{"kind":"list","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64","value":"1"}]},{"kind":"product","type":"Money","fields":[]}]}""")
+            let error = response.RootElement.GetProperty("error")
+            Assert.Equal("RunProductShapeMismatch", error.GetProperty("code").GetString())
+            let path = error.GetProperty("details").GetProperty("path")
+            Assert.Equal("p", path[1].GetString())
+            Assert.Contains("p.Money.amount", error.GetProperty("message").GetString())
+            let money = (session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id
+            let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named money ])
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "nestedMixed"
+                  Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ optionType ]) } ]
+                  ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "nestedMixed")
+            let items =
+                [ PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Bool true))
+                  PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Product(money, []))) ]
+            let values = [ PureRunValue.ListValue(optionType, items) ]
+            match PureRun.run session fn.Id values None with
+            | Error(PureRunError.Unsupported(code, message) as error) ->
+                Assert.Equal("RunProductShapeMismatch", code)
+                Assert.Contains("items[1].some.Money.amount", message)
+                let issue = PureRun.inputIssueForError (session.Declarations()) fn.Id values None error |> Option.get
+                Assert.Equal<string list>([ "arguments"; "xs"; "items[1]"; "some"; "Money"; "amount" ], issue.Path)
+            | other -> failwithf "%A" other)
+
+    [<Fact>]
+    let ``lowering diagnostic retains IDs names operands and explicit Bind repair`` () =
+        withSession (fun session _ path ->
+            let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> publish
+            let effect = session.Declarations().Effects.Head.Id
+            session.SimulateCreateCapability { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
+                                               Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect } ] } |> publish
+            let cap = session.Declarations().Capabilities.Head
+            let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, cap.Operations.Head.Id, [])
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId
+                  DisplayName = "unordered"
+                  Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability cap.Id } ]
+                  ResultType = intType
+                  RequiredEffects = [ effect ]
+                  Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) } |> publish
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
+            let before = File.ReadAllBytes path
+            use response = JsonDocument.Parse(AuthoringProtocol.executeLine session "{\"id\":\"emit\",\"op\":\"emitCSharp\",\"profile\":{\"kind\":\"empty\"}}")
+            let error = response.RootElement.GetProperty("error")
+            Assert.Equal("ExecutionLoweringFailure", error.GetProperty("code").GetString())
+            let details = error.GetProperty("details")
+            Assert.Equal("unordered", details.GetProperty("function").GetString())
+            Assert.Equal(StableId.value fn.Id, details.GetProperty("functionId").GetString())
+            let operands = details.GetProperty("operands")
+            Assert.Equal("Values.read", operands[0].GetProperty("displayName").GetString())
+            Assert.Equal("Bind", details.GetProperty("repair").GetProperty("kind").GetString())
+            Assert.Equal<byte>(before, File.ReadAllBytes path)
+            let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.Parameter fn.Parameters.Head.Id, cap.Operations.Head.Id, [])
+            session.SimulateReplaceBody
+                { ExpectedBaseSnapshotId = session.SnapshotId
+                  ExpectedCurrentResultNodeId = fn.Body.ResultNodeId
+                  TargetFunctionId = fn.Id
+                  Replacement = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) } |> publish
+            session.ProjectEntryExecution fn.Id |> unwrap |> ignore)
