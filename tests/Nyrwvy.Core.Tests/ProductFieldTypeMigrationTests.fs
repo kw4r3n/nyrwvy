@@ -187,3 +187,160 @@ module ProductFieldTypeMigrationTests =
             Assert.Equal(PureRunValue.Int64 0L, (PureRun.run session (functionId "total") [ item None ] None |> unwrap "total").Actual)
         finally
             if Directory.Exists root then Directory.Delete(root, true)
+
+    let private json value = JsonSerializer.Serialize value
+    let private element (text: string) = use doc = JsonDocument.Parse text in doc.RootElement.Clone()
+    let private namedBodies =
+        [ "make", """{"kind":"productConstruct","type":"Item","fields":[{"field":"quantity","value":{"kind":"optionSome","value":{"kind":"parameter","name":"input"}}},{"field":"label","value":{"kind":"stringLiteral","value":"box"}}]}"""
+          "describe", """{"kind":"matchOption","input":{"kind":"fieldAccess","type":"Item","field":"quantity","source":{"kind":"parameter","name":"input"}},"someBody":{"kind":"stringConcat","left":{"kind":"fieldAccess","type":"Item","field":"label","source":{"kind":"parameter","name":"input"}},"right":{"kind":"int64ToString","value":{"kind":"patternReference","scopeDepth":0,"slot":"value"}}},"noneBody":{"kind":"fieldAccess","type":"Item","field":"label","source":{"kind":"parameter","name":"input"}}}"""
+          "total", """{"kind":"matchOption","input":{"kind":"fieldAccess","type":"Item","field":"quantity","source":{"kind":"parameter","name":"input"}},"someBody":{"kind":"patternReference","scopeDepth":0,"slot":"value"},"noneBody":{"kind":"int64Literal","value":0}}""" ]
+
+    let private namedLine typeSelector functionSelector bodies =
+        json {| id = "named-field"; op = "simulateProductFieldTypeMigrationByName"; ``type`` = element typeSelector; field = "quantity"
+                newFieldType = element """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+                functionRewrites = bodies |> List.map (fun (name, body) -> {| ``function`` = element (functionSelector name); replacement = element body |}) |}
+
+    let private withSession ws run =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-field-names-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        try
+            let path = Path.Combine(root, "app.json")
+            File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot ws |> unwrap "serialize")
+            use session = AuthoringSession.openExisting path |> unwrap "open"
+            run session
+        finally Directory.Delete(root, true)
+
+    let private execute session line = AuthoringProtocol.executeLine session line |> element
+    let private namedDefault bodies = namedLine (json "Item") json bodies
+
+    [<Fact>]
+    let ``named field migration preserves identities and uses the atomic engine`` () =
+        let ws = fixture ()
+        withSession ws (fun session ->
+            let before = session.Declarations()
+            let proposal = execute session (namedDefault namedBodies)
+            Assert.True(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
+            let result = proposal.GetProperty("result")
+            Assert.Equal("productFieldTypeMigration", result.GetProperty("review").GetProperty("kind").GetString())
+            session.Commit(result.GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
+            let after = session.Declarations()
+            Assert.Equal<TypeId list>(before.Types |> List.map (fun t -> t.Id), after.Types |> List.map (fun t -> t.Id))
+            for original in before.Functions do
+                let changed = after.Functions |> List.find (fun f -> f.Id = original.Id)
+                Assert.Equal<SemanticParameter list>(original.Parameters, changed.Parameters)
+            match (after.Types |> List.find (fun t -> t.Id = itemId)).Kind with
+            | SemanticTypeKind.Product fields -> Assert.Equal(optionInt, (fields |> List.find (fun f -> f.Id = quantityId)).Type)
+            | _ -> failwith "Expected Product")
+
+    [<Fact>]
+    let ``named field migration refuses stale duplicate and type-invalid repairs without publication`` () =
+        withSession (fixture ()) (fun session ->
+            let snapshot = session.SnapshotId
+            let valid = namedDefault namedBodies
+            let stale = valid.Replace("\"op\":", "\"expectedSnapshotId\":\"stale-field-base\",\"op\":")
+            let diagnostic line =
+                let response = execute session line
+                Assert.False(response.GetProperty("ok").GetBoolean())
+                Assert.Equal(snapshot, session.SnapshotId)
+                response.GetProperty("error").GetProperty("details").GetProperty("diagnostics").[0].GetProperty("code").GetString()
+            Assert.Equal("FieldTypeMigrationExpectedBaseMismatch", diagnostic stale)
+            Assert.Equal("FieldTypeMigrationDuplicateRewrite", diagnostic (namedDefault (namedBodies.Head :: namedBodies)))
+            let invalid = namedBodies |> List.map (fun (name, body) -> name, if name = "total" then """{"kind":"boolLiteral","value":true}""" else body)
+            Assert.Equal("FieldTypeMigrationRewriteInvalid", diagnostic (namedDefault invalid)))
+
+    [<Fact>]
+    let ``missing and unrelated field repairs report names identities ownership and totals`` () =
+        withSession (fixture ()) (fun session ->
+            let response = execute session (namedDefault [ namedBodies.Head; "unrelated", """{"kind":"stringLiteral","value":""}""" ])
+            Assert.False(response.GetProperty("ok").GetBoolean())
+            let details = response.GetProperty("error").GetProperty("details")
+            let message = details.GetProperty("diagnostics").[0].GetProperty("message").GetString()
+            Assert.Contains("'describe'", message)
+            Assert.Contains("'total'", message)
+            let repair = details.GetProperty("repair")
+            Assert.Equal(2, repair.GetProperty("missing").GetProperty("totalCount").GetInt32())
+            Assert.Equal(1, repair.GetProperty("unrelated").GetProperty("totalCount").GetInt32())
+            for entry in repair.GetProperty("missing").GetProperty("items").EnumerateArray() do
+                let fn = session.Declarations().Functions |> List.find (fun f -> StableId.value f.Id = entry.GetProperty("id").GetString())
+                Assert.Equal(fn.DisplayName, entry.GetProperty("displayName").GetString())
+                Assert.Equal("local", entry.GetProperty("ownership").GetString())
+                Assert.Equal(0, entry.GetProperty("sourceCount").GetInt32()))
+
+    [<Fact>]
+    let ``many missing field repairs bound diagnostic previews and expose omitted counts`` () =
+        let ws = [ 0..8 ] |> List.fold (fun ws i -> create ws ("reader" + string i) (TypeRef.Named itemId) intType (ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, quantityId))) (fixture ())
+        withSession ws (fun session ->
+            let response = execute session (namedDefault [])
+            let details = response.GetProperty("error").GetProperty("details")
+            let missing = details.GetProperty("repair").GetProperty("missing")
+            Assert.Equal(12, missing.GetProperty("totalCount").GetInt32())
+            Assert.Equal(5, missing.GetProperty("items").GetArrayLength())
+            Assert.True(missing.GetProperty("truncated").GetBoolean())
+            Assert.True(details.GetProperty("diagnostics").[0].GetProperty("message").GetString().Length < 2048))
+
+    [<Fact>]
+    let ``field migration selectors reject unknown IDs and guards without name fallback`` () =
+        withSession (fixture ()) (fun session ->
+            for selector in
+                [ json {| id = "missing-field-owner"; name = "Item" |}
+                  json {| id = StableId.value itemId; name = "Item"; dependencySnapshotId = "stale-pin" |}
+                  json {| id = StableId.value itemId; name = "Item"; ownership = "imported" |} ] do
+                let response = execute session (namedLine selector json namedBodies)
+                Assert.False(response.GetProperty("ok").GetBoolean())
+                Assert.Equal("ProtocolError", response.GetProperty("error").GetProperty("code").GetString()))
+
+    [<Fact>]
+    let ``ambiguous field repair function names require an exact guarded selector`` () =
+        let original = create (fixture ()) "otherTotal" intType intType (ExpressionRecipe.ParameterSlot 0) |> AgentWorkspace.snapshotForStructuralEditing
+        // Persisted/imported graphs may contain equal display names even though the creator
+        // prevents introducing them into a workspace by name.
+        let ws = AgentWorkspace.create { original with Functions = original.Functions |> List.map (fun f -> if f.DisplayName = "otherTotal" then { f with DisplayName = "total" } else f) } |> unwrap "ambiguous fixture"
+        withSession ws (fun session ->
+            let response = execute session (namedDefault namedBodies)
+            Assert.Equal("ProtocolError", response.GetProperty("error").GetProperty("code").GetString())
+            Assert.Contains("Ambiguous", response.GetProperty("error").GetProperty("message").GetString())
+            let original = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "total" && f.Parameters.Head.Type = TypeRef.Named itemId)
+            let selector name = if name = "total" then json {| id = StableId.value original.Id; name = "total"; ownership = "local" |} else json name
+            let line = namedLine (json {| id = StableId.value itemId; name = "Item"; ownership = "local" |}) selector namedBodies
+            let qualified = execute session line
+            Assert.True(qualified.GetProperty("ok").GetBoolean(), qualified.ToString()))
+
+    [<Fact>]
+    let ``ambiguous Product owner names bind the field only after an exact owner selector`` () =
+        let original = AgentWorkspace.snapshotForStructuralEditing (fixture ())
+        let other: SemanticType =
+            { Id = id<TypeTag> "other-item"; DisplayName = "Item"
+              Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "other-quantity"; DisplayName = "quantity"; Type = stringType } ] }
+        let ws = AgentWorkspace.create { original with Types = other :: original.Types } |> unwrap "ambiguous types"
+        withSession ws (fun session ->
+            let ambiguous = execute session (namedDefault namedBodies)
+            Assert.Equal("ProtocolError", ambiguous.GetProperty("error").GetProperty("code").GetString())
+            Assert.Contains("Ambiguous", ambiguous.GetProperty("error").GetProperty("message").GetString())
+            let selector = json {| id = StableId.value itemId; name = "Item"; ownership = "local" |}
+            let guarded = namedBodies |> List.map (fun (name, body) -> name, body.Replace("\"type\":\"Item\"", "\"type\":" + selector))
+            let proposal = execute session (namedLine selector json guarded)
+            Assert.True(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
+            session.Commit(proposal.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "guarded commit" |> ignore
+            let untouched = session.Declarations().Types |> List.find (fun t -> t.Id = other.Id)
+            Assert.Equal(other, untouched))
+
+    [<Fact>]
+    let ``named field migration preserves imported ownership and pin guards`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-imported-field-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        try
+            let library = AgentWorkspace.snapshotForStructuralEditing (fixture ())
+            let libraryPath = Path.Combine(root, "library.json")
+            File.WriteAllText(libraryPath, SnapshotCodec.serialize library |> unwrap "library")
+            use session = AuthoringSession.createNewWithDependencies (Path.Combine(root, "app.json")) [ libraryPath ] |> unwrap "app"
+            let snapshot = session.SnapshotId
+            let selector = json {| id = StableId.value itemId; name = "Item"; ownership = "imported"; dependencySnapshotId = StableId.value library.Id |}
+            let rejected = execute session (namedLine selector json namedBodies)
+            Assert.Equal("SnapshotCodecFailure", rejected.GetProperty("error").GetProperty("code").GetString())
+            Assert.Contains("ImportedDeclarationModified", rejected.GetRawText())
+            Assert.Equal(snapshot, session.SnapshotId)
+            let missing = execute session (namedLine selector json [])
+            let item = missing.GetProperty("error").GetProperty("details").GetProperty("repair").GetProperty("missing").GetProperty("items").[0]
+            Assert.Equal("imported", item.GetProperty("ownership").GetString())
+            Assert.Equal(StableId.value library.Id, item.GetProperty("sources").[0].GetProperty("snapshotId").GetString())
+        finally Directory.Delete(root, true)

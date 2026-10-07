@@ -289,7 +289,7 @@ async function launchAuthoring(
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
     return JSON.stringify({ worktree, snapshot: workspace, status, hostSourcesAllowed: allowHostSources,
-      guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; reviews are compact by default (signature, node count, impact facts, fingerprints), and detail \"full\" adds the proposed graph. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
+      guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; compact result views are bounded to 16 KiB UTF-8. If projection.requiresDetailedReview is true, read the omitted impact/graph paths with nyrwvy_request op readProposal (proposalId,path,offset,limit; pages at most 8 KiB). Small reviews keep signature, node count, impact facts and fingerprints; detail \"full\" adds the proposed graph without a byte bound. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     try { await client.close() } catch (cleanupError) {
       if (!client.isReaped) throw new AggregateError([error, cleanupError], "Authoring open failed; unreaped child ownership is retained. Close the session before reopening.")

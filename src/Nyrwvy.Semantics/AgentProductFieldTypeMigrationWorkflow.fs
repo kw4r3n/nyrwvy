@@ -72,8 +72,9 @@ module AgentProductFieldTypeMigrationWorkflow =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
     /// Functions that construct the owning Product, read the field or update it, at any nesting depth.
-    let private affectedFunctions (snapshot: Snapshot) (typeId: TypeId) (fieldId: FieldId) =
-        snapshot.Functions
+    /// Exact construction/read/update owners used by both migration validation and repair advice.
+    let affectedFunctions (functions: SemanticFunction list) (typeId: TypeId) (fieldId: FieldId) =
+        functions
         |> List.filter (fun fn ->
             ValueGraph.collectNodes fn.Body
             |> List.exists (fun node ->
@@ -117,10 +118,20 @@ module AgentProductFieldTypeMigrationWorkflow =
                 reject "FieldTypeMigrationTypeUnchanged" "The requested field type is already the current type."
             | Some _, Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
             | Some(ownerType, fields, field), Ok() ->
-                let affected = affectedFunctions baseSnapshot ownerType.Id field.Id
+                let affected = affectedFunctions baseSnapshot.Functions ownerType.Id field.Id
                 let expected = affected |> List.map (fun fn -> fn.Id) |> Set.ofList
                 let requested = request.FunctionRewrites |> List.map (fun rewrite -> rewrite.FunctionId)
-                let render values = values |> Set.toList |> List.map StableId.value |> String.concat ", "
+                let render values =
+                    let ids = values |> Set.toList
+                    let shown = ids |> List.truncate 5 |> List.map (fun id ->
+                        match baseSnapshot.Functions |> List.tryFind (fun fn -> fn.Id = id) with
+                        | None -> StableId.value id
+                        | Some fn ->
+                            let mutable shown = min 128 fn.DisplayName.Length
+                            if shown > 0 && shown < fn.DisplayName.Length && System.Char.IsHighSurrogate fn.DisplayName[shown - 1] then shown <- shown - 1
+                            let name = fn.DisplayName.Substring(0, shown) + (if shown < fn.DisplayName.Length then "…" else "")
+                            $"'{name}' ({StableId.value id})") |> String.concat ", "
+                    if ids.Length > 5 then shown + $"; +{ids.Length - 5} more (inspect declarations)" else shown
                 if List.distinct requested <> requested then
                     reject "FieldTypeMigrationDuplicateRewrite" "Each affected function may have only one replacement body."
                 elif Set.ofList requested <> expected then

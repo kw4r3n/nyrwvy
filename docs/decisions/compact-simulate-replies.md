@@ -53,3 +53,11 @@ Diagnostics of a rejected simulation are unchanged; they were never part of the 
 
 - **Proposal graph lookup:** agents re-simulate with `detail: "full"` often enough that the duplicate proposals or request bytes matter. A `reviewProposal { proposalId, detail }` read would then return the stored review.
 - **Large targeted or migration diffs:** a workload shows node summaries in `replaceTarget` or migration `bodyRewrites` dominating replies. Node IDs with roles, like the whole-body diff, are the next step.
+
+## 2026-10-07: bounded impact and pending pages
+
+A real Claude authoring task reached the large-diff revisit condition: a valid three-function Product-field migration returned 55,488 bytes even at explicit compact detail. The client diverted the response to an inaccessible overflow file; the author added three helpers to shrink the rewrites before it could review and commit. Omitting whole bodies alone did not bound impact summaries.
+
+Compact results now have a 16 KiB UTF-8 limit, with explicit projection counts and requiresDetailedReview. Small review shapes and normal receipt/readiness/identity facts are preserved. Larger impact lists/text are marked as partial, never silently treated as complete. The existing PendingProposalView supplies readonly readProposal pages (8 KiB), full structured graphs by default, exact original indices and baseIsCurrent. This avoids resimulation and uses the same immutable proposal authority and commit checks. Full simulate detail remains explicit and unbounded. See the session contract for the exceptional oversized-receipt/identity behavior and page limits.
+
+This amends the earlier "everything else is kept" and "flag, not query" decisions after their stated revisit condition was observed. It adds no new semantic edit, publication authority or execution framework.

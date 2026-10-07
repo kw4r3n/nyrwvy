@@ -804,6 +804,23 @@ module AuthoringProtocol =
                 match session.FocusFunction functionId with
                 | Ok focus -> success requestId (WireGraph.focus focus)
                 | Error error -> semanticQueryFailure requestId error
+            | "readProposal" ->
+                ensureFields "readProposal request" [ "id"; "op"; "proposalId"; "path"; "offset"; "limit"; "structuredReview" ] [ "id"; "op"; "proposalId" ] root
+                let integer name fallback =
+                    match tryProperty name root with
+                    | None -> fallback
+                    | Some value ->
+                        if value.ValueKind <> JsonValueKind.Number then WireInput.fail $"{name} must be a JSON Int32."
+                        match value.TryGetInt32() with
+                        | true, number -> number
+                        | _ -> WireInput.fail $"{name} must be a JSON Int32."
+                let path = tryProperty "path" root |> Option.map (fun _ -> requiredString "path" root) |> Option.defaultValue ""
+                match session.PendingProposalView(requiredString "proposalId" root) with
+                | Error error -> sessionFailure requestId error
+                | Ok pending ->
+                    let structured = optionalBool "structuredReview" true root
+                    let full = if structured then WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus pending.Proposal else WireEncode.proposal pending.Proposal
+                    success requestId (WireProposalProjection.page pending structured full path (integer "offset" 0) (integer "limit" 20))
             | "viewFunction" ->
                 ensureFields
                     "viewFunction request"
@@ -993,6 +1010,23 @@ module AuthoringProtocol =
                             ResultType = typeRef (property "resultType" item)
                             Replacement = recipe (property "replacement" item) }) }
                 proposalResponse (session.SimulateCapabilityOperationSignatureMigration request)
+            | "simulateProductFieldTypeMigrationByName" ->
+                ensureFields "field type migration by name"
+                    [ "id"; "op"; "type"; "field"; "newFieldType"; "functionRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "type"; "field"; "newFieldType"; "functionRewrites" ] root
+                let declarations = session.Declarations()
+                let owner = WireSymbolic.resolveTypeAt declarations "type" root
+                let field = WireSymbolic.productField owner (requiredString "field" root)
+                let request: AgentProductFieldTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      FieldId = field.Id
+                      NewFieldType = WireSymbolic.typeRef declarations (property "newFieldType" root)
+                      FunctionRewrites = array "functionRewrites" root |> List.map (fun item ->
+                          ensureFields "function rewrite by name" [ "function"; "replacement" ] [ "function"; "replacement" ] item
+                          let fn = WireSymbolic.resolveFunctionAt declarations "function" item
+                          { FunctionId = fn.Id
+                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) }) }
+                proposalResponse (session.SimulateProductFieldTypeMigration request)
             | "simulateProductFieldTypeMigration" ->
                 ensureFields
                     "simulateProductFieldTypeMigration request"

@@ -17,6 +17,7 @@
     <Compile Include="WireOperation.fs" />
     <Compile Include="WireEncodeCommon.fs" />
     <Compile Include="WireGraph.fs" />
+    <Compile Include="WireProposalProjection.fs" />
     <Compile Include="WireEncode.fs" />
     <Compile Include="WireProtocolAdapters.fs" />
     <Compile Include="ConfinedDirectory.fs" />
