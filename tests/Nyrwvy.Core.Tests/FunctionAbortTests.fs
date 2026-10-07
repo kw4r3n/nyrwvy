@@ -459,3 +459,35 @@ module FunctionAbortTests =
                         (ExpressionRecipe.Conditional(slot 0, abort "left", ExpressionRecipe.MatchResult(ExpressionRecipe.ResultErr(textType, str "right"), abort "ok", ExpressionRecipe.Abort(bound RecipePatternSlot.Error))))
             for condition, expected in [ true, "left"; false, "right" ] do
                 Assert.Equal(errText expected, (PureRun.run session all.Id [ PureRunValue.Bool condition ] None |> unwrap).Actual))
+
+    [<Fact>]
+    let ``legacy local abort admission stays reopenable while lowering sees transitive intrinsic helpers`` () =
+        withSession (fun session path ->
+            let ambient = create session "ambient" [] boolType [] ExpressionRecipe.CancellationRequested
+            let hop = create session "hop" [] boolType [] (ExpressionRecipe.DirectCall(ambient.Id, []))
+            let unsequenced =
+                ExpressionRecipe.Bind(
+                    ExpressionRecipe.StringConcat(
+                        ExpressionRecipe.Conditional(ExpressionRecipe.BoolLiteral true, abort "stop", str "a"),
+                        ExpressionRecipe.Conditional(ExpressionRecipe.DirectCall(hop.Id, []), str "yes", str "no")),
+                    ok (str "done"))
+            let legacy = create session "legacy" [] (result textType) [] unsequenced
+            let before = File.ReadAllBytes path
+            Assert.Empty(SnapshotValidator.validate (snapshot path))
+            match session.ProjectExecution() with
+            | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(owner, _, _))) -> Assert.Equal(legacy.Id, owner)
+            | other -> failwithf "A hidden intrinsic helper was lowered beside local Abort: %A" other
+            Assert.Equal<byte>(before, File.ReadAllBytes path)
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> unwrap
+            Assert.Equal(legacy.Id, (find reopened "legacy").Id)
+            let status = reopened.Status() |> unwrap
+            let edit: AgentReplaceFunctionBodyWithExpressionRecipe =
+                { TargetFunctionId = legacy.Id
+                  ExpectedBaseSnapshotId = status.SnapshotId
+                  ExpectedCurrentResultNodeId = legacy.Body.ResultNodeId
+                  Replacement = ExpressionRecipe.Bind(ExpressionRecipe.DirectCall(hop.Id, []), abort "stop") }
+            let proposal = reopened.SimulateReplaceBody edit |> unwrap
+            publish reopened proposal
+            let execution = reopened.ProjectExecution() |> unwrap
+            Assert.Contains(execution.Functions, fun fn -> fn.SemanticFunctionId = legacy.Id))

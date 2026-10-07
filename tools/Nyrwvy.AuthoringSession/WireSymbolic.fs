@@ -867,7 +867,8 @@ module internal WireSymbolic =
             )
         | value -> fail $"Unsupported symbolic expression recipe kind '{value}'."
 
-    /// Keep the identities of type parameters already declared by a repaired function.
+    /// Bind explicit symbolic type parameters to the existing owner, for both signatures and
+    /// expression recipes. Unknown names must not introduce fresh parameters during maintenance.
     let resolveFunctionTypeParameters (fn: SemanticFunction) current =
         let declared = TypeParameters.ofFunction fn
         let substitution =
@@ -886,3 +887,4 @@ module internal WireSymbolic =
 
     let recipeForExistingFunction declarations functionEntity element =
         recipe declarations (ParameterContext.ExistingFunction functionEntity) element
+        |> ExpressionRecipeTypes.map (resolveFunctionTypeParameters functionEntity)

@@ -48,6 +48,29 @@ import { recipeCategories, recipeKinds, recipeReference } from "./recipe-referen
  */
 function defineTool(definition) { return definition }
 
+/** @param {Record<string, unknown>} item */
+function dependencyUpgrade(item) {
+  if (Object.keys(item).sort().join(",") !== "replaces,source" || typeof item.source !== "string" || typeof item.replaces !== "string") {
+    throw new Error("Every dependency replacement needs exactly string source and replaces fields.")
+  }
+  return { source: item.source, replaces: item.replaces }
+}
+
+/** @param {unknown} values */
+function dependencyStrings(values) {
+  if (!Array.isArray(values)) throw new Error("Dependency selection sources and replaces must be string arrays.")
+  return values.map(value => {
+    if (typeof value !== "string") throw new Error("Dependency selection sources and replaces must be string arrays.")
+    return value
+  })
+}
+
+/** @param {Record<string, unknown>} item */
+function dependencySelectionUpgrade(item) {
+  if (Object.keys(item).sort().join(",") !== "replaces,sources") throw new Error("A dependency selection needs exactly sources and replaces fields.")
+  return { sources: dependencyStrings(item.sources), replaces: dependencyStrings(item.replaces) }
+}
+
 /**
  * Shared tool contract. The host supplies its Zod-compatible schema builder.
  * @template {SchemaBase} S
@@ -55,18 +78,27 @@ function defineTool(definition) { return definition }
  */
 export function createGraphTools(schema) {
   const object = schema.record(schema.string(), schema.unknown())
-  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"bits32"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, builtinGeneric with generic option/result/list and arguments, {kind:"function",parameters:[<typeRef>,...],resultType:<typeRef>} for pure capture-free function values, or {kind:"typeParameter",name:"T"} in the parameter types of a new function (makes it generic; the same name means the same parameter, and callers get type arguments by argument matching).')
+  const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"bits32"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, {kind:"builtinGeneric",generic:"option"|"result"|"list"|"map"|"set"|"taskScope"|"task"|"oneShot",arguments:[<typeRef>,...]}, {kind:"function",parameters:[<typeRef>,...],resultType:<typeRef>} for pure capture-free function values, or {kind:"typeParameter",name:"T"} (new function parameter types introduce it; replacement binds the existing owner parameter). The same name means the same parameter, and callers get type arguments by argument matching. Use recipe_reference for arity and operation restrictions.')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   const reviewDetail = "The review is compact by default: proposalId, receipt fingerprints, readiness, the diff, the function signature with its resultNodeId and nodeCount, effects, aborts, callers, callees and open obligations, without the per-node graph. Diff node summaries show literal values and referenced names, and a targeted diff shows previousTarget and proposedTarget. Pass detail \"full\" only when the proposed graph itself must be read before commit (for migrations it adds rewrittenFunctions); after commit, inspect the function."
   const detail = schema.enum(/** @type {const} */ (["compact", "full"])).describe('Review size: "compact" (default) or "full" (adds the proposed per-node graph, or rewrittenFunctions for migrations).').optional()
   return {
     open: defineTool({
-      description: "Create or reopen a persistent graph. Create with dependency (or several dependencies) stores each exact complete content; identical shared declarations are imported once and any other identity collision is rejected. Mode upgrade replaces a dependency with a new version only after request op previewDependencyUpgrade reported it compatible: pass dependency (new version), expectedFingerprint (preview newFingerprint) and, for several dependencies, replaces (old SnapshotId). Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
+      description: "Create or reopen a persistent graph. Create with dependency (or several dependencies) stores each exact complete content; identical shared declarations are imported once and any other identity collision is rejected. Mode upgrade replaces a dependency with a new version only after request op previewDependencyUpgrade reported it compatible: pass dependency (new version), expectedFingerprint (preview newFingerprint) and, for several dependencies, replaces (old SnapshotId). For atomic multi-pin changes, request previewDependencyUpgrades with upgrades:[{source,replaces}], then pass the identical upgrades and returned reviewFingerprint. To consolidate or split pins, instead use selection:{sources:[paths],replaces:[current SnapshotIds]} on both preview and open; the review is bound to the current local graph and pins. Mode pin migrates/repairs an existing pin using the same selected version only; optional dependency supplies a relocated original, never an upgrade. Relative paths use workspace or the current project. Open resumes the stored selection.",
       args: { mode: schema.enum(["create", "open", "pin", "upgrade"]), snapshot: schema.string(), workspace: schema.string().optional(), dependency: schema.string().optional(),
-        dependencies: schema.array(schema.string()).optional(), expectedFingerprint: schema.string().optional(), replaces: schema.string().optional() },
-      /** @param {{ mode: "create" | "open" | "pin" | "upgrade"; snapshot: string; workspace?: string; dependency?: string; dependencies?: string[]; expectedFingerprint?: string; replaces?: string }} args */
-      execute: (args, context) => openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies,
-        args.mode === "upgrade" ? { expectedFingerprint: args.expectedFingerprint ?? "", replaces: args.replaces } : undefined),
+        dependencies: schema.array(schema.string()).optional(), upgrades: schema.array(object.describe("Dependency replacement: {source: <new complete snapshot path>, replaces: <current SnapshotId>}.")).optional(), selection: object.describe("Dependency selection replacement: {sources: [new complete snapshot paths], replaces: [current SnapshotIds]}.").optional(), reviewFingerprint: schema.string().optional(), expectedFingerprint: schema.string().optional(), replaces: schema.string().optional() },
+      /** @param {{ mode: "create" | "open" | "pin" | "upgrade"; snapshot: string; workspace?: string; dependency?: string; dependencies?: string[]; upgrades?: Record<string, unknown>[]; selection?: Record<string, unknown>; reviewFingerprint?: string; expectedFingerprint?: string; replaces?: string }} args */
+      execute: (args, context) => {
+        if ((args.upgrades !== undefined || args.selection !== undefined) && (args.mode !== "upgrade" || args.dependency !== undefined || args.expectedFingerprint !== undefined || args.replaces !== undefined || (args.upgrades !== undefined && args.selection !== undefined))) {
+          throw new Error("Name one of upgrades or selection in mode=upgrade, without single-member dependency/expectedFingerprint/replaces fields.")
+        }
+        if (args.reviewFingerprint !== undefined && args.upgrades === undefined && args.selection === undefined) throw new Error("reviewFingerprint requires upgrades or selection.")
+        return openAuthoring(args.mode, args.snapshot, context, args.workspace, args.dependency, args.dependencies,
+          args.mode === "upgrade" ? (args.upgrades !== undefined
+            ? { upgrades: args.upgrades.map(dependencyUpgrade), reviewFingerprint: args.reviewFingerprint ?? "" }
+            : args.selection !== undefined ? { selection: dependencySelectionUpgrade(args.selection), reviewFingerprint: args.reviewFingerprint ?? "" }
+              : { expectedFingerprint: args.expectedFingerprint ?? "", replaces: args.replaces }) : undefined)
+      },
     }),
     inspect: defineTool({
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes, callers, and declared versus derived body effect requirements with semantic evidence. Pass exactly one function name or functionId for the function view.",

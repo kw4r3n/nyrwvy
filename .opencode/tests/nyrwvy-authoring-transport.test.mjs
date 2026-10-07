@@ -31,6 +31,35 @@ test("authoring transport serializes calls and preserves split JSONL responses",
   } finally { await client.close() }
 })
 
+test("typed Float64 values survive transport in arguments, expectations and fake responses without weakening integer guards", { timeout: 5000 }, async () => {
+  const client = new AuthoringClient(child(`
+    require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+      const request = JSON.parse(line);
+      process.stdout.write(JSON.stringify({ id: request.id, ok: true, result: request }) + '\\n');
+    });
+  `))
+  const floating = value => ({ kind: "float64", value })
+  const nested = { kind: "product", fields: [{ value: { kind: "list", items: [floating(2 ** 53), floating(2 ** 53 + 2), floating(1e20)] } }] }
+  try {
+    const request = { op: "runPure", arguments: [nested], expected: nested,
+      fake: { responses: [{ kind: "return", value: floating(-0) }, { kind: "return", value: floating("NaN") }] } }
+    const result = JSON.parse(await client.request(request)).result
+    assert.deepEqual(result.arguments, [nested])
+    assert.deepEqual(result.expected, nested)
+    assert.equal(result.fake.responses[0].value.value, "-0")
+    assert.equal(result.fake.responses[1].value.value, "NaN")
+    for (const value of [NaN, Infinity, -Infinity]) {
+      await assert.rejects(client.request({ op: "runPure", arguments: [floating(value)] }), /Non-finite Float64/)
+    }
+    for (const value of [{ kind: "int64", value: 2 ** 53 }, { kind: "bits32", value: 2 ** 53 },
+      { kind: "float64", unrelated: 2 ** 53 }, { value: 2 ** 53 }]) {
+      await assert.rejects(client.request({ op: "runPure", arguments: [value] }), /exact decimal string/)
+    }
+    const integer = { kind: "int64", value: "9007199254740993" }
+    assert.deepEqual(JSON.parse(await client.request({ op: "runPure", arguments: [integer] })).result.arguments, [integer])
+  } finally { await client.close() }
+})
+
 test("stdout EOF while idle invalidates the session before another request", { timeout: 5000 }, async () => {
   const process = child("process.stdout.end(); process.stdin.resume()")
   const client = new AuthoringClient(process)

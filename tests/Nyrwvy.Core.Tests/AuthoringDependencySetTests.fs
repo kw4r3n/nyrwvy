@@ -318,3 +318,279 @@ module AuthoringDependencySetTests =
                 Assert.Equal("FunctionCreationDuplicateDisplayName", diagnostic.Code)
             | other -> failwithf "Duplicate display name was accepted: %A" other
             session.Close())
+
+    let private writeVersion root name snapshot =
+        let path = Path.Combine(root, name + ".json")
+        File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap name)
+        path
+
+    let private changedMoney =
+        { money "Money" with Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.String } ] }
+
+    let private replacement source (snapshot: Snapshot): AuthoringDependencyUpgrade =
+        { Source = source; Replaces = StableId.value snapshot.Id }
+
+    let private diamondWithLocal root a b =
+        let path, _ = localOnA root a
+        // Retain the authored local graph while selecting the original diamond imports.
+        let local = SnapshotCodec.deserializeResolved libraryA (File.ReadAllText path) |> unwrap "local"
+        let combined = DependencyGraph.combine [ libraryA; libraryB ] |> unwrap "diamond"
+        let selectionPath = Path.Combine(root, "diamond.json")
+        (AuthoringSession.createNewWithDependencies selectionPath [ a; b ] |> unwrap "create diamond").Close()
+        File.WriteAllText(selectionPath, SnapshotCodec.serializeResolved combined local |> unwrap "bind diamond")
+        selectionPath, local
+
+    [<Fact>]
+    let ``atomic upgrades change shared diamond schema while preserving all local identities and reopening without sources`` () =
+        withLibraries (fun root a b _ ->
+            let path, local = diamondWithLocal root a b
+            let nextA = writeVersion root "a-next" (library "a-next" [ changedMoney ] [ identity "keep" ])
+            let nextB = writeVersion root "b-next" (library "b-next" [ changedMoney ] [ identity "pass" ])
+            let upgrades = [ replacement nextA libraryA; replacement nextB libraryB ]
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                for source, target in [ nextA, libraryA; nextB, libraryB ] do
+                    match session.PreviewDependencyUpgrade(source, Some(StableId.value target.Id)) with
+                    | Error(AuthoringSessionError.DependencyFailure message) -> Assert.Contains("different content", message)
+                    | other -> failwithf "Mixed old/new diamond accepted: %A" other
+                let review = session.PreviewDependencyUpgrades upgrades |> unwrap "batch preview"
+                Assert.Empty(review.Issues)
+                Assert.Contains({ Kind = "type"; Id = StableId.value moneyId }, review.Changed)
+                let request = JsonSerializer.Serialize({| id = "batch"; op = "previewDependencyUpgrades"; upgrades = upgrades |> List.map (fun item -> {| source = item.Source; replaces = item.Replaces |}) |})
+                use wire = JsonDocument.Parse(AuthoringProtocol.executeLine session request)
+                Assert.True(wire.RootElement.GetProperty("ok").GetBoolean(), wire.RootElement.ToString())
+                Assert.Equal(review.ReviewFingerprint, wire.RootElement.GetProperty("result").GetProperty("reviewFingerprint").GetString())
+                review
+            use upgraded = AuthoringSession.upgradeDependencies path upgrades preview.ReviewFingerprint |> unwrap "batch apply"
+            Assert.Contains(local.Functions.Head, upgraded.Declarations().Functions)
+            upgraded.Close()
+            let combined = DependencyGraph.combine [ library "a-next" [ changedMoney ] [ identity "keep" ]; library "b-next" [ changedMoney ] [ identity "pass" ] ] |> unwrap "new imports"
+            let after = SnapshotCodec.deserializeResolved combined (File.ReadAllText path) |> unwrap "after"
+            Assert.Equal(local, after)
+            File.Delete nextA
+            File.Delete nextB
+            File.Delete a
+            File.Delete b
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
+            Assert.Contains(local.Functions.Head, reopened.Declarations().Functions))
+
+    [<Fact>]
+    let ``batch review is bound to exact local bytes current manifest new content and replacement targets`` () =
+        withLibraries (fun root a b _ ->
+            let path, _ = diamondWithLocal root a b
+            let nextA = writeVersion root "a-next" (library "a-next" [ money "Money" ] [ identity "keep"; identity "extra" ])
+            let nextB = writeVersion root "b-next" (library "b-next" [ money "Money" ] [ identity "pass"; identity "more" ])
+            let upgrades = [ replacement nextA libraryA; replacement nextB libraryB ]
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                session.PreviewDependencyUpgrades upgrades |> unwrap "preview"
+            let original = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            let expectRefusal selected =
+                let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+                match AuthoringSession.upgradeDependencies path selected preview.ReviewFingerprint with
+                | Error(AuthoringSessionError.DependencyFailure _) -> ()
+                | Ok session -> session.Close(); failwith "Stale or retargeted review applied."
+                | other -> failwithf "Unexpected refusal: %A" other
+                Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json")))
+            File.WriteAllText(path, (fst original).Replace("wrap", "wrapped"))
+            expectRefusal upgrades
+            File.WriteAllText(path, fst original)
+            File.WriteAllText(path + ".dependency.json", snd original + "\n")
+            expectRefusal upgrades
+            File.WriteAllText(path + ".dependency.json", snd original)
+            let newSource = File.ReadAllText nextA
+            File.WriteAllText(nextA, newSource.Replace("extra", "EXTRA"))
+            expectRefusal upgrades
+            File.WriteAllText(nextA, newSource)
+            expectRefusal [ replacement nextB libraryA; replacement nextA libraryB ]
+            use applied = AuthoringSession.upgradeDependencies path upgrades preview.ReviewFingerprint |> unwrap "original still applies"
+            Assert.Contains("extra", applied.Declarations().Functions |> List.map (fun item -> item.DisplayName)))
+
+    [<Fact>]
+    let ``empty duplicate unknown unchanged conflicting or invalid local batch cannot alter storage`` () =
+        withLibraries (fun root a b _ ->
+            let path, _ = diamondWithLocal root a b
+            let nextA = writeVersion root "a-next" (library "a-next" [ changedMoney ] [ identity "keep" ])
+            let nextB = writeVersion root "b-next" (library "b-next" [ changedMoney ] [ identity "pass" ])
+            let incompatible = writeVersion root "a-breaking" (library "a-breaking" [ changedMoney ] [ identity "other" ])
+            let requests = [ replacement nextA libraryA; replacement nextB libraryB ]
+            let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            do
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                for selected in [ []; [ requests.Head; requests.Head ]; [ { requests.Head with Replaces = "unknown" } ]; [ replacement a libraryA ]; [ requests.Head ] ] do
+                    Assert.True(session.PreviewDependencyUpgrades selected |> Result.isError)
+                let breaking = session.PreviewDependencyUpgrades [ replacement incompatible libraryA; replacement nextB libraryB ] |> unwrap "incompatible preview"
+                Assert.NotEmpty(breaking.Issues)
+                // Existing ownership lock remains in force for batch startup.
+                match AuthoringSession.upgradeDependencies path requests "anything" with
+                | Error(AuthoringSessionError.LockUnavailable _) -> ()
+                | other -> failwithf "Lock bypassed: %A" other
+                session.Close()
+                match AuthoringSession.upgradeDependencies path [ replacement incompatible libraryA; replacement nextB libraryB ] breaking.ReviewFingerprint with
+                | Error(AuthoringSessionError.WorkspaceValidationFailure _) -> ()
+                | other -> failwithf "Incompatible local references accepted: %A" other
+            Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json"))))
+
+    [<Fact>]
+    let ``failed atomic batch graph write restores exact sidecar and can retry`` () =
+        withLibraries (fun root a b _ ->
+            let path, _ = diamondWithLocal root a b
+            let nextA = writeVersion root "a-next" (library "a-next" [ changedMoney ] [ identity "keep" ])
+            let nextB = writeVersion root "b-next" (library "b-next" [ changedMoney ] [ identity "pass" ])
+            let upgrades = [ replacement nextA libraryA; replacement nextB libraryB ]
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                session.PreviewDependencyUpgrades upgrades |> unwrap "preview"
+            let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            SessionStorageFaults.failReplacement <- fun candidate -> candidate = Path.GetFullPath path
+            try
+                match AuthoringSession.upgradeDependencies path upgrades preview.ReviewFingerprint with
+                | Error(AuthoringSessionError.IoFailure _) -> ()
+                | other -> failwithf "Failed graph write accepted: %A" other
+            finally SessionStorageFaults.failReplacement <- fun _ -> false
+            Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json")))
+            (AuthoringSession.openExisting path |> unwrap "reopen after rollback").Close()
+            (AuthoringSession.upgradeDependencies path upgrades preview.ReviewFingerprint |> unwrap "retry").Close())
+
+    [<Fact>]
+    let ``missing resolved sidecar names exact recovery path but malformed standalone JSON keeps codec diagnosis`` () =
+        withLibraries (fun root a _ _ ->
+            let path, _ = localOnA root a
+            let sidecar = path + ".dependency.json"
+            let manifest = File.ReadAllText sidecar
+            File.Delete sidecar
+            let expectMissing result =
+                match result with
+                | Error(AuthoringSessionError.DependencyFailure message) -> Assert.Contains(sidecar, message); Assert.Contains("Restore the exact sidecar", message)
+                | Ok(session: AuthoringSession) -> session.Close(); failwith "Missing sidecar opened."
+                | other -> failwithf "Misleading missing-sidecar diagnosis: %A" other
+            expectMissing (AuthoringSession.openExisting path)
+            expectMissing (AuthoringSession.pinExistingDependency path None)
+            expectMissing (AuthoringSession.createNewWithDependencies (Path.Combine(root, "consumer.json")) [ path ])
+            File.WriteAllText(sidecar, manifest)
+            (AuthoringSession.openExisting path |> unwrap "restored exact sidecar").Close()
+            let broken = Path.Combine(root, "malformed.json")
+            File.WriteAllText(broken, "{\"dependency\":")
+            match AuthoringSession.openExisting broken with
+            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | other -> failwithf "Malformed JSON diagnostic changed: %A" other)
+
+    [<Fact>]
+    let ``reviewed selection can consolidate two changed diamond branches then split while preserving local graph`` () =
+        withLibraries (fun root a b _ ->
+            let path, local = diamondWithLocal root a b
+            let nextA = library "a-next" [ changedMoney ] [ identity "keep" ]
+            let nextB = library "b-next" [ changedMoney ] [ identity "pass" ]
+            let aSource = writeVersion root "a-next" nextA
+            let bSource = writeVersion root "b-next" nextB
+            let consolidated = { (DependencyGraph.combine [ nextA; nextB ] |> unwrap "consolidated") with Id = id<SnapshotTag> "consolidated" }
+            let consolidatedSource = writeVersion root "consolidated" consolidated
+            let selection = { Sources = [ consolidatedSource ]; Replaces = [ StableId.value libraryA.Id; StableId.value libraryB.Id ] }
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                let preview = session.PreviewDependencySelectionUpgrade selection |> unwrap "selection preview"
+                Assert.Empty(preview.Issues)
+                Assert.Equal(2, preview.Replaced.Length)
+                Assert.Single(preview.Selected) |> ignore
+                let wire = JsonSerializer.Serialize({| id = "selection"; op = "previewDependencyUpgrades"; selection = {| sources = selection.Sources; replaces = selection.Replaces |} |})
+                use result = JsonDocument.Parse(AuthoringProtocol.executeLine session wire)
+                Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.ToString())
+                preview
+            let applied = AuthoringSession.upgradeDependencySelection path selection preview.ReviewFingerprint |> unwrap "consolidate"
+            Assert.Contains(local.Functions.Head, applied.Declarations().Functions)
+            applied.Close()
+            Assert.Equal(local, SnapshotCodec.deserializeResolved consolidated (File.ReadAllText path) |> unwrap "same local")
+            let split = { Sources = [ aSource; bSource ]; Replaces = [ StableId.value consolidated.Id ] }
+            let splitReview =
+                use session = AuthoringSession.openExisting path |> unwrap "consolidated open"
+                session.PreviewDependencySelectionUpgrade split |> unwrap "split preview"
+            let splitApplied = AuthoringSession.upgradeDependencySelection path split splitReview.ReviewFingerprint |> unwrap "split"
+            Assert.Contains(local.Functions.Head, splitApplied.Declarations().Functions)
+            splitApplied.Close()
+            File.Delete aSource
+            File.Delete bSource
+            File.Delete consolidatedSource
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen split without sources"
+            Assert.Contains(local.Functions.Head, reopened.Declarations().Functions))
+
+    [<Fact>]
+    let ``selection upgrade retains unnamed pins and rejects no-op duplicate and unknown members`` () =
+        withLibraries (fun root a b _ ->
+            let path, _ = diamondWithLocal root a b
+            let next = writeVersion root "a-next" (library "a-next" [ money "Money" ] [ identity "keep"; identity "extra" ])
+            use session = AuthoringSession.openExisting path |> unwrap "open"
+            let currentA = StableId.value libraryA.Id
+            for selection in [ { Sources = []; Replaces = [ currentA ] }; { Sources = [ a ]; Replaces = [] }; { Sources = [ a ]; Replaces = [ currentA ] }; { Sources = [ next; next ]; Replaces = [ currentA ] }; { Sources = [ next ]; Replaces = [ currentA; currentA ] }; { Sources = [ next ]; Replaces = [ "unknown" ] } ] do
+                Assert.True(session.PreviewDependencySelectionUpgrade selection |> Result.isError)
+            let selection = { Sources = [ next ]; Replaces = [ currentA ] }
+            let preview = session.PreviewDependencySelectionUpgrade selection |> unwrap "preview retained member"
+            Assert.Empty(preview.Issues)
+            session.Close()
+            use applied = AuthoringSession.upgradeDependencySelection path selection preview.ReviewFingerprint |> unwrap "apply"
+            use pins = JsonDocument.Parse(applied.DependencySelection |> Option.get)
+            let members = pins.RootElement.GetProperty("dependencies").EnumerateArray() |> Seq.toList
+            Assert.Contains(members, fun item -> item.GetProperty("snapshotId").GetString() = StableId.value libraryB.Id))
+
+    [<Fact>]
+    let ``N-to-M selection token refuses stale graph pins source and retarget without touching files`` () =
+        withLibraries (fun root a b _ ->
+            let path, _ = diamondWithLocal root a b
+            let consolidated = { (DependencyGraph.combine [ library "a-next" [ changedMoney ] [ identity "keep" ]; library "b-next" [ changedMoney ] [ identity "pass" ] ] |> unwrap "consolidated") with Id = id<SnapshotTag> "consolidated-stale" }
+            let source = writeVersion root "consolidated" consolidated
+            let selection = { Sources = [ source ]; Replaces = [ StableId.value libraryA.Id; StableId.value libraryB.Id ] }
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                session.PreviewDependencySelectionUpgrade selection |> unwrap "preview"
+            let original = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+            let selectedSource = File.ReadAllText source
+            let refuse request =
+                let before = File.ReadAllText path, File.ReadAllText(path + ".dependency.json")
+                match AuthoringSession.upgradeDependencySelection path request preview.ReviewFingerprint with
+                | Error(AuthoringSessionError.DependencyFailure _) -> ()
+                | Ok session -> session.Close(); failwith "Stale selection was applied."
+                | other -> failwithf "Unexpected selection refusal: %A" other
+                Assert.Equal(before, (File.ReadAllText path, File.ReadAllText(path + ".dependency.json")))
+            File.WriteAllText(path, fst original + "\n")
+            refuse selection
+            File.WriteAllText(path, fst original)
+            File.WriteAllText(path + ".dependency.json", snd original + "\n")
+            refuse selection
+            File.WriteAllText(path + ".dependency.json", snd original)
+            File.WriteAllText(source, selectedSource.Replace("Money", "ChangedMoney"))
+            refuse selection
+            File.WriteAllText(source, selectedSource)
+            // The only-one-target variant is also correctly refused: the other old branch
+            // still collides with the new complete schema, rather than hiding that collision.
+            refuse { selection with Replaces = [ selection.Replaces.Head ] }
+            (AuthoringSession.upgradeDependencySelection path selection preview.ReviewFingerprint |> unwrap "unchanged original review remains usable").Close())
+
+    [<Fact>]
+    let ``selection source order shares one review and persists canonical source path order`` () =
+        withLibraries (fun root a b _ ->
+            let path, local = diamondWithLocal root a b
+            // Deliberately name the two next sources in opposite lexical order.
+            let aSource = writeVersion root "z-a-next" (library "a-next-order" [ changedMoney ] [ identity "keep" ])
+            let bSource = writeVersion root "a-b-next" (library "b-next-order" [ changedMoney ] [ identity "pass" ])
+            let canonicalSources = [ aSource; bSource ] |> List.sort
+            let forward = { Sources = canonicalSources; Replaces = [ StableId.value libraryA.Id; StableId.value libraryB.Id ] }
+            let reversed = { forward with Sources = List.rev canonicalSources }
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                let normal = session.PreviewDependencySelectionUpgrade forward |> unwrap "forward preview"
+                let reverse = session.PreviewDependencySelectionUpgrade reversed |> unwrap "reversed preview"
+                Assert.Empty(normal.Issues)
+                Assert.Empty(reverse.Issues)
+                Assert.Equal(normal.ReviewFingerprint, reverse.ReviewFingerprint)
+                Assert.Equal<AuthoringDependencyMember list>(normal.Selected, reverse.Selected)
+                normal
+            let applied = AuthoringSession.upgradeDependencySelection path reversed preview.ReviewFingerprint |> unwrap "reversed-source apply"
+            Assert.Contains(local.Functions.Head, applied.Declarations().Functions)
+            applied.Close()
+            use manifest = JsonDocument.Parse(File.ReadAllText(path + ".dependency.json"))
+            let savedPaths =
+                manifest.RootElement.GetProperty("dependencies").EnumerateArray()
+                |> Seq.map (fun item -> item.GetProperty("path").GetString())
+                |> Seq.toList
+            Assert.Equal<string list>(canonicalSources, savedPaths)
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen canonical selection"
+            Assert.Contains(local.Functions.Head, reopened.Declarations().Functions))

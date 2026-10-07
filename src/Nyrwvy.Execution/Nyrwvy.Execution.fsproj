@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="TypedSemanticIr.fs" />
-    <Compile Include="AgentExecution.fs" />
     <Compile Include="TypedSemanticIrSerializer.fs" />
     <Compile Include="ExecutionIrModel.fs" />
     <Compile Include="ExecutionCallGraph.fs" />
+    <Compile Include="AgentExecution.fs" />
     <Compile Include="ExecutionIrAnalysis.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />

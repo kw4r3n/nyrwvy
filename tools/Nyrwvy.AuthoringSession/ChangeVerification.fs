@@ -78,8 +78,8 @@ module ChangeVerification =
                             if next = affected then affected else expand next
                         let affected = view.FunctionIds |> Set.ofList |> expand |> Set.toList
                         let concurrent context functionId =
-                            context.Project()
-                            |> Result.map (fun program -> CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry program functionId))
+                            context.Project functionId
+                            |> Result.map ExecutionCallGraph.usesConcurrentOperations
                             |> Result.defaultValue true
                         let observations = cases |> List.map (fun item ->
                             let before = PureRun.runContext baseline item.FunctionId item.Arguments None

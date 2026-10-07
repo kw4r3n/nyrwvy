@@ -863,7 +863,12 @@ module PureRun =
             | PureRunValue.ResultErr _ -> count 1
             | PureRunValue.FakeCapability(_, operations) ->
                 count (operations |> List.sumBy (fun op ->
-                    op.Cases |> Option.defaultValue [] |> List.sumBy (fun item -> 1 + item.Arguments.Length + item.Responses.Length)))
+                    match op.Cases with
+                    | Some cases -> cases |> List.sumBy (fun item -> 1 + item.Arguments.Length + item.Responses.Length)
+                    | None -> op.Responses |> List.sumBy (fun response ->
+                        match PureRunFakeResponse.immediate response with
+                        | PureRunFakeResponse.Throw _ -> 1
+                        | _ -> 0)))
                 && (children value |> List.forall (visit (depth + 1)))
             | _ -> children value |> List.forall (visit (depth + 1))
         visit 0 value
@@ -1042,7 +1047,7 @@ module PureRun =
             // Check only functions reachable from this entry; unrelated parallel functions do not
             // make a sequential host binding require a concurrency assertion.
             let emitted =
-                context.Project()
+                context.Project functionId
                 |> Result.bind (fun program ->
                     let program = ExecutionCallGraph.forEntry program functionId
                     let operationIds = program.Capabilities |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id))
@@ -1504,12 +1509,10 @@ module PureRun =
                        || arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false)) ->
             Error(diagnostic "RunHostSourcesDisabled" "Host sources and hostCapability bindings compile and run arbitrary C# with the user's permissions, so they are disabled unless the session was started with --allow-host-sources. Use fakeCapability bindings, or ask the operator to enable host sources.")
         | Ok() ->
-            let context =
-                { SnapshotId = session.SnapshotId
-                  Fingerprint = ""
-                  Declarations = session.Declarations()
-                  Project = session.ProjectExecution }
-            readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected)
+            session.ExecutionContext None
+            |> Result.mapError PureRunError.SessionFailure
+            |> Result.bind (fun context ->
+                readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected))
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []
 

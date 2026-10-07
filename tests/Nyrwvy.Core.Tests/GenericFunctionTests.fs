@@ -124,6 +124,82 @@ module GenericFunctionTests =
             issue.Code = "TypeParameterNotDeclared" && issue.Message.Contains("'defaultName'") && issue.Message.Contains("'U'"))
         Assert.DoesNotContain(SnapshotValidator.validate snapshot, fun issue -> issue.Code = "TypeParameterNotDeclared")
 
+    let private withWireSession test =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-generic-owner-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = AuthoringSession.createNew path |> unwrap "create session"
+            test session path
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    let private wirePublish session line =
+        use proposed = JsonDocument.Parse(AuthoringProtocol.executeLine session line)
+        Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
+        let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+        session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "wire commit" |> ignore
+
+    let private genericWireFunction =
+        """{"id":"create","op":"simulateCreateFunctionByName","displayName":"select","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]}]}},{"displayName":"marker","type":{"kind":"typeParameter","name":"U"}}],"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]},{"kind":"typeParameter","name":"U"}]},"requiredEffects":[],"body":{"kind":"matchOption","input":{"kind":"parameter","name":"items"},"someBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}}}}}"""
+
+    [<Fact>]
+    let ``named whole body replacement binds nested explicit type parameters to its existing owner`` () =
+        withWireSession (fun session path ->
+            wirePublish session genericWireFunction
+            let before = session.Declarations().Functions.Head
+            let declared = TypeParameters.ofFunction before
+            Assert.Equal<string list>([ "T"; "U" ], declared |> List.map snd)
+            Assert.DoesNotContain(declared, fun (id, _) -> StableId.value id = "T" || StableId.value id = "U")
+            // The discarded Option contains nested List<T>; the result separately mentions U.
+            // All explicit occurrences belong to the signature, rather than fresh request names.
+            wirePublish session """{"id":"replace","op":"simulateReplaceBodyByName","function":"select","replacement":{"kind":"bind","value":{"kind":"optionNone","itemType":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]}},"body":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}}}}}"""
+            let after = session.Declarations().Functions.Head
+            Assert.Equal(before.Id, after.Id)
+            Assert.Equal<ParameterId list>(before.Parameters |> List.map (fun p -> p.Id), after.Parameters |> List.map (fun p -> p.Id))
+            Assert.Equal<(TypeParameterId * string) list>(declared, TypeParameters.ofFunction after)
+            let nodes = ValueGraph.collectNodes after.Body
+            let ownerT = TypeRef.TypeParameter(fst declared.[0], "T")
+            let ownerU = TypeRef.TypeParameter(fst declared.[1], "U")
+            Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.OptionNone item -> item = listOf ownerT | _ -> false)
+            Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.ListEmpty item -> item = ownerT | _ -> false)
+            Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.ResultOk(errorType, _) -> errorType = ownerU | _ -> false)
+            let persisted = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "read persisted generic replacement"
+            Assert.Empty(SnapshotValidator.validate persisted)
+            Assert.Equal<(TypeParameterId * string) list>(declared, TypeParameters.ofFunction persisted.Functions.Head))
+
+    [<Fact>]
+    let ``named targeted replacement binds owner types inside a scoped arm and refuses unknown names`` () =
+        withWireSession (fun session path ->
+            wirePublish session genericWireFunction
+            let before = session.Declarations().Functions.Head
+            let target = ValueGraph.collectNodes before.Body |> List.find (fun node -> match node.Kind with SemanticNodeKind.ListEmpty _ -> true | _ -> false)
+            let line item = sprintf """{"id":"target","op":"simulateReplaceTargetByName","function":"select","targetNodeId":"%s","replacement":{"kind":"listConstruct","itemType":{"kind":"typeParameter","name":"%s"},"items":[]}}""" (StableId.value target.Id) item
+            let bytes = File.ReadAllBytes path
+            use unknown = JsonDocument.Parse(AuthoringProtocol.executeLine session (line "Foreign"))
+            Assert.False(unknown.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("ProtocolError", unknown.RootElement.GetProperty("error").GetProperty("code").GetString())
+            Assert.Contains("Unknown type parameter on select 'Foreign'.", unknown.RootElement.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal<byte>(bytes, File.ReadAllBytes path)
+            wirePublish session (line "T")
+            let after = session.Declarations().Functions.Head
+            Assert.Equal(before.Id, after.Id)
+            Assert.Equal<(TypeParameterId * string) list>(TypeParameters.ofFunction before, TypeParameters.ofFunction after)
+            let previousIds = ValueGraph.collectNodes before.Body |> List.map (fun n -> n.Id) |> Set.ofList
+            let currentIds = ValueGraph.collectNodes after.Body |> List.map (fun n -> n.Id) |> Set.ofList
+            Assert.True((previousIds = currentIds), "Targeted editing must preserve the surrounding scoped graph identities.")
+            Assert.Contains(ValueGraph.collectNodes after.Body, fun n -> match n.Kind with SemanticNodeKind.ListConstruct(item, []) -> item = TypeRef.TypeParameter(fst (TypeParameters.ofFunction before).Head, "T") | _ -> false))
+
+    [<Fact>]
+    let ``existing monomorphic owner cannot gain a type parameter through a named recipe`` () =
+        withWireSession (fun session path ->
+            wirePublish session """{"id":"create","op":"simulateCreateFunctionByName","displayName":"plain","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"unitLiteral"}}"""
+            let bytes = File.ReadAllBytes path
+            use rejected = JsonDocument.Parse(AuthoringProtocol.executeLine session """{"id":"replace","op":"simulateReplaceBodyByName","function":"plain","replacement":{"kind":"bind","value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}},"body":{"kind":"unitLiteral"}}}""")
+            Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Contains("Unknown type parameter on plain 'T'.", rejected.RootElement.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal<byte>(bytes, File.ReadAllBytes path))
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``one generic body runs for several element types`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-generic-" + Guid.NewGuid().ToString("N"))

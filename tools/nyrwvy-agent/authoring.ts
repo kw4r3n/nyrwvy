@@ -14,6 +14,9 @@ export type AuthoringContext = { sessionID: string; worktree: string; repository
 export function hostSourcesAllowed(context: AuthoringContext): boolean {
   return context.allowHostSources === true || process.env.NYRWVY_ALLOW_HOST_SOURCES === "1"
 }
+export type DependencyUpgrade = { source: string; replaces: string }
+export type DependencySelectionUpgrade = { sources: string[]; replaces: string[] }
+type UpgradeOptions = { expectedFingerprint: string; replaces?: string } | { upgrades: DependencyUpgrade[]; reviewFingerprint: string } | { selection: DependencySelectionUpgrade; reviewFingerprint: string }
 export type Request = { op: string; [key: string]: unknown }
 type Reply = { id: string; ok: boolean; result?: unknown; error?: unknown }
 type Pending = { id: string; resolve: (line: string) => void; reject: (error: Error) => void }
@@ -137,9 +140,19 @@ export class AuthoringClient {
       const id = randomUUID()
       // The caller passes structured arguments, never a program that constructs JSONL.
       const payload = { ...request, id }
-      const line = JSON.stringify(payload, (_key, value) => {
+      const line = JSON.stringify(payload, function (key, value) {
+        // A Float64 run-value number already denotes an IEEE binary64 value, including
+        // exactly representable integral values outside JavaScript's safe Int64 range.
+        // Inspect the typed leaf, not its surrounding container or the request operation:
+        // arguments, expectations and fake responses all use this same value shape.
+        if (key === "value" && this?.kind === "float64" && typeof value === "number") {
+          if (!Number.isFinite(value)) {
+            throw new Error('Non-finite Float64 values must use "NaN", "Infinity" or "-Infinity" strings.')
+          }
+          return Object.is(value, -0) ? "-0" : value
+        }
         if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
-          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64 or bits for Float64.")
+          throw new Error("Numeric argument would lose precision; use an exact decimal string for Int64/Bits32. Float64 run values accept finite JSON numbers or special strings.")
         }
         return value
       })
@@ -192,13 +205,28 @@ function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0
 
 export async function openAuthoring(
   mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
-  dependencies?: string[], upgrade?: { expectedFingerprint: string; replaces?: string },
+  dependencies?: string[], upgrade?: UpgradeOptions,
 ): Promise<string> {
   if (dependency !== undefined && (mode === "open" || dependency.trim() === "")) {
     throw new Error("dependency requires mode=create, pin or upgrade and a non-blank source snapshot path.")
   }
-  if ((mode === "upgrade") !== (upgrade !== undefined) || (mode === "upgrade" && (dependency === undefined || upgrade?.expectedFingerprint.trim() === ""))) {
-    throw new Error("mode=upgrade requires dependency (the new version) and the expectedFingerprint from previewDependencyUpgrade.")
+  if ((mode === "upgrade") !== (upgrade !== undefined)) throw new Error("Upgrade options require mode=upgrade.")
+  if (upgrade !== undefined) {
+    if ("upgrades" in upgrade) {
+      if (dependency !== undefined || upgrade.upgrades.length === 0 || upgrade.reviewFingerprint.trim() === "" ||
+          upgrade.upgrades.some(item => item.source.trim() === "" || item.replaces.trim() === "") ||
+          new Set(upgrade.upgrades.map(item => item.replaces)).size !== upgrade.upgrades.length) {
+        throw new Error("Batch upgrade requires distinct non-blank source/replaces entries and reviewFingerprint from previewDependencyUpgrades; dependency cannot be combined with upgrades.")
+      }
+    } else if ("selection" in upgrade) {
+      const { sources, replaces } = upgrade.selection
+      if (dependency !== undefined || sources.length === 0 || replaces.length === 0 || upgrade.reviewFingerprint.trim() === "" ||
+          [...sources, ...replaces].some(item => item.trim() === "") || new Set(replaces).size !== replaces.length) {
+        throw new Error("Selection upgrade requires non-blank sources, distinct current replaces IDs and reviewFingerprint; dependency cannot be combined with selection.")
+      }
+    } else if (dependency === undefined || upgrade.expectedFingerprint.trim() === "") {
+      throw new Error("mode=upgrade requires dependency (the new version) and the expectedFingerprint from previewDependencyUpgrade.")
+    }
   }
   if (dependencies !== undefined && (mode !== "create" || dependencies.length === 0 || dependencies.some((item) => item.trim() === ""))) {
     throw new Error("dependencies requires mode=create and one or more non-blank source snapshot paths.")
@@ -226,7 +254,7 @@ export async function openAuthoring(
 async function launchAuthoring(
   sessionKey: string, mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext,
   workspaceOverride: string | undefined, dependency: string | undefined, dependencies: string[] | undefined,
-  upgrade: { expectedFingerprint: string; replaces?: string } | undefined,
+  upgrade: UpgradeOptions | undefined,
   markStarted: () => void,
 ): Promise<string> {
   const worktree = resolve(context.worktree, workspaceOverride ?? ".")
@@ -239,8 +267,16 @@ async function launchAuthoring(
     args.push("--dependency", resolve(worktree, source))
   }
   if (upgrade !== undefined) {
-    args.push("--expect", upgrade.expectedFingerprint)
-    if (upgrade.replaces !== undefined) args.push("--replaces", upgrade.replaces)
+    if ("upgrades" in upgrade) {
+      args.push("--upgrades", JSON.stringify(upgrade.upgrades.map(item => ({ source: resolve(worktree, item.source), replaces: item.replaces }))),
+        "--review", upgrade.reviewFingerprint)
+    } else if ("selection" in upgrade) {
+      args.push("--selection", JSON.stringify({ sources: upgrade.selection.sources.map(source => resolve(worktree, source)), replaces: upgrade.selection.replaces }),
+        "--review", upgrade.reviewFingerprint)
+    } else {
+      args.push("--expect", upgrade.expectedFingerprint)
+      if (upgrade.replaces !== undefined) args.push("--replaces", upgrade.replaces)
+    }
   }
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")

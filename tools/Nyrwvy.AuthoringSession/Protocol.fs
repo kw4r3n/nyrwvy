@@ -81,19 +81,21 @@ module AuthoringProtocol =
         let kind = requiredString "kind" item
         if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
+        // Tagged child values are charged by their recursive parse, exactly once. Only flat
+        // scalar payloads and fake-case metadata have no recursive parse and need precharging.
         let children =
             match kind with
             | "list" when tryProperty "itemKind" item |> Option.isSome -> (array "items" item).Length
-            | "product" | "union" -> (array "fields" item).Length
-            | "map" -> 2 * (array "entries" item).Length
-            | "set" -> (array "items" item).Length
-            | "result" -> 1
+            | "result" when tryProperty "okType" item |> Option.isNone -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
             | "fakeCapability" ->
                 array "operations" item |> List.sumBy (fun operation ->
                     match tryProperty "cases" operation with
                     | Some _ -> array "cases" operation |> List.sumBy (fun item -> 1 + (array "arguments" item).Length + (array "responses" item).Length)
-                    | None -> (array "responses" operation).Length)
+                    // Return/cancellation payloads are recursively counted; a throw's scalar
+                    // message has no typed child parse and must still consume one value node.
+                    | None -> array "responses" operation |> List.sumBy (fun response ->
+                        if requiredString "kind" response = "throw" then 1 else 0))
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then fail "Run values may contain at most 8192 value nodes."
@@ -673,6 +675,38 @@ module AuthoringProtocol =
                               "removed", changes preview.Removed
                               "changed", changes preview.Changed
                               "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
+            | "previewDependencyUpgrades" ->
+                ensureFields "previewDependencyUpgrades request" [ "id"; "op"; "upgrades"; "selection" ] [ "id"; "op" ] root
+                let preview =
+                    match tryProperty "upgrades" root, tryProperty "selection" root with
+                    | Some _, None ->
+                        let upgrades = array "upgrades" root |> List.map (fun item ->
+                            ensureFields "dependency replacement" [ "source"; "replaces" ] [ "source"; "replaces" ] item
+                            { Source = requiredString "source" item; Replaces = requiredString "replaces" item })
+                        session.PreviewDependencyUpgrades upgrades
+                    | None, Some selected ->
+                        ensureFields "dependency selection upgrade" [ "sources"; "replaces" ] [ "sources"; "replaces" ] selected
+                        let strings name = array name selected |> List.map (fun item ->
+                            if item.ValueKind <> JsonValueKind.String then fail $"{name} entries must be strings."
+                            item.GetString())
+                        session.PreviewDependencySelectionUpgrade { Sources = strings "sources"; Replaces = strings "replaces" }
+                    | _ -> fail "Name exactly one of upgrades or selection."
+                match preview with
+                | Error error -> sessionFailure requestId error
+                | Ok preview ->
+                    let changes (items: AuthoringDependencyChange list) =
+                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id ]) |> arrayValue
+                    let members = preview.Upgrades |> List.map (fun item ->
+                        objectValue [ "replacedSnapshotId", box item.ReplacedSnapshotId; "replacedFingerprint", box item.ReplacedFingerprint
+                                      "newSnapshotId", box item.NewSnapshotId; "newFingerprint", box item.NewFingerprint
+                                      "added", changes item.Added; "removed", changes item.Removed; "changed", changes item.Changed ]) |> arrayValue
+                    success requestId (objectValue
+                        [ "reviewFingerprint", box preview.ReviewFingerprint; "upgrades", members
+                          "replaced", preview.Replaced |> List.map (fun item -> objectValue [ "snapshotId", box item.SnapshotId; "fingerprint", box item.Fingerprint ]) |> arrayValue
+                          "selected", preview.Selected |> List.map (fun item -> objectValue [ "snapshotId", box item.SnapshotId; "fingerprint", box item.Fingerprint ]) |> arrayValue
+                          "compatible", box (List.isEmpty preview.Issues)
+                          "added", changes preview.Added; "removed", changes preview.Removed; "changed", changes preview.Changed
+                          "issues", preview.Issues |> List.map (fun issue -> objectValue [ "code", box issue.Code; "message", box issue.Message ]) |> arrayValue ])
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))
@@ -869,7 +903,7 @@ module AuthoringProtocol =
                                 let p = WireSymbolic.functionParameter fn name
                                 { ParameterId = p.Id; Type = WireSymbolic.typeRefForExistingFunction declarations fn (property "type" parameter) })
                             ResultType = WireSymbolic.typeRefForExistingFunction declarations fn (property "resultType" item)
-                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) |> ExpressionRecipeTypes.map (WireSymbolic.resolveFunctionTypeParameters fn) }) }
+                            Replacement = WireSymbolic.recipeForExistingFunction declarations fn (property "replacement" item) }) }
                 proposalResponse (session.SimulateCapabilityOperationSignatureMigration request)
             | "simulateCapabilityOperationSignatureMigration" ->
                 ensureFields "operation signature migration" [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs"; "structuredReview"; "detail"; "expectedSnapshotId" ] [ "id"; "op"; "operationId"; "parameterTypes"; "resultType"; "functionRepairs" ] root

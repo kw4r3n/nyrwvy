@@ -149,3 +149,137 @@ module PureRunByNameTests =
                 Assert.Contains("CapabilityDeclarationDuplicateDisplayName", reply.RootElement.GetRawText())
             // Name resolution therefore stays unambiguous.
             Assert.True((result session (run (String.Join(",", [ request "a"; fake ])) (found "A"))).GetProperty("matches").GetBoolean()))
+
+    // Exercise the protocol budget as well as the semantic/runner budgets: a tagged child
+    // must be charged by recursive parsing once, while flat payloads still consume nodes.
+    let private intType = """{"kind":"primitive","primitive":"int64"}"""
+    let private listInts = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{intType}]}}"""
+    let private mapInts = $"""{{"kind":"builtinGeneric","generic":"map","arguments":[{intType},{intType}]}}"""
+    let private intValue n = $"""{{"kind":"int64","value":"{n}"}}"""
+    let private scalarMap count =
+        let entries = [ 0 .. count - 1 ] |> List.map (fun n -> $"""{{"key":{intValue n},"value":{intValue n}}}""") |> String.concat ","
+        $"""{{"kind":"map","keyType":{intType},"valueType":{intType},"entries":[{entries}]}}"""
+    let private scalarList count =
+        let items = [ 0 .. count - 1 ] |> List.map string |> String.concat ","
+        $"""{{"kind":"list","itemKind":"int64","items":[{items}]}}"""
+    let private identity session name typeRef =
+        publish session $"""{{"id":"identity","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{{"displayName":"value","type":{typeRef}}}],"resultType":{typeRef},"requiredEffects":[],"body":{{"kind":"parameter","name":"value"}}}}""" |> ignore
+    let private runValue session name value =
+        result session $"""{{"id":"budget","op":"runPureByName","function":"{name}","arguments":[{value}]}}"""
+    let private budgetRejected session name value =
+        let code, message = rejected session $"""{{"id":"budget","op":"runPureByName","function":"{name}","arguments":[{value}]}}"""
+        Assert.Equal("ProtocolError", code)
+        Assert.Equal("Run values may contain at most 8192 value nodes.", message)
+
+    [<Fact>]
+    let ``protocol counts Map and Set tagged children once and roundtrips output`` () =
+        withSession (fun session _ ->
+            identity session "budgetMap" mapInts
+            let map = runValue session "budgetMap" (scalarMap 2048)
+            let actual = map.GetProperty("actual")
+            Assert.Equal(2048, actual.GetProperty("entries").GetArrayLength())
+            Assert.Equal(actual.GetRawText(), (runValue session "budgetMap" (actual.GetRawText())).GetProperty("actual").GetRawText())
+            Assert.Equal(4095, (runValue session "budgetMap" (scalarMap 4095)).GetProperty("actual").GetProperty("entries").GetArrayLength())
+            budgetRejected session "budgetMap" (scalarMap 4096) // 1 + 2 * 4096 = 8193 genuine nodes
+            let setType = $"""{{"kind":"builtinGeneric","generic":"set","arguments":[{intType}]}}"""
+            identity session "budgetSet" setType
+            let items = [ 0 .. 4095 ] |> List.map intValue |> String.concat ","
+            let setValue = $"""{{"kind":"set","itemType":{intType},"items":[{items}]}}"""
+            let actual = (runValue session "budgetSet" setValue).GetProperty("actual")
+            Assert.Equal(4096, actual.GetProperty("items").GetArrayLength())
+            Assert.Equal(actual.GetRawText(), (runValue session "budgetSet" (actual.GetRawText())).GetProperty("actual").GetRawText()))
+
+    [<Fact>]
+    let ``protocol accepts exactly 8192 nodes through nested Result and rejects 8193`` () =
+        withSession (fun session _ ->
+            let resultType inner = $"""{{"kind":"builtinGeneric","generic":"result","arguments":[{inner},{str}]}}"""
+            let resultValue inner value = $"""{{"kind":"result","okType":{inner},"errorType":{str},"isOk":true,"value":{value}}}"""
+            identity session "budgetResult" (resultType mapInts)
+            let exact = resultValue mapInts (scalarMap 4095) // Result + Map + 8190 leaves
+            Assert.True((runValue session "budgetResult" exact).GetProperty("actual").GetProperty("isOk").GetBoolean())
+            identity session "budgetNestedResult" (resultType (resultType mapInts))
+            budgetRejected session "budgetNestedResult" (resultValue (resultType mapInts) exact))
+
+    let private createBudgetHolder session kind =
+        let fields = $"""[{{"displayName":"first","type":{listInts}}},{{"displayName":"second","type":{listInts}}},{{"displayName":"tag","type":{intType}}}]"""
+        let typeKind =
+            if kind = "product" then $"""{{"kind":"product","fields":{fields}}}"""
+            else $"""{{"kind":"union","variants":[{{"displayName":"Held","fields":{fields}}}]}}"""
+        publish session $"""{{"id":"holder","op":"simulateCreateTypeByName","displayName":"BudgetHolder","typeKind":{typeKind}}}""" |> ignore
+    let private holderValue kind first second =
+        let variant = if kind = "union" then ", \"variant\":\"Held\"" else ""
+        $"""{{"kind":"{kind}","type":"BudgetHolder"{variant},"fields":[{{"field":"first","value":{scalarList first}}},{{"field":"second","value":{scalarList second}}},{{"field":"tag","value":{intValue 0}}}]}}"""
+
+    [<Theory>]
+    [<InlineData("product")>]
+    [<InlineData("union")>]
+    let ``protocol counts named fields once at the genuine value budget`` kind =
+        withSession (fun session _ ->
+            createBudgetHolder session kind
+            identity session "budgetHolder" """{"kind":"named","name":"BudgetHolder"}"""
+            // Holder + first List + 4096 leaves + second List + 4092 leaves + tag = 8192.
+            let actual = (runValue session "budgetHolder" (holderValue kind 4096 4092)).GetProperty("actual")
+            Assert.Equal(3, actual.GetProperty("fields").GetArrayLength())
+            budgetRejected session "budgetHolder" (holderValue kind 4096 4093))
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``fake queues and keyed cases preserve payload and metadata budgets`` keyed =
+        withSession (fun session _ ->
+            createBudgetHolder session "product"
+            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"BudgetProvider","operations":[{"displayName":"get","parameters":[],"resultType":{"kind":"named","name":"BudgetHolder"},"effect":"io"}]}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"budgetFake","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"BudgetProvider"}}],"resultType":{"kind":"named","name":"BudgetHolder"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetProvider","operation":"get","arguments":[]}}""" |> ignore
+            let fake second =
+                let response = $"""{{"kind":"return","value":{holderValue "product" 4096 second}}}"""
+                let script = if keyed then $""""cases":[{{"arguments":[],"responses":[{response}]}}]""" else $""""responses":[{response}]"""
+                $"""{{"kind":"fakeCapability","capability":"BudgetProvider","operations":[{{"operation":"get",{script}}}]}}"""
+            // Queue: fake + payload. Keyed: also one case and one response metadata node.
+            let second = if keyed then 4089 else 4091
+            Assert.Equal(1, (runValue session "budgetFake" (fake second)).GetProperty("calls").GetArrayLength())
+            budgetRejected session "budgetFake" (fake (second + 1)))
+
+    [<Fact>]
+    let ``fake keyed arguments count their wrapper and tagged payload once`` () =
+        withSession (fun session _ ->
+            createBudgetHolder session "product"
+            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"BudgetEcho","operations":[{"displayName":"send","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"io"}]}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"budgetEcho","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}},{"displayName":"provider","type":{"kind":"capability","name":"BudgetEcho"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetEcho","operation":"send","arguments":[{"parameter":"payload","value":{"kind":"parameter","name":"payload"}}]}}""" |> ignore
+            let payload = holderValue "product" 4096 4087 // 8187 genuine value nodes
+            let fake second =
+                $"""{{"kind":"fakeCapability","capability":"BudgetEcho","operations":[{{"operation":"send","cases":[{{"arguments":[{{"parameter":"payload","value":{holderValue "product" 4096 second}}}],"responses":[{{"kind":"return","value":{{"kind":"unit"}}}}]}}]}}]}}"""
+            // fake + case + argument metadata + response metadata + Unit + payload = 8192.
+            let line fake = $"""{{"id":"run","op":"runPureByName","function":"budgetEcho","arguments":[{payload},{fake}]}}"""
+            Assert.Equal("unit", (result session (line (fake 4087))).GetProperty("actual").GetProperty("kind").GetString())
+            let code, message = rejected session (line (fake 4088))
+            Assert.Equal("ProtocolError", code)
+            Assert.Equal("Run values may contain at most 8192 value nodes.", message))
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``queued throw messages count once at the same protocol and direct run budget`` delayed =
+        withSession (fun session _ ->
+            let operations = [ 0 .. 31 ] |> List.map (fun n ->
+                $"""{{"displayName":"op{n}","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"effect":"io"}}""") |> String.concat ","
+            publish session $"""{{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"ThrowBudget","operations":[{operations}]}}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"ignoreThrows","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"ThrowBudget"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"cancellationRequested"}}""" |> ignore
+            let response = if delayed then """{"kind":"throw","message":"","delayMillis":1}""" else """{"kind":"throw","message":""}"""
+            let script lastCount =
+                let ops = [ 0 .. 31 ] |> List.map (fun n ->
+                    let responses = List.replicate (if n = 31 then lastCount else 256) response |> String.concat ","
+                    $"""{{"operation":"op{n}","responses":[{responses}]}}""") |> String.concat ","
+                $"""{{"kind":"fakeCapability","capability":"ThrowBudget","operations":[{ops}]}}"""
+            let accepted = (runValue session "ignoreThrows" (script 255)).GetProperty("actual") // root + 8191
+            Assert.Equal("bool", accepted.GetProperty("kind").GetString())
+            Assert.False(accepted.GetProperty("value").GetBoolean())
+            budgetRejected session "ignoreThrows" (script 256) // root + 8192
+            let capability = session.Declarations().Capabilities |> List.find (fun c -> c.DisplayName = "ThrowBudget")
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "ignoreThrows")
+            let throw = PureRunFakeResponse.Throw ""
+            let throw = if delayed then PureRunFakeResponse.Delayed(1, throw) else throw
+            let fake = PureRunValue.FakeCapability(capability.Id, capability.Operations |> List.map (fun op ->
+                { OperationId = op.Id; Responses = List.replicate 256 throw; Cases = None }))
+            match PureRun.run session fn.Id [ fake ] None with
+            | Error(PureRunError.Unsupported("RunArgumentTooLarge", _)) -> ()
+            | other -> failwithf "Direct API admitted queued throws outside the budget: %A" other)
