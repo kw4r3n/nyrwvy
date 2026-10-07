@@ -23,6 +23,7 @@ import { recipeCategories, recipeKinds, recipeReference } from "./recipe-referen
  * @typedef {{
  *   string(): GraphSchema<S, string>,
  *   unknown(): GraphSchema<S, unknown>,
+ *   union<A, B>(items: [GraphSchema<S, A>, GraphSchema<S, B>]): GraphSchema<S, A | B>,
  *   enum<const Values extends readonly string[]>(values: Values): GraphSchema<S, Values[number]>,
  *   record(key: GraphSchema<S, string>, value: GraphSchema<S, unknown>): GraphSchema<S, Record<string, unknown>>,
  *   array<T>(item: GraphSchema<S, T>): GraphSchema<S, T[]> & { min(count: number): GraphSchema<S, T[]> },
@@ -78,6 +79,7 @@ function dependencySelectionUpgrade(item) {
  */
 export function createGraphTools(schema) {
   const object = schema.record(schema.string(), schema.unknown())
+  const selector = schema.union([schema.string(), object]).describe('An exact display name or explicit {id} / {name,dependencySnapshotId} selector. Optional name, dependencySnapshotId and ownership are guards; inspect declarations.provenance to discover providing pins. Ambiguous names never resolve automatically.')
   const typeRef = object.describe('TypeRef: {kind:"primitive",primitive:"bool"|"int64"|"float64"|"bits32"|"string"|"unit"}, {kind:"named",name:"Type"}, {kind:"capability",name:"Capability"}, {kind:"builtinGeneric",generic:"option"|"result"|"list"|"map"|"set"|"taskScope"|"task"|"oneShot",arguments:[<typeRef>,...]}, {kind:"function",parameters:[<typeRef>,...],resultType:<typeRef>} for pure capture-free function values, or {kind:"typeParameter",name:"T"} (new function parameter types introduce it; replacement binds the existing owner parameter). The same name means the same parameter, and callers get type arguments by argument matching. Use recipe_reference for arity and operation restrictions.')
   const recipe = object.describe("Name-resolved ExpressionRecipe. Use nyrwvy_recipe_reference when the required recipe shape is unfamiliar. Use decimal strings for exact Int64 literals.")
   const reviewDetail = "The review is compact by default: proposalId, receipt fingerprints, readiness, the diff, the function signature with its resultNodeId and nodeCount, effects, aborts, callers, callees and open obligations, without the per-node graph. Diff node summaries show literal values and referenced names, and a targeted diff shows previousTarget and proposedTarget. Pass detail \"full\" only when the proposed graph itself must be read before commit (for migrations it adds rewrittenFunctions); after commit, inspect the function."
@@ -102,8 +104,8 @@ export function createGraphTools(schema) {
     }),
     inspect: defineTool({
       description: "Inspect status, declarations, or one function's typed graph, literal values, branch scopes, callers, and declared versus derived body effect requirements with semantic evidence. Pass exactly one function name or functionId for the function view.",
-      args: { view: schema.enum(["status", "declarations", "function"]), function: schema.string().optional(), functionId: schema.string().optional() },
-      /** @param {{ view: "status" | "declarations" | "function"; function?: string; functionId?: string }} args */
+      args: { view: schema.enum(["status", "declarations", "function"]), function: selector.optional(), functionId: schema.string().optional() },
+      /** @param {{ view: "status" | "declarations" | "function"; function?: string | Record<string, unknown>; functionId?: string }} args */
       execute(args, context) {
         if (args.view !== "function") {
           if (args.function !== undefined || args.functionId !== undefined) throw new Error("Function selectors require view=function.")
@@ -115,8 +117,8 @@ export function createGraphTools(schema) {
     }),
     view: defineTool({
       description: "Write a human-readable HTML page and return its path, for a person to open in a browser. With a function name or functionId: Function Focus of the committed function (signature, effects, typed nodes and their dependencies). With proposalId: Change Review of a pending proposal before commit or reject (committed and proposed focus of each function it creates or rewrites, created declarations, and the engine review). Pass exactly one of function, functionId and proposalId. Nothing is returned to read; use inspect or the proposal review for that. output is an optional .html path (relative paths use the project); by default the page goes to nyrwvy-views/ beside the snapshot. The page is a projection and is never read back.",
-      args: { function: schema.string().optional(), functionId: schema.string().optional(), proposalId: schema.string().optional(), output: schema.string().optional() },
-      /** @param {{ function?: string; functionId?: string; proposalId?: string; output?: string }} args */
+      args: { function: selector.optional(), functionId: schema.string().optional(), proposalId: schema.string().optional(), output: schema.string().optional() },
+      /** @param {{ function?: string | Record<string, unknown>; functionId?: string; proposalId?: string; output?: string }} args */
       execute(args, context) {
         if (args.proposalId === undefined) return requestAuthoring({ op: "viewFunction", ...args }, context)
         if (args.function !== undefined || args.functionId !== undefined) throw new Error("Pass exactly one of function, functionId and proposalId.")
@@ -138,14 +140,14 @@ export function createGraphTools(schema) {
     create_function: defineTool({
       description: "Propose a typed function directly in the semantic graph. Body is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Parameter references use names, not caller-allocated IDs. " + reviewDetail,
       args: { displayName: schema.string(), parameters: schema.array(schema.object({ displayName: schema.string(), type: typeRef })),
-        resultType: typeRef, requiredEffects: schema.array(schema.string()), body: recipe, detail },
-      /** @param {{ displayName: string; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: string[]; body: Record<string, unknown>; detail?: "compact" | "full" }} args */
+        resultType: typeRef, requiredEffects: schema.array(selector), body: recipe, detail },
+      /** @param {{ displayName: string; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: (string | Record<string, unknown>)[]; body: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
     replace: defineTool({
       description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it only for intentional whole-body replacement. Review before commit. " + reviewDetail,
-      args: { function: schema.string(), targetNodeId: schema.string().optional(), replacement: recipe, detail },
-      /** @param {{ function: string; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
+      args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe, detail },
+      /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),
     }),
     upgrade_dependencies: defineTool({

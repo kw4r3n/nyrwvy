@@ -36,11 +36,24 @@ type AuthoringSessionStatus =
       SnapshotFingerprint: SnapshotFingerprint
       SemanticFingerprint: SemanticFingerprint }
 
+type AuthoringDependencyMember =
+    { SnapshotId: string
+      Fingerprint: string }
+
+/// A declaration is locally owned or provided by one or several selected pins.
+/// Flattened imports report their providing pin, without guessing original authorship.
+type AuthoringDeclarationProvenance =
+    { Kind: string
+      Id: string
+      IsLocal: bool
+      Sources: AuthoringDependencyMember list }
+
 type AuthoringDeclarations =
     { Functions: SemanticFunction list
       Types: SemanticType list
       Effects: SemanticEffect list
-      Capabilities: SemanticCapability list }
+      Capabilities: SemanticCapability list
+      Provenance: AuthoringDeclarationProvenance list }
 
 /// Read-only execution inputs; candidate projection never publishes into the session.
 type internal AuthoringExecutionContext =
@@ -75,10 +88,6 @@ type AuthoringDependencyUpgrade =
 type AuthoringDependencySelectionUpgrade =
     { Sources: string list
       Replaces: string list }
-
-type AuthoringDependencyMember =
-    { SnapshotId: string
-      Fingerprint: string }
 
 /// One review of the final combined imports; no intermediate dependency graph is persisted.
 type AuthoringDependencyUpgradesPreview =
@@ -148,7 +157,7 @@ type AuthoringRejectionReceipt =
 
 [<RequireQualifiedAccess>]
 type private PendingProposal =
-    | DependencyUpgrade of AgentDependencyUpgradeProposal * AuthoringDependencyChangeRequest * string
+    | DependencyUpgrade of AgentDependencyUpgradeProposal * AuthoringDependencyChangeRequest * string * AuthoringDeclarationProvenance list
     | Operations of AgentChangeProposal
     | ReplaceBody of AgentExpressionStructuralChangeProposal
     | ReplaceTarget of AgentExpressionStructuralWorkflow.Targeted.Proposal
@@ -166,7 +175,7 @@ type private PendingProposal =
 module private PendingProposal =
     let proposedSnapshot (pending: PendingProposal): Snapshot option =
         match pending with
-        | PendingProposal.DependencyUpgrade(proposal, _, _) -> Some(AgentDependencyUpgradeProposal.proposedSnapshot proposal)
+        | PendingProposal.DependencyUpgrade(proposal, _, _, _) -> Some(AgentDependencyUpgradeProposal.proposedSnapshot proposal)
         | PendingProposal.Operations _ -> None
         | PendingProposal.ReplaceBody proposal -> Some(AgentExpressionStructuralChangeProposal.proposedSnapshot proposal)
         | PendingProposal.ReplaceTarget proposal -> Some(AgentExpressionStructuralWorkflow.Targeted.Proposal.proposedSnapshot proposal)
@@ -687,6 +696,25 @@ module private PinnedDependency =
                                           Upgrades = []; Replaced = List.map describe replaced; Selected = List.map describe selected
                                           Added = added; Removed = removed; Changed = changed; Issues = issues } })))
 
+    let withProvenance selection (declarations: AuthoringDeclarations) =
+        let entries (functions: SemanticFunction list) (types: SemanticType list) (effects: SemanticEffect list) (capabilities: SemanticCapability list) =
+            (functions |> List.map (fun f -> "function", StableId.value f.Id))
+            @ (types |> List.map (fun t -> "type", StableId.value t.Id))
+            @ (effects |> List.map (fun e -> "effect", StableId.value e.Id))
+            @ (capabilities |> List.map (fun c -> "capability", StableId.value c.Id))
+        let members = selection |> Option.map (fun current -> match current.Members with [] -> [ current ] | members -> members) |> Option.defaultValue []
+        let sources =
+            members |> List.map (fun memberItem ->
+                let imported = memberItem.Imported
+                Set.ofList (entries imported.Functions imported.Types imported.Effects imported.Capabilities),
+                { SnapshotId = StableId.value imported.Id; Fingerprint = memberItem.Fingerprint })
+        let provenance =
+            entries declarations.Functions declarations.Types declarations.Effects declarations.Capabilities
+            |> List.map (fun (kind, id) ->
+                let providing = sources |> List.choose (fun (ids, source) -> if Set.contains (kind, id) ids then Some source else None)
+                { Kind = kind; Id = id; IsLocal = List.isEmpty providing; Sources = providing })
+        { declarations with Provenance = provenance }
+
     let planChange path source current = function
         | AuthoringDependencyChangeRequest.Upgrades upgrades -> planUpgrades path source current upgrades
         | AuthoringDependencyChangeRequest.Selection request -> planSelectionUpgrade path source current request
@@ -848,7 +876,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 PinnedDependency.planChange path persistedSource current request
                 |> Result.map (fun plan ->
                     let combined = SnapshotCodec.resolveDependency plan.Selection.Imported plan.Local
-                    { Functions = combined.Functions; Types = combined.Types; Capabilities = combined.Capabilities; Effects = combined.Effects }))
+                    { Functions = combined.Functions; Types = combined.Types; Capabilities = combined.Capabilities; Effects = combined.Effects; Provenance = [] }
+                    |> PinnedDependency.withProvenance (Some plan.Selection)))
 
     member _.SimulateDependencyUpgrade(request: AuthoringDependencyChangeRequest, repairs: AgentDependencyLocalRepairs, expectedSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
         ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
@@ -865,8 +894,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                         |> Result.mapError AuthoringSessionError.StructuralSimulationFailure
                         |> Result.bind (fun proposal ->
                             let review = AgentDependencyUpgradeProposal.review proposal
+                            let proposed = AgentDependencyUpgradeProposal.proposedSnapshot proposal
+                            let provenance = PinnedDependency.withProvenance (Some plan.Selection) { Functions = proposed.Functions; Types = proposed.Types; Effects = proposed.Effects; Capabilities = proposed.Capabilities; Provenance = [] }
                             registerWith review.ChangedFunctions review.Receipt.TransactionId
-                                (PendingProposal.DependencyUpgrade(proposal, request, plan.Preview.ReviewFingerprint))
+                                (PendingProposal.DependencyUpgrade(proposal, request, plan.Preview.ReviewFingerprint, provenance.Provenance))
                                 (AuthoringProposalReview.DependencyUpgrade { Upgrade = plan.Preview; Repair = review }))))
 
     /// Read-only execution must not run a stale in-memory graph after the selected
@@ -894,7 +925,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         { Functions = AgentWorkspace.listFunctions workspace
           Types = AgentWorkspace.listTypes workspace
           Effects = AgentWorkspace.listEffects workspace
-          Capabilities = AgentWorkspace.listCapabilities workspace }
+          Capabilities = AgentWorkspace.listCapabilities workspace
+          Provenance = [] } |> PinnedDependency.withProvenance selection
 
     member _.FocusFunction(functionId) = AgentWorkspace.focusFunction workspace functionId
     member _.GetCallers(functionId) = AgentWorkspace.getCallers workspace functionId
@@ -1064,7 +1096,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Ok() ->
             match proposals.TryGetValue proposalId with
             | false, _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
-            | true, (_, PendingProposal.DependencyUpgrade(proposal, request, reviewed)) ->
+            | true, (_, PendingProposal.DependencyUpgrade(proposal, request, reviewed, _)) ->
                 match selection with
                 | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency selection.")
                 | Some current ->
@@ -1226,7 +1258,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             |> Result.map (fun fingerprint ->
                 { SnapshotId = snapshot.Id
                   Fingerprint = SnapshotFingerprint.value fingerprint
-                  Declarations = { Functions = snapshot.Functions; Types = snapshot.Types; Effects = snapshot.Effects; Capabilities = snapshot.Capabilities }
+                  Declarations =
+                    let declarations = PinnedDependency.withProvenance selection { Functions = snapshot.Functions; Types = snapshot.Types; Effects = snapshot.Effects; Capabilities = snapshot.Capabilities; Provenance = [] }
+                    match proposalId with
+                    | Some id ->
+                        match proposals.TryGetValue id with
+                        | true, (_, PendingProposal.DependencyUpgrade(_, _, _, provenance)) -> { declarations with Provenance = provenance }
+                        | _ -> declarations
+                    | None -> declarations
                   Project = fun entry ->
                     use _scope = SnapshotComputationScope.Start()
                     ExecutionCallGraph.forSnapshotEntry snapshot entry

@@ -64,7 +64,7 @@ module RecipeKindConsistencyTests =
     let private idForm = accepts (fun kind -> $"Unsupported expression recipe kind '{kind}'.") WireRecipe.recipe
 
     let private nameForm =
-        let declarations: AuthoringDeclarations = { Functions = []; Types = []; Effects = []; Capabilities = [] }
+        let declarations: AuthoringDeclarations = { Functions = []; Types = []; Effects = []; Capabilities = []; Provenance = [] }
         accepts
             (fun kind -> $"Unsupported symbolic expression recipe kind '{kind}'.")
             (WireSymbolic.recipeForNewFunction declarations "Probe" [])
@@ -107,7 +107,7 @@ module RecipeKindConsistencyTests =
     /// reference signatures describe what the reader accepts and inference checks.
     [<Fact>]
     let ``every operation signature matches its recipe case and wire fields`` () =
-        let declarations: AuthoringDeclarations = { Functions = []; Types = []; Effects = []; Capabilities = [] }
+        let declarations: AuthoringDeclarations = { Functions = []; Types = []; Effects = []; Capabilities = []; Provenance = [] }
         let check (entry: OperationSignatures.Signature) =
             let fields =
                 entry.Operands

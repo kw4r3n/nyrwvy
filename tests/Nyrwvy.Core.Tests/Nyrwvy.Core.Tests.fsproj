@@ -50,6 +50,7 @@
     <Compile Include="AuthoringDependencySetTests.fs" />
     <Compile Include="DependencyLocalRepairTests.fs" />
     <Compile Include="ActionableRunDiagnosticsTests.fs" />
+    <Compile Include="ImportProvenanceSelectorTests.fs" />
     <Compile Include="PinnedDependencyRecoveryTests.fs" />
     <Compile Include="AuthoringParameterMigrationSessionTests.fs" />
     <Compile Include="AuthoringDiscoveryTests.fs" />

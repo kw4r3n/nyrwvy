@@ -441,7 +441,7 @@ const references = {
 
 /** @typedef {keyof typeof references} RecipeKind */
 
-const usage = "Pass category for its kinds' one-line signatures (wire field names and types; often enough to write a scalar recipe), kind for one exact ordinary-tool wire shape with notes, or kinds for several shapes in one call. Shapes use display names where ordinary tools resolve semantic identities."
+const usage = "Pass category for its kinds' one-line signatures (wire field names and types; often enough to write a scalar recipe), kind for one exact ordinary-tool wire shape with notes, or kinds for several shapes in one call. Global function/type/capability/effect name slots accept a display-name string or {id} / {name,dependencySnapshotId} selector. Optional name, dependencySnapshotId and ownership guard an exact ID; inspect declarations.provenance for providing pins. Selectors lower to current exact identities and never resolve ambiguity automatically. A named TypeRef keeps its name slot, e.g. {kind:'named',name:{id:'<TypeId>'}}. Field/variant/parameter names remain local to their selected owner."
 
 /** @param {RecipeKind} kind */
 function entry(kind) {
