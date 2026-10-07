@@ -50,6 +50,60 @@ module ImportProvenanceSelectorTests =
         session.Commit(proposal, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
 
     [<Fact>]
+    let ``conflicting imported identity names only its actual providing pins`` () =
+        withApp (fun session path a b aPath bPath nextPath ->
+            let before = File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json")
+            let change = AuthoringDependencyChangeRequest.Selection { Sources = [ aPath; bPath; nextPath ]; Replaces = [ StableId.value a.Id; StableId.value b.Id ] }
+            match session.SimulateDependencyUpgrade(change, { Fields = []; Functions = []; Operations = [] }, session.SnapshotId) with
+            | Error(AuthoringSessionError.DependencyFailure message) ->
+                Assert.Contains("render", message)
+                Assert.Contains(StableId.value a.Id, message)
+                Assert.Contains(StableId.value (id<SnapshotTag> "a-new"), message)
+                Assert.DoesNotContain(StableId.value b.Id, message)
+                Assert.Contains("providing pin", message)
+            | other -> failwithf "Expected import conflict: %A" other
+            Assert.Equal(before, (File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json"))))
+
+    [<Fact>]
+    let ``failed pin and ownership guards advise without resolving or falling back`` () =
+        withApp (fun session path a b _ _ _ ->
+            let before = File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json")
+            for selector, guard in
+                [ json {| name = "render"; dependencySnapshotId = "old-pin" |}, "dependencySnapshotId"
+                  json {| id = StableId.value a.Functions.Head.Id; name = "render"; ownership = "local" |}, "ownership"
+                  json {| id = StableId.value a.Functions.Head.Id; name = "wrong-name" |}, "name" ] do
+                let response = simulate session "refused" (direct selector)
+                Assert.False(response.GetProperty("ok").GetBoolean())
+                let message = response.GetProperty("error").GetProperty("message").GetString()
+                Assert.Contains("advice only", message)
+                Assert.Contains(StableId.value a.Functions.Head.Id, message)
+                Assert.Contains(StableId.value a.Id, message)
+                Assert.Contains(guard, message)
+            let unknown = simulate session "unknown" (direct (json {| id = "unknown"; name = "render" |}))
+            Assert.False(unknown.GetProperty("ok").GetBoolean())
+            Assert.DoesNotContain("Current candidates", unknown.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal(before, (File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json")))
+            simulate session "allowed" (direct (json {| id = StableId.value a.Functions.Head.Id; name = "render"; ownership = "imported" |})) |> publish session)
+
+    [<Fact>]
+    let ``selector advice is bounded and deterministic for many equal names`` () =
+        withApp (fun session path _ _ aPath bPath _ ->
+            let sources =
+                [ 0 .. 5 ] |> List.map (fun index ->
+                    let source = Path.Combine(Path.GetDirectoryName path, $"extra-{index}.json")
+                    File.WriteAllText(source, SnapshotCodec.serialize (library $"extra-{index}" $"extra-{index}" (int64 index)) |> unwrap)
+                    source)
+            use larger = AuthoringSession.createNewWithDependencies (Path.Combine(Path.GetDirectoryName path, "larger.json")) ([ aPath; bPath ] @ sources) |> unwrap
+            let selector = json {| name = "render"; dependencySnapshotId = "obsolete" |}
+            let first = simulate larger "refused" (direct selector)
+            let second = simulate larger "refused" (direct selector)
+            Assert.False(first.GetProperty("ok").GetBoolean())
+            let message = first.GetProperty("error").GetProperty("message").GetString()
+            Assert.Equal(message, second.GetProperty("error").GetProperty("message").GetString())
+            Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(message, "ownership=imported").Count)
+            Assert.Contains("+3 more candidates", message))
+
+    [<Fact>]
     let ``discovery identifies local declarations and all providing pins for a diamond`` () =
         withApp (fun session _ a b _ _ _ ->
             let p = session.Declarations().Provenance

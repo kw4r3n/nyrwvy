@@ -169,7 +169,33 @@ module PureRunByNameTests =
     let private budgetRejected session name value =
         let code, message = rejected session $"""{{"id":"budget","op":"runPureByName","function":"{name}","arguments":[{value}]}}"""
         Assert.Equal("ProtocolError", code)
-        Assert.Equal("Run values may contain at most 8192 value nodes.", message)
+        Assert.Contains("8192 value nodes per argument or expected value", message)
+        Assert.Contains("arguments[0]", message)
+        Assert.Contains("at least 8193 nodes", message)
+        Assert.Contains("Split the input", message)
+
+    [<Fact>]
+    let ``budget guidance identifies expectation and review case without publishing`` () =
+        withSession (fun session _ ->
+            identity session "budgetLocation" mapInts
+            let before = File.ReadAllBytes session.Path
+            let oversized = scalarMap 4096
+            let code, message = rejected session $"""{{"id":"expected","op":"runPureByName","function":"budgetLocation","arguments":[{scalarMap 0}],"expected":{oversized}}}"""
+            Assert.Equal("ProtocolError", code)
+            Assert.Contains("At expected:", message)
+            let proposal = result session """{"id":"proposal","op":"simulateReplaceBodyByName","function":"budgetLocation","replacement":{"kind":"parameter","name":"value"}}"""
+            let proposalId = proposal.GetProperty("proposalId").GetString()
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "budgetLocation")
+            let functionId = Nyrwvy.Core.StableId.value fn.Id
+            for arguments, expected, location in
+                [ oversized, "", "cases[0].arguments[0]"
+                  scalarMap 0, $",\"expectedCandidate\":{oversized}", "cases[0].expectedCandidate" ] do
+                let line = $"""{{"id":"case","op":"verifyChange","proposalId":"{proposalId}","cases":[{{"label":"budget","functionId":"{functionId}","arguments":[{arguments}]{expected}}}]}}"""
+                let code, message = rejected session line
+                Assert.Equal("ProtocolError", code)
+                Assert.Contains($"At {location}:", message)
+                Assert.Contains("per argument or expected value", message)
+            Assert.Equal<byte>(before, File.ReadAllBytes session.Path))
 
     [<Fact>]
     let ``protocol counts Map and Set tagged children once and roundtrips output`` () =
@@ -253,7 +279,8 @@ module PureRunByNameTests =
             Assert.Equal("unit", (result session (line (fake 4087))).GetProperty("actual").GetProperty("kind").GetString())
             let code, message = rejected session (line (fake 4088))
             Assert.Equal("ProtocolError", code)
-            Assert.Equal("Run values may contain at most 8192 value nodes.", message))
+            Assert.Contains("8192 value nodes per argument or expected value", message)
+            Assert.Contains("At arguments[1]:", message))
 
     [<Theory>]
     [<InlineData(false)>]

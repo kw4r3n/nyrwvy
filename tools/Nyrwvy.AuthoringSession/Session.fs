@@ -403,10 +403,21 @@ module private PinnedDependency =
         | [] -> JsonSerializer.Serialize(describeMember selected)
         | members -> JsonSerializer.Serialize({| dependencies = members |> List.map describeMember |})
 
-    let private combinationFailure = function
+    let private combinationFailure (members: PinnedDependencySelection list) = function
         | DependencyCombinationError.NoDependencies -> AuthoringSessionError.DependencyFailure "A dependency set needs at least one dependency."
         | DependencyCombinationError.ConflictingDeclaration(kind, id) ->
-            AuthoringSessionError.DependencyFailure $"Dependencies declare the {kind} '{id}' with different content; colliding imported identities are never merged."
+            let providers =
+                members |> List.choose (fun memberSelection ->
+                    let name =
+                        match kind with
+                        | "type" -> memberSelection.Imported.Types |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+                        | "effect" -> memberSelection.Imported.Effects |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+                        | "capability" -> memberSelection.Imported.Capabilities |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+                        | "function" -> memberSelection.Imported.Functions |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+                        | _ -> None
+                    name |> Option.map (fun displayName -> $"'{displayName}' from providing pin '{StableId.value memberSelection.Imported.Id}' (fingerprint {memberSelection.Fingerprint})"))
+            let context = if providers.IsEmpty then "" else " Providing declarations: " + String.concat "; " providers + "."
+            AuthoringSessionError.DependencyFailure ($"Dependencies declare the {kind} '{id}' with different content; colliding imported identities are never merged." + context)
         | DependencyCombinationError.FingerprintFailure error -> AuthoringSessionError.SnapshotCodecFailure error
 
     /// Combines individually pinned dependencies under the import collision policy.
@@ -415,7 +426,7 @@ module private PinnedDependency =
         | [ single ] -> Ok single
         | _ ->
             DependencyGraph.combine (members |> List.map (fun item -> item.Imported))
-            |> Result.mapError combinationFailure
+            |> Result.mapError (combinationFailure members)
             |> Result.bind (fun combined ->
                 match SnapshotFingerprint.compute combined with
                 | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)

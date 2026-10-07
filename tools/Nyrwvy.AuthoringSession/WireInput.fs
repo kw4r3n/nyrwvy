@@ -6,6 +6,7 @@ open Nyrwvy.Core
 
 module internal WireInput =
     exception ProtocolInputException of string
+    exception RunValueNodeBudgetExceeded of chargedNodes: int
 
     let fail message = raise (ProtocolInputException message)
 

@@ -49,6 +49,25 @@ both executions fail identically. Concurrent traces need a partial-order/allowed
 observation policy before they can support either agreement or a counterexample.
 The existing runner performs its usual bounded process execution and cleanup.
 
+### Comparing a program across an input-schema migration
+
+A case supplies one exact-ID argument list to both versions. If `Row.requested`
+changes from Int64 to String, a case using the old Int64 value can succeed on the
+baseline and return `RunProductShapeMismatch` on the candidate. Its status is
+`unknown`: this is an input-contract boundary, not a recognized program failure.
+The candidate error retains `details.path`, `expectedType`, `actualType` and
+`reason`; these describe the candidate declarations. An `expectedCandidate`
+belongs only to the candidate and never changes baseline execution or diagnostics.
+
+For a quantitative preservation check, define a stable observation entry such as
+`sampleText() -> String`. Each version builds its own correctly typed sample rows
+inside the graph and returns the same meaningful aggregate, for example
+`補充金額¥110 / 不正1`. Compare that entry with `verifyChange`, and separately run
+the old and new typed inputs against independent expectations with `runPure`.
+Keep the sample meaning stable and cover malformed input and relevant boundaries;
+agreement for this entry remains finite-case evidence. No implicit conversion,
+separate before/after argument lists or universal equivalence claim is introduced.
+
 ## Revision and dependency validity
 
 Evidence records both snapshot IDs and full graph fingerprints. Full fingerprints

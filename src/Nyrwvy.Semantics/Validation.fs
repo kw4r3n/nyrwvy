@@ -404,6 +404,9 @@ module SnapshotValidator =
 
         for functionEntity in snapshot.Functions do
             let allNodes = ValueGraph.collectNodes functionEntity.Body
+            // The validator already has the owning function, including for nested nodes.
+            // Keep codes stable and add context here rather than parsing UUIDs downstream.
+            let add code message = add code $"In function {StableId.describe functionEntity.DisplayName functionEntity.Id}: {message}"
             let nodesById = allNodes |> List.map (fun node -> node.Id, node) |> Map.ofList
             let parametersById =
                 functionEntity.Parameters

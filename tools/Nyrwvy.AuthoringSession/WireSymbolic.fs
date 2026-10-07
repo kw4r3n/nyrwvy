@@ -43,7 +43,33 @@ module internal WireSymbolic =
                 && (ownership |> Option.forall (fun owned -> provenance |> Option.exists (fun p -> p.IsLocal = (owned = "local")))))
             match candidates with
             | [ item ] -> item
-            | [] -> fail $"No current {kind} matches the explicit declaration selector; inspect declarations and its provenance."
+            | [] ->
+                // Advice never participates in resolution. An explicit ID remains authoritative
+                // even when a supplied name happens to identify some other declaration.
+                let related =
+                    items |> List.filter (fun item ->
+                        match id, name with
+                        | Some selectedId, _ -> getId item = selectedId
+                        | None, Some selectedName -> getName item = selectedName
+                        | _ -> false)
+                    |> List.sortBy getId
+                let advice =
+                    related |> List.truncate 5 |> List.map (fun item ->
+                        let itemId = getId item
+                        let provenance = declarations.Provenance |> List.tryFind (fun p -> p.Kind = kind && p.Id = itemId)
+                        let owner = provenance |> Option.map (fun p -> if p.IsLocal then "local" else "imported") |> Option.defaultValue "unknown"
+                        let pins = provenance |> Option.map (fun p -> p.Sources |> List.map (fun s -> s.SnapshotId) |> List.sort) |> Option.defaultValue []
+                        let mismatched =
+                            [ if name |> Option.exists ((<>) (getName item)) then "name"
+                              if dependency |> Option.exists (fun pin -> not (List.contains pin pins)) then "dependencySnapshotId"
+                              if ownership |> Option.exists ((<>) owner) then "ownership" ]
+                        let shownPins = pins |> List.truncate 5 |> String.concat ", "
+                        let omittedPins = if pins.Length > 5 then $" (+{pins.Length - 5} more)" else ""
+                        let mismatchedGuards = String.concat ", " mismatched
+                        $"id={itemId}, name={JsonSerializer.Serialize(getName item)}, ownership={owner}, providing pins=[{shownPins}]{omittedPins}, mismatched guards=[{mismatchedGuards}]")
+                let omitted = if related.Length > 5 then $" (+{related.Length - 5} more candidates)" else ""
+                let context = if advice.IsEmpty then "" else " Current candidates (advice only): " + String.concat "; " advice + omitted + "."
+                fail ($"No current {kind} matches the explicit declaration selector; inspect declarations and its provenance." + context)
             | _ -> fail $"Ambiguous {kind} selector; specify an exact id or a providing dependencySnapshotId."
 
     let resolveTypeSelector declarations selector = resolveSelector "type" declarations declarations.Types (fun (t: SemanticType) -> StableId.value t.Id) (fun t -> t.DisplayName) selector

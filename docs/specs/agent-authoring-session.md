@@ -338,7 +338,10 @@ report was computed/written, not that all cases passed. Evidence contains
 `coverage`, `affectedFunctionIds`, `caseEntryFunctionIds`, and `cases`.
 Verifier identity records observation policy/version, runtime/build context and
 module identities. Current observation schema/policy is
-`nyrwvy-change-verification-v4`; earlier experimental reports retain their
+`nyrwvy-change-verification-v5`; v5 preserves structured input diagnostics for
+each side using the declarations captured by that execution, including candidate-only
+expectation errors. Its finite-case observation policy remains the v4 policy.
+Earlier experimental reports retain their
 historical schemas and must not be interpreted as current observations.
 
 Each reported case contains its label, function ID, arguments, optional expectation
