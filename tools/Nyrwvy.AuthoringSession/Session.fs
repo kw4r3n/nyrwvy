@@ -22,6 +22,7 @@ type AuthoringSessionError =
     | SessionInvalidated
     | WorkflowSimulationFailure of AgentWorkflowError
     | StructuralSimulationFailure of AgentStructuralWorkflowError
+    | FieldTypeMigrationRepairMismatch of TransactionDiagnostic list * missing: FunctionId list * unrelated: FunctionId list
     | TypeDeclarationSimulationFailure of AgentTypeDeclarationWorkflowError
     | EffectDeclarationSimulationFailure of AgentEffectDeclarationWorkflowError
     | CapabilityDeclarationSimulationFailure of AgentCapabilityDeclarationWorkflowError
@@ -1014,6 +1015,16 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error error
         | Ok() ->
             match AgentProductFieldTypeMigrationWorkflow.simulate workspace request with
+            | Error(AgentStructuralWorkflowError.SimulationRejected diagnostics)
+                when diagnostics |> List.exists (fun d -> d.Code = "FieldTypeMigrationRewriteMismatch") ->
+                let owner = AgentWorkspace.listTypes workspace |> List.find (fun t ->
+                    match t.Kind with
+                    | SemanticTypeKind.Product fields -> fields |> List.exists (fun f -> f.Id = request.FieldId)
+                    | _ -> false)
+                let expected = AgentProductFieldTypeMigrationWorkflow.affectedFunctions (AgentWorkspace.listFunctions workspace) owner.Id request.FieldId |> List.map (fun fn -> fn.Id) |> Set.ofList
+                let requested = request.FunctionRewrites |> List.map (fun r -> r.FunctionId) |> Set.ofList
+                Error(AuthoringSessionError.FieldTypeMigrationRepairMismatch(
+                    diagnostics, Set.difference expected requested |> Set.toList, Set.difference requested expected |> Set.toList))
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
                 registerWith (AgentProductFieldTypeMigrationProposal.proposedFunctions proposal) (AgentProductFieldTypeMigrationProposal.transactionId proposal) (PendingProposal.ProductFieldTypeMigration proposal) (AuthoringProposalReview.ProductFieldTypeMigration(AgentProductFieldTypeMigrationProposal.review proposal))

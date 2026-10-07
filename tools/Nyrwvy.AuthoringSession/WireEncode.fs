@@ -351,7 +351,7 @@ module internal WireEncode =
     let proposal value = proposalWith "full" WireEncodeCommon.functionEntity WireEncodeCommon.focus value
 
     /// Default simulate reply: the same review with function bodies reduced to a summary.
-    let compactProposal value = proposalWith "compact" WireEncodeCommon.functionSummary WireEncodeCommon.compactFocus value
+    let compactProposal value = proposalWith "compact" WireEncodeCommon.functionSummary WireEncodeCommon.compactFocus value |> WireProposalProjection.compact
 
     let private csharpSymbols (items: CSharpSymbol<StableId<'Kind>> list) =
         items
@@ -445,7 +445,8 @@ module internal WireEncode =
         | AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected values) ->
             "SimulationRejected", "The requested operations were rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
         | AuthoringSessionError.WorkflowSimulationFailure other -> "WorkflowSimulationFailure", sprintf "%A" other, None
-        | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values) ->
+        | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values)
+        | AuthoringSessionError.FieldTypeMigrationRepairMismatch(values, _, _) ->
             "SimulationRejected", "The structural request was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
         | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", sprintf "%A" other, None
         | AuthoringSessionError.TypeDeclarationSimulationFailure(AgentTypeDeclarationWorkflowError.SimulationRejected values) ->
@@ -489,6 +490,25 @@ module internal WireEncode =
     /// Retain the established lowering error code and exact IDs, adding actionable context.
     let errorWithDeclarations (declarations: AuthoringDeclarations) value =
         match value with
+        | AuthoringSessionError.FieldTypeMigrationRepairMismatch(values, missing, unrelated) ->
+            let references ids =
+                let shown = ids |> List.truncate 5 |> List.map (fun id ->
+                    let exact = StableId.value id
+                    let fn = declarations.Functions |> List.tryFind (fun f -> f.Id = id)
+                    let provenance = declarations.Provenance |> List.tryFind (fun p -> p.Kind = "function" && p.Id = exact)
+                    let name = fn |> Option.map (fun f -> f.DisplayName) |> Option.defaultValue "<unknown>"
+                    let mutable cut = min 128 name.Length
+                    if cut > 0 && cut < name.Length && System.Char.IsHighSurrogate name[cut - 1] then cut <- cut - 1
+                    let pins = provenance |> Option.map (fun p -> p.Sources |> List.sortBy (fun s -> s.SnapshotId)) |> Option.defaultValue []
+                    objectValue [ "id", box exact; "displayName", box (name.Substring(0, cut)); "displayNameTruncated", box (cut < name.Length)
+                                  "ownership", box (provenance |> Option.map (fun p -> if p.IsLocal then "local" else "imported") |> Option.defaultValue "unknown")
+                                  "sources", pins |> List.truncate 5 |> List.map (fun s -> objectValue [ "snapshotId", box s.SnapshotId; "fingerprint", box s.Fingerprint ]) |> arrayValue
+                                  "sourceCount", box pins.Length; "sourcesTruncated", box (pins.Length > 5) ])
+                objectValue [ "items", arrayValue shown; "totalCount", box ids.Length; "truncated", box (ids.Length > shown.Length) ]
+            objectValue [ "code", box "SimulationRejected"; "message", box "The structural request was rejected."
+                          "details", objectValue [ "diagnostics", diagnostics values
+                                                   "repair", objectValue [ "missing", references missing; "unrelated", references unrelated
+                                                                           "inspectOperation", box "declarations" ] ] ]
         | AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
             let fn = declarations.Functions |> List.tryFind (fun f -> f.Id = functionId)
             let displayName = fn |> Option.map (fun f -> f.DisplayName) |> Option.defaultValue (StableId.value functionId)

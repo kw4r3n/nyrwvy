@@ -161,3 +161,126 @@ module CompactSimulateReplyTests =
             use status = AuthoringProtocol.executeLine session """{"id":"status","op":"status","detail":"full"}""" |> JsonDocument.Parse
             Assert.False(status.RootElement.GetProperty("ok").GetBoolean())
             Assert.Equal(before, session.Status() |> unwrap))
+
+    [<Fact>]
+    let ``large targeted compact review is bounded and every diff node can be paged by pending identity`` () =
+        withSession (fun session ->
+            use created = send session (create "large" "" (boolLiteral "true"))
+            session.Commit((result created).GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let fn = session.Declarations().Functions |> List.exactlyOne
+            let line = $"""{{"id":"large-edit","op":"simulateReplaceTargetByName","function":"large","targetNodeId":"{StableId.value fn.Body.ResultNodeId}","replacement":{nestedBody 30}}}"""
+            use response = send session line
+            let compact = result response
+            Assert.True(System.Text.Encoding.UTF8.GetByteCount(compact.GetRawText()) <= WireProposalProjection.compactMaxBytes)
+            Assert.True(compact.GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
+            Assert.Equal("semanticallyReady", compact.GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString())
+            let proposalId = compact.GetProperty("proposalId").GetString()
+            let pending = session.PendingProposalView proposalId |> unwrap
+            let expected =
+                match pending.Proposal.Review with
+                | AuthoringProposalReview.ReplaceTarget review -> review.ResultingChange.AddedNodes |> List.map (fun n -> StableId.value n.NodeId)
+                | _ -> failwith "Expected target review"
+            let ids = ResizeArray<string>()
+            let mutable offset = 0
+            let mutable finished = false
+            while not finished do
+                use page = send session ($"""{{"id":"page","op":"readProposal","proposalId":"{proposalId}","path":"/review/diff/addedNodes","offset":{offset},"limit":20}}""")
+                let value = result page
+                Assert.True(System.Text.Encoding.UTF8.GetByteCount(value.GetRawText()) <= WireProposalProjection.pageMaxBytes)
+                Assert.True(value.GetProperty("baseIsCurrent").GetBoolean())
+                Assert.Equal(expected.Length, value.GetProperty("totalCount").GetInt32())
+                let items = value.GetProperty("value")
+                Assert.Equal(items.GetArrayLength(), value.GetProperty("returnedCount").GetInt32())
+                for item in items.EnumerateArray() do ids.Add(item.GetProperty("nodeId").GetString())
+                let next = value.GetProperty("nextOffset")
+                if next.ValueKind = JsonValueKind.Null then finished <- true
+                else
+                    let nextOffset = next.GetInt32()
+                    Assert.True(nextOffset > offset)
+                    offset <- nextOffset
+            Assert.Equal<string list>(expected, List.ofSeq ids)
+            // The bounded view does not change the receipt or proposal authority.
+            use receiptPage = send session ($"""{{"id":"receipt","op":"readProposal","proposalId":"{proposalId}","path":"/review/receipt"}}""")
+            Assert.Equal(compact.GetProperty("review").GetProperty("receipt").GetRawText(), (result receiptPage).GetProperty("value").GetRawText())
+            session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            use gone = AuthoringProtocol.executeLine session ($"""{{"id":"gone","op":"readProposal","proposalId":"{proposalId}"}}""") |> JsonDocument.Parse
+            Assert.Equal("ProposalNotFound", gone.RootElement.GetProperty("error").GetProperty("code").GetString()))
+
+    [<Fact>]
+    let ``pending review reads report stale base and do not refresh a stale commit`` () =
+        withSession (fun session ->
+            use pendingResponse = send session (create "pending" "" (boolLiteral "true"))
+            let proposalId = (result pendingResponse).GetProperty("proposalId").GetString()
+            use advance = send session (create "advance" "" (boolLiteral "false"))
+            session.Commit((result advance).GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            use page = send session ($"""{{"id":"stale-read","op":"readProposal","proposalId":"{proposalId}"}}""")
+            Assert.False((result page).GetProperty("baseIsCurrent").GetBoolean())
+            match session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) with
+            | Error(AuthoringSessionError.CommitRejected diagnostics) -> Assert.Contains(diagnostics, fun d -> d.Code = "StaleBaseSnapshot")
+            | other -> failwithf "Stale proposal unexpectedly accepted: %A" other)
+
+    [<Fact>]
+    let ``proposal pages reject malformed paths limits and offsets as protocol errors`` () =
+        withSession (fun session ->
+            use proposed = send session (create "page-input" "" (boolLiteral "true"))
+            let proposalId = (result proposed).GetProperty("proposalId").GetString()
+            for fields in [ "\"path\":\"bad\""; "\"path\":\"/review/~3\""; "\"path\":\"/review/missing\""; "\"offset\":-1"; "\"limit\":0"; "\"limit\":21"; "\"offset\":\"0\"" ] do
+                use response = AuthoringProtocol.executeLine session ($"""{{"id":"bad-page","op":"readProposal","proposalId":"{proposalId}",{fields}}}""") |> JsonDocument.Parse
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
+                Assert.Equal("ProtocolError", response.RootElement.GetProperty("error").GetProperty("code").GetString()))
+
+    [<Fact>]
+    let ``projection bounds huge unicode metadata without inventing identity prefixes`` () =
+        let huge = String.replicate 5000 "測定😀"
+        let node id = WireJson.objectValue [ "nodeId", box id; "referenceDisplayName", box huge ]
+        let raw = WireJson.objectValue [ "proposalId", box "fixed-proposal"; "detail", box "compact";
+                                        "review", WireJson.objectValue [ "kind", box "operations"; "receipt", WireJson.objectValue [ "baseSnapshotId", box huge ];
+                                                                         "readiness", WireJson.objectValue [ "kind", box "incomplete"; "obligationIds", [ 0..1000 ] |> List.map (fun i -> box ("obligation-" + string i)) |> WireJson.arrayValue ];
+                                                                         "diff", [ 0..64 ] |> List.map (fun i -> node ("node-" + string i)) |> WireJson.arrayValue ] ]
+        let text = WireProposalProjection.compact raw |> WireJson.serialize
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount text <= WireProposalProjection.compactMaxBytes)
+        use doc = JsonDocument.Parse text
+        let review = doc.RootElement.GetProperty("review")
+        Assert.Equal("incomplete", review.GetProperty("readiness").GetProperty("kind").GetString())
+        Assert.Equal(JsonValueKind.Null, review.GetProperty("receipt").ValueKind)
+        let projection = doc.RootElement.GetProperty("projection")
+        Assert.True(projection.GetProperty("requiresDetailedReview").GetBoolean())
+        Assert.True(projection.GetProperty("omissionCount").GetInt32() > 0)
+        for item in review.GetProperty("diff").EnumerateArray() do
+            Assert.StartsWith("node-", item.GetProperty("nodeId").GetString())
+
+    [<Fact>]
+    let ``large full node text pages preserve UTF16 and cannot bypass the page byte bound`` () =
+        withSession (fun session ->
+            let literal = String.replicate 3000 "測定😀"
+            let line = JsonSerializer.Serialize {| id = "text"; op = "simulateCreateFunctionByName"; displayName = "text";
+                                                  parameters = Array.empty<obj>; resultType = {| kind = "primitive"; primitive = "string" |};
+                                                  requiredEffects = Array.empty<obj>; body = {| kind = "stringLiteral"; value = literal |} |}
+            use response = send session line
+            let proposalId = (result response).GetProperty("proposalId").GetString()
+            let pending = session.PendingProposalView proposalId |> unwrap
+            use full = WireEncode.proposal pending.Proposal |> WireJson.serialize |> JsonDocument.Parse
+            let expected = full.RootElement.GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodes").[0].GetProperty("kind").GetString()
+            let collected = Text.StringBuilder()
+            let mutable offset = 0
+            let mutable finished = false
+            while not finished do
+                use page = send session ($"""{{"id":"text-page","op":"readProposal","proposalId":"{proposalId}","structuredReview":false,"path":"/review/createdFunction/body/nodes/0/kind","offset":{offset},"limit":1024}}""")
+                let value = result page
+                Assert.True(Text.Encoding.UTF8.GetByteCount(value.GetRawText()) <= WireProposalProjection.pageMaxBytes)
+                let part = value.GetProperty("value").GetString()
+                Assert.Equal(part.Length, value.GetProperty("returnedCount").GetInt32())
+                Assert.True(value.GetProperty("projection").GetProperty("complete").GetBoolean())
+                collected.Append part |> ignore
+                let next = value.GetProperty("nextOffset")
+                if next.ValueKind = JsonValueKind.Null then finished <- true else offset <- next.GetInt32()
+            Assert.Equal(expected, collected.ToString())
+            // The default object/node page is bounded too; its oversized debug kind is explicit.
+            use nodePage = send session ($"""{{"id":"node-page","op":"readProposal","proposalId":"{proposalId}","structuredReview":false,"path":"/review/createdFunction/body/nodes","limit":1}}""")
+            Assert.True(Text.Encoding.UTF8.GetByteCount((result nodePage).GetRawText()) <= WireProposalProjection.pageMaxBytes)
+            Assert.True((result nodePage).GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
+            let expectedNodeId = full.RootElement.GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodes").[0].GetProperty("id").GetString()
+            Assert.Equal(expectedNodeId, (result nodePage).GetProperty("value").[0].GetProperty("id").GetString())
+            session.Reject proposalId |> unwrap |> ignore
+            use gone = AuthoringProtocol.executeLine session ($"""{{"id":"rejected-page","op":"readProposal","proposalId":"{proposalId}"}}""") |> JsonDocument.Parse
+            Assert.Equal("ProposalNotFound", gone.RootElement.GetProperty("error").GetProperty("code").GetString()))
