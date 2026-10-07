@@ -92,6 +92,46 @@ module ImportProvenanceSelectorTests =
                 Assert.Equal(before, (File.ReadAllBytes path, File.ReadAllBytes(path + ".dependency.json"))))
 
     [<Fact>]
+    let ``exact owner selector supports recursive replacement including keepUnlisted`` () =
+        withApp (fun session path a _ aPath _ _ ->
+            let create = session.SimulateCreateFunction
+                            { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
+                              Parameters = [ { DisplayName = "remaining"; Type = intType }; { DisplayName = "total"; Type = intType } ]
+                              ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap
+            session.Commit(create.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "countdown")
+            let selector = {| id = StableId.value fn.Id; name = "countdown"; ownership = "local" |}
+            for keep in [ false; true ] do
+                let arguments =
+                    [ {| parameter = "remaining"; value = element """{"kind":"int64WrappingSubtract","left":{"kind":"parameter","name":"remaining"},"right":{"kind":"int64Literal","value":"1"}}""" |} ]
+                    @ (if keep then [] else [ {| parameter = "total"; value = element """{"kind":"parameter","name":"total"}""" |} ])
+                let call = {| kind = "directCall"; ``function`` = selector; arguments = arguments; keepUnlisted = keep |}
+                let body = {| kind = "conditional"; condition = element """{"kind":"int64Equal","left":{"kind":"parameter","name":"remaining"},"right":{"kind":"int64Literal","value":"0"}}"""
+                              whenTrue = element """{"kind":"parameter","name":"total"}"""; whenFalse = call |}
+                let response = AuthoringProtocol.executeLine session (json {| id = "replace"; op = "simulateReplaceBodyByName"; ``function`` = selector; replacement = body |}) |> element
+                publish session response
+                let actual = PureRun.run session fn.Id [ PureRunValue.Int64 3L; PureRunValue.Int64 9L ] (Some(PureRunValue.Int64 9L)) |> unwrap
+                Assert.Equal(Some true, actual.Matches)
+            // Evolving a separate library can legitimately introduce the local owner's
+            // display name: collision policy preserves distinct declaration identities.
+            use upstream = AuthoringSession.openExisting aPath |> unwrap
+            let rename = upstream.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function a.Functions.Head.Id, "countdown") ] |> unwrap
+            upstream.Commit(rename.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            upstream.Close()
+            let change = AuthoringDependencyChangeRequest.Upgrades [ { Source = aPath; Replaces = StableId.value a.Id } ]
+            let proposal = session.SimulateDependencyUpgrade(change, { Fields = []; Functions = []; Operations = [] }, session.SnapshotId) |> unwrap
+            session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let other = {| id = StableId.value a.Functions.Head.Id; name = "countdown" |}
+            let replace keep = AuthoringProtocol.executeLine session (json {| id = "replace"; op = "simulateReplaceBodyByName"; ``function`` = {| id = StableId.value fn.Id |}
+                                                                              replacement = {| kind = "directCall"; ``function`` = other; arguments = Array.empty<obj>; keepUnlisted = keep |} |}) |> element
+            replace false |> publish session
+            let actual = PureRun.run session fn.Id [ PureRunValue.Int64 3L; PureRunValue.Int64 9L ] (Some(PureRunValue.Int64 1L)) |> unwrap
+            Assert.Equal(Some true, actual.Matches)
+            let before = File.ReadAllBytes path
+            Assert.False((replace true).GetProperty("ok").GetBoolean())
+            Assert.Equal<byte>(before, File.ReadAllBytes path))
+
+    [<Fact>]
     let ``type capability and effect qualifiers lower to exact owned declarations`` () =
         withApp (fun session _ a _ _ _ _ ->
             let selector name = element(json {| name = name; dependencySnapshotId = StableId.value a.Id |})

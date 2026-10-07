@@ -72,6 +72,63 @@ module ActionableRunDiagnosticsTests =
             Assert.Equal<string list>([ "arguments"; "input" ], issue.Path))
 
     [<Fact>]
+    let ``generic and task entry refusal never reports an input defect`` () =
+        withSession (fun session _ path ->
+            let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "T", "T")
+            for name, parameterType, resultType, body, code in
+                [ "generic", genericType, genericType, ExpressionRecipe.ParameterSlot 0, "RunGenericEntryUnsupported"
+                  "task", TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ intType ]), intType, ExpressionRecipe.Int64Literal 0L, "RunTaskTypeUnsupported" ] do
+                session.SimulateCreateFunction
+                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                      Parameters = [ { DisplayName = "x"; Type = parameterType } ]; ResultType = resultType
+                      RequiredEffects = []; Body = body } |> publish
+                let before = File.ReadAllBytes path
+                use response = JsonDocument.Parse(AuthoringProtocol.executeLine session ($"""{{"id":"test","op":"runPureByName","function":"{name}","arguments":[{{"kind":"int64","value":"1"}}]}}"""))
+                let error = response.RootElement.GetProperty("error")
+                Assert.Equal(code, error.GetProperty("code").GetString())
+                Assert.False(error.TryGetProperty("details") |> fst)
+                Assert.DoesNotContain("At arguments", error.GetProperty("message").GetString())
+                Assert.Equal<byte>(before, File.ReadAllBytes path))
+
+    [<Fact>]
+    let ``diagnostic path follows runner error category across multiple invalid arguments`` () =
+        withSession (fun session _ _ ->
+            let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            session.SimulateCreateType
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
+                  Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = intType } ] } |> publish
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "mixed"
+                  Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) }
+                                 { DisplayName = "p"; Type = TypeRef.Named((session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id) } ]
+                  ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
+            use response = JsonDocument.Parse(AuthoringProtocol.executeLine session """{"id":"mixed","op":"runPureByName","function":"mixed","arguments":[{"kind":"list","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64","value":"1"}]},{"kind":"product","type":"Money","fields":[]}]}""")
+            let error = response.RootElement.GetProperty("error")
+            Assert.Equal("RunProductShapeMismatch", error.GetProperty("code").GetString())
+            let path = error.GetProperty("details").GetProperty("path")
+            Assert.Equal("p", path[1].GetString())
+            Assert.Contains("p.Money.amount", error.GetProperty("message").GetString())
+            let money = (session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id
+            let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named money ])
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "nestedMixed"
+                  Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ optionType ]) } ]
+                  ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
+            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "nestedMixed")
+            let items =
+                [ PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Bool true))
+                  PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Product(money, []))) ]
+            let values = [ PureRunValue.ListValue(optionType, items) ]
+            match PureRun.run session fn.Id values None with
+            | Error(PureRunError.Unsupported(code, message) as error) ->
+                Assert.Equal("RunProductShapeMismatch", code)
+                Assert.Contains("items[1].some.Money.amount", message)
+                let issue = PureRun.inputIssueForError (session.Declarations()) fn.Id values None error |> Option.get
+                Assert.Equal<string list>([ "arguments"; "xs"; "items[1]"; "some"; "Money"; "amount" ], issue.Path)
+            | other -> failwithf "%A" other)
+
+    [<Fact>]
     let ``lowering diagnostic retains IDs names operands and explicit Bind repair`` () =
         withSession (fun session _ path ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore

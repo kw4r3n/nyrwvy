@@ -888,69 +888,81 @@ module PureRun =
 
     /// Diagnose the first semantic input defect without changing runner acceptance rules.
     /// Walk only bounded values, in declaration order, so reordered fields give the same path.
-    let internal inputIssue (declarations: AuthoringDeclarations) functionId arguments expected =
+    let private inputIssueMatching category (declarations: AuthoringDeclarations) functionId arguments expected =
         let typeName id = declarations.Types |> List.tryFind (fun t -> t.Id = id) |> Option.map (fun t -> t.DisplayName) |> Option.defaultValue (StableId.value id)
-        let issue path expected actual reason = Some { Path = path; ExpectedType = expected; ActualType = actual; Reason = reason }
-        let rec walk path declared value =
+        let issue code path expected actual reason =
+            if category |> Option.forall ((=) code) then Some { Path = path; ExpectedType = expected; ActualType = actual; Reason = reason } else None
+        let rec walk mismatchCode path declared value =
             let actual = valueType value
-            if declared <> actual then issue path (Some declared) (Some actual) "The value type differs from the declared type."
+            let mismatch = if declared <> actual then issue mismatchCode path (Some declared) (Some actual) "The value type differs from the declared type." else None
+            if mismatch.IsSome then mismatch
             else
-                let fields path typeId (declared: SemanticField list option) (fields: (FieldId * PureRunValue) list) =
+                let fields shapeCode path typeId (declared: SemanticField list option) (fields: (FieldId * PureRunValue) list) =
                     match declared with
-                    | None -> issue path (Some(TypeRef.Named typeId)) (Some actual) "The Product type or Union variant is not declared."
+                    | None -> issue shapeCode path (Some(TypeRef.Named typeId)) (Some actual) "The Product type or Union variant is not declared."
                     | Some declared ->
                         let known = declared |> List.map (fun f -> f.Id) |> Set.ofList
                         match fields |> List.tryFind (fun (id, _) -> not (Set.contains id known)) with
-                        | Some(id, value) -> issue (path @ [ "field:" + StableId.value id ]) None (Some(valueType value)) "This field does not belong to the selected constructor."
+                        | Some(id, value) -> issue shapeCode (path @ [ "field:" + StableId.value id ]) None (Some(valueType value)) "This field does not belong to the selected constructor."
                         | None ->
                             declared |> List.tryPick (fun field ->
                                 let path = path @ [ field.DisplayName ]
                                 match fields |> List.filter (fun (id, _) -> id = field.Id) with
-                                | [] -> issue path (Some field.Type) None "A required field is missing."
-                                | [ (_, value) ] -> walk path field.Type value
-                                | _ -> issue path (Some field.Type) None "A field is supplied more than once.")
-                let items path itemType values = values |> List.mapi (fun index value -> index, value) |> List.tryPick (fun (index, value) -> walk (path @ [ $"items[{index}]" ]) itemType value)
+                                | [] -> issue shapeCode path (Some field.Type) None "A required field is missing."
+                                | [ (_, value) ] -> walk shapeCode path field.Type value
+                                | _ -> issue shapeCode path (Some field.Type) None "A field is supplied more than once.")
+                let items path itemType values = values |> List.mapi (fun index value -> index, value) |> List.tryPick (fun (index, value) -> walk "RunContainerTypeMismatch" (path @ [ $"items[{index}]" ]) itemType value)
                 match value with
-                | PureRunValue.Product(typeId, values) -> fields (path @ [ typeName typeId ]) typeId (productFields declarations.Types typeId) values
+                | PureRunValue.Product(typeId, values) -> fields "RunProductShapeMismatch" (path @ [ typeName typeId ]) typeId (productFields declarations.Types typeId) values
                 | PureRunValue.Union(typeId, variantId, values) ->
                     let variant = unionVariants declarations.Types typeId |> Option.bind (List.tryFind (fun v -> v.Id = variantId))
                     let name = variant |> Option.map (fun v -> v.DisplayName) |> Option.defaultValue ("variant:" + StableId.value variantId)
-                    fields (path @ [ typeName typeId; name ]) typeId (variant |> Option.map (fun v -> v.Fields)) values
+                    fields "RunUnionShapeMismatch" (path @ [ typeName typeId; name ]) typeId (variant |> Option.map (fun v -> v.Fields)) values
                 | PureRunValue.ListValue(itemType, values) ->
                     items path itemType values |> Option.orElseWith (fun () ->
-                        if supportedScalar itemType then issue path (Some declared) (Some actual) "Scalar List values use the flat itemKind/items representation; nested tagged List values use itemType."
+                        if supportedScalar itemType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar List values use the flat itemKind/items representation; nested tagged List values use itemType."
                         else None)
                 | PureRunValue.OptionValue(itemType, value) ->
-                    value |> Option.bind (walk (path @ [ "some" ]) itemType)
-                    |> Option.orElseWith (fun () -> if supportedScalar itemType then issue path (Some declared) (Some actual) "Scalar Option values use the flat itemKind representation; nested tagged values use itemType." else None)
+                    value |> Option.bind (walk "RunContainerTypeMismatch" (path @ [ "some" ]) itemType)
+                    |> Option.orElseWith (fun () -> if supportedScalar itemType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar Option values use the flat itemKind representation; nested tagged values use itemType." else None)
                 | PureRunValue.SetValue(itemType, values) ->
                     items path itemType values |> Option.orElseWith (fun () ->
                         let canonical = List.map canonicalValue values
                         canonical |> List.mapi (fun index value -> index, value) |> List.tryPick (fun (index, value) ->
-                            if canonical |> List.take index |> List.contains value then issue (path @ [ $"items[{index}]" ]) (Some itemType) (Some itemType) "Set items must be distinct." else None))
+                            if canonical |> List.take index |> List.contains value then issue "RunContainerTypeMismatch" (path @ [ $"items[{index}]" ]) (Some itemType) (Some itemType) "Set items must be distinct." else None))
                 | PureRunValue.MapValue(keyType, itemType, entries) ->
                     let keys = entries |> List.map (fst >> canonicalValue)
                     entries |> List.mapi (fun index pair -> index, pair) |> List.tryPick (fun (index, (key, value)) ->
                         let keyPath = path @ [ $"entries[{index}].key" ]
-                        walk keyPath keyType key
-                        |> Option.orElseWith (fun () -> walk (path @ [ $"entries[{index}].value" ]) itemType value)
-                        |> Option.orElseWith (fun () -> if keys |> List.take index |> List.contains (canonicalValue key) then issue keyPath (Some keyType) (Some keyType) "Map keys must be distinct." else None))
+                        walk "RunContainerTypeMismatch" keyPath keyType key
+                        |> Option.orElseWith (fun () -> walk "RunContainerTypeMismatch" (path @ [ $"entries[{index}].value" ]) itemType value)
+                        |> Option.orElseWith (fun () -> if keys |> List.take index |> List.contains (canonicalValue key) then issue "RunContainerTypeMismatch" keyPath (Some keyType) (Some keyType) "Map keys must be distinct." else None))
                 | PureRunValue.ResultValue(okType, errorType, isOk, value) ->
-                    walk (path @ [ if isOk then "ok" else "err" ]) (if isOk then okType else errorType) value
-                    |> Option.orElseWith (fun () -> if supportedScalar okType && supportedScalar errorType then issue path (Some declared) (Some actual) "Scalar Result values use the flat okKind/errorKind representation; nested tagged values use okType/errorType." else None)
+                    walk "RunContainerTypeMismatch" (path @ [ if isOk then "ok" else "err" ]) (if isOk then okType else errorType) value
+                    |> Option.orElseWith (fun () -> if supportedScalar okType && supportedScalar errorType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar Result values use the flat okKind/errorKind representation; nested tagged values use okType/errorType." else None)
                 | _ -> None
         if arguments @ Option.toList expected |> List.exists (boundedValue >> not) then None
         else
             declarations.Functions |> List.tryFind (fun f -> f.Id = functionId) |> Option.bind (fun fn ->
                 if fn.Parameters.Length <> arguments.Length then None
                 else
-                    List.zip fn.Parameters arguments |> List.tryPick (fun (parameter, value) -> walk [ "arguments"; parameter.DisplayName ] parameter.Type value)
-                    |> Option.orElseWith (fun () -> expected |> Option.bind (walk [ "expected" ] fn.ResultType)))
+                    List.zip fn.Parameters arguments |> List.tryPick (fun (parameter, value) -> walk "RunArgumentTypeMismatch" [ "arguments"; parameter.DisplayName ] parameter.Type value)
+                    |> Option.orElseWith (fun () -> expected |> Option.bind (walk "RunExpectedTypeMismatch" [ "expected" ] fn.ResultType)))
+
+    let internal inputIssue declarations functionId arguments expected =
+        inputIssueMatching None declarations functionId arguments expected
+
+    /// Diagnostics follow the runner's selected validation category, not argument order.
+    /// Entry/runtime/support failures must never acquire unrelated input details.
+    let internal inputIssueForError declarations functionId arguments expected = function
+        | PureRunError.Unsupported(code, _) when
+            [ "RunArgumentTypeMismatch"; "RunProductShapeMismatch"; "RunUnionShapeMismatch"; "RunContainerTypeMismatch"; "RunExpectedTypeMismatch" ] |> List.contains code ->
+            inputIssueMatching (Some code) declarations functionId arguments expected
+        | _ -> None
 
     let private enrichInputError declarations functionId arguments expected = function
-        | PureRunError.Unsupported(code, message) as error when
-            [ "RunArgumentTypeMismatch"; "RunProductShapeMismatch"; "RunUnionShapeMismatch"; "RunContainerTypeMismatch"; "RunExpectedTypeMismatch" ] |> List.contains code ->
-            match inputIssue declarations functionId arguments expected with
+        | PureRunError.Unsupported(code, message) as error ->
+            match inputIssueForError declarations functionId arguments expected error with
             | None -> error
             | Some issue -> diagnostic code (message + " At " + String.concat "." issue.Path + ": " + issue.Reason)
         | error -> error

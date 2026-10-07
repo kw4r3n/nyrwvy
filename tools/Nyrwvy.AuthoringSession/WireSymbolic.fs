@@ -772,6 +772,11 @@ module internal WireSymbolic =
                 element
             let calleeSelector = property "function" element
             let calleeName = if calleeSelector.ValueKind = JsonValueKind.String then calleeSelector.GetString() else null
+            // Resolve object guards before classifying recursion; matching the display name
+            // alone could turn an explicitly selected same-named other function into self.
+            let selectedCallee =
+                if calleeSelector.ValueKind = JsonValueKind.String then None
+                else Some(resolveFunctionSelector declarations calleeSelector)
             let keepUnlisted = optionalBool "keepUnlisted" false element
             // A call naming the function being created or replaced resolves to SelfCall,
             // with arguments keyed by the owner's parameter slots.
@@ -784,6 +789,8 @@ module internal WireSymbolic =
                 | ParameterContext.ExistingFunction owner when owner.DisplayName = calleeName ->
                     // The owner's ID is known: its own name is a self call even if another
                     // function shares that name.
+                    Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
+                | ParameterContext.ExistingFunction owner when selectedCallee |> Option.exists (fun callee -> callee.Id = owner.Id) ->
                     Some(owner.DisplayName, owner.Parameters |> List.map (fun parameter -> parameter.DisplayName))
                 | _ -> None
             match selfParameters with
@@ -814,7 +821,7 @@ module internal WireSymbolic =
             | None when keepUnlisted ->
                 fail $"keepUnlisted applies only to a call of the function being created or replaced; '{calleeName}' is another function."
             | None ->
-                let callee = resolveFunctionSelector declarations calleeSelector
+                let callee = selectedCallee |> Option.defaultWith (fun () -> resolveFunctionSelector declarations calleeSelector)
                 let arguments =
                     array "arguments" element
                     |> List.map (fun item ->

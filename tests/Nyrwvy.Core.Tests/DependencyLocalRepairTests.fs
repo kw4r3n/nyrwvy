@@ -162,3 +162,131 @@ module DependencyLocalRepairTests =
             session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.Close()
             (AuthoringSession.openExisting path |> unwrap).Close())
+
+    [<Fact>]
+    let ``ordinary by-name and exact-ID protocol repairs validate commit and execute`` () =
+        for named in [ true; false ] do
+            for paired in [ true; false ] do
+                withApp (fun session path _ newPath _ _ relay entry ->
+                    let serialize value = JsonSerializer.Serialize value
+                    let parse text = use doc = JsonDocument.Parse(text: string) in doc.RootElement.Clone()
+                    let request = System.Collections.Generic.Dictionary<string,obj>()
+                    request["id"] <- box "wire"
+                    request["op"] <- box (if named then "simulateDependencyUpgradeByName" else "simulateDependencyUpgrade")
+                    let sourceId = StableId.value (library "old" intType).Id
+                    if paired then request["upgrades"] <- box [ {| source = newPath; replaces = sourceId |} ]
+                    else request["selection"] <- box {| sources = [ newPath ]; replaces = [ sourceId ] |}
+                    let refType = if named then parse """{"kind":"named","name":"Money"}""" else
+                                  parse (serialize {| kind = "named"; typeId = StableId.value moneyId |})
+                    let resultType = {| kind = "primitive"; primitive = "string" |}
+                    let functions =
+                        [ relay, (library "old" intType).Functions.Head; entry, relay ]
+                        |> List.map (fun (owner, callee) ->
+                            if named then
+                                box {| ``function`` = owner.DisplayName; parameterTypes = [ {| parameter = "input"; ``type`` = refType |} ]; resultType = resultType
+                                       replacement = {| kind = "directCall"; ``function`` = callee.DisplayName; arguments = [ {| parameter = "input"; value = {| kind = "parameter"; name = "input" |} |} ] |} |}
+                            else
+                                box {| functionId = StableId.value owner.Id; parameterTypes = [ {| parameterId = StableId.value owner.Parameters.Head.Id; ``type`` = refType |} ]; resultType = resultType
+                                       replacement = {| kind = "directCall"; functionId = StableId.value callee.Id; arguments = [ {| parameterId = StableId.value callee.Parameters.Head.Id; value = {| kind = "parameter"; parameterId = StableId.value owner.Parameters.Head.Id |} |} ] |} |})
+                    request["repairs"] <- box {| functions = functions |}
+                    let saved = bytes path
+                    let response = AuthoringProtocol.executeLine session (serialize request) |> parse
+                    Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+                    Assert.Equal(saved, bytes path)
+                    let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
+                    let commit = AuthoringProtocol.executeLine session (serialize {| id = "commit"; op = "commit"; proposalId = proposalId |}) |> parse
+                    Assert.True(commit.GetProperty("ok").GetBoolean(), commit.ToString())
+                    let actual = PureRun.run session entry.Id [ PureRunValue.Product(moneyId, [ amountId, PureRunValue.String "123" ]) ] (Some(PureRunValue.String "123")) |> unwrap
+                    Assert.Equal(Some true, actual.Matches)
+                    let updated = session.Declarations().Functions |> List.find (fun f -> f.Id = entry.Id)
+                    Assert.Equal<ParameterId list>(entry.Parameters |> List.map (fun p -> p.Id), updated.Parameters |> List.map (fun p -> p.Id)))
+
+    [<Fact>]
+    let ``dependency repair protocol rejects ambiguous malformed and incomplete requests without writes`` () =
+        withApp (fun session path _ newPath _ _ _ _ ->
+            let serialize value = JsonSerializer.Serialize value
+            let selection = serialize {| sources = [ newPath ]; replaces = [ StableId.value (library "old" intType).Id ] |}
+            let source = serialize newPath
+            let target = serialize (StableId.value (library "old" intType).Id)
+            let saved = bytes path
+            let requests =
+                [ $"""{{"id":"bad","op":"simulateDependencyUpgradeByName","repairs":{{}},"selection":{selection},"upgrades":[{{"source":{source},"replaces":{target}}}]}}"""
+                  """{"id":"bad","op":"simulateDependencyUpgradeByName","repairs":{}}"""
+                  $"""{{"id":"bad","op":"simulateDependencyUpgradeByName","selection":{selection}}}"""
+                  $"""{{"id":"bad","op":"simulateDependencyUpgradeByName","selection":{selection},"repairs":{{}},"unknown":true}}"""
+                  $"""{{"id":"bad","op":"simulateDependencyUpgradeByName","selection":{selection},"repairs":{{"unknown":[]}}}}"""
+                  $"""{{"id":"bad","op":"simulateDependencyUpgradeByName","selection":{selection},"repairs":{{}}}}""" ]
+            for request in requests do
+                use response = JsonDocument.Parse(AuthoringProtocol.executeLine session request)
+                Assert.False(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                Assert.Equal(saved, bytes path))
+
+    [<Fact>]
+    let ``sidecar-first failure keeps old files and rollback failure invalidates on next authoritative check`` () =
+        withApp (fun session path _ _ change repairs _ _ ->
+            let saved = bytes path
+            let proposal = session.SimulateDependencyUpgrade(change, repairs, session.SnapshotId) |> unwrap
+            let sidecar = path + ".dependency.json"
+            SessionStorageFaults.failReplacement <- fun target -> target = sidecar
+            try Assert.True(Result.isError(session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations)))
+            finally SessionStorageFaults.failReplacement <- fun _ -> false
+            Assert.Equal(saved, bytes path)
+            session.VerifyPersistedSource() |> unwrap |> ignore
+            let mutable sidecarAttempts = 0
+            SessionStorageFaults.failReplacement <- fun target ->
+                if target = sidecar then sidecarAttempts <- sidecarAttempts + 1; sidecarAttempts > 1
+                else target = path
+            try
+                match session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+                | Error(AuthoringSessionError.IoFailure message) -> Assert.Contains("Restoring", message)
+                | other -> failwithf "%A" other
+            finally SessionStorageFaults.failReplacement <- fun _ -> false
+            Assert.Equal<byte>(fst saved, File.ReadAllBytes path)
+            Assert.True(Result.isError(session.VerifyPersistedSource()))
+            match session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+            | Error AuthoringSessionError.SessionInvalidated -> ()
+            | other -> failwithf "%A" other
+            session.Close()
+            Assert.True(Result.isError(AuthoringSession.openExisting path)))
+
+    [<Fact>]
+    let ``new imported identity collision rejects before publishing any local repair`` () =
+        withApp (fun session path _ newPath change repairs _ entry ->
+            let updated = library "new" stringType
+            let collision = { entry with ResultType = stringType
+                                         Body = { Nodes = [ { Id = id<GraphNodeTag> "collision"; Kind = SemanticNodeKind.StringLiteral "imported" } ]; ResultNodeId = id<GraphNodeTag> "collision" } }
+            File.WriteAllText(newPath, SnapshotCodec.serialize { updated with Functions = collision :: updated.Functions } |> unwrap)
+            let saved = bytes path
+            Assert.True(Result.isError(session.SimulateDependencyUpgrade(change, repairs, session.SnapshotId)))
+            Assert.Equal(saved, bytes path))
+
+    [<Fact>]
+    let ``by-name dependency repair retains generic owner and nested recipe type parameter identity`` () =
+        withApp (fun session _ _ newPath _ _ relay entry ->
+            let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
+            session.SimulateCreateFunction
+                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"
+                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId }; { DisplayName = "extra"; Type = genericType } ]
+                  ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.DirectCall(readId, [ parameterId, ExpressionRecipe.ParameterSlot 0 ]) } |> publish session
+            let before = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "generic")
+            let parse text = use doc = JsonDocument.Parse(text: string) in doc.RootElement.Clone()
+            let body callee = {| kind = "directCall"; ``function`` = callee; arguments = [ {| parameter = "input"; value = {| kind = "parameter"; name = "input" |} |} ] |}
+            let parameter = {| parameter = "input"; ``type`` = parse """{"kind":"named","name":"Money"}""" |}
+            let functions =
+                [ box {| ``function`` = relay.DisplayName; parameterTypes = [ parameter ]; resultType = {| kind = "primitive"; primitive = "string" |}; replacement = body "read" |}
+                  box {| ``function`` = entry.DisplayName; parameterTypes = [ parameter ]; resultType = {| kind = "primitive"; primitive = "string" |}; replacement = body "relay" |}
+                  box {| ``function`` = "generic"; parameterTypes = [ parameter; {| parameter = "extra"; ``type`` = parse """{"kind":"typeParameter","name":"T"}""" |} ]
+                         resultType = {| kind = "primitive"; primitive = "string" |}
+                         replacement = {| kind = "bind"; value = {| kind = "optionNone"; itemType = {| kind = "typeParameter"; name = "T" |} |}; body = body "read" |} |} ]
+            let request =
+                JsonSerializer.Serialize
+                    {| id = "generic"; op = "simulateDependencyUpgradeByName"
+                       upgrades = [ {| source = newPath; replaces = StableId.value (library "old" intType).Id |} ]
+                       repairs = {| functions = functions |} |}
+            let response = AuthoringProtocol.executeLine session request |> parse
+            Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+            session.Commit(response.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            let after = session.Declarations().Functions |> List.find (fun f -> f.Id = before.Id)
+            Assert.Equal<(TypeParameterId * string) list>(TypeParameters.ofFunction before, TypeParameters.ofFunction after)
+            Assert.Contains(ValueGraph.collectNodes after.Body, fun n ->
+                match n.Kind with SemanticNodeKind.OptionNone(TypeRef.TypeParameter(t, "T")) -> t = fst (TypeParameters.ofFunction before).Head | _ -> false))

@@ -1318,7 +1318,7 @@ module AuthoringProtocol =
                                  "matches", result.Matches |> Option.map box |> Option.defaultValue null
                                  "mismatch", result.Mismatch |> Option.map (encodeMismatch runNames) |> Option.defaultValue null
                                  "calls", result.Calls |> List.map (encodeCall runNames) |> arrayValue ]))
-                | Error error -> failure requestId (encodeRunError runNames functionId (PureRun.inputIssue runNames.Declarations functionId arguments expected) error)
+                | Error error -> failure requestId (encodeRunError runNames functionId (PureRun.inputIssueForError runNames.Declarations functionId arguments expected error) error)
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"
