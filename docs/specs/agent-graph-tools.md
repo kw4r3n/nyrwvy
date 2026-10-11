@@ -37,6 +37,8 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 Tool arguments are objects, not JSON-generating Python/F#/C# programs. The bridge handles request IDs, JSONL transport, request serialization and session ownership. It does not resolve semantic ambiguity, retry mutations, auto-commit or inspect snapshot JSON. A cancelled/lost response requires reopening and inspecting committed state, not assuming that publication failed.
 
+For repeated execution checks, the [saved-fixture MCP client](../../examples/run-fixtures/README.md) sends stored `{op, arguments}` objects directly to `nyrwvy_request`, avoiding a print-and-copy round trip. It retains full responses on disk and displays a short comparison summary. Execution inputs are [RunValue data](../../examples/run-fixtures/run-values.md), not the `ExpressionRecipe` shapes returned by `nyrwvy_recipe_reference`; the existing session validation and execution limits still apply.
+
 `nyrwvy_request` reaches `runPure`, whose `hostSources` compile and run arbitrary C# with the user's permissions. The tools therefore start AuthoringSession without host sources, and such requests fail with `RunHostSourcesDisabled`. An operator enables them as configuration, never per request: `NYRWVY_ALLOW_HOST_SOURCES=1` in the environment of the OpenCode or MCP host process (or the MCP server's `--allow-host-sources`, or `allowHostSources: true` in the adapter context) makes `nyrwvy_open` start the session with `--allow-host-sources` and report `hostSourcesAllowed: true`. Do not enable it where tool calls are auto-approved ([MCP guidance](mcp-graph-tools.md#host-sources-run-arbitrary-code)).
 
 
