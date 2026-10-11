@@ -442,3 +442,94 @@ public sealed class Broken : {capability}
                     [ a; b; PureRunValue.Unit; PureRunValue.FakeCapability(cap.Id, [ { OperationId = op.Id; Responses = []; Cases = Some duplicate } ]) ] None with
             | Error(PureRunError.Unsupported("RunBindingShapeMismatch", _)) -> ()
             | other -> failwithf "Canonical duplicate keys were accepted: %A" other)
+
+
+    [<Fact>]
+    let ``fake Result wire errors locate operations cases responses and nested values without payloads`` () =
+        withFixture (fun fixture ->
+            let before = File.ReadAllText fixture.Path
+            let functionId = StableId.value (fixture.Function "logTwice").Id
+            let capId, opId = StableId.value fixture.Log.Id, StableId.value fixture.Write.Id
+            let wire script =
+                $"""{{"id":"shape","op":"runPure","functionId":"{functionId}","arguments":[{{"kind":"string","value":"m"}},{{"kind":"fakeCapability","capabilityId":"{capId}","operations":[{{"operationId":"{opId}","responses":[]}},{{"operationId":"{opId}",{script}}}]}}]}}"""
+            let response value = """{"kind":"return","value":PAYLOAD}""".Replace("PAYLOAD", value)
+            let malformedFlat = """{"kind":"result","okKind":"string","errorKind":"string","isOk":true,"value":{"kind":"string","value":"PRIVATE_SENTINEL"}}"""
+            let malformedNested = """{"kind":"result","okType":{"kind":"primitive","primitive":"unit"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":true,"value":{"kind":"unit","PRIVATE_SENTINEL":true}}"""
+            let check script suffix expected =
+                use reply = AuthoringProtocol.executeLine fixture.Session (wire script) |> JsonDocument.Parse
+                let error = reply.RootElement.GetProperty("error")
+                Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+                let message = error.GetProperty("message").GetString()
+                Assert.Contains("arguments[1].operations[1]." + suffix, message)
+                Assert.Contains(expected, message)
+                Assert.DoesNotContain("PRIVATE_SENTINEL", message)
+            check ("\"responses\":[" + response malformedFlat + "]") "responses[0].value.value" "raw JSON string"
+            check ("\"cases\":[{\"arguments\":[],\"responses\":[]},{\"arguments\":[],\"responses\":[{\"kind\":\"return\",\"value\":{\"kind\":\"unit\"}}," + response malformedNested + "]}]")
+                "cases[1].responses[1].value.value" "Unit {kind: unit}"
+            let nestedList = """{"kind":"list","itemType":{"kind":"primitive","primitive":"unit"},"items":[{"kind":"unit"},{"kind":"unit","PRIVATE_SENTINEL":false}]}"""
+            check ("\"responses\":[" + response nestedList + "]") "responses[0].value.items[1]" "Unit {kind: unit}"
+            check "\"responses\":[{\"kind\":\"return\",\"value\":{\"kind\":\"unit\"},\"delayMillis\":-1}]" "responses[0]" "delayMillis must not be negative"
+            check "\"cases\":[{\"arguments\":[{}, {\"PRIVATE_SENTINEL\":true}],\"responses\":[]}]" "cases[0].arguments[0]" "declared parameter and typed value"
+            let rec tooDeep depth =
+                if depth = 0 then "{\"kind\":\"unit\"}"
+                else "{\"kind\":\"option\",\"itemType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"hasValue\":true,\"value\":" + tooDeep (depth - 1) + "}"
+            check ("\"responses\":[" + response (tooDeep PureRun.maxValueLayers) + "]") "responses[0].value" "nested composite layers"
+            for value in
+                [ """{"kind":"result","okKind":"string","errorKind":"string","isOk":true,"value":"ok"}"""
+                  """{"kind":"result","okKind":"string","errorKind":"string","isOk":false,"value":"error"}"""
+                  """{"kind":"result","okType":{"kind":"primitive","primitive":"unit"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":true,"value":{"kind":"unit"}}"""
+                  """{"kind":"result","okType":{"kind":"primitive","primitive":"unit"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":false,"value":{"kind":"string","value":"error"}}""" ] do
+                use reply = AuthoringProtocol.executeLine fixture.Session (wire ("\"responses\":[" + response value + "]")) |> JsonDocument.Parse
+                // Binding validation rejects duplicate operations/the declared Unit result, after wire parsing.
+                Assert.NotEqual<string>("ProtocolError", reply.RootElement.GetProperty("error").GetProperty("code").GetString())
+            Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    [<Fact>]
+    let ``nested scalar Result fake rejection identifies the exact scripted response`` () =
+        withFixture (fun fixture ->
+            let effect = fixture.Session.Declarations().Effects |> List.exactlyOne
+            let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; stringType ])
+            let operation name: AgentCapabilityOperationIntent =
+                { DisplayName = name
+                  Parameters = [ { DisplayName = "key"; Type = stringType } ]
+                  ResultType = resultType; FailureType = None; EffectId = effect.Id }
+            let capability = createCapability fixture.Session "ShapeSource" [ operation "first"; operation "read" ]
+            createFunction fixture.Session "fakeShapes" [ "source", TypeRef.Capability capability.Id ] stringType [] (ExpressionRecipe.StringLiteral "unused")
+            let fn = fixture.Function "fakeShapes"
+            let first = capability.Operations |> List.find (fun item -> item.DisplayName = "first")
+            let read = capability.Operations |> List.find (fun item -> item.DisplayName = "read")
+            let declarations = fixture.Session.Declarations()
+            let binding value = PureRunValue.FakeCapability(capability.Id,
+                [ { OperationId = read.Id; Cases = None; Responses = [ PureRunFakeResponse.Return value ] } ])
+            for value in [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.String "ok"); PureRunValue.ResultErr(PureRunScalarKind.String, PureRunScalar.String "error") ] do
+                Assert.True((PureRun.inputIssue declarations fn.Id [ binding value ] None).IsNone)
+            let unitResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ unitType; stringType ])
+            let unitCapabilities =
+                declarations.Capabilities |> List.map (fun cap ->
+                    if cap.Id <> capability.Id then cap
+                    else
+                        let operations = cap.Operations |> List.map (fun op -> { op with ResultType = unitResultType })
+                        { cap with Operations = operations })
+            let unitDeclarations = { declarations with Capabilities = unitCapabilities }
+            for isOk, payload in [ true, PureRunValue.Unit; false, PureRunValue.String "error" ] do
+                let value = PureRunValue.ResultValue(unitType, stringType, isOk, payload)
+                Assert.True((PureRun.inputIssue unitDeclarations fn.Id [ binding value ] None).IsNone)
+            let before = File.ReadAllText fixture.Path
+            for names in [ false; true ] do
+                let entry = if names then "\"op\":\"runPureByName\",\"function\":\"fakeShapes\"" else "\"op\":\"runPure\",\"functionId\":\"" + StableId.value fn.Id + "\""
+                let cap = if names then "\"capability\":\"ShapeSource\"" else "\"capabilityId\":\"" + StableId.value capability.Id + "\""
+                let op (value: SemanticCapabilityOperation) = if names then "\"operation\":\"" + value.DisplayName + "\"" else "\"operationId\":\"" + StableId.value value.Id + "\""
+                let parameter = if names then "\"parameter\":\"key\"" else "\"capabilityParameterId\":\"" + StableId.value read.Parameters.Head.Id + "\""
+                let good = """{"kind":"return","value":{"kind":"result","okKind":"string","errorKind":"string","isOk":true,"value":"ok"}}"""
+                let bad = """{"kind":"return","value":{"kind":"result","okType":{"kind":"primitive","primitive":"string"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":true,"value":{"kind":"string","value":"PRIVATE_SENTINEL"}}}"""
+                let case key responses = $"""{{"arguments":[{{{parameter},"value":{{"kind":"string","value":"{key}"}}}}],"responses":[{responses}]}}"""
+                let line = $"""{{"id":"nested-scalar",{entry},"arguments":[{{"kind":"fakeCapability",{cap},"operations":[{{{op first},"responses":[]}},{{{op read},"cases":[{case "a" good},{case "b" (good + "," + bad)}]}}]}}]}}"""
+                use reply = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
+                let error = reply.RootElement.GetProperty("error")
+                Assert.Equal("RunContainerTypeMismatch", error.GetProperty("code").GetString())
+                let details = error.GetProperty("details")
+                let path = details.GetProperty("path").EnumerateArray() |> Seq.map (fun item -> item.GetString()) |> String.concat "."
+                Assert.Equal("arguments.source.operations[1].cases[1].responses[1].value", path)
+                Assert.Contains("flat okKind/errorKind", details.GetProperty("reason").GetString())
+                Assert.DoesNotContain("PRIVATE_SENTINEL", reply.RootElement.GetRawText())
+            Assert.Equal(before, File.ReadAllText fixture.Path))

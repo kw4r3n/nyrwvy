@@ -74,9 +74,60 @@ module AuthoringProtocol =
             | 0L -> response
             | delay -> PureRunFakeResponse.Delayed(delay, response)
 
+    // Keep wire diagnostics structural: never echo response payloads, unknown keys or response kinds.
+    exception private RunValueShapeException of location: string * expected: string * constraintReason: string
+    exception private RunValueSelectorException of message: string
+
+    // Declaration selectors have their own actionable name-resolution diagnostics. They are
+    // not response payloads, so do not replace them with a run-value shape explanation.
+    let private resolveRunValueSelector resolve =
+        try resolve ()
+        with ProtocolInputException message -> raise (RunValueSelectorException message)
+
+    let private atRunValuePath (location: string) expected parse =
+        try parse ()
+        with ProtocolInputException message when location.Contains(".operations[", StringComparison.Ordinal) ->
+            // These complete messages are parser-owned constants, never caller-controlled text.
+            let constraintReason =
+                if List.contains message
+                    [ $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
+                      "Fake delayMillis must not be negative."
+                      "Lists may contain at most 4096 items."
+                      "List run values may contain at most 4096 items."
+                      "Sets may contain at most 4096 items."
+                      "Maps may contain at most 4096 entries."
+                      "A Map run value names a key more than once."
+                      "Named run values may contain at most 256 fields."
+                      "A fake capability may script at most 256 operations."
+                      "A fake operation may script at most 256 responses."
+                      "A fake operation may script at most 256 cases."
+                      "A fake case may contain at most 256 arguments."
+                      "A fake operation may script at most 256 total responses." ] then message + " "
+                else ""
+            raise (RunValueShapeException(location, expected, constraintReason))
+
+    let private runValueShape (item: JsonElement) =
+        if item.ValueKind <> JsonValueKind.Object then "a non-null typed run-value object"
+        else
+            match item.TryGetProperty("kind") with
+            | true, kind when kind.ValueKind = JsonValueKind.String ->
+                match kind.GetString() with
+                | "result" ->
+                    "Result {kind, okKind, errorKind, isOk, value} with a raw string/bool/int64 payload, or {kind, okType, errorType, isOk, value} with a typed run-value payload when at least one side is not string/bool/int64 (including Unit)"
+                | "string" -> "String {kind: string, value: JSON string}"
+                | "bool" -> "Bool {kind: bool, value: JSON boolean}"
+                | "int64" -> "Int64 {kind: int64, value: integer or exact decimal integer string}"
+                | "unit" -> "Unit {kind: unit} without a value property"
+                | _ -> "a typed run value with the required fields for its kind"
+            | _ -> "a typed run-value object with a string kind"
+
     /// Decodes a run value. `names` selects the name-resolved wire form (`runPureByName`): semantic
     /// references are exact display names resolved against those declarations instead of stable IDs.
-    let rec private pureValueAt (names: AuthoringDeclarations option) (remaining: int ref) depth (item: JsonElement): PureRunValue =
+    let rec private pureValueAt (names: AuthoringDeclarations option) (remaining: int ref) depth location (item: JsonElement): PureRunValue =
+        atRunValuePath location (runValueShape item) (fun () ->
+            pureValueBody names remaining depth location item)
+
+    and private pureValueBody (names: AuthoringDeclarations option) (remaining: int ref) depth location (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
         let kind = requiredString "kind" item
         if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
@@ -89,13 +140,20 @@ module AuthoringProtocol =
             | "result" when tryProperty "okType" item |> Option.isNone -> 1
             | "option" when tryProperty "itemKind" item |> Option.isSome -> if requiredBool "hasValue" item then 1 else 0
             | "fakeCapability" ->
-                array "operations" item |> List.sumBy (fun operation ->
-                    match tryProperty "cases" operation with
-                    | Some _ -> array "cases" operation |> List.sumBy (fun item -> 1 + (array "arguments" item).Length + (array "responses" item).Length)
-                    // Return/cancellation payloads are recursively counted; a throw's scalar
-                    // message has no typed child parse and must still consume one value node.
-                    | None -> array "responses" operation |> List.sumBy (fun response ->
-                        if requiredString "kind" response = "throw" then 1 else 0))
+                array "operations" item |> List.mapi (fun operationIndex operation ->
+                    let operationPath = $"{location}.operations[{operationIndex}]"
+                    atRunValuePath operationPath "a fake operation with a responses array or a cases array" (fun () ->
+                        match tryProperty "cases" operation with
+                        | Some _ ->
+                            array "cases" operation |> List.mapi (fun caseIndex item ->
+                                atRunValuePath $"{operationPath}.cases[{caseIndex}]" "a fake case with arguments and responses arrays" (fun () ->
+                                    1 + (array "arguments" item).Length + (array "responses" item).Length)) |> List.sum
+                        // Return/cancellation payloads are recursively counted; a throw's scalar
+                        // message has no typed child parse and must still consume one value node.
+                        | None ->
+                            array "responses" operation |> List.mapi (fun responseIndex response ->
+                                atRunValuePath $"{operationPath}.responses[{responseIndex}]" "a fake response object with a string kind" (fun () ->
+                                    if requiredString "kind" response = "throw" then 1 else 0)) |> List.sum)) |> List.sum
             | _ -> 0
         remaining.Value <- remaining.Value - 1 - children
         if remaining.Value < 0 then raise (RunValueNodeBudgetExceeded(8192 - remaining.Value))
@@ -109,20 +167,21 @@ module AuthoringProtocol =
             ensureFields "Nested List run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
             let items = array "items" item
             if items.Length > 4096 then fail "Lists may contain at most 4096 items."
-            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
+            PureRunValue.ListValue(typeRef (property "itemType" item), items |> List.mapi (fun index value -> pureValueAt names remaining (depth + 1) $"{location}.items[{index}]" value))
         | "set" ->
             ensureFields "Set run value" [ "kind"; "itemType"; "items" ] [ "kind"; "itemType"; "items" ] item
             let items = array "items" item
             if items.Length > 4096 then fail "Sets may contain at most 4096 items."
-            PureRunValue.SetValue(typeRef (property "itemType" item), items |> List.map (pureValueAt names remaining (depth + 1)))
+            PureRunValue.SetValue(typeRef (property "itemType" item), items |> List.mapi (fun index value -> pureValueAt names remaining (depth + 1) $"{location}.items[{index}]" value))
         | "map" ->
             ensureFields "Map run value" [ "kind"; "keyType"; "valueType"; "entries" ] [ "kind"; "keyType"; "valueType"; "entries" ] item
             let entries = array "entries" item
             if entries.Length > 4096 then fail "Maps may contain at most 4096 entries."
             let parsed =
-                entries |> List.map (fun entry ->
-                    ensureFields "Map run value entry" [ "key"; "value" ] [ "key"; "value" ] entry
-                    pureValueAt names remaining (depth + 1) (property "key" entry), pureValueAt names remaining (depth + 1) (property "value" entry))
+                entries |> List.mapi (fun index entry ->
+                    atRunValuePath $"{location}.entries[{index}]" "a Map entry with typed key and value" (fun () ->
+                        ensureFields "Map run value entry" [ "key"; "value" ] [ "key"; "value" ] entry
+                        pureValueAt names remaining (depth + 1) $"{location}.entries[{index}].key" (property "key" entry), pureValueAt names remaining (depth + 1) $"{location}.entries[{index}].value" (property "value" entry)))
             if (parsed |> List.map fst |> List.distinct).Length <> parsed.Length then fail "A Map run value names a key more than once."
             PureRunValue.MapValue(typeRef (property "keyType" item), typeRef (property "valueType" item), parsed)
         | "option" when tryProperty "itemType" item |> Option.isSome ->
@@ -130,7 +189,7 @@ module AuthoringProtocol =
             let fields = [ "kind"; "itemType"; "hasValue" ] @ (if hasValue then [ "value" ] else [])
             ensureFields "Nested Option run value" fields fields item
             PureRunValue.OptionValue(typeRef (property "itemType" item),
-                if hasValue then Some(pureValueAt names remaining (depth + 1) (property "value" item)) else None)
+                if hasValue then Some(pureValueAt names remaining (depth + 1) $"{location}.value" (property "value" item)) else None)
         | "unit" ->
             ensureFields "Unit run value" [ "kind" ] [ "kind" ] item
             PureRunValue.Unit
@@ -159,48 +218,60 @@ module AuthoringProtocol =
                 (match capability with
                  | Some capability -> capability.Id
                  | None -> id<CapabilityTag> capabilityKey item),
-                operations |> List.map (fun operation ->
-                    ensureFields "Fake operation" [ operationKey; "responses"; "cases" ] [ operationKey ] operation
-                    let parseResponses owner =
-                        let values = array "responses" owner
-                        if values.Length > 256 then fail "A fake operation may script at most 256 responses."
-                        values |> List.map (fun response ->
-                            match requiredString "kind" response with
-                            | "return" ->
-                                ensureFields "Fake return" [ "kind"; "value"; "delayMillis" ] [ "kind"; "value" ] response
-                                delayed response (PureRunFakeResponse.Return(pureValueAt names remaining (depth + 1) (property "value" response)))
-                            | "throw" ->
-                                ensureFields "Fake throw" [ "kind"; "message"; "delayMillis" ] [ "kind"; "message" ] response
-                                delayed response (PureRunFakeResponse.Throw(requiredRunText "message" response))
-                            | "awaitCancellation" ->
-                                ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
-                                PureRunFakeResponse.AwaitCancellation(pureValueAt names remaining (depth + 1) (property "value" response))
-                            | other -> fail $"Unsupported fake response kind '{other}'.")
-                    let resolvedOperation = capability |> Option.map (fun capability -> WireSymbolic.capabilityOperation capability (requiredString operationKey operation))
-                    let operationId =
-                        match resolvedOperation with
-                        | Some resolved -> resolved.Id
-                        | None -> id<CapabilityOperationTag> operationKey operation
-                    let parameterId argument =
-                        match resolvedOperation with
-                        | Some resolved -> (WireSymbolic.capabilityParameter resolved (requiredString parameterKey argument)).Id
-                        | None -> id<CapabilityParameterTag> parameterKey argument
-                    match tryProperty "responses" operation, tryProperty "cases" operation with
-                    | Some _, None -> { OperationId = operationId; Responses = parseResponses operation; Cases = None }
-                    | None, Some _ ->
-                        let cases = array "cases" operation
-                        if cases.Length > 256 then fail "A fake operation may script at most 256 cases."
-                        let cases = cases |> List.map (fun item ->
-                            ensureFields "Fake case" [ "arguments"; "responses" ] [ "arguments"; "responses" ] item
-                            let arguments = array "arguments" item
-                            if arguments.Length > 256 then fail "A fake case may contain at most 256 arguments."
-                            { Arguments = arguments |> List.map (fun argument ->
-                                ensureFields "Fake case argument" [ parameterKey; "value" ] [ parameterKey; "value" ] argument
-                                parameterId argument, pureValueAt names remaining (depth + 1) (property "value" argument))
-                              Responses = parseResponses item })
-                        if cases |> List.sumBy (fun item -> item.Responses.Length) > 256 then fail "A fake operation may script at most 256 total responses."
-                        { OperationId = operationId; Responses = []; Cases = Some cases }
-                    | _ -> fail "A fake operation requires exactly one of responses or cases."))
+                operations |> List.mapi (fun operationIndex operation ->
+                    let operationPath = $"{location}.operations[{operationIndex}]"
+                    atRunValuePath operationPath "a fake operation with exactly one of responses or cases" (fun () ->
+                        ensureFields "Fake operation" [ operationKey; "responses"; "cases" ] [ operationKey ] operation
+                        let parseResponses ownerPath owner =
+                            let values = array "responses" owner
+                            if values.Length > 256 then fail "A fake operation may script at most 256 responses."
+                            values |> List.mapi (fun responseIndex response ->
+                                let responsePath = $"{ownerPath}.responses[{responseIndex}]"
+                                atRunValuePath responsePath "return/awaitCancellation with a typed value, or throw with a string message; only return/throw accept delayMillis" (fun () ->
+                                    match requiredString "kind" response with
+                                    | "return" ->
+                                        ensureFields "Fake return" [ "kind"; "value"; "delayMillis" ] [ "kind"; "value" ] response
+                                        delayed response (PureRunFakeResponse.Return(pureValueAt names remaining (depth + 1) $"{responsePath}.value" (property "value" response)))
+                                    | "throw" ->
+                                        ensureFields "Fake throw" [ "kind"; "message"; "delayMillis" ] [ "kind"; "message" ] response
+                                        delayed response (PureRunFakeResponse.Throw(requiredRunText "message" response))
+                                    | "awaitCancellation" ->
+                                        ensureFields "Fake awaitCancellation" [ "kind"; "value" ] [ "kind"; "value" ] response
+                                        PureRunFakeResponse.AwaitCancellation(pureValueAt names remaining (depth + 1) $"{responsePath}.value" (property "value" response))
+                                    | other -> fail $"Unsupported fake response kind '{other}'."))
+                        let resolvedOperation = capability |> Option.map (fun capability ->
+                            let name = requiredString operationKey operation
+                            resolveRunValueSelector (fun () -> WireSymbolic.capabilityOperation capability name))
+                        let operationId =
+                            match resolvedOperation with
+                            | Some resolved -> resolved.Id
+                            | None -> id<CapabilityOperationTag> operationKey operation
+                        let parameterId argument =
+                            match resolvedOperation with
+                            | Some resolved ->
+                                let name = requiredString parameterKey argument
+                                (resolveRunValueSelector (fun () -> WireSymbolic.capabilityParameter resolved name)).Id
+                            | None -> id<CapabilityParameterTag> parameterKey argument
+                        match tryProperty "responses" operation, tryProperty "cases" operation with
+                        | Some _, None -> { OperationId = operationId; Responses = parseResponses operationPath operation; Cases = None }
+                        | None, Some _ ->
+                            let cases = array "cases" operation
+                            if cases.Length > 256 then fail "A fake operation may script at most 256 cases."
+                            let cases = cases |> List.mapi (fun caseIndex item ->
+                                let casePath = $"{operationPath}.cases[{caseIndex}]"
+                                atRunValuePath casePath "a fake case with arguments and responses arrays" (fun () ->
+                                    ensureFields "Fake case" [ "arguments"; "responses" ] [ "arguments"; "responses" ] item
+                                    let arguments = array "arguments" item
+                                    if arguments.Length > 256 then fail "A fake case may contain at most 256 arguments."
+                                    let parsedArguments =
+                                        arguments |> List.mapi (fun argumentIndex argument ->
+                                            atRunValuePath $"{casePath}.arguments[{argumentIndex}]" "a fake argument with a declared parameter and typed value" (fun () ->
+                                                ensureFields "Fake case argument" [ parameterKey; "value" ] [ parameterKey; "value" ] argument
+                                                parameterId argument, pureValueAt names remaining (depth + 1) $"{casePath}.arguments[{argumentIndex}].value" (property "value" argument)))
+                                    { Arguments = parsedArguments; Responses = parseResponses casePath item }))
+                            if cases |> List.sumBy (fun item -> item.Responses.Length) > 256 then fail "A fake operation may script at most 256 total responses."
+                            { OperationId = operationId; Responses = []; Cases = Some cases }
+                        | _ -> fail "A fake operation requires exactly one of responses or cases.")))
         | "string" | "bool" | "int64" ->
             match pureScalar item with
             | PureRunScalar.String text -> PureRunValue.String text
@@ -229,9 +300,10 @@ module AuthoringProtocol =
                         owner.Id, Some variant.Id, fun field -> (WireSymbolic.variantField variant (requiredString fieldKey field)).Id
                     else
                         owner.Id, None, fun field -> (WireSymbolic.productField owner (requiredString fieldKey field)).Id
-            let fields = fields |> List.map (fun field ->
-                ensureFields "Named run field" ([ fieldKey; "value" ] @ (if names.IsNone then [ "field" ] else [])) [ fieldKey; "value" ] field
-                fieldId field, pureValueAt names remaining (depth + 1) (property "value" field))
+            let fields = fields |> List.mapi (fun index field ->
+                atRunValuePath $"{location}.fields[{index}]" "a declared field with a typed value" (fun () ->
+                    ensureFields "Named run field" ([ fieldKey; "value" ] @ (if names.IsNone then [ "field" ] else [])) [ fieldKey; "value" ] field
+                    fieldId field, pureValueAt names remaining (depth + 1) $"{location}.fields[{index}].value" (property "value" field)))
             match variantId with
             | Some variantId -> PureRunValue.Union(typeId, variantId, fields)
             | None -> PureRunValue.Product(typeId, fields)
@@ -242,7 +314,7 @@ module AuthoringProtocol =
                 typeRef (property "okType" item),
                 typeRef (property "errorType" item),
                 requiredBool "isOk" item,
-                pureValueAt names remaining (depth + 1) (property "value" item))
+                pureValueAt names remaining (depth + 1) $"{location}.value" (property "value" item))
         | "result" ->
             let fields = [ "kind"; "okKind"; "errorKind"; "isOk"; "value" ]
             ensureFields "Result run value" fields fields item
@@ -256,9 +328,9 @@ module AuthoringProtocol =
             let isOk = requiredBool "isOk" item
             let value =
                 match (if isOk then okKind else errorKind) with
-                | PureRunScalarKind.String -> PureRunScalar.String(requiredRunText "value" item)
-                | PureRunScalarKind.Bool -> PureRunScalar.Bool(requiredBool "value" item)
-                | PureRunScalarKind.Int64 -> PureRunScalar.Int64(requiredInt64 "value" item)
+                | PureRunScalarKind.String -> atRunValuePath $"{location}.value" "a raw JSON string (flat Result uses okKind/errorKind; nested Result uses okType/errorType and a typed value)" (fun () -> PureRunScalar.String(requiredRunText "value" item))
+                | PureRunScalarKind.Bool -> atRunValuePath $"{location}.value" "a raw JSON boolean" (fun () -> PureRunScalar.Bool(requiredBool "value" item))
+                | PureRunScalarKind.Int64 -> atRunValuePath $"{location}.value" "a raw integer or exact decimal integer string" (fun () -> PureRunScalar.Int64(requiredInt64 "value" item))
             if isOk then PureRunValue.ResultOk(errorKind, value)
             else PureRunValue.ResultErr(okKind, value)
         | "option" ->
@@ -297,8 +369,11 @@ module AuthoringProtocol =
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
     let private pureValue names location item =
-        try pureValueAt names (ref 8192) 0 item
-        with RunValueNodeBudgetExceeded charged ->
+        try pureValueAt names (ref 8192) 0 location item
+        with
+        | RunValueSelectorException message -> fail message
+        | RunValueShapeException(path, expected, reason) -> fail $"Invalid run value at {path}. {reason}Expected {expected}."
+        | RunValueNodeBudgetExceeded charged ->
             fail $"Run values may contain at most 8192 value nodes per argument or expected value. At {location}: at least {charged} nodes were charged, including containers and their values. Split the input into smaller batches or build it inside the graph and return an aggregate."
 
     /// Writes a Float64 run value: the shortest round-trip decimal as a JSON number for finite values
@@ -1441,3 +1516,4 @@ module AuthoringProtocol =
             output.WriteLine(executeLine session line)
             output.Flush()
             line <- input.ReadLine()
+
