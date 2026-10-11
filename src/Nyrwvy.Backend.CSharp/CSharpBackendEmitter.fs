@@ -2195,8 +2195,10 @@ module CSharpBackend =
                 writer.Line("var " + captured index + " = " + valueName argument.ValueId + ";")
             let item = target + "_item"
             writer.Line("var " + item + " = " + valueName itemValueId + ";")
-            let copiedContext = context |> List.mapi (fun index argument -> argument.TargetParameterId, captured index)
-            let invocation = renderInvocationOf parametersOf workerFunctionId copiedContext [ item ]
+            // Enter through consuming ref parameters: a Tier0 callback frame must not retain
+            // by-value argument copies for the lifetime of a long-running worker.
+            let copiedContext = context |> List.mapi (fun index argument -> argument.TargetParameterId, "ref " + captured index)
+            let invocation = renderInvocationOf parametersOf workerFunctionId copiedContext [ "ref " + item ]
             writer.Line(target + " = " + valueName scopeValueId + ".Start(() => " + invocation + ");")
             writer.Pop()
             writer.Line("}")
@@ -2390,11 +2392,13 @@ module CSharpBackend =
         (writer: SourceWriter)
         (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
         (operationResultOf: CapabilityOperationId -> TypeRef)
+        (consumeCaptures: bool)
         (functionEntity: ExecutionFunction) =
         let parameters =
             functionEntity.Parameters
             |> List.map (fun parameter ->
-                formatType parameter.Value.Type
+                (if consumeCaptures then "ref " else "")
+                + formatType parameter.Value.Type
                 + " "
                 + CSharpBackendNames.parameterName parameter.SemanticParameterId)
             |> String.concat ", "
@@ -2405,7 +2409,8 @@ module CSharpBackend =
             |> List.distinctBy fst
             |> List.map (fst >> CSharpBackendNames.typeParameterName)
         let generic = if List.isEmpty typeParameters then "" else "<" + String.concat ", " typeParameters + ">"
-        writer.Line("public static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + generic + "(" + parameters + ")")
+        let visibility = if consumeCaptures then "private" else "public"
+        writer.Line(visibility + " static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + generic + "(" + parameters + ")")
         writer.Line("{")
         writer.Push()
 
@@ -2466,6 +2471,12 @@ module CSharpBackend =
         for parameter in functionEntity.Parameters do
             writer.Line(valueName parameter.Value.Id + " = " + CSharpBackendNames.parameterName parameter.SemanticParameterId + ";")
 
+        // The ref overload is used only by TaskStart with fresh, distinct snapshot slots.
+        // Clear those slots after all values reach the loop locals, before any worker code runs.
+        if consumeCaptures then
+            for parameter in functionEntity.Parameters do
+                writer.Line(CSharpBackendNames.parameterName parameter.SemanticParameterId + " = default!;")
+
         writer.Line("goto " + CSharpBackendNames.executionBlockLabel functionEntity.EntryBlockId + ";")
         writer.Line("")
 
@@ -2494,8 +2505,18 @@ module CSharpBackend =
             program.Capabilities
             |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.ResultType))
             |> Map.ofList
+        let taskWorkers =
+            program.Functions
+            |> List.collect (fun fn -> fn.Blocks |> List.collect (fun block -> block.Instructions))
+            |> List.choose (fun instruction ->
+                match instruction.Kind with
+                | ExecutionInstructionKind.TaskStart(_, workerFunctionId, _, _) -> Some workerFunctionId
+                | _ -> None)
+            |> Set.ofList
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
-            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) functionEntity
+            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) false functionEntity
+            if Set.contains functionEntity.SemanticFunctionId taskWorkers then
+                emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) true functionEntity
         writer.Pop()
         writer.Line("}")
 
