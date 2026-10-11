@@ -411,6 +411,35 @@ module TaskScopeTests =
             Assert.True(limitedProposal.RootElement.GetProperty("ok").GetBoolean(), limitedProposal.RootElement.ToString())
             Assert.NotNull(describe))
 
+    [<Fact>]
+    let ``task start consumes captured slots through ref worker entries`` () =
+        withTeam (fun session _ ->
+            let profile =
+                CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]
+                |> CSharpBackendProfile.withConcurrentCapabilities [ agentId; workspacesId ]
+            let source = (session.EmitCSharp profile |> unwrap "emit").Source
+            let starts = System.Text.RegularExpressions.Regex.Matches(source, @"\.Start\(\(\) => (?<call>[^;]+)\);")
+            Assert.True(starts.Count > 0, "expected emitted TaskStart callbacks")
+            for start in starts do
+                let call = start.Groups.["call"].Value
+                let arguments = System.Text.RegularExpressions.Regex.Matches(call, @": (?<value>[^,)]+)")
+                Assert.True(arguments.Count > 0, "expected at least the captured item")
+                for argument in arguments do
+                    Assert.StartsWith("ref ", argument.Groups.["value"].Value)
+            let entries =
+                System.Text.RegularExpressions.Regex.Matches(
+                    source, @"private static [^\r\n]+\((?<parameters>ref [^\r\n]+)\)\s*\{(?<prologue>.*?)goto ",
+                    System.Text.RegularExpressions.RegexOptions.Singleline)
+            Assert.True(entries.Count > 0, "expected consuming worker entry overloads")
+            for entry in entries do
+                let parameters = entry.Groups.["parameters"].Value.Split(", ref ")
+                let prologue = entry.Groups.["prologue"].Value
+                for parameter in parameters do
+                    let name = parameter.Substring(parameter.LastIndexOf(' ') + 1)
+                    let copy = prologue.IndexOf(" = " + name + ";", StringComparison.Ordinal)
+                    let clear = prologue.IndexOf(name + " = default!;", StringComparison.Ordinal)
+                    Assert.True(copy >= 0 && clear > copy, "snapshot must enter loop locals before its caller slot is cleared"))
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``a leader loop starts waits stops and cleans up its members`` () =
         withTeam (fun session _ ->
