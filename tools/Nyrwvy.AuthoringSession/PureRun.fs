@@ -913,6 +913,29 @@ module PureRun =
                                 | _ -> issue shapeCode path (Some field.Type) None "A field is supplied more than once.")
                 let items path itemType values = values |> List.mapi (fun index value -> index, value) |> List.tryPick (fun (index, value) -> walk "RunContainerTypeMismatch" (path @ [ $"items[{index}]" ]) itemType value)
                 match value with
+                | PureRunValue.FakeCapability(capabilityId, operations) ->
+                    let capability = declarations.Capabilities |> List.tryFind (fun item -> item.Id = capabilityId)
+                    operations |> List.mapi (fun index operation -> index, operation) |> List.tryPick (fun (operationIndex, operation) ->
+                        let declaration = capability |> Option.bind (fun cap -> cap.Operations |> List.tryFind (fun item -> item.Id = operation.OperationId))
+                        declaration |> Option.bind (fun declaration ->
+                            let operationPath = path @ [ $"operations[{operationIndex}]" ]
+                            let responses path values =
+                                values |> List.mapi (fun index response -> index, response) |> List.tryPick (fun (responseIndex, response) ->
+                                    match PureRunFakeResponse.immediate response with
+                                    | PureRunFakeResponse.Return value
+                                    | PureRunFakeResponse.AwaitCancellation value ->
+                                        walk "RunBindingShapeMismatch" (path @ [ $"responses[{responseIndex}]"; "value" ]) declaration.ResultType value
+                                    | PureRunFakeResponse.Throw _
+                                    | PureRunFakeResponse.Delayed _ -> None)
+                            match operation.Cases with
+                            | None -> responses operationPath operation.Responses
+                            | Some cases ->
+                                cases |> List.mapi (fun index item -> index, item) |> List.tryPick (fun (caseIndex, item) ->
+                                    let casePath = operationPath @ [ $"cases[{caseIndex}]" ]
+                                    item.Arguments |> List.mapi (fun index argument -> index, argument) |> List.tryPick (fun (argumentIndex, (id, value)) ->
+                                        declaration.Parameters |> List.tryFind (fun parameter -> parameter.Id = id)
+                                        |> Option.bind (fun parameter -> walk "RunBindingShapeMismatch" (casePath @ [ $"arguments[{argumentIndex}]"; "value" ]) parameter.Type value))
+                                    |> Option.orElseWith (fun () -> responses casePath item.Responses))))
                 | PureRunValue.Product(typeId, values) -> fields "RunProductShapeMismatch" (path @ [ typeName typeId ]) typeId (productFields declarations.Types typeId) values
                 | PureRunValue.Union(typeId, variantId, values) ->
                     let variant = unionVariants declarations.Types typeId |> Option.bind (List.tryFind (fun v -> v.Id = variantId))
@@ -1611,3 +1634,4 @@ module PureRun =
         elif arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false) then
             Error(diagnostic "VerificationHostUnsupported" "Change verification accepts fake capabilities only.")
         else runVerified context functionId arguments expected [] |> Result.mapError (enrichInputError context.Declarations functionId arguments expected)
+
