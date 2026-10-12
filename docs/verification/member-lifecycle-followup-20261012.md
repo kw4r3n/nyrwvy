@@ -1,5 +1,10 @@
 # Offline Member lifecycle: frozen no-core follow-ups
 
+The later [generic task observer](../../examples/task-wait-observer/README.md)
+extracts the cancellation composition into reusable U/E graph helpers and adds
+maintained regression coverage. It preserves this frozen evidence and direct
+TaskWait semantics; it does not broaden the tagged provider-effect probe.
+
 The bounded observer composition and tagged provider-effect contract pass their
 frozen checks without changing Nyrwvy runtime/core code. These are **semantic
 adaptations**, not fixes to direct `TaskWait` cancellation or general raw host
