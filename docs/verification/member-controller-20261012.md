@@ -61,8 +61,10 @@ Historical frozen graphs are unchanged.
 | Requests after finish/resource release | Spawn rejects closing; settled handles/ledger remain readable; eligible integration stays idempotent |
 | Expected provider failure | Failed Member stays isolated; integration rejects status |
 
-Every completed script records each request's Result/rejection and all Entry
-fields in a state audit, with the ordered cumulative Git-effect/payload trace.
+Every completed script records each request's Result/rejection and nine normalized
+observable Member fields in a state audit: id, status, workspace, base, previous,
+discarded, commit, checks and integrated, with the ordered cumulative
+Git-effect/payload trace.
 Per-attempt provider/close/snapshot/check effects occur at most once; explicit
 discard and service close occur once. Finish acknowledgement follows release.
 Request cancellation is applied twice while a selected gate is held; zero-limit
