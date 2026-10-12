@@ -32,11 +32,12 @@ const final=(status,commit=text(''),checks=text(''))=>construct('Final',{status,
 const state=(es,next,closing,closingSignal)=>construct('State',{entries:es,next,closing,closingSignal})
 const stopped=()=>ok(final(text('stopped')))
 
-export async function author(s) {
+// Optional hooks compose additional ordinary recipes; default fixtures stay unchanged.
+export async function author(s, extension) {
  await s.call('open',{mode:'create',snapshot:s.snapshot})
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'Final',typeKind:{kind:'product',fields:fields({status:string,commit:string,checks:string})}},
-  {displayName:'Entry',typeKind:{kind:'product',fields:fields({id:int,workspace:string,base:string,previous:int,discarded:bool,superseded:bool,phase:cell,commitSignal:cell,handle})}},
+  {displayName:'Entry',typeKind:{kind:'product',fields:fields({id:int,workspace:string,base:string,previous:int,discarded:bool,superseded:bool,phase:cell,commitSignal:cell,handle,...extension?.entryFields})}},
   {displayName:'State',typeKind:{kind:'product',fields:fields({entries,next:int,closing:bool,closingSignal:closingCell})}},
   {displayName:'Request',typeKind:{kind:'product',fields:fields({op:string,target:int,previous:int,mode:string,limit:int,label:string})}},
  ]}}))
@@ -44,7 +45,7 @@ export async function author(s) {
  const ops=[['open',{},result(unit)],['close',{handle:unit},unit],['workspaceCreate',{workspace:string,base:string},result(unit)],
  ['workspaceDiscard',{workspace:string},result(unit)],['provider',{id:int,workspace:string,previous:int},result(string)],
  ['memberClose',{id:int},unit],['snapshot',{id:int,workspace:string},result(string)],['checks',{id:int,commit:string},string],
- ['gate',{label:string},unit],['reply',{label:string,record:string},unit]]
+ ['gate',{label:string},unit],['reply',{label:string,record:string},unit],...(extension?.operations??[])]
  await s.publish(await s.call('request',{op:'simulateCreateCapabilityByName',arguments:{displayName:'Host',operations:ops.map(([displayName,params,resultType])=>({displayName,parameters:fields(params),resultType,effect:'Io'}))}}))
  // All live handles are confined to graph state and task scopes.
  await s.create('providerTask',{host:cap('Host'),workspace:string,previous:int,id:int},result(string),
@@ -79,16 +80,17 @@ export async function author(s) {
  const reject=reason=>direct('rejected',{host:p('host'),state:p('state'),label:p('label'),reason:text(reason)})
  await s.create('register',{host:cap('Host'),state:S,workspace:string,base:string,previous:int,phase:cell,commitSignal:cell,target:handle,label:string},S,
   bind(io('reply',{label:p('label'),record:concat(text('spawn:'),num(T(p('state'),'next')))}),
-   state(cat(map(T(p('state'),'entries'),'markSuperseded',{target:p('previous')}),L(E,construct('Entry',{id:T(p('state'),'next'),workspace:p('workspace'),base:p('base'),previous:p('previous'),discarded:boolean(false),superseded:boolean(false),phase:p('phase'),commitSignal:p('commitSignal'),handle:p('target')}))),add(T(p('state'),'next'),integer(1)),T(p('state'),'closing'),T(p('state'),'closingSignal'))))
+   state(cat(map(T(p('state'),'entries'),'markSuperseded',{target:p('previous')}),L(E,construct('Entry',{id:T(p('state'),'next'),workspace:p('workspace'),base:p('base'),previous:p('previous'),discarded:boolean(false),superseded:boolean(false),phase:p('phase'),commitSignal:p('commitSignal'),handle:p('target'),...extension?.entryValues}))),add(T(p('state'),'next'),integer(1)),T(p('state'),'closing'),T(p('state'),'closingSignal'))))
  await s.create('launch',{host:cap('Host'),scope,state:S,workspace:string,base:string,previous:int,phase:cell,commitSignal:cell,label:string,deadline:int},S,
   bind(start('worker',T(p('state'),'next'),{host:p('host'),workspace:p('workspace'),previous:p('previous'),phase:p('phase'),commitSignal:p('commitSignal'),deadline:p('deadline'),closingSignal:T(p('state'),'closingSignal')}),
    direct('register',{host:p('host'),state:p('state'),workspace:p('workspace'),base:p('base'),previous:p('previous'),phase:p('phase'),commitSignal:p('commitSignal'),target:pat(),label:p('label')})))
  await s.create('admit',{host:cap('Host'),scope,state:S,workspace:string,base:string,previous:int,label:string,deadline:int},S,
   bind({kind:'oneShotCreate',scope:p('scope'),valueType:string},bind({kind:'oneShotCreate',scope:p('scope'),valueType:string},direct('launch',{host:p('host'),scope:p('scope'),state:p('state'),workspace:p('workspace'),base:p('base'),previous:p('previous'),phase:pat('value',1),commitSignal:pat(),label:p('label'),deadline:p('deadline')}))))
  const admit=(workspace,base,previous)=>direct('admit',{host:p('host'),scope:p('scope'),state:p('state'),workspace,base,previous,label:p('label'),deadline:p('deadline')})
- await s.create('continue',{host:cap('Host'),scope,state:S,prior:E,label:string,deadline:int},S,
+ const continueBody=
   cond(A(p('prior'),'superseded'),reject('superseded'),cond(A(p('prior'),'discarded'),reject('discarded'),
-   cond(direct('settled',{item:p('prior')}),admit(A(p('prior'),'workspace'),A(p('prior'),'base'),A(p('prior'),'id')),reject('running')))))
+   cond(direct('settled',{item:p('prior')}),admit(A(p('prior'),'workspace'),A(p('prior'),'base'),A(p('prior'),'id')),reject('running'))))
+ await s.create('continue',{host:cap('Host'),scope,state:S,prior:E,label:string,deadline:int},S,extension?extension.continueBody(continueBody,reject):continueBody)
  await s.create('spawn',{host:cap('Host'),scope,state:S,previous:int,label:string,deadline:int},S,
   cond(T(p('state'),'closing'),reject('closing'),cond(gt(fold(T(p('state'),'entries'),integer(0),'capacity',{},true),integer(1)),reject('capacity'),
    cond(eqInt(p('previous'),integer(0)),
@@ -96,7 +98,7 @@ export async function author(s) {
     matchOption(direct('get',{state:p('state'),target:p('previous')}),direct('continue',{host:p('host'),scope:p('scope'),state:p('state'),prior:pat(),label:p('label'),deadline:p('deadline')}),reject('unknown'))))))
  // Inspect exposes the determined status; wait exposes only settled task results.
  await s.create('renderFinal',{entry:E,final:named('Final')},string,
-  concat(num(A(p('entry'),'id')),text(','),F(p('final'),'status'),text(','),A(p('entry'),'workspace'),text(','),A(p('entry'),'base'),text(','),num(A(p('entry'),'previous')),text(','),cond(A(p('entry'),'discarded'),text('true'),text('false')),text(','),F(p('final'),'commit'),text(','),F(p('final'),'checks'),text(';')),[])
+  concat(num(A(p('entry'),'id')),text(','),F(p('final'),'status'),text(','),A(p('entry'),'workspace'),text(','),A(p('entry'),'base'),text(','),num(A(p('entry'),'previous')),text(','),cond(A(p('entry'),'discarded'),text('true'),text('false')),text(','),F(p('final'),'commit'),text(','),F(p('final'),'checks'),...(extension?[text(','),extension.renderSuffix(p('entry'))]:[]),text(';')),[])
  await s.create('inspectPending',{entry:E},string,
   bind({kind:'oneShotWait',cell:A(p('entry'),'commitSignal'),limit:some(integer(0))},bind(phase(p('entry')),
    direct('renderFinal',{entry:p('entry'),final:final(matchOption(pat(),pat(),text('running')),matchOption(pat('value',1),pat(),text('')))}))),[])
@@ -126,6 +128,7 @@ export async function author(s) {
   cond(T(p('state'),'closing'),bind(io('reply',{label:p('label'),record:text('finished')}),p('state')),
    bind({kind:'oneShotComplete',cell:T(p('state'),'closingSignal'),value:unitValue},
     bind(fold(T(p('state'),'entries'),unitValue,'stopFold',{host:p('host')},true),update(p('state'),'State',{closing:boolean(true)})))))
+ if(extension)await extension.define(s)
  const args={host:p('host'),scope:p('scope'),state:p('state')}
  const req=p('request'), label=C(req,'label'), target=C(req,'target')
  const dispatch=cond(eqStr(C(req,'op'),text('spawn')),direct('spawn',{...args,previous:C(req,'previous'),label,deadline:C(req,'limit')}),
@@ -135,8 +138,9 @@ export async function author(s) {
   cond(eqStr(C(req,'op'),text('discard')),direct('discard',{host:p('host'),state:p('state'),target,label}),
   cond(eqStr(C(req,'op'),text('finish')),direct('finish',{host:p('host'),state:p('state'),label}),
   cond(eqStr(C(req,'op'),text('gate')),bind(io('gate',{label}),p('state')),direct('rejected',{host:p('host'),state:p('state'),label,reason:text('operation')}))))))))
- await s.create('dispatch',{...{host:cap('Host'),scope,state:S},request:Q},S,dispatch)
- await s.create('requestFold',{host:cap('Host'),scope,acc:S,item:Q},S,direct('dispatch',{host:p('host'),scope:p('scope'),state:p('acc'),request:p('item')}))
+ await s.create('dispatch',{...{host:cap('Host'),scope,state:S},request:Q},S,extension?extension.dispatch(dispatch,{args,req,label,target}):dispatch)
+ const dispatchCall=direct('dispatch',{host:p('host'),scope:p('scope'),state:p('acc'),request:p('item')})
+ await s.create('requestFold',{host:cap('Host'),scope,acc:S,item:Q},S,extension?bind(dispatchCall,direct('auditState',{host:p('host'),state:pat(),label:C(p('item'),'label')})):dispatchCall)
  await s.create('foldController',{host:cap('Host'),scope,requests,closingSignal:closingCell},result(S),
   bind(fold(p('requests'),state(L(E),integer(1),boolean(false),p('closingSignal')),'requestFold',{host:p('host'),scope:p('scope')},true),
    cond(T(pat(),'closing'),ok(pat()),bind(direct('finish',{host:p('host'),state:pat(),label:text('auto-finish')}),ok(pat())))))

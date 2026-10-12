@@ -4,24 +4,23 @@ const E=named('Candidate'), O=named('Outcome'), R=result(string), paths=list(str
 const fields=o=>Object.entries(o).map(([displayName,type])=>({displayName,type}))
 const f=k=>field(p('candidate'),'Candidate',k)
 const mr=(input,okBody,errBody)=>({kind:'matchResult',input,okBody,errBody})
-const io=(operation,patch=text(''))=>invoke(p('host'),'Git','step',{operation:text(operation),patch})
 const call=(fn,extra={})=>direct(fn,{host:p('host'),candidate:p('candidate'),...extra})
 const outcome=(candidate,value)=>construct('Outcome',{candidate,result:value})
 const rejected=error=>outcome(p('candidate'),err(error,string))
 const failure=()=>rejected(pat('error'))
-const step=(operation,next,patch)=>mr(io(operation,patch),next,failure())
 const first=source=>matchOption({kind:'listItemAt',list:source,index:{kind:'int64Literal',value:'0'}},pat(),text(''))
 const set=source=>({kind:'setFromList',value:source})
 const updated=value=>({kind:'productUpdate',source:p('candidate'),type:'Candidate',fields:[{field:'integrated',value}]})
-export async function author(s){
- await s.call('open',{mode:'create',snapshot:s.snapshot})
+export async function defineIntegration(s,{capability='Git',shielded=false}={}){
+ const rawIo=(operation,patch=text(''))=>invoke(p('host'),capability,'step',{operation:text(operation),patch})
+ const io=shielded?(operation,patch)=>bind(rawIo(operation,patch),cond({kind:'cancellationRequested'},err(text('cancelled'),paths),pat())):rawIo
+ const step=(operation,next,patch)=>mr(io(operation,patch),next,failure())
+ const shield=(body,values)=>({kind:'cancellationShield',body,context:Object.entries(values).map(([parameter,value])=>({parameter,value}))})
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'Candidate',typeKind:{kind:'product',fields:fields({settled:bool,latest:bool,discarded:bool,status:string,commit:string,integrated:string})}},
   {displayName:'Outcome',typeKind:{kind:'product',fields:fields({candidate:E,result:R})}}
  ]}}))
- await s.publish(await s.call('request',{op:'simulateCreateEffect',arguments:{displayName:'Io'}}))
- await s.publish(await s.call('request',{op:'simulateCreateCapabilityByName',arguments:{displayName:'Git',operations:[{displayName:'step',parameters:fields({operation:string,patch:string}),resultType:result(paths),effect:'Io'}]}}))
- const params={host:cap('Git'),candidate:E}
+ const params={host:cap(capability),candidate:E}
  // Capture the ledger before save; either save result returns that same candidate.
  await s.create('record',params,O,step('head',bind(first(pat()),bind(updated(pat()),
   mr(io('save',field(pat(),'Candidate','integrated')),
@@ -29,12 +28,19 @@ export async function author(s){
    outcome(pat('value',1),err(pat('error'),string)))))))
  await s.create('rollback',{...params,patch:string,cause:string},O,
   step('reverse-check',step('reverse-apply',rejected(p('cause')),p('patch')),p('patch')))
+ if(shielded){
+  await s.create('rollbackProtected',{...params,patch:string,cause:string,item:unit},result(O),ok(call('rollback',{patch:p('patch'),cause:p('cause')})))
+ }
  await s.create('commit',{...params,patch:string},O,
-  mr(io('commit'),call('record'),call('rollback',{patch:p('patch'),cause:pat('error')})))
+  mr(io('commit'),call('record'),shielded?mr(shield('rollbackProtected',{host:p('host'),candidate:p('candidate'),patch:p('patch'),cause:pat('error')}),pat(),failure()):call('rollback',{patch:p('patch'),cause:pat('error')})))
+ if(shielded){
+  await s.create('finishIntegration',{...params,patch:string,item:unit},result(O),ok(cond(eqStr(p('patch'),text('')),call('record'),step('apply',call('commit',{patch:p('patch')}),p('patch')))))
+ }
  await s.create('apply',{...params,patch:string},O,
   step('check',step('apply',call('commit',{patch:p('patch')}),p('patch')),p('patch')))
+ const finish=patch=>mr(shield('finishIntegration',{host:p('host'),candidate:p('candidate'),patch}),pat(),failure())
  await s.create('patch',params,O,step('close-agent',step('patch',
-  bind(first(pat()),cond(eqStr(pat(),text('')),call('record'),call('apply',{patch:pat()}))))))
+  bind(first(pat()),shielded?cond(eqStr(pat(),text('')),finish(pat()),step('check',finish(pat('value',1)),pat())):cond(eqStr(pat(),text('')),call('record'),call('apply',{patch:pat()}))))))
  await s.create('overlap',{...params,memberPaths:paths},O,
   step('paths-leader',cond({kind:'int64GreaterThan',left:{kind:'setSize',value:{kind:'setIntersection',left:set(p('memberPaths')),right:set(pat())}},right:{kind:'int64Literal',value:'0'}},rejected(text('overlap')),call('patch'))))
  await s.create('validate',params,O,
@@ -45,8 +51,15 @@ export async function author(s){
  await s.create('integrate',params,O,
   cond(f('latest'),cond(f('discarded'),rejected(text('discarded')),cond(f('settled'),call('eligible'),rejected(text('running')))),rejected(text('superseded'))))
  await s.create('attempt',params,O,call('integrate'))
- await s.create('attemptFold',{host:cap('Git'),acc:O,item:unit},O,
+ await s.create('attemptFold',{host:cap(capability),acc:O,item:unit},O,
   direct('attempt',{host:p('host'),candidate:field(p('acc'),'Outcome','candidate')}))
+}
+export async function author(s){
+ await s.call('open',{mode:'create',snapshot:s.snapshot})
+ await s.publish(await s.call('request',{op:'simulateCreateEffect',arguments:{displayName:'Io'}}))
+ await s.publish(await s.call('request',{op:'simulateCreateCapabilityByName',arguments:{displayName:'Git',operations:[{displayName:'step',parameters:fields({operation:string,patch:string}),resultType:result(paths),effect:'Io'}]}}))
+ await defineIntegration(s)
+ const params={host:cap('Git'),candidate:E}
  await s.create('run',{...params,requests:list(unit)},O,
   {kind:'listEffectFold',source:p('requests'),seed:construct('Outcome',{candidate:p('candidate'),result:ok(f('integrated'))}),function:'attemptFold',context:[{parameter:'host',value:p('host')}]})
  const d=await s.call('inspect',{view:'declarations'})
