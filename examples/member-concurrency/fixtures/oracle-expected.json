@@ -1,0 +1,520 @@
+{
+  "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "sourceProofs": {
+    "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+    "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
+  },
+  "matched": [
+    {
+      "id": "capacity-contention",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "finish",
+          "record": "ok:drained"
+        },
+        {
+          "label": "loser",
+          "record": "reject:capacity"
+        },
+        {
+          "label": "retained",
+          "record": "1,stopped,w1,base,0,false,,,;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "winner",
+          "record": "spawn:2"
+        }
+      ],
+      "state": "1,stopped,w1,base,0,false,,,;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "winner": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ]
+      },
+      "released": 1
+    },
+    {
+      "id": "cancel-queued-spawn",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "cancelled",
+          "record": "err:cancelled"
+        },
+        {
+          "label": "finish",
+          "record": "ok:drained"
+        },
+        {
+          "label": "later",
+          "record": "reject:capacity"
+        },
+        {
+          "label": "retained",
+          "record": "1,stopped,w1,base,0,false,,,;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "winner",
+          "record": "spawn:2"
+        }
+      ],
+      "state": "1,stopped,w1,base,0,false,,,;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "winner": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ]
+      },
+      "released": 1
+    },
+    {
+      "id": "duplicate-integration-clear",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "finish",
+          "record": "ok:drained"
+        },
+        {
+          "label": "first",
+          "record": "ok:integrated-head"
+        },
+        {
+          "label": "ledger",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;"
+        },
+        {
+          "label": "retained",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "second",
+          "record": "ok:integrated-head"
+        },
+        {
+          "label": "settled-a",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        }
+      ],
+      "state": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "b": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ],
+        "first": [
+          {
+            "operation": "clean-source",
+            "patch": ""
+          },
+          {
+            "operation": "clean-member",
+            "patch": ""
+          },
+          {
+            "operation": "validate",
+            "patch": ""
+          },
+          {
+            "operation": "ancestor",
+            "patch": ""
+          },
+          {
+            "operation": "paths-member",
+            "patch": ""
+          },
+          {
+            "operation": "paths-leader",
+            "patch": ""
+          },
+          {
+            "operation": "close-agent",
+            "patch": ""
+          },
+          {
+            "operation": "patch",
+            "patch": ""
+          },
+          {
+            "operation": "check",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "apply",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "commit",
+            "patch": ""
+          },
+          {
+            "operation": "head",
+            "patch": ""
+          },
+          {
+            "operation": "save",
+            "patch": "integrated-head"
+          }
+        ]
+      },
+      "released": 1
+    },
+    {
+      "id": "duplicate-integration-cancel",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "finish",
+          "record": "ok:drained"
+        },
+        {
+          "label": "first",
+          "record": "err:cancelled"
+        },
+        {
+          "label": "ledger",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;"
+        },
+        {
+          "label": "retained",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "second",
+          "record": "ok:integrated-head"
+        },
+        {
+          "label": "settled-a",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        }
+      ],
+      "state": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "b": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ],
+        "first": [
+          {
+            "operation": "clean-source",
+            "patch": ""
+          },
+          {
+            "operation": "clean-member",
+            "patch": ""
+          },
+          {
+            "operation": "validate",
+            "patch": ""
+          },
+          {
+            "operation": "ancestor",
+            "patch": ""
+          },
+          {
+            "operation": "paths-member",
+            "patch": ""
+          },
+          {
+            "operation": "paths-leader",
+            "patch": ""
+          },
+          {
+            "operation": "close-agent",
+            "patch": ""
+          },
+          {
+            "operation": "patch",
+            "patch": ""
+          },
+          {
+            "operation": "check",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "apply",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "commit",
+            "patch": ""
+          },
+          {
+            "operation": "head",
+            "patch": ""
+          },
+          {
+            "operation": "save",
+            "patch": "integrated-head"
+          }
+        ]
+      },
+      "released": 1
+    },
+    {
+      "id": "wait-stop-during-integration",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "finish",
+          "record": "ok:drained"
+        },
+        {
+          "label": "first",
+          "record": "ok:integrated-head"
+        },
+        {
+          "label": "retained",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "settled-a",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "stopping",
+          "record": "2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "waiting",
+          "record": "2,stopped,w2,base,0,false,,,;"
+        }
+      ],
+      "state": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "b": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ],
+        "first": [
+          {
+            "operation": "clean-source",
+            "patch": ""
+          },
+          {
+            "operation": "clean-member",
+            "patch": ""
+          },
+          {
+            "operation": "validate",
+            "patch": ""
+          },
+          {
+            "operation": "ancestor",
+            "patch": ""
+          },
+          {
+            "operation": "paths-member",
+            "patch": ""
+          },
+          {
+            "operation": "paths-leader",
+            "patch": ""
+          },
+          {
+            "operation": "close-agent",
+            "patch": ""
+          },
+          {
+            "operation": "patch",
+            "patch": ""
+          },
+          {
+            "operation": "check",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "apply",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "commit",
+            "patch": ""
+          },
+          {
+            "operation": "head",
+            "patch": ""
+          },
+          {
+            "operation": "save",
+            "patch": "integrated-head"
+          }
+        ]
+      },
+      "released": 1
+    },
+    {
+      "id": "close-cutoff-before-drain",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "closing",
+          "record": "ok:drained"
+        },
+        {
+          "label": "first",
+          "record": "ok:integrated-head"
+        },
+        {
+          "label": "late",
+          "record": "reject:closing"
+        },
+        {
+          "label": "retained",
+          "record": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "settled-a",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        }
+      ],
+      "state": "1,completed,w1,base,0,false,commit1,passed,integrated-head;2,stopped,w2,base,0,false,,,;",
+      "effects": {
+        "a": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w1"
+          }
+        ],
+        "b": [
+          {
+            "operation": "workspaceCreate",
+            "patch": "w2"
+          }
+        ],
+        "first": [
+          {
+            "operation": "clean-source",
+            "patch": ""
+          },
+          {
+            "operation": "clean-member",
+            "patch": ""
+          },
+          {
+            "operation": "validate",
+            "patch": ""
+          },
+          {
+            "operation": "ancestor",
+            "patch": ""
+          },
+          {
+            "operation": "paths-member",
+            "patch": ""
+          },
+          {
+            "operation": "paths-leader",
+            "patch": ""
+          },
+          {
+            "operation": "close-agent",
+            "patch": ""
+          },
+          {
+            "operation": "patch",
+            "patch": ""
+          },
+          {
+            "operation": "check",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "apply",
+            "patch": "synthetic-patch"
+          },
+          {
+            "operation": "commit",
+            "patch": ""
+          },
+          {
+            "operation": "head",
+            "patch": ""
+          },
+          {
+            "operation": "save",
+            "patch": "integrated-head"
+          }
+        ]
+      },
+      "released": 1
+    }
+  ]
+}
