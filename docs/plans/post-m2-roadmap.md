@@ -486,6 +486,17 @@ After probe 25 nothing was blocked. The owner chose three changes: a scoped hand
 
 #364 fixed confined viewer writes to return errors instead of throwing; it is a fix, not an order.
 
+## Bounded Member integration evidence — 2026-10-12
+
+The [offline integration composition](../verification/member-integration-20261012.md)
+uses existing products, Results, Sets and effectful folds for the sequential
+`Team.integrate` policy over already-observed candidate facts: 28/28 normalized
+Python comparisons and virtual/reopened/moved/unedited-C# cases. It found no
+missing primitive and adds no implementation queue. Live settlement polling,
+concurrent lock equivalence, real Git safety/persistence and cancellation during
+rollback remain outside that evidence. TaskWait caller cancellation remains a
+separate confirmed gap in the Member lifecycle reports.
+
 ## Evidence and authority pointers
 
 - [Vision and priority order](../concepts/vision.md)

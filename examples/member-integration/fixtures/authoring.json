@@ -1,0 +1,22 @@
+{
+  "base": "44835914c6f10d845facbe872d8be660c5fd5e53",
+  "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "nodes": {
+    "record": 23,
+    "rollback": 16,
+    "commit": 13,
+    "apply": 18,
+    "patch": 32,
+    "overlap": 21,
+    "validate": 39,
+    "eligible": 25,
+    "integrate": 18,
+    "attempt": 14,
+    "attemptFold": 4,
+    "run": 8
+  },
+  "functionCount": 12,
+  "nodeCount": 231,
+  "generatedSha256": "ff30a1c106c4d035343bf3532b4d8367ee9c49e5d1d1cb2da339168466c1aa77",
+  "nodeVersion": "v26.11.1"
+}
