@@ -54,3 +54,35 @@ test('all virtual fixtures honor the existing 256-case/response operation budget
   assert.throws(()=>validateFixtureBudget({operations:[{operation:'too-many',responses:Array(257).fill({})}]}),/256 total/)
   assert.throws(()=>validateFixtureBudget({operations:[{operation:'too-many-cases',cases:Array.from({length:257},()=>({responses:[]}))}]}),/256 argument/)
 })
+
+test('monitor resumes with the intended producer values across the empty None frame',async()=>{
+  const f=await recipes(),fn=f.get('monitor'),left=fn.body.body
+  assert.equal(left.kind,'matchResult')
+  assert.equal(left.input.function,'producerAlive')
+  assert.equal(left.input.arguments[0].value.name,'left')
+  const right=left.okBody
+  assert.equal(right.kind,'matchResult')
+  assert.equal(right.input.function,'producerAlive')
+  assert.equal(right.input.arguments[0].value.name,'right')
+  const snapshot=right.okBody
+  assert.equal(snapshot.kind,'matchOption')
+  assert.equal(snapshot.input.function,'snapshot')
+  assert.equal(snapshot.input.arguments[0].value.name,'collector')
+  const resume=snapshot.noneBody
+  assert.equal(resume.function,'monitor')
+  const actual=Object.fromEntries(resume.arguments.map(x=>[x.parameter,x.value]))
+  const expected={leftAlive:{kind:'patternReference',slot:'value',scopeDepth:2},rightAlive:{kind:'patternReference',slot:'value',scopeDepth:1}}
+  assert.deepEqual(actual,expected)
+  // The old 1/0 mapping is unbound; swapping 1/2 is bound but reads the wrong producers.
+  const old=structuredClone(fn)
+  const oldArgs=old.body.body.okBody.okBody.noneBody.arguments
+  oldArgs.find(x=>x.parameter==='leftAlive').value.scopeDepth=1
+  oldArgs.find(x=>x.parameter==='rightAlive').value.scopeDepth=0
+  assert.throws(()=>refs(old.body,old,f),/monitor/)
+  const swapped=structuredClone(fn)
+  const swappedArgs=swapped.body.body.okBody.okBody.noneBody.arguments
+  swappedArgs.find(x=>x.parameter==='leftAlive').value.scopeDepth=1
+  swappedArgs.find(x=>x.parameter==='rightAlive').value.scopeDepth=2
+  assert.doesNotThrow(()=>refs(swapped.body,swapped,f))
+  assert.notDeepEqual(Object.fromEntries(swappedArgs.map(x=>[x.parameter,x.value])),expected)
+})

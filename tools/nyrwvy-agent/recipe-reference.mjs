@@ -236,7 +236,7 @@ const references = {
       { kind: "patternReference", scopeDepth: "<non-negative integer>", slot: "error" },
       { kind: "patternReference", scopeDepth: "<non-negative integer>", slot: "field", type: "<union type display name>", variant: "<variant display name>", field: "<field display name>" },
     ],
-    notes: "scopeDepth 0 refers to the innermost Bind/match frame; field slots identify the owning Union, variant, and field by display name.",
+    notes: "scopeDepth 0 refers to the innermost Bind/match frame. Count every enclosing Bind body or match arm, including empty MatchOption None and multi-variant/otherwise MatchUnion arms; conditional branches do not add a frame. A Bind value or match input is outside the frame opened for its body/arms. Slot availability does not identify the intended value: several frames can bind value with the same type. For nested left Result Ok, right Result Ok, then Option None, depth 0 has no bindings, depth 1 is right, and depth 2 is left. Use scopeDepth 2 for left and 1 for right. Field slots identify the owning Union, variant, and field by display name.",
   },
   stringLiteral: { shape: { kind: "stringLiteral", value: "<string>" } },
   boolLiteral: { shape: { kind: "boolLiteral", value: "<boolean>" } },
