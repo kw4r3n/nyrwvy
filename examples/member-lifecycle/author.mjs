@@ -63,11 +63,19 @@ export async function author(s, extension) {
  await s.create('determined',{host:cap('Host'),id:int,workspace:string,phase:cell,status:string,closingSignal:closingCell,commitSignal:cell},R,
   bind({kind:'oneShotComplete',cell:p('phase'),value:p('status')},
    cond(eqStr(p('status'),text('completed')),direct('snapshot',{host:p('host'),id:p('id'),workspace:p('workspace'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal')}),ok(final(p('status'))))))
+ // Capture status in the worker's original context, before cleanup. Shield
+ // only the determined tail; the existing provider scope stays cancellable.
+ if(extension?.protectDetermined)await s.create('memberSettlement',{host:cap('Host'),id:int,workspace:string,phase:cell,status:string,closingSignal:closingCell,commitSignal:cell,item:unit},R,
+  bind({kind:'oneShotComplete',cell:p('phase'),value:p('status')},
+   bind(io('memberClose',{id:p('id')}),
+    cond(eqStr(p('status'),text('completed')),direct('snapshot',{host:p('host'),id:p('id'),workspace:p('workspace'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal')}),ok(final(p('status')))))))
+ const status=cond(cancellation,text('stopped'),mr(pat(),pat(),cond(eqStr(pat('error'),text('deadline')),text('timed_out'),text('failed'))))
+ const settlementContext={host:p('host'),id:p('id'),workspace:p('workspace'),phase:p('phase'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal'),status:pat()}
  await s.create('worker',{host:cap('Host'),workspace:string,previous:int,phase:cell,deadline:int,id:int,closingSignal:closingCell,commitSignal:cell},R,
   bind(io('gate',{label:concat(text('worker-entry:'),num(p('id')))}),
    cond(cancellation,direct('determined',{host:p('host'),id:p('id'),workspace:p('workspace'),phase:p('phase'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal'),status:text('stopped')}),
     bind({kind:'taskScope',body:'providerScope',context:context({host:p('host'),workspace:p('workspace'),previous:p('previous'),id:p('id'),deadline:p('deadline')})},
-     bind(io('memberClose',{id:p('id')}),
+     extension?.protectDetermined?bind(status,{kind:'cancellationShield',body:'memberSettlement',context:context(settlementContext)}):bind(io('memberClose',{id:p('id')}),
       direct('determined',{host:p('host'),id:p('id'),workspace:p('workspace'),phase:p('phase'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal'),
        status:cond(cancellation,text('stopped'),mr(pat('value',1),pat(),cond(eqStr(pat('error'),text('deadline')),text('timed_out'),text('failed'))))}))))))
  await s.create('isId',{target:int,item:E},bool,eqInt(A(p('item'),'id'),p('target')),[])

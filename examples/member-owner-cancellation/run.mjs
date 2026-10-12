@@ -15,7 +15,7 @@ const s=await session('controller',dir)
 try {
  if(!replay){
   // Explicit legacy switch preserves the previous milestone's reproducible fixtures.
-  const {artifact,nodes}=await author(s,{adapted:!baseline,recoverCompleted:recovered})
+  const {artifact,nodes}=await author(s,{adapted:!baseline,recoverCompleted:recovered,protectDetermined:false})
   await writeFile(join(dir,'Generated.cs'),artifact.source)
   await writeFile(join(dir,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
   await writeFile(join(dir,'authoring.json'),JSON.stringify({base:recoveryMatrix?'1af5ae38ea426dbe964147151f5cd7b17efae0e9':'9e98b728b834a8ba5625c4a4a136bdbd904336fd',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',recoverCompleted:recovered,nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))
