@@ -1,0 +1,569 @@
+{
+  "base": "44835914c6f10d845facbe872d8be660c5fd5e53",
+  "baseTree": "2f5254910f6e4fb19f097d4f66557eb77bde4692",
+  "oracleHead": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "teamSha256": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+  "authoring": {
+    "functions": 12,
+    "nodes": 231,
+    "ordinaryTools": true
+  },
+  "checks": {
+    "virtual": 28,
+    "reopened": 28,
+    "moved": 28,
+    "uneditedCSharp": 28,
+    "teamMatches": 28,
+    "negativeControls": 6,
+    "fastDotnet": 854,
+    "extendedDotnet": 154,
+    "adapterTests": 8,
+    "nodeContracts": 36,
+    "mcpContracts": 12,
+    "typecheckAdapters": true,
+    "typecheckBun": true,
+    "releaseBuildWarnings": 0
+  },
+  "identity": {
+    "snapshotSha256": "e4e93ef1ebcdbf02a0bb96a08f646a8d22a1feaca25fa686adef20404b7d63d2",
+    "generatedSha256": "ff30a1c106c4d035343bf3532b4d8367ee9c49e5d1d1cb2da339168466c1aa77",
+    "reemissionMatches": true,
+    "symbolsSha256": "d01cde86a8af90104fe4b727a891a103ea29b8ba977cf3b466f6b8597320f2c1",
+    "casesSha256": "bb5f6431891ebb07bd0f638e48a80b9b1db79127764f774b4480463ad1ca37d4",
+    "status": {
+      "snapshotId": "01a12e37-97f7-7f37-85cd-8d78c3e02abf",
+      "snapshotFingerprint": "sha256:5c5d68ba66bfd29f2f443b9c7d34e79b0c9d37fac0883a0948a119b67d43aebe",
+      "semanticFingerprint": "sha256:dc1086cbdb9ccc33a69d31673b9734af8791fdcb42d25e5b107be5a3e41fae15"
+    }
+  },
+  "committedSha256": {
+    "integration.json": "e4e93ef1ebcdbf02a0bb96a08f646a8d22a1feaca25fa686adef20404b7d63d2",
+    "symbols.json": "d01cde86a8af90104fe4b727a891a103ea29b8ba977cf3b466f6b8597320f2c1",
+    "authoring.json": "1a9b17232922f2e4bf3d691fae450fe42003b8b016e76e955e52eeb3eb1a57f8",
+    "cases.json": "424156aa44ccf04223758bd9f3f5479bcd38fd247231c6f9853481b0feb4e6f1"
+  },
+  "runtime": {
+    "compilation": {
+      "method": "installed-roslyn-no-restore",
+      "sdkVersion": "10.0.112",
+      "referencePackVersion": "10.0.12",
+      "runtimeVersion": "10.0.12",
+      "referenceAssemblyCount": 167,
+      "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
+    },
+    "generatedSha256": "ff30a1c106c4d035343bf3532b4d8367ee9c49e5d1d1cb2da339168466c1aa77",
+    "sourceUnchanged": true
+  },
+  "methodsUnmodified": [
+    "integrate",
+    "get",
+    "latest"
+  ],
+  "effectStubs": [
+    "clean",
+    "host_git",
+    "validate_integration",
+    "close_member_agent",
+    "save"
+  ],
+  "results": [
+    {
+      "id": "disjoint",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head"
+    },
+    {
+      "id": "repeat-idempotent",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head"
+    },
+    {
+      "id": "already-integrated",
+      "trace": [],
+      "result": {
+        "ok": true,
+        "value": "prior-head"
+      },
+      "integrated": "prior-head"
+    },
+    {
+      "id": "superseded-integrated",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "superseded"
+      },
+      "integrated": "prior-head"
+    },
+    {
+      "id": "discarded",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "discarded"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "running",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "running"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "failed",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "status"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "stopped",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "status"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "no-snapshot",
+      "trace": [],
+      "result": {
+        "ok": false,
+        "value": "unsnapshotted"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "overlap",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader"
+      ],
+      "result": {
+        "ok": false,
+        "value": "overlap"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "duplicate-disjoint-paths",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head"
+    },
+    {
+      "id": "empty-paths",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head"
+    },
+    {
+      "id": "empty-patch",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "source-head"
+      },
+      "integrated": "source-head"
+    },
+    {
+      "id": "fail-clean-source",
+      "trace": [
+        "clean-source"
+      ],
+      "result": {
+        "ok": false,
+        "value": "clean-source"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-clean-member",
+      "trace": [
+        "clean-source",
+        "clean-member"
+      ],
+      "result": {
+        "ok": false,
+        "value": "clean-member"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-validate",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate"
+      ],
+      "result": {
+        "ok": false,
+        "value": "validate"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-ancestor",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor"
+      ],
+      "result": {
+        "ok": false,
+        "value": "ancestor"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-paths-member",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member"
+      ],
+      "result": {
+        "ok": false,
+        "value": "paths-member"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-paths-leader",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader"
+      ],
+      "result": {
+        "ok": false,
+        "value": "paths-leader"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-close-agent",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent"
+      ],
+      "result": {
+        "ok": false,
+        "value": "close-agent"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-patch",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch"
+      ],
+      "result": {
+        "ok": false,
+        "value": "patch"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-check",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check"
+      ],
+      "result": {
+        "ok": false,
+        "value": "check"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-apply",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply"
+      ],
+      "result": {
+        "ok": false,
+        "value": "apply"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "fail-head",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head"
+      ],
+      "result": {
+        "ok": false,
+        "value": "head"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "commit-rollback",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "result": {
+        "ok": false,
+        "value": "commit"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "rollback-check-fails",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "result": {
+        "ok": false,
+        "value": "reverse-check"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "rollback-apply-fails",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "result": {
+        "ok": false,
+        "value": "reverse-apply"
+      },
+      "integrated": ""
+    },
+    {
+      "id": "retry-after-rollback",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply",
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head"
+    }
+  ],
+  "negativeControls": [
+    {
+      "id": "reintegrate-does-effects",
+      "rejected": true
+    },
+    {
+      "id": "running-determined-as-settled",
+      "rejected": true
+    },
+    {
+      "id": "overlap-accepted",
+      "rejected": true
+    },
+    {
+      "id": "commit-failure-without-rollback",
+      "rejected": true
+    },
+    {
+      "id": "failed-commit-publishes-ledger",
+      "rejected": true
+    },
+    {
+      "id": "rollback-failure-hidden",
+      "rejected": true
+    }
+  ]
+}

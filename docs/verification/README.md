@@ -89,3 +89,5 @@ Most records in this section are *porting probes*: a slice of an existing progra
 - [Source ownership and evaluation compatibility (#211)](source-ownership-boundaries.md)
 - [Build and suite review follow-ups (#212, #213)](build-and-suite-review-follow-ups.md)
 - [Semantic-facts scaling repair](semantic-facts-scaling.md)
+
+- [Offline Member integration composition](member-integration-20261012.md): 28 sequential policy cases, exact effect ordering and rollback, unchanged Team comparison, virtual/replay/C# evidence; no core change.
