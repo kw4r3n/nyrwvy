@@ -596,6 +596,10 @@ module ExecutionIrSerializer =
               property "workerFunctionId" (stableIdValue workerFunctionId) ]
             @ writeCallbackContext context
         | ExecutionInstructionKind.CancellationRequested -> [ property "kind" (quote "cancellationRequested") ]
+        | ExecutionInstructionKind.CancellationShield(bodyFunctionId, context) ->
+            [ property "kind" (quote "cancellationShield")
+              property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.TaskScope(bodyFunctionId, context) ->
             [ property "kind" (quote "taskScope")
               property "bodyFunctionId" (stableIdValue bodyFunctionId) ]

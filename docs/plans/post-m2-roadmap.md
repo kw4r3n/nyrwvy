@@ -497,6 +497,19 @@ concurrent lock equivalence, real Git safety/persistence and cancellation during
 rollback remain outside that evidence. TaskWait caller cancellation remains a
 separate confirmed gap in the Member lifecycle reports.
 
+## Parent cancellation during owned cleanup — 2026-10-12
+
+The [finish/rollback probe](../verification/cleanup-shield-20261012.md) demonstrated
+that parent-linked scopes and independent observer cancellation cannot shield a
+mutation tail. The unchanged pinned-main compiler disagrees with Python in twelve
+cancellation scenarios. A generic [lexical CancellationShield](../specs/cancellation-shield.md)
+now protects a bounded callback, restores the caller token and preserves scope
+ownership. Fourteen per-step oracle comparisons and six generic ownership/fault
+controls pass. Snapshot JSON 15 / Nyason v11 gates the new node; older graphs are
+unchanged. PR383's save-error ledger follow-up is independent and is not assumed
+merged. Full controller composition, concurrent admission, real Git and restart
+remain separate; this slice adds no speculative subsystem.
+
 ## Evidence and authority pointers
 
 - [Vision and priority order](../concepts/vision.md)

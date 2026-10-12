@@ -249,6 +249,7 @@ module ViewerHtml =
         | ViewerNodeRole.UseResource -> "use resource"
         | ViewerNodeRole.ParallelAll -> "parallel all"
         | ViewerNodeRole.CancellationRequested -> "cancellation requested"
+        | ViewerNodeRole.CancellationShield -> "cancellation shield"
         | ViewerNodeRole.TaskScope -> "task scope"
         | ViewerNodeRole.TaskStart -> "task start"
         | ViewerNodeRole.TaskWait TaskWaitMode.Any -> "task wait (any)"

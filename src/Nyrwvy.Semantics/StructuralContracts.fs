@@ -205,6 +205,8 @@ module ValueDependency =
             create ValueDependencyRole.Source sourceNodeId
             :: contextDependencies context
         | SemanticNodeKind.CancellationRequested -> []
+        | SemanticNodeKind.CancellationShield(_, context) ->
+            contextDependencies context
         | SemanticNodeKind.TaskScope(_, context) ->
             contextDependencies context
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->

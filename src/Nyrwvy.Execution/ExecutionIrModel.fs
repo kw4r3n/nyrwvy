@@ -201,6 +201,7 @@ type ExecutionInstructionKind =
     | MapFold of sourceMapValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
+    | CancellationShield of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | TaskScope of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | TaskStart of scopeValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list * itemValueId: ExecutionValueId
     | TaskWait of tasksValueId: ExecutionValueId * mode: TaskWaitMode * limitValueId: ExecutionValueId option
@@ -288,6 +289,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ParallelAll(_, functionId, _) ->
             [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.CancellationRequested -> [ ExecutionInstructionUse.ConcurrencyRuntime ]
+        | ExecutionInstructionKind.CancellationShield(functionId, _) ->
+            [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.TaskScope(functionId, _) ->
             [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.TaskRuntime ]
         | ExecutionInstructionKind.TaskStart(_, functionId, _, _) ->

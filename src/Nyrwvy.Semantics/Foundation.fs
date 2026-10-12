@@ -486,6 +486,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Whether cancellation was requested for the ParallelAll worker, task or TaskScope body evaluating it; false elsewhere.
     | CancellationRequested
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
+    /// Runs a Unit -> Result<T, E> body with ambient cancellation masked. Context evaluates first.
+    /// Restores the caller token on every exit; cancellation stays cooperative after the body.
+    | CancellationShield of bodyFunctionId: FunctionId * context: ArgumentBinding list
     /// Runs the body function with a new `TaskScope` value (other parameters bound by `context`).
     /// When the body exits by Ok, Err or host exception, every unfinished task of the scope is
     /// cancelled and awaited before the node completes. The result is the body's `Result<T, E>`.
@@ -841,6 +844,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
+        | SemanticNodeKind.CancellationShield(_, context) -> contextValues context
         | SemanticNodeKind.TaskScope(_, context) -> contextValues context
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: contextValues context
@@ -1082,6 +1086,8 @@ module SemanticNodeShape =
                     functionId,
                     mapContextValues mapNodeId context
                 )
+            | SemanticNodeKind.CancellationShield(functionId, context) ->
+                SemanticNodeKind.CancellationShield(functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.TaskScope(functionId, context) ->
                 SemanticNodeKind.TaskScope(functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.TaskStart(scopeNodeId, functionId, context, itemNodeId) ->
@@ -1292,6 +1298,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _
@@ -1508,6 +1515,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _
@@ -1578,6 +1586,7 @@ module SemanticNodeShape =
             [ reference FunctionReferenceRole.EffectListCallback context functionId ], []
         | SemanticNodeKind.ParallelAll(_, functionId, context)
         | SemanticNodeKind.TaskStart(_, functionId, context, _) -> [ reference FunctionReferenceRole.Worker context functionId ], []
+        | SemanticNodeKind.CancellationShield(functionId, context) -> [ reference FunctionReferenceRole.Body context functionId ], []
         | SemanticNodeKind.TaskScope(functionId, context) -> [ reference FunctionReferenceRole.Body context functionId ], []
         | SemanticNodeKind.UseResource(_, _, releaseOperationId, functionId, context) ->
             [ reference FunctionReferenceRole.Body context functionId ], [ releaseOperationId ]
@@ -1746,6 +1755,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
         | SemanticNodeKind.TaskWait _

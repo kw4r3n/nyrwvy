@@ -136,6 +136,8 @@ type ExpressionRecipe =
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | CancellationRequested
+    /// The body's one unbound Unit parameter is supplied while ambient cancellation is masked.
+    | CancellationShield of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     /// The body's one unbound parameter receives the new `TaskScope`.
     | TaskScope of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | TaskStart of scope: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list * item: ExpressionRecipe
@@ -350,6 +352,7 @@ module ExpressionRecipeTypes =
             ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
         | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
         | ExpressionRecipe.CancellationRequested -> recipe
+        | ExpressionRecipe.CancellationShield(body, context) -> ExpressionRecipe.CancellationShield(body, pairs context)
         | ExpressionRecipe.TaskScope(body, context) -> ExpressionRecipe.TaskScope(body, pairs context)
         | ExpressionRecipe.TaskStart(scope, worker, context, item) -> ExpressionRecipe.TaskStart(go scope, worker, pairs context, go item)
         | ExpressionRecipe.OneShotCreate(scope, valueType) -> ExpressionRecipe.OneShotCreate(go scope, mapType valueType)
@@ -671,6 +674,7 @@ module AgentExpressionStructuralWorkflow =
             seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
         | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.CancellationRequested -> Seq.empty
+        | ExpressionRecipe.CancellationShield(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskScope(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskStart(scope, _, context, item) -> seq { yield scope; yield item; yield! context |> Seq.map snd }
         | ExpressionRecipe.OneShotCreate(scope, _) -> Seq.singleton scope
@@ -1738,6 +1742,23 @@ module AgentExpressionStructuralWorkflow =
                                     fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
                             | _ -> fail "UseResourceResultMismatch" $"UseResource body {callbackName body} must return Result<T, E> with the acquisition error type E = {ty errorType}; it returns {ty bodyResult}."
                 | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {ty actual}."
+            | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
+                match Map.tryFind bodyFunctionId functionsById with
+                | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"CancellationShield body '{StableId.value bodyFunctionId}' does not exist.")
+                | Some body ->
+                    match validateCallbackContext "CancellationShield" body context (infer frames) with
+                    | Error error -> Error error
+                    | Ok(unbound, substitution) ->
+                        let scopeType = TypeRef.Primitive PrimitiveType.Unit
+                        match (match unbound with [ scope ] -> TypeParameters.matchType substitution scope.Type scopeType | _ -> None),
+                              missingEffect body.RequiredEffects with
+                        | None, _ -> Error(diagnostic "CancellationShieldBodyMismatch" $"CancellationShield body {callbackName body} must have exactly one parameter not bound by context, of type Unit; the body has type {callbackSignature body}.")
+                        | _, Some effectId ->
+                            Error(missingEffectError $"CancellationShield body {StableId.describe body.DisplayName body.Id}" effectId)
+                        | Some current, None ->
+                            match TypeParameters.substitute current body.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as result -> Ok result
+                            | other -> Error(diagnostic "CancellationShieldResultMismatch" $"CancellationShield body {callbackName body} must return Result<T, E>, not {ty other}.")
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
                 match Map.tryFind bodyFunctionId functionsById with
                 | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"TaskScope body '{StableId.value bodyFunctionId}' does not exist.")
@@ -2546,6 +2567,10 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.CancellationRequested ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.CancellationRequested } ], nodeId
+        | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
+            let contextNodes, contextBindings = materializeContext bodyFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.CancellationShield(bodyFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
             let contextNodes, contextBindings = materializeContext bodyFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()

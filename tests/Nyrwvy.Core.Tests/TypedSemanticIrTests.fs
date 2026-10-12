@@ -146,6 +146,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.UseResource _
                 | TypedSemanticNodeKind.ParallelAll _
                 | TypedSemanticNodeKind.CancellationRequested
+                | TypedSemanticNodeKind.CancellationShield _
                 | TypedSemanticNodeKind.TaskScope _
                 | TypedSemanticNodeKind.TaskStart _
                 | TypedSemanticNodeKind.TaskWait _

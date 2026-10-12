@@ -271,6 +271,9 @@ module internal WireRecipe =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "cancellationShield" ->
+            ensureFields "cancellation-shield recipe" [ "kind"; "bodyFunctionId"; "context" ] [ "kind"; "bodyFunctionId" ] element
+            ExpressionRecipe.CancellationShield(id<FunctionTag> "bodyFunctionId" element, callbackContext ())
         | "taskScope" ->
             ensureFields "task-scope recipe" [ "kind"; "bodyFunctionId"; "context" ] [ "kind"; "bodyFunctionId" ] element
             ExpressionRecipe.TaskScope(id<FunctionTag> "bodyFunctionId" element, callbackContext ())

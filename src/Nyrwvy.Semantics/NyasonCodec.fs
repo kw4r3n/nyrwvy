@@ -822,6 +822,8 @@ module NyasonCodec =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
             record "parallel-all" ([ nodeId; "source", encodeId "node" sourceListNodeId; "worker", encodeId "function" workerFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.CancellationRequested -> record "cancellation-requested" [ nodeId ]
+        | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+            record "cancellation-shield" ([ nodeId; "body", encodeId "function" bodyFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
             record "task-scope" ([ nodeId; "body", encodeId "function" bodyFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
@@ -1562,6 +1564,10 @@ module NyasonCodec =
         | NyasonValue.Record("cancellation-requested", _) ->
             let fields = recordFields "cancellation-requested" [ "id" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.CancellationRequested }
+        | NyasonValue.Record("cancellation-shield", _) ->
+            let fields = recordFields "cancellation-shield" [ "id"; "body" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.CancellationShield(decodeId<FunctionTag> "function" (require "body" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("task-scope", _) ->
             let fields = recordFields "task-scope" [ "id"; "body" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

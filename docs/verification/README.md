@@ -91,3 +91,4 @@ Most records in this section are *porting probes*: a slice of an existing progra
 - [Semantic-facts scaling repair](semantic-facts-scaling.md)
 
 - [Offline Member integration composition](member-integration-20261012.md): 28 sequential policy cases, exact effect ordering and rollback, unchanged Team comparison, virtual/replay/C# evidence; no core change.
+- [Parent cancellation shielding for finish and rollback](cleanup-shield-20261012.md): generic lexical shield; unchanged pinned-main negative reproduction, 14 Python/virtual/replay/C# matches and resource-drain controls.

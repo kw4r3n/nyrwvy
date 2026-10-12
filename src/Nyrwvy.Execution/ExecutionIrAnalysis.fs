@@ -44,6 +44,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.DirectCall(functionId, _) -> false, [ functionId ]
         | TypedSemanticNodeKind.UseResource(_, _, _, body, _) -> true, [ body ]
         | TypedSemanticNodeKind.CancellationRequested -> true, []
+        | TypedSemanticNodeKind.CancellationShield(body, _) -> true, [ body ]
         | TypedSemanticNodeKind.TaskScope(body, _) -> true, [ body ]
         | TypedSemanticNodeKind.TaskStart(_, worker, _, _) -> true, [ worker ]
         | TypedSemanticNodeKind.TaskWait _

@@ -1,0 +1,773 @@
+{
+  "base": "37e512c682b32bbacdf40e9b47f26910f2b59c68",
+  "pr383": {
+    "state": "OPEN",
+    "head": "7607a93f4b072ef8b8ab818435175c609dd98f7e",
+    "dependency": false
+  },
+  "oracleHead": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "sourceHashes": {
+    "rrawrlet/team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "rrawrlet/codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a"
+  },
+  "fixedIdentity": {
+    "snapshotSha256": "361838941c9bf7163ba7c39432906b7231e394556c8e437feedb39a975d89c81",
+    "generatedSha256": "12dba88273835c00dcb1d47accba46a4169b5be14d1adbb2451294ef6f13c485",
+    "symbolsSha256": "b12111ef545b488aceeb9bb19a25120a7c182b4cfef20fe8617e2b456ae4a331",
+    "schemaVersion": 15
+  },
+  "baselineIdentity": {
+    "snapshotSha256": "3b3e0dfecf398a639d7155864a80077233331195db143d1a426d077bb7908f00",
+    "generatedSha256": "09e01ff85ed9969d8c4085746e8787dfc1ed49ef16409435edf37ec711cb412a",
+    "symbolsSha256": "18c350efe866ff3bcf888214c27aed997e5283976583a1ecd16ae0e16cb05ae7",
+    "schemaVersion": 12
+  },
+  "functionCount": 24,
+  "nodeCount": 260,
+  "perStepResults": [
+    {
+      "id": "ordinary",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|ok:integrated-head"
+      ]
+    },
+    {
+      "id": "cancel-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "parent-pending",
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-head",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-save",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-head",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "parent-pending",
+        "head=clear",
+        "save=clear",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-save",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-check",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=clear",
+        "|err:reverse-apply"
+      ]
+    },
+    {
+      "id": "head-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=clear",
+        "|err:head"
+      ]
+    },
+    {
+      "id": "save-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "integrated-head|err:save"
+      ]
+    }
+  ],
+  "unshieldedResults": [
+    {
+      "id": "ordinary",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|ok:integrated-head"
+      ]
+    },
+    {
+      "id": "cancel-apply",
+      "steps": [
+        "apply"
+      ],
+      "reports": [
+        "parent-pending",
+        "apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=cancelled",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-head",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-save",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-head",
+      "steps": [
+        "head"
+      ],
+      "reports": [
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-save",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=cancelled",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-check",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "head-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "save-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "integrated-head|err:cancelled"
+      ]
+    }
+  ],
+  "pinnedMainResults": [
+    {
+      "id": "ordinary",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|ok:integrated-head"
+      ]
+    },
+    {
+      "id": "cancel-apply",
+      "steps": [
+        "apply"
+      ],
+      "reports": [
+        "parent-pending",
+        "apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=cancelled",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-head",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-save",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-head",
+      "steps": [
+        "head"
+      ],
+      "reports": [
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-save",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=cancelled",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-check",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "reverse-check=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "head-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=cancelled",
+        "|err:cancelled"
+      ]
+    },
+    {
+      "id": "save-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=cancelled",
+        "integrated-head|err:cancelled"
+      ]
+    }
+  ],
+  "pinnedMainRuntimeMatches": true,
+  "pinnedMainDisagreements": [
+    "cancel-apply",
+    "cancel-commit",
+    "cancel-head",
+    "cancel-save",
+    "empty-cancel-head",
+    "empty-cancel-save",
+    "rollback-cancel-commit",
+    "rollback-cancel-reverse-check",
+    "rollback-cancel-reverse-apply",
+    "rollback-failure",
+    "head-failure",
+    "save-failure"
+  ],
+  "fixedRuntimeMatches": true,
+  "copiedReplayMatches": true,
+  "controls": [
+    {
+      "control": "already-cancelled-restores",
+      "passed": true
+    },
+    {
+      "control": "raw-fault-restores",
+      "passed": true
+    },
+    {
+      "control": "context-before-mask-generic-err",
+      "passed": true
+    },
+    {
+      "control": "owned-cancel-drain-release",
+      "passed": true
+    },
+    {
+      "control": "owned-fault-drain-release",
+      "passed": true
+    },
+    {
+      "control": "existing-scope-retains-parent-token",
+      "passed": true
+    }
+  ],
+  "negativeControls": [
+    {
+      "id": "cancel-propagates-early",
+      "rejected": true
+    },
+    {
+      "id": "no-rollback",
+      "rejected": true
+    },
+    {
+      "id": "pending-cancel-hides-commit-error",
+      "rejected": true
+    },
+    {
+      "id": "lost-ledger",
+      "rejected": true
+    },
+    {
+      "id": "cancel-hides-save-error",
+      "rejected": true
+    }
+  ],
+  "shieldedFutureDiagnostics": [
+    "commit",
+    "commit",
+    "commit",
+    "reverse-apply",
+    "head"
+  ],
+  "generatedSourceUnchanged": true,
+  "compilation": {
+    "method": "installed-roslyn-no-restore",
+    "sdkVersion": "10.0.112",
+    "referencePackVersion": "10.0.12",
+    "runtimeVersion": "10.0.12",
+    "referenceAssemblyCount": 167,
+    "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
+  },
+  "aggregates": {
+    "releaseBuild": "0 warnings/errors",
+    "dotnetFast": 855,
+    "dotnetExtendedCore": 123,
+    "dotnetExtendedProject": 31,
+    "npmAdapter": 8,
+    "npmNode": 38,
+    "npmMcp": 12,
+    "bun": 23,
+    "typechecks": "adapters and Bun declarations",
+    "suitePartition": "disjoint and exhaustive",
+    "fishChecks": "syntax and summary pass"
+  }
+}

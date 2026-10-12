@@ -768,6 +768,10 @@ module SnapshotCodec =
             writeCallbackContext writer context
         | SemanticNodeKind.CancellationRequested ->
             writer.WriteString("kind", "cancellationRequested")
+        | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+            writer.WriteString("kind", "cancellationShield")
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
             writer.WriteString("kind", "taskScope")
             writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
@@ -1835,6 +1839,9 @@ module SnapshotCodec =
             | "cancellationRequested" ->
                 ensureProperties "CancellationRequested node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
                 SemanticNodeKind.CancellationRequested
+            | "cancellationShield" ->
+                ensureProperties "CancellationShield node" (set [ "id"; "kind"; "bodyFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "context" ]) element
+                SemanticNodeKind.CancellationShield(readId<FunctionTag> "bodyFunctionId" element, readCallbackContext element)
             | "taskScope" ->
                 ensureProperties "TaskScope node" (set [ "id"; "kind"; "bodyFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "context" ]) element
                 SemanticNodeKind.TaskScope(readId<FunctionTag> "bodyFunctionId" element, readCallbackContext element)
