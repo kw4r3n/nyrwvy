@@ -6,7 +6,7 @@ hosts supply effects and gates. An explicit generic ExceptionCatch boundary now
 preserves a raw commit exception through shielded rollback, then lets the request
 worker handle the fault without poisoning the owner or its peer.
 
-All **42 scenarios / 609 per-request state/effect observations** match unchanged
+All **51 scenarios / 771 per-request state/effect observations** match unchanged
 pinned Python in virtual execution and unedited emitted C#. The original
 23rd-case mismatch is retained as baseline RED evidence in the
 [verification record](../../docs/verification/member-controller-20261012.md) and
@@ -18,6 +18,12 @@ Four raw HEAD-read cases already match Python on the unchanged saved graph and
 unedited C# from local `0844516`; their [verified closure](fixtures/raw-head-verified-closure.json)
 and [verification record](../../docs/verification/raw-head-read-20261012.md)
 require no implementation repair. The prior 38 scenarios / 537 expectations remain unchanged.
+Nine grouped check/apply/reverse-fault cases also pass on the unchanged `fb078f8`
+saved graph and unedited C#. All prior 42 scenarios / 609 expectations remain
+unchanged. The [milestone coverage matrix](../../docs/verification/integration-error-boundary-milestone-20261012.md)
+and [baseline closure](fixtures/integration-boundary-verified-closure.json)
+close the known bounded serialized integration error boundaries without a new
+repair or generic capability.
 
 ```nu
 dotnet build Nyrwvy.slnx --configuration Release --ignore-failed-sources -p:NuGetAudit=false -m:1
@@ -63,16 +69,25 @@ pending cancellation. Retry repeats the full integration, including commit for a
 nonempty patch; empty patches never commit. After successful retry, the next
 request performs no effects and continuation is rejected. These are synthetic
 effect traces, with no physical index or persistence recovery claim.
+Raw check is outside the shield: the bounded throwing host can preserve its error
+after pending cancellation, while a cooperative check cancels before throwing.
+Raw apply is inside the shield but outside commit rollback eligibility. Both
+leave an empty ledger and allow a full successful retry. New typed commit Err
+plus raw reverse faults prove the reverse fault replaces both commit error and
+pending cancellation; a failing reverse-check prevents reverse-apply. Only the
+first selected effect throws, so retry captures HEAD and saves once, and a third
+request has no effects. Existing raw commit and typed/raw reverse cases retain
+their persistent-failure retry expectations.
 
 Virtual and real execution share the same C# emitter/runtime. Independent language
 evidence comes from unchanged Python. Fixed virtual delays and held real/Python
 events avoid comparing arbitrary wall-time races. The proof covers bounded
 serialized requests, not concurrent admission, cancellation of the entire external
 controller parent, provider shutdown, physical Git/index rollback, or restart
-recovery. Save-error ledger retention is in memory. The next proposed bounded
-probe is a raw apply exception after successful check, before commit, with
-clear/pending cancellation and only the first apply throwing. This is not an
-established mismatch.
+recovery. Save-error ledger retention is in memory. The known serialized error
+boundary matrix is now covered; this is the stopping milestone for local probes.
+The matrix records explicitly excluded work and consequential limits for parent
+review, which awaits publication resolution.
 
 No provider, account, credentials, physical integration Git mutation or Library
 upload is used. Branch publication is separate from the mocked integration effects.

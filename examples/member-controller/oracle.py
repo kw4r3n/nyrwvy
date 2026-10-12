@@ -57,8 +57,16 @@ async def run_case(c, m):
             counts[phase] = counts.get(phase,0)+1
             if phase==c.get('cancel') and counts[phase]==1:
                 integration_entered.set()
-                await integration_release.wait()
+                try:
+                    await integration_release.wait()
+                except asyncio.CancelledError:
+                    # Only this bounded throwing check host survives cancellation.
+                    # Cooperative check exits here without producing a raw fault.
+                    if phase!='check' or c.get('rawStepFault')!='check' or c.get('cooperativeCheck'): raise
+                    await integration_release.wait()
+                    raise RuntimeError('raw check fault')
             assert not asyncio.current_task().cancelling(), phase
+            if phase==c.get('rawStepFault') and counts[phase]==1: raise RuntimeError(f'raw {phase} fault')
             if phase==c.get('fail') and counts[phase]==1 or phase==c.get('rollbackFail'):
                 raise RuntimeError(phase)
             if c.get('rawFault') and phase=='commit': raise RuntimeError('raw commit fault')
@@ -262,6 +270,21 @@ async def main():
         controls.append({'id':name,'rejected':reject_control(reference,mutate)})
     reference=next(r for r in rows if r['id']=='raw-head-empty-cancel')
     controls.append({'id':'raw-head-empty-commits','rejected':reject_control(reference,lambda r:r['steps'].append({'operation':'commit','patch':''}))})
+    for phase in ['check','apply','reverse-check','reverse-apply']:
+        case_id=f'raw-{phase}-cancel' if not phase.startswith('reverse-') else f'typed-commit-raw-{phase}-cancel'
+        reference=next(r for r in rows if r['id']==case_id)
+        for name,mutate in [
+            ('cancel-hides-fault',lambda r:next(x for x in r['replies'] if x['label']=='integration').update(record='err:cancelled')),
+            ('invented-ledger',lambda r:next(x for x in r['observations'] if x['label']=='ledger-now').update(state='1,completed,w1,base,0,false,commit1,passed,integrated-head;')),
+            ('retry-skips-effects',lambda r:next(x for x in r['observations'] if x['label']=='retry').update(steps=next(x for x in r['observations'] if x['label']=='integration')['steps'])),
+        ]:
+            controls.append({'id':f'boundary-{phase}-{name}','rejected':reject_control(reference,mutate)})
+    reference=next(r for r in rows if r['id']=='raw-apply-clear')
+    controls.append({'id':'boundary-apply-spurious-rollback','rejected':reject_control(reference,lambda r:r['steps'].append({'operation':'reverse-check','patch':'synthetic-patch'}))})
+    reference=next(r for r in rows if r['id']=='typed-commit-raw-reverse-check-cancel')
+    controls.append({'id':'boundary-reverse-check-continues-undo','rejected':reject_control(reference,lambda r:next(x for x in r['observations'] if x['label']=='integration')['steps'].append({'operation':'reverse-apply','patch':'synthetic-patch'}))})
+    reference=next(r for r in rows if r['id']=='raw-check-cooperative-cancel')
+    controls.append({'id':'boundary-cooperative-check-invents-fault','rejected':reject_control(reference,lambda r:next(x for x in r['replies'] if x['label']=='integration').update(record='err:raw check fault'))})
     evidence={'negativeControls':controls,'oracle':PIN,'sourceProofs':proofs,'python':sys.version,'results':rows}
     (bundle/'oracle-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
 if __name__=='__main__': asyncio.run(main())

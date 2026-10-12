@@ -7,24 +7,24 @@
     "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
     "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
   },
-  "scenarios": 42,
-  "matchedScenarios": 42,
-  "matchedRequestObservations": 609,
+  "scenarios": 51,
+  "matchedScenarios": 51,
+  "matchedRequestObservations": 771,
   "graph": {
     "base": "812bfe248e6753dcd86876519b168a8424f5eb4f",
     "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
     "functionCount": 89,
     "nodeCount": 1942,
-    "generatedSha256": "44a750741abe46c8c4b5e9eb00e02f6946f94d3966be18a7b32cfda791e4bac7",
+    "generatedSha256": "4d89ec0712168c1e38683953af91f5dd4dbf4e586df5631e9aa8816d5d4a1737",
     "nodeVersion": "v26.11.1"
   },
   "hashes": {
-    "controller.json": "ff2bdeeb016327041b56883ce549666cca26294f845522bd3e9e2ca0bcac7334",
-    "Generated.cs": "44a750741abe46c8c4b5e9eb00e02f6946f94d3966be18a7b32cfda791e4bac7",
-    "symbols.json": "d37763ee10aef5d7a8b8c3a58f986b43568776b9a2a127bc026311b075f56553",
-    "cases.json": "a4521862263edce234ca904cc7da80fefe6b5b38df678128ee2f3dbe8c947b07"
+    "controller.json": "c129b3642b9d352d8e872f31aa1db3936454a7e563746c1fa4d8cc7f3408b349",
+    "Generated.cs": "4d89ec0712168c1e38683953af91f5dd4dbf4e586df5631e9aa8816d5d4a1737",
+    "symbols.json": "c211ec5eefab63265dfeb6e1c84dbd83e7c60e505f2130a7694573070faee42a",
+    "cases.json": "30d3c16a1000660f45065ca516c40087a30e149ea5b22f5746aba5eab0978b4d"
   },
-  "expectedSha256": "052b582e2d0aff2a1e66a001eda951cad9788d230bff10747c50adb1705167e8",
+  "expectedSha256": "9d75fef41bcb3af8785703ccecee6ff1753ce2795d0171dcc7c3ce2f6024c471",
   "baselineRed": {
     "base": "62ea3fcbcc3052138ae10e75c4a4ebf1215f2054",
     "tree": "094fb17ff911d4f6b1024f9cddd3168a283ab26b",
@@ -862,6 +862,66 @@
     {
       "id": "raw-head-empty-commits",
       "rejected": true
+    },
+    {
+      "id": "boundary-check-cancel-hides-fault",
+      "rejected": true
+    },
+    {
+      "id": "boundary-check-invented-ledger",
+      "rejected": true
+    },
+    {
+      "id": "boundary-check-retry-skips-effects",
+      "rejected": true
+    },
+    {
+      "id": "boundary-apply-cancel-hides-fault",
+      "rejected": true
+    },
+    {
+      "id": "boundary-apply-invented-ledger",
+      "rejected": true
+    },
+    {
+      "id": "boundary-apply-retry-skips-effects",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-check-cancel-hides-fault",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-check-invented-ledger",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-check-retry-skips-effects",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-apply-cancel-hides-fault",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-apply-invented-ledger",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-apply-retry-skips-effects",
+      "rejected": true
+    },
+    {
+      "id": "boundary-apply-spurious-rollback",
+      "rejected": true
+    },
+    {
+      "id": "boundary-reverse-check-continues-undo",
+      "rejected": true
+    },
+    {
+      "id": "boundary-cooperative-check-invents-fault",
+      "rejected": true
     }
   ],
   "priorEligibilityBaseline": {
@@ -896,7 +956,7 @@
     "defaultLifecycle": "15 virtual / real",
     "defaultIntegration": "36 virtual / real"
   },
-  "nextBoundedProbe": "raw apply exception after successful check, before commit; nonempty patch x clear/pending cancellation, first apply only throws; compare original error, empty ledger, retry effects, rollback eligibility, peer and finish; proposed, not established RED",
+  "nextBoundedProbe": null,
   "limits": [
     "bounded serialized requests; no concurrent admission or lock equivalence claim",
     "external controller parent cancellation not in oracle matrix",
@@ -967,5 +1027,51 @@
       "raw-fault-cleanup.patch": "36a2a6b019dcd209cc833eb350441619e635a5004a9b5e678625e9420893db37"
     },
     "publication": "none; local branch only"
-  }
+  },
+  "integrationBoundaryMilestone": {
+    "base": "fb078f8ba60f9320ccdef571fe5fa9cf2ff0412f",
+    "status": "baseline pass; no RED or implementation repair",
+    "evidence": "integration-boundary-verified-closure.json",
+    "evidenceSha256": "107e14cacf9111d2d85570aee0a08f02766f3e2d3f355829c9a6ec41bfdae625",
+    "cases": [
+      "raw-check-clear",
+      "raw-check-cancel",
+      "raw-apply-clear",
+      "raw-apply-cancel",
+      "raw-check-cooperative-cancel",
+      "typed-commit-raw-reverse-check-clear",
+      "typed-commit-raw-reverse-check-cancel",
+      "typed-commit-raw-reverse-apply-clear",
+      "typed-commit-raw-reverse-apply-cancel"
+    ],
+    "priorExpectationsPreserved": {
+      "scenarios": 42,
+      "requestObservations": 609
+    },
+    "newRequestObservations": 162,
+    "unchangedBaselineGraphAndCSharp": true,
+    "implementationRepair": false,
+    "genericCapabilityAdded": false,
+    "rawCheck": "outside shield; bounded throwing host fault wins pending cancellation; cooperative host cancels without fault",
+    "rawApply": "inside shield, outside commit rollback; original fault wins pending cancellation, no reverse effects",
+    "typedCommitRawReverse": "reverse error replaces commit error and pending cancellation; failing reverse-check prevents reverse-apply",
+    "firstFaultOnly": true,
+    "immediateLedger": "empty",
+    "firstRetry": "one full integration captures HEAD and saves once",
+    "thirdRequestGitSaveEffects": 0,
+    "peerSurvives": true,
+    "finishDrainReleaseOnce": true,
+    "pythonSourceUnchanged": true,
+    "compositionSourceHashes": {
+      "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+      "examples/member-controller/author.mjs": "7620b95752b60419606d568dea56f6755745c2585d1865e33ddb677a01cd37b3"
+    },
+    "pending812bfe2PayloadSha256": {
+      "raw-fault-cleanup.bundle": "087481853e5f0336f2927e58e78964292d3ceef98e7aef073b592080675988c0",
+      "raw-fault-cleanup.patch": "36a2a6b019dcd209cc833eb350441619e635a5004a9b5e678625e9420893db37"
+    },
+    "coverageMatrix": "../../../docs/verification/integration-error-boundary-milestone-20261012.md",
+    "publication": "blocked; local commit only"
+  },
+  "stoppingMilestone": "Known bounded serialized check/apply/commit/reverse-check/reverse-apply/HEAD/save exception boundaries covered; no further speculative expansion. Parent review awaits publication resolution."
 }
