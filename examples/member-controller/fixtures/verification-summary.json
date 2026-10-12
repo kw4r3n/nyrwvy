@@ -1,188 +1,785 @@
 {
-  "base": "c7bf1a57345e19be72f284409143463381897586",
-  "baseTree": "e1f984651242acec70bc5a06e9c64fbe0412edb8",
+  "base": "62ea3fcbcc3052138ae10e75c4a4ebf1215f2054",
+  "baseTree": "094fb17ff911d4f6b1024f9cddd3168a283ab26b",
   "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
   "sourceProofs": {
     "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
     "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
     "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
   },
-  "scenarios": 23,
-  "matchedScenarios": 22,
-  "matchedRequestObservations": 289,
+  "scenarios": 34,
+  "matchedScenarios": 34,
+  "matchedRequestObservations": 469,
   "graph": {
-    "base": "c7bf1a57345e19be72f284409143463381897586",
+    "base": "62ea3fcbcc3052138ae10e75c4a4ebf1215f2054",
     "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
-    "functionCount": 82,
-    "nodeCount": 1881,
-    "generatedSha256": "a6a06ac033a2274abead68aa6c133556275da21d214b259c654be0591b820e7c",
+    "functionCount": 87,
+    "nodeCount": 1925,
+    "generatedSha256": "d85b0efbc80a7820b19e7669cc75a12552241fed923845ecfba57e7eca5c9be4",
     "nodeVersion": "v26.11.1"
   },
   "hashes": {
-    "controller.json": "5d58fee3a448da532ecb5057cb1c1d0605a09f18c989fa172631566f4e72955e",
-    "Generated.cs": "a6a06ac033a2274abead68aa6c133556275da21d214b259c654be0591b820e7c",
-    "symbols.json": "d9bfa7cbc294a7c402fd566a04f3da299a70eeeddd63da21cd35a18a3bb91436",
-    "cases.json": "99fc72f0838b808bc54865bd589982d5ae59b92e52e58753bf23cff4934dffee",
-    "oracle-expected.json": "51f4e517ffed0e5f593a72a557916249ace0976d7da9d063a7e501d41e1b03de"
+    "controller.json": "0a6e9238f58f9c5e514cfcbf32f5fd9b6c919acaa021c61f433f6574f815d7cf",
+    "Generated.cs": "d85b0efbc80a7820b19e7669cc75a12552241fed923845ecfba57e7eca5c9be4",
+    "symbols.json": "be93db744fb56b2d5d08c34f3ca43555398e06e01da2ed9d449517e167e23cee",
+    "cases.json": "9af3980b888e78c63d5c16ca34a112b7c6fb02013c80eb763eba098f4dd4edad"
   },
-  "preGuard": {
-    "scenario": "ledger-patch",
-    "request": "integrated-previous",
-    "virtual": "spawn:3",
-    "uneditedCSharp": "spawn:3",
-    "python": "reject:integrated",
-    "observations": 15,
-    "hashes": {
-      "controller.json": "0dc5a35460d69bdd3cab79b0ccf151fc796bd66e520c00ce536dccf502c10dc8",
-      "Generated.cs": "ec3882dfc57954b6e202d59f9031900c01d4e1a9120668147aba65eafe73e48b"
-    }
+  "expectedSha256": "a120fbb9b72a1d8547722bf69b474e1bd2019a03355a9833b11e56b6de9ecc53",
+  "baselineRed": {
+    "base": "62ea3fcbcc3052138ae10e75c4a4ebf1215f2054",
+    "tree": "094fb17ff911d4f6b1024f9cddd3168a283ab26b",
+    "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "sourceProofs": {
+      "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+      "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+      "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
+    },
+    "expectation": "raw commit failure must run reverse-check/reverse-apply and allow serialized requests to continue",
+    "status": "RED",
+    "virtual": {
+      "id": "raw-host-fault",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "a:state",
+          "record": "1,running,w1,base,0,false,,,;"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "b:state",
+          "record": "1,running,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "snapshot1:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "early",
+          "record": "err:running"
+        },
+        {
+          "label": "early:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "observer",
+          "record": "err:cancelled"
+        },
+        {
+          "label": "observer:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "release1",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "release1:state",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "settled",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "settled:state",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;"
+        }
+      ],
+      "observations": [
+        {
+          "label": "a",
+          "state": "1,running,w1,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "b",
+          "state": "1,running,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "snapshot1",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "early",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "observer",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "release1",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "settled",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        }
+      ],
+      "steps": [
+        {
+          "operation": "clean-source",
+          "patch": ""
+        },
+        {
+          "operation": "clean-member",
+          "patch": ""
+        },
+        {
+          "operation": "validate",
+          "patch": ""
+        },
+        {
+          "operation": "ancestor",
+          "patch": ""
+        },
+        {
+          "operation": "paths-member",
+          "patch": ""
+        },
+        {
+          "operation": "paths-leader",
+          "patch": ""
+        },
+        {
+          "operation": "close-agent",
+          "patch": ""
+        },
+        {
+          "operation": "patch",
+          "patch": ""
+        },
+        {
+          "operation": "check",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "apply",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "commit",
+          "patch": ""
+        }
+      ]
+    },
+    "uneditedCSharp": {
+      "id": "raw-host-fault",
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "a:state",
+          "record": "1,running,w1,base,0,false,,,;"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "b:state",
+          "record": "1,running,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "snapshot1:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "early",
+          "record": "err:running"
+        },
+        {
+          "label": "early:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "observer",
+          "record": "err:cancelled"
+        },
+        {
+          "label": "observer:state",
+          "record": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "release1",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "release1:state",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;"
+        },
+        {
+          "label": "settled",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "settled:state",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;"
+        }
+      ],
+      "observations": [
+        {
+          "label": "a",
+          "state": "1,running,w1,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "b",
+          "state": "1,running,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "snapshot1",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "early",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "observer",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "release1",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "settled",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        }
+      ],
+      "steps": [
+        {
+          "operation": "clean-source",
+          "patch": ""
+        },
+        {
+          "operation": "clean-member",
+          "patch": ""
+        },
+        {
+          "operation": "validate",
+          "patch": ""
+        },
+        {
+          "operation": "ancestor",
+          "patch": ""
+        },
+        {
+          "operation": "paths-member",
+          "patch": ""
+        },
+        {
+          "operation": "paths-leader",
+          "patch": ""
+        },
+        {
+          "operation": "close-agent",
+          "patch": ""
+        },
+        {
+          "operation": "patch",
+          "patch": ""
+        },
+        {
+          "operation": "check",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "apply",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "commit",
+          "patch": ""
+        }
+      ]
+    },
+    "python": {
+      "id": "raw-host-fault",
+      "observations": [
+        {
+          "label": "a",
+          "state": "1,running,w1,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "b",
+          "state": "1,running,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "snapshot1",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "early",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "observer",
+          "state": "1,completed,w1,base,0,false,,,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "release1",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "settled",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": []
+        },
+        {
+          "label": "integration",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,running,w2,base,0,false,,,;",
+          "steps": [
+            {
+              "operation": "clean-source",
+              "patch": ""
+            },
+            {
+              "operation": "clean-member",
+              "patch": ""
+            },
+            {
+              "operation": "validate",
+              "patch": ""
+            },
+            {
+              "operation": "ancestor",
+              "patch": ""
+            },
+            {
+              "operation": "paths-member",
+              "patch": ""
+            },
+            {
+              "operation": "paths-leader",
+              "patch": ""
+            },
+            {
+              "operation": "close-agent",
+              "patch": ""
+            },
+            {
+              "operation": "patch",
+              "patch": ""
+            },
+            {
+              "operation": "check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "apply",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "commit",
+              "patch": ""
+            },
+            {
+              "operation": "reverse-check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "reverse-apply",
+              "patch": "synthetic-patch"
+            }
+          ]
+        },
+        {
+          "label": "peer-stop",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,stopped,w2,base,0,false,,,;",
+          "steps": [
+            {
+              "operation": "clean-source",
+              "patch": ""
+            },
+            {
+              "operation": "clean-member",
+              "patch": ""
+            },
+            {
+              "operation": "validate",
+              "patch": ""
+            },
+            {
+              "operation": "ancestor",
+              "patch": ""
+            },
+            {
+              "operation": "paths-member",
+              "patch": ""
+            },
+            {
+              "operation": "paths-leader",
+              "patch": ""
+            },
+            {
+              "operation": "close-agent",
+              "patch": ""
+            },
+            {
+              "operation": "patch",
+              "patch": ""
+            },
+            {
+              "operation": "check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "apply",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "commit",
+              "patch": ""
+            },
+            {
+              "operation": "reverse-check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "reverse-apply",
+              "patch": "synthetic-patch"
+            }
+          ]
+        },
+        {
+          "label": "finish",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,stopped,w2,base,0,false,,,;",
+          "steps": [
+            {
+              "operation": "clean-source",
+              "patch": ""
+            },
+            {
+              "operation": "clean-member",
+              "patch": ""
+            },
+            {
+              "operation": "validate",
+              "patch": ""
+            },
+            {
+              "operation": "ancestor",
+              "patch": ""
+            },
+            {
+              "operation": "paths-member",
+              "patch": ""
+            },
+            {
+              "operation": "paths-leader",
+              "patch": ""
+            },
+            {
+              "operation": "close-agent",
+              "patch": ""
+            },
+            {
+              "operation": "patch",
+              "patch": ""
+            },
+            {
+              "operation": "check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "apply",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "commit",
+              "patch": ""
+            },
+            {
+              "operation": "reverse-check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "reverse-apply",
+              "patch": "synthetic-patch"
+            }
+          ]
+        },
+        {
+          "label": "closed",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,stopped,w2,base,0,false,,,;",
+          "steps": [
+            {
+              "operation": "clean-source",
+              "patch": ""
+            },
+            {
+              "operation": "clean-member",
+              "patch": ""
+            },
+            {
+              "operation": "validate",
+              "patch": ""
+            },
+            {
+              "operation": "ancestor",
+              "patch": ""
+            },
+            {
+              "operation": "paths-member",
+              "patch": ""
+            },
+            {
+              "operation": "paths-leader",
+              "patch": ""
+            },
+            {
+              "operation": "close-agent",
+              "patch": ""
+            },
+            {
+              "operation": "patch",
+              "patch": ""
+            },
+            {
+              "operation": "check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "apply",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "commit",
+              "patch": ""
+            },
+            {
+              "operation": "reverse-check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "reverse-apply",
+              "patch": "synthetic-patch"
+            }
+          ]
+        },
+        {
+          "label": "retained",
+          "state": "1,completed,w1,base,0,false,commit1,passed,;2,stopped,w2,base,0,false,,,;",
+          "steps": [
+            {
+              "operation": "clean-source",
+              "patch": ""
+            },
+            {
+              "operation": "clean-member",
+              "patch": ""
+            },
+            {
+              "operation": "validate",
+              "patch": ""
+            },
+            {
+              "operation": "ancestor",
+              "patch": ""
+            },
+            {
+              "operation": "paths-member",
+              "patch": ""
+            },
+            {
+              "operation": "paths-leader",
+              "patch": ""
+            },
+            {
+              "operation": "close-agent",
+              "patch": ""
+            },
+            {
+              "operation": "patch",
+              "patch": ""
+            },
+            {
+              "operation": "check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "apply",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "commit",
+              "patch": ""
+            },
+            {
+              "operation": "reverse-check",
+              "patch": "synthetic-patch"
+            },
+            {
+              "operation": "reverse-apply",
+              "patch": "synthetic-patch"
+            }
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "operation": "clean-source",
+          "patch": ""
+        },
+        {
+          "operation": "clean-member",
+          "patch": ""
+        },
+        {
+          "operation": "validate",
+          "patch": ""
+        },
+        {
+          "operation": "ancestor",
+          "patch": ""
+        },
+        {
+          "operation": "paths-member",
+          "patch": ""
+        },
+        {
+          "operation": "paths-leader",
+          "patch": ""
+        },
+        {
+          "operation": "close-agent",
+          "patch": ""
+        },
+        {
+          "operation": "patch",
+          "patch": ""
+        },
+        {
+          "operation": "check",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "apply",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "commit",
+          "patch": ""
+        },
+        {
+          "operation": "reverse-check",
+          "patch": "synthetic-patch"
+        },
+        {
+          "operation": "reverse-apply",
+          "patch": "synthetic-patch"
+        }
+      ],
+      "replies": [
+        {
+          "label": "a",
+          "record": "spawn:1"
+        },
+        {
+          "label": "b",
+          "record": "spawn:2"
+        },
+        {
+          "label": "early",
+          "record": "err:running"
+        },
+        {
+          "label": "observer",
+          "record": "err:cancelled"
+        },
+        {
+          "label": "release1",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "settled",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;"
+        },
+        {
+          "label": "integration",
+          "record": "err:raw commit fault"
+        },
+        {
+          "label": "peer-stop",
+          "record": "2,stopped,w2,base,0,false,,,;"
+        },
+        {
+          "label": "finish:outcome",
+          "record": "ok:drained"
+        },
+        {
+          "label": "finish",
+          "record": "finished"
+        },
+        {
+          "label": "closed",
+          "record": "reject:closing"
+        },
+        {
+          "label": "retained",
+          "record": "1,completed,w1,base,0,false,commit1,passed,;2,stopped,w2,base,0,false,,,;"
+        }
+      ]
+    },
+    "ownerError": "RunRuntimeFailure"
   },
-  "rawFaultGap": {
-    "oracleSteps": [
-      {
-        "operation": "clean-source",
-        "patch": ""
-      },
-      {
-        "operation": "clean-member",
-        "patch": ""
-      },
-      {
-        "operation": "validate",
-        "patch": ""
-      },
-      {
-        "operation": "ancestor",
-        "patch": ""
-      },
-      {
-        "operation": "paths-member",
-        "patch": ""
-      },
-      {
-        "operation": "paths-leader",
-        "patch": ""
-      },
-      {
-        "operation": "close-agent",
-        "patch": ""
-      },
-      {
-        "operation": "patch",
-        "patch": ""
-      },
-      {
-        "operation": "check",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "apply",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "commit",
-        "patch": ""
-      },
-      {
-        "operation": "reverse-check",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "reverse-apply",
-        "patch": "synthetic-patch"
-      }
-    ],
-    "virtualSteps": [
-      {
-        "operation": "clean-source",
-        "patch": ""
-      },
-      {
-        "operation": "clean-member",
-        "patch": ""
-      },
-      {
-        "operation": "validate",
-        "patch": ""
-      },
-      {
-        "operation": "ancestor",
-        "patch": ""
-      },
-      {
-        "operation": "paths-member",
-        "patch": ""
-      },
-      {
-        "operation": "paths-leader",
-        "patch": ""
-      },
-      {
-        "operation": "close-agent",
-        "patch": ""
-      },
-      {
-        "operation": "patch",
-        "patch": ""
-      },
-      {
-        "operation": "check",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "apply",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "commit",
-        "patch": ""
-      }
-    ],
-    "realSteps": [
-      {
-        "operation": "clean-source",
-        "patch": ""
-      },
-      {
-        "operation": "clean-member",
-        "patch": ""
-      },
-      {
-        "operation": "validate",
-        "patch": ""
-      },
-      {
-        "operation": "ancestor",
-        "patch": ""
-      },
-      {
-        "operation": "paths-member",
-        "patch": ""
-      },
-      {
-        "operation": "paths-leader",
-        "patch": ""
-      },
-      {
-        "operation": "close-agent",
-        "patch": ""
-      },
-      {
-        "operation": "patch",
-        "patch": ""
-      },
-      {
-        "operation": "check",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "apply",
-        "patch": "synthetic-patch"
-      },
-      {
-        "operation": "commit",
-        "patch": ""
-      }
+  "baselineHashes": {
+    "controller.json": "86436d41346c9386af76a112475fc16e69dcbe1cb4b0779c78c027edcde465fa",
+    "Generated.cs": "0a61faa9d13d5b9989dd0d6a8bbeab3751b67c483c60ced572161d6951228f8c",
+    "symbols.json": "5bb1f13a29391a04734d41309e563fd15d9b5497a7155b511a93ee83032d0ef4",
+    "cases.json": "99fc72f0838b808bc54865bd589982d5ae59b92e52e58753bf23cff4934dffee"
+  },
+  "sourcePrecedence": {
+    "successfulRollback": "rethrow original raw commit exception; pending request cancellation loses",
+    "failedRollback": "typed or raw rollback failure replaces original commit fault and pending cancellation",
+    "successfulProtectedTail": "caller checks restored pending cancellation after successful result",
+    "bodyTypedError": "Err remains authoritative; raw boundary is not invoked",
+    "genericOce": "explicit boundary can recover or rethrow original OCE; no automatic cancellation classification"
+  },
+  "precedenceSource": [
+    "team.py:1061-1096",
+    "codex.py:21-33"
+  ],
+  "genericControls": {
+    "virtualCases": 4,
+    "uneditedCSharpControls": 13,
+    "covered": [
+      "original identity/stack and OCE",
+      "typed abort bypass",
+      "context fault bypass",
+      "nested restoration",
+      "held drainage and release",
+      "rollback fault precedence",
+      "repeated direct TaskCancel without parent cancellation"
     ]
   },
   "negativeControls": [
@@ -219,48 +816,44 @@
       "rejected": true
     }
   ],
-  "runtimeSourceUnchanged": true,
-  "compilation": {
-    "method": "installed-roslyn-no-restore",
-    "sdkVersion": "10.0.112",
-    "referencePackVersion": "10.0.12",
-    "runtimeVersion": "10.0.12",
-    "referenceAssemblyCount": 167,
-    "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
+  "priorEligibilityBaseline": {
+    "scenario": "ledger-patch",
+    "request": "integrated-previous",
+    "virtual": "spawn:3",
+    "uneditedCSharp": "spawn:3",
+    "python": "reject:integrated",
+    "observations": 15,
+    "hashes": {
+      "controller.json": "0dc5a35460d69bdd3cab79b0ccf151fc796bd66e520c00ce536dccf502c10dc8",
+      "Generated.cs": "ec3882dfc57954b6e202d59f9031900c01d4e1a9120668147aba65eafe73e48b"
+    }
   },
-  "localVerification": {
-    "releaseBuild": {
-      "warnings": 0,
-      "errors": 0
-    },
-    "dotnetFast": 855,
-    "dotnetExtended": {
-      "core": 123,
-      "extendedProject": 31
-    },
-    "npm": {
-      "adapter": 8,
-      "nodeAndScripts": 39,
-      "mcp": 12
-    },
+  "replay": {
+    "reopen": true,
+    "sameSnapshot": true,
+    "copiedDirectory": "maintained ordinary-authoring regression",
+    "uneditedCSharp": true,
+    "virtualRealShareEmitter": true
+  },
+  "checks": {
+    "releaseBuild": "zero warnings/errors",
+    "dotnetFast": 862,
+    "dotnetExtended": 154,
+    "adapter": 8,
+    "node": 40,
+    "mcp": 12,
     "bun": 23,
-    "typechecks": [
-      "adapter",
-      "bun"
-    ],
-    "suitePartition": "disjoint and exhaustive",
-    "fishChecks": "pass",
-    "controllerRegression": "pass",
-    "defaultLifecycleRegression": 15,
-    "defaultIntegrationRegression": {
-      "scenarios": 36,
-      "requestObservations": 46
-    },
-    "replay": {
-      "sameSnapshot": 23,
-      "copiedDirectory": 23,
-      "filename": "controller.json"
-    },
-    "oracleNegativeControls": 8
-  }
+    "typechecks": "both pass",
+    "suitePartition": "862 fast / 154 extended, disjoint/exhaustive",
+    "defaultLifecycle": "15 virtual / real",
+    "defaultIntegration": "36 virtual / real"
+  },
+  "nextBoundedProbe": "raw save exception and ledger retention; not included in current equivalence proof",
+  "limits": [
+    "bounded serialized requests; no concurrent admission or lock equivalence claim",
+    "external controller parent cancellation not in oracle matrix",
+    "no forced completion for non-cooperative effects",
+    "no provider/account/credentials/physical integration Git/index effects/Library upload",
+    "no restart persistence or filesystem recovery"
+  ]
 }

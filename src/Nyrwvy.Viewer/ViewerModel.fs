@@ -153,6 +153,9 @@ type ViewerNodeRole =
     | UseResource
     | ParallelAll
     | CancellationRequested
+    | ExceptionCatch
+    | ExceptionMessage
+    | ExceptionRethrow
     | CancellationShield
     | TaskScope
     | TaskStart
@@ -420,6 +423,9 @@ module ViewerProjection =
         | SemanticNodeKind.UseResource _ -> ViewerNodeRole.UseResource, []
         | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
+        | SemanticNodeKind.ExceptionCatch _ -> ViewerNodeRole.ExceptionCatch, []
+        | SemanticNodeKind.ExceptionMessage _ -> ViewerNodeRole.ExceptionMessage, []
+        | SemanticNodeKind.ExceptionRethrow _ -> ViewerNodeRole.ExceptionRethrow, []
         | SemanticNodeKind.CancellationShield _ -> ViewerNodeRole.CancellationShield, []
         | SemanticNodeKind.TaskScope _ -> ViewerNodeRole.TaskScope, []
         | SemanticNodeKind.TaskStart _ -> ViewerNodeRole.TaskStart, []

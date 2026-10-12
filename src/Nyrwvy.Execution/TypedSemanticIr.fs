@@ -192,6 +192,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
     | CancellationRequested
+    | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: TypedSemanticArgument list * handlerFunctionId: FunctionId * handlerContext: TypedSemanticArgument list
+    | ExceptionMessage of exceptionValue: GraphNodeId
+    | ExceptionRethrow of exceptionValue: GraphNodeId * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | TaskScope of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list * itemNodeId: GraphNodeId
@@ -384,6 +387,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapFold _
         | TypedSemanticNodeKind.ParallelAll _
         | TypedSemanticNodeKind.CancellationRequested
+        | TypedSemanticNodeKind.ExceptionCatch _
+        | TypedSemanticNodeKind.ExceptionMessage _
+        | TypedSemanticNodeKind.ExceptionRethrow _
         | TypedSemanticNodeKind.CancellationShield _
         | TypedSemanticNodeKind.TaskScope _
         | TypedSemanticNodeKind.TaskStart _
@@ -549,6 +555,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
+        | TypedSemanticNodeKind.ExceptionCatch(_, bodyContext, _, handlerContext) -> (bodyContext @ handlerContext) |> List.map (fun argument -> argument.ValueNodeId)
+        | TypedSemanticNodeKind.ExceptionMessage value
+        | TypedSemanticNodeKind.ExceptionRethrow(value, _) -> [ value ]
         | TypedSemanticNodeKind.CancellationShield(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
@@ -920,6 +929,10 @@ module TypedSemanticIr =
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, projectContext context))
                     | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
+                    | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+                        Ok(TypedSemanticNodeKind.ExceptionCatch(body, projectContext bodyContext, handler, projectContext handlerContext))
+                    | SemanticNodeKind.ExceptionMessage value -> Ok(TypedSemanticNodeKind.ExceptionMessage value)
+                    | SemanticNodeKind.ExceptionRethrow(value, resultType) -> Ok(TypedSemanticNodeKind.ExceptionRethrow(value, resultType))
                     | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.CancellationShield(bodyFunctionId, projectContext context))
                     | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->

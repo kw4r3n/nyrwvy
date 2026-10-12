@@ -194,6 +194,7 @@ module SnapshotCodec =
                 | BuiltinGenericType.Set -> "set"
                 | BuiltinGenericType.OneShot -> "oneShot"
                 | BuiltinGenericType.Task -> "task"
+                | BuiltinGenericType.Exception -> "exception"
                 | BuiltinGenericType.TaskScope -> "taskScope"
             )
             writer.WritePropertyName("arguments")
@@ -351,14 +352,16 @@ module SnapshotCodec =
         writer.WriteString("valueNodeId", StableId.value valueNodeId)
 
     /// Callback context is written only when present, so context-free graphs keep their bytes.
-    let private writeCallbackContext (writer: Utf8JsonWriter) (context: ArgumentBinding list) =
+    let private writeNamedCallbackContext (name: string) (writer: Utf8JsonWriter) (context: ArgumentBinding list) =
         if not (List.isEmpty context) then
-            writer.WritePropertyName("context")
+            writer.WritePropertyName(name)
             writer.WriteStartArray()
             context
             |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId, StableId.value argument.ValueNodeId)
             |> List.iter (writeArgument writer)
             writer.WriteEndArray()
+
+    let private writeCallbackContext writer context = writeNamedCallbackContext "context" writer context
 
     let private writeListCallbackNode
         (writer: Utf8JsonWriter)
@@ -768,6 +771,20 @@ module SnapshotCodec =
             writeCallbackContext writer context
         | SemanticNodeKind.CancellationRequested ->
             writer.WriteString("kind", "cancellationRequested")
+        | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            writer.WriteString("kind", "exceptionCatch")
+            writer.WriteString("bodyFunctionId", StableId.value body)
+            writer.WriteString("handlerFunctionId", StableId.value handler)
+            writeNamedCallbackContext "bodyContext" writer bodyContext
+            writeNamedCallbackContext "handlerContext" writer handlerContext
+        | SemanticNodeKind.ExceptionMessage value ->
+            writer.WriteString("kind", "exceptionMessage")
+            writer.WriteString("valueNodeId", StableId.value value)
+        | SemanticNodeKind.ExceptionRethrow(value, resultType) ->
+            writer.WriteString("kind", "exceptionRethrow")
+            writer.WriteString("valueNodeId", StableId.value value)
+            writer.WritePropertyName("resultType")
+            writeTypeRef writer resultType
         | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
             writer.WriteString("kind", "cancellationShield")
             writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
@@ -1193,6 +1210,7 @@ module SnapshotCodec =
                 | "set" -> BuiltinGenericType.Set
                 | "oneShot" -> BuiltinGenericType.OneShot
                 | "task" -> BuiltinGenericType.Task
+                | "exception" -> BuiltinGenericType.Exception
                 | "taskScope" -> BuiltinGenericType.TaskScope
                 | value -> invalidShape $"Unsupported builtin generic type '{value}'."
             TypeRef.BuiltinGeneric(genericType, readArray "arguments" readTypeRef element)
@@ -1314,13 +1332,15 @@ module SnapshotCodec =
             element
         constructor (readId<GraphNodeTag> "valueNodeId" element)
 
-    let private readCallbackContext (element: JsonElement) =
-        match tryProperty "context" element with
+    let private readNamedCallbackContext name (element: JsonElement) =
+        match tryProperty name element with
         | None -> []
         | Some _ ->
-            match readArray "context" readArgument element with
+            match readArray name readArgument element with
             | [] -> invalidShape "Callback context must be omitted rather than empty."
             | context -> context
+
+    let private readCallbackContext element = readNamedCallbackContext "context" element
 
     let private readListCallbackNode
         context
@@ -1839,6 +1859,15 @@ module SnapshotCodec =
             | "cancellationRequested" ->
                 ensureProperties "CancellationRequested node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
                 SemanticNodeKind.CancellationRequested
+            | "exceptionCatch" ->
+                ensureProperties "ExceptionCatch node" (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId"; "bodyContext"; "handlerContext" ]) element
+                SemanticNodeKind.ExceptionCatch(readId<FunctionTag> "bodyFunctionId" element, readNamedCallbackContext "bodyContext" element, readId<FunctionTag> "handlerFunctionId" element, readNamedCallbackContext "handlerContext" element)
+            | "exceptionMessage" ->
+                ensureProperties "ExceptionMessage node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ExceptionMessage(readId<GraphNodeTag> "valueNodeId" element)
+            | "exceptionRethrow" ->
+                ensureProperties "ExceptionRethrow node" (set [ "id"; "kind"; "valueNodeId"; "resultType" ]) (set [ "id"; "kind"; "valueNodeId"; "resultType" ]) element
+                SemanticNodeKind.ExceptionRethrow(readId<GraphNodeTag> "valueNodeId" element, readTypeRef (requireProperty "resultType" element))
             | "cancellationShield" ->
                 ensureProperties "CancellationShield node" (set [ "id"; "kind"; "bodyFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "context" ]) element
                 SemanticNodeKind.CancellationShield(readId<FunctionTag> "bodyFunctionId" element, readCallbackContext element)

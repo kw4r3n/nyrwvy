@@ -5,6 +5,7 @@ import {sv,returned} from '../dynamic-worker-collector/lib.mjs'
 const ready=[q('spawn','a'),q('spawn','b'),q('gate','snapshot1'),q('integrate','early',1),q('observe','observer'),q('gate','release1',1,{mode:'settle'}),q('wait','settled',1)]
 const end=[q('stop','peer-stop',2),q('finish','finish'),q('spawn','closed'),q('inspect','retained')]
 const attempt=(label='integration',mode='all')=>q('integrate',label,1,{mode})
+const rawScript=mode=>[...ready,attempt('integration',mode),q('inspect','peer-alive',2),attempt('retry'),q('wait','still-settled',1),...end]
 export const scenarios=()=>[
  ...['synthetic-patch',''].flatMap(patch=>[
   {id:`ledger-${patch?'patch':'empty'}`,patch,fail:'save',script:[...ready,attempt(),attempt('retry'),attempt('third'),q('spawn','integrated-previous',0,{previous:1}),...end]},
@@ -19,7 +20,9 @@ export const scenarios=()=>[
  {id:'checks-boundary',checksGate:true,script:[q('spawn','a'),q('spawn','b'),q('gate','snapshot1'),attempt('snapshot-running'),q('gate','release1'),q('gate','checks1'),attempt('checks-running'),q('spawn','full'),q('gate','release-checks',1,{mode:'settle'}),q('wait','settled',1),attempt(),...end]},
  {id:'finish-cancel-snapshot',finishCancel:true,script:[q('spawn','a'),q('spawn','b'),q('gate','snapshot1'),q('finish','finish',0,{mode:'cancel'}),q('spawn','closed'),q('inspect','retained'),attempt('after-finish'),attempt('after-finish-again')]},
  {id:'expected-worker-error',providerError:true,script:[q('spawn','a'),q('spawn','b'),q('gate','provider1',1,{mode:'settle'}),q('wait','settled',1),attempt(),...end]},
- {id:'raw-host-fault',rawFault:true,script:[...ready,attempt(),...end]},
+ {id:'raw-host-fault',rawFault:true,script:rawScript('all')},
+ ...['commit','reverse-check','reverse-apply'].map(cancel=>({id:`raw-cancel-${cancel}`,rawFault:true,cancel,script:rawScript('cancel')})),
+ ...['reverse-check','reverse-apply'].flatMap(rollbackFail=>[false,true].flatMap(rawRollbackFault=>[false,true].map(pending=>({id:`raw-rollback-${rawRollbackFault?'raw':'typed'}-${rollbackFail}-${pending?'cancel':'clear'}`,rawFault:true,rollbackFail,rawRollbackFault,...(pending?{cancel:rollbackFail}:{}),script:rawScript(pending?'cancel':'all')})))),
 ].map(c=>({...c,patch:c.patch??'synthetic-patch',member:['a','b'],leader:['c'],providers:{1:c.providerError?'inner-timeout':'complete',2:'hold',3:'complete'},requests:1,expected:'integrated-head',expectedReplies:{early:'err:running',observer:'err:cancelled',closed:'reject:closing',...(c.expectedReplies??{})}}))
 const operations=['clean-source','clean-member','validate','ancestor','paths-member','paths-leader','close-agent','patch','check','apply','commit','head','save','reverse-check','reverse-apply']
 export function argumentsFor(c){
@@ -42,7 +45,8 @@ export function argumentsFor(c){
  // cancelled integration must occur at the selected rollback phase, not list index order
  if(c.cancel?.startsWith('reverse-'))gs.find(x=>x.arguments[0].value.value==='integration-await').responses[0].delayMillis=String((11+(c.cancel==='reverse-apply'?1:0))*10+1)
  host.operations.push({operation:'step',cases:operations.map(operation=>({arguments:[{parameter:'operation',value:sv(operation)},{parameter:'patch',value:sv(payloadFor(c,operation))}],responses:Array.from({length:8},(_,occurrence)=>{
-  if(c.rawFault&&operation==='commit')return {kind:'throw',message:'raw commit fault'}
+  if(c.rawFault&&operation==='commit')return {kind:'throw',message:'raw commit fault',delayMillis:'10'}
+  if(c.rawRollbackFault&&operation===c.rollbackFail)return {kind:'throw',message:operation,delayMillis:'10'}
   const r=responseFor(c,operation,occurrence)
   return returned({kind:'result',okType:{kind:'builtinGeneric',generic:'list',arguments:[{kind:'primitive',primitive:'string'}]},errorType:{kind:'primitive',primitive:'string'},isOk:r.ok,value:r.ok?{kind:'list',itemKind:'string',items:r.value}:sv(r.value)},10)
  })}))})
@@ -56,19 +60,29 @@ export function normalize(c,calls){
  return {id:c.id,replies,observations,steps}
 }
 export function validate(c,response){
- assert.equal(response.ok,!c.rawFault,JSON.stringify(response).slice(0,1500))
- const calls=c.rawFault?response.error.calls:response.result.calls
+ assert.equal(response.ok,true,JSON.stringify(response).slice(0,1500))
+ const calls=response.result.calls
  assert.equal(calls.filter(x=>x.operation==='open').length,1)
  assert.equal(calls.filter(x=>x.operation==='close').length,1)
  const closed=calls.findIndex(x=>x.operation==='close')
  assert.ok(calls.every((x,i)=>!['provider','snapshot','checks','memberClose'].includes(x.operation)||i<closed),'drain before provider release')
  const row=normalize(c,calls),replies=Object.fromEntries(row.replies.map(x=>[x.label,x.record]))
- for(const [label,expected] of Object.entries(c.expectedReplies))if(!c.rawFault&&c.script.some(r=>r.label===label))assert.equal(replies[label],expected,`${c.id}:${label}`)
- if(c.rawFault){assert.equal(response.error.code,'RunRuntimeFailure');return row}
+ for(const [label,expected] of Object.entries(c.expectedReplies))if(c.script.some(r=>r.label===label))assert.equal(replies[label],expected,`${c.id}:${label}`)
+ if(c.rawFault){
+  const cause=c.rollbackFail??'raw commit fault'
+  assert.equal(replies.integration,`err:${cause}`,'raw/rollback fault wins pending cancellation')
+  assert.equal(replies.retry,`err:${cause}`,'subsequent serialized integration remains available')
+  assert.match(replies['peer-alive'],/^2,running,/,'raw failure leaves peer alive')
+  const attempts=row.steps.filter(x=>x.operation==='commit').length
+  assert.equal(attempts,2)
+  assert.equal(row.steps.filter(x=>x.operation==='reverse-check').length,attempts,'one rollback per failed commit')
+  assert.equal(row.steps.filter(x=>x.operation==='reverse-apply').length,c.rollbackFail==='reverse-check'?0:attempts)
+  assert.equal(row.steps.filter(x=>['head','save'].includes(x.operation)).length,0,'no ledger after failed commit')
+ }
  assert.equal(row.observations.length,c.script.length,'one audit per serialized request')
  assert.equal(replies['integration:pending'],c.cancel?'pending':undefined)
  if(c.finishCancel)assert.equal(replies['finish:pending'],'pending')
- if(c.fail==='save'||(c.cancel&&['apply','commit','head','save'].includes(c.cancel)&&!c.fail)){
+ if(c.fail==='save'||(c.cancel&&['apply','commit','head','save'].includes(c.cancel)&&!c.fail&&!c.rawFault)){
   assert.equal(row.steps.filter(x=>x.operation==='save').length,1,'ledger suppresses duplicate save')
   assert.equal(replies.retry,`ok:${c.patch?'integrated-head':'source-head'}`)
  }

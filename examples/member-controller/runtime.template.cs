@@ -32,6 +32,7 @@ sealed class Effects : @@HOST@@
   if(phase==Setting("cancel")&&count==1){integrationEntered.Set();Wait(integrationRelease,"integration release");}
   Check(!NyRuntime.CancellationRequested,"shielded effect observed cancellation: "+phase);
   if(Flag("rawFault")&&phase=="commit")throw new InvalidOperationException("raw commit fault");
+  if(Flag("rawRollbackFault")&&phase==Setting("rollbackFail"))throw new InvalidOperationException(phase);
   if((phase==Setting("fail")&&count==1)||phase==Setting("rollbackFail"))return NyResult<NyList<NyStr>,NyStr>.Err(phase);
   string[] values=phase=="paths-member"?new[]{"a","b"}:phase=="paths-leader"?new[]{"c"}:phase=="patch"?new[]{Setting("patch")}:phase=="head"?new[]{Setting("patch")==""?"source-head":"integrated-head"}:Array.Empty<string>();
   return NyResult<NyList<NyStr>,NyStr>.Ok(NyList<NyStr>.Create(values.Select(x=>(NyStr)x).ToArray()));

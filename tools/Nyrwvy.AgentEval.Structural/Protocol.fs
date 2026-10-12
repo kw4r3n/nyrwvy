@@ -111,6 +111,7 @@ module private Encode =
         | BuiltinGenericType.Set -> "Set"
         | BuiltinGenericType.OneShot -> "OneShot"
         | BuiltinGenericType.Task -> "Task"
+        | BuiltinGenericType.Exception -> "Exception"
         | BuiltinGenericType.TaskScope -> "TaskScope"
 
     let rec typeRef = function

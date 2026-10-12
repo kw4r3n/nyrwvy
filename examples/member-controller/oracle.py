@@ -209,17 +209,12 @@ async def main():
     rows=[]
     for c in json.loads((bundle/'cases.json').read_text()):
         row=await asyncio.wait_for(run_case(c,module),20)
-        if c.get('rawFault'):
-            assert row['steps'][-2:]==[{'operation':'reverse-check','patch':c['patch']},{'operation':'reverse-apply','patch':c['patch']}]
-            row['comparison']='gap: raw host fault bypasses typed rollback and faults Nyrwvy owner'
-        else:
-            for source in [virtual[c['id']],runtime[c['id']]]:
-                assert row['observations']==source['observations'],(c['id'],'observations',row['observations'],source['observations'])
-                assert row['steps']==source['steps'],(c['id'],'steps',row['steps'],source['steps'])
-                actual=[x for x in source['replies'] if not x['label'].endswith(':state')]
-                # Finish acknowledgement is delayed until provider resource release in Nyrwvy.
-                assert sorted(row['replies'],key=lambda x:x['label'])==sorted(actual,key=lambda x:x['label']),(c['id'],'replies',row['replies'],actual)
-            row['comparison']='exact normalized observations/effects/replies'
+        for source in [virtual[c['id']],runtime[c['id']]]:
+            assert row['observations']==source['observations'],(c['id'],'observations',row['observations'],source['observations'])
+            assert row['steps']==source['steps'],(c['id'],'steps',row['steps'],source['steps'])
+            actual=[x for x in source['replies'] if not x['label'].endswith(':state')]
+            assert sorted(row['replies'],key=lambda x:x['label'])==sorted(actual,key=lambda x:x['label']),(c['id'],'replies',row['replies'],actual)
+        row['comparison']='exact normalized observations/effects/replies'
         rows.append(row);print('PASS:',c['id'],row['comparison'])
     # Comparison-sensitivity controls, not compiled graph mutants.
     reference=next(r for r in rows if r['id']=='ledger-patch')

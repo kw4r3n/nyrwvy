@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
-    let schemaVersion = 10
+    let schemaVersion = 11
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -94,11 +94,13 @@ module ExecutionIrSerializer =
             objectValue
                 [ property "kind" (quote "task")
                   property "resultType" (writeTypeRef resultType) ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> objectValue [ property "kind" (quote "exception") ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> objectValue [ property "kind" (quote "taskScope") ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
             invalidOp $"Execution IR contains OneShot with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"Execution IR contains Task with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) -> invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
             invalidOp $"Execution IR contains TaskScope with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -229,15 +231,17 @@ module ExecutionIrSerializer =
           property "valueId" (executionValueIdValue valueId) ]
 
     /// Callback context is written only when present, so context-free programs keep their bytes.
-    let private writeCallbackContext (context: ExecutionCallArgument list) =
+    let private writeNamedCallbackContext name (context: ExecutionCallArgument list) =
         if List.isEmpty context then []
         else
             [ property
-                  "context"
+                  name
                   (context
                    |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId)
                    |> List.map writeCallArgument
                    |> arrayValue) ]
+
+    let private writeCallbackContext context = writeNamedCallbackContext "context" context
 
     let private writeListCallbackInstruction kind sourceListValueId callbackFieldName callbackFunctionId context =
         [ property "kind" (quote kind)
@@ -596,6 +600,11 @@ module ExecutionIrSerializer =
               property "workerFunctionId" (stableIdValue workerFunctionId) ]
             @ writeCallbackContext context
         | ExecutionInstructionKind.CancellationRequested -> [ property "kind" (quote "cancellationRequested") ]
+        | ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            [ property "kind" (quote "exceptionCatch"); property "bodyFunctionId" (stableIdValue body); property "handlerFunctionId" (stableIdValue handler) ]
+            @ writeNamedCallbackContext "bodyContext" bodyContext @ writeNamedCallbackContext "handlerContext" handlerContext
+        | ExecutionInstructionKind.ExceptionMessage value -> writeUnaryInstruction "exceptionMessage" value
+        | ExecutionInstructionKind.ExceptionRethrow(value, resultType) -> writeUnaryInstruction "exceptionRethrow" value @ [ property "resultType" (writeTypeRef resultType) ]
         | ExecutionInstructionKind.CancellationShield(bodyFunctionId, context) ->
             [ property "kind" (quote "cancellationShield")
               property "bodyFunctionId" (stableIdValue bodyFunctionId) ]
@@ -872,7 +881,28 @@ module ExecutionIrSerializer =
                         | ExecutionInstructionKind.OneShotWait _ -> true
                         | _ -> false)))
         let hasOneShot = hasOneShotSignature || hasOneShotField || hasOneShotValue
-        let version = if hasOneShot then schemaVersion elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
+        let hasExceptionSignature =
+            program.Functions |> List.exists (fun fn ->
+                TaskTypes.mentionsException fn.ResultType
+                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Value.Type))
+        let hasExceptionField =
+            program.Types |> List.exists (fun ty ->
+                match ty.Kind with
+                | ExecutionTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)
+                | ExecutionTypeKind.Union variants -> variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)))
+        let hasException =
+            hasExceptionSignature || hasExceptionField
+            || blocks |> List.exists (fun block ->
+                block.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Type)
+                || block.Instructions |> List.exists (fun instruction ->
+                    TaskTypes.mentionsException instruction.Result.Type
+                    || match instruction.Kind with
+                       | ExecutionInstructionKind.ExceptionCatch _
+                       | ExecutionInstructionKind.ExceptionMessage _
+                       | ExecutionInstructionKind.ExceptionRethrow _ -> true
+                       | _ -> false))
+
+        let version = if hasException then schemaVersion elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
             [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)

@@ -48,11 +48,14 @@ module ViewerHtml =
             "OneShot<" + typeRefText result + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ result ]) ->
             "Task<" + typeRefText result + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> "Exception"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
             "OneShot<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             "Task<invalid-arity:" + string arguments.Length + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) ->
+            invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
             "TaskScope<invalid-arity:" + string arguments.Length + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -249,6 +252,9 @@ module ViewerHtml =
         | ViewerNodeRole.UseResource -> "use resource"
         | ViewerNodeRole.ParallelAll -> "parallel all"
         | ViewerNodeRole.CancellationRequested -> "cancellation requested"
+        | ViewerNodeRole.ExceptionCatch -> "exception catch"
+        | ViewerNodeRole.ExceptionMessage -> "exception message"
+        | ViewerNodeRole.ExceptionRethrow -> "exception rethrow"
         | ViewerNodeRole.CancellationShield -> "cancellation shield"
         | ViewerNodeRole.TaskScope -> "task scope"
         | ViewerNodeRole.TaskStart -> "task start"

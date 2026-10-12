@@ -184,6 +184,11 @@ module internal WireGraph =
         | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
             tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
         | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
+        | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            let namedContext name bindings = context bindings |> List.map (fun (_, value) -> name, value)
+            tagged "exceptionCatch" ([ "bodyFunctionId", identity body; "handlerFunctionId", identity handler ] @ namedContext "bodyContext" bodyContext @ namedContext "handlerContext" handlerContext)
+        | SemanticNodeKind.ExceptionMessage value -> tagged "exceptionMessage" [ "valueNodeId", identity value ]
+        | SemanticNodeKind.ExceptionRethrow(value, resultType) -> tagged "exceptionRethrow" [ "valueNodeId", identity value; "resultType", typeRef resultType ]
         | SemanticNodeKind.CancellationShield(body, bindings) -> tagged "cancellationShield" ([ "bodyFunctionId", identity body ] @ context bindings)
         | SemanticNodeKind.TaskScope(body, bindings) -> tagged "taskScope" ([ "bodyFunctionId", identity body ] @ context bindings)
         | SemanticNodeKind.TaskStart(scope, worker, bindings, item) ->

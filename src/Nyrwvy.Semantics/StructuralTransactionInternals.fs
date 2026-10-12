@@ -50,6 +50,7 @@ module internal StructuralTransactionInternals =
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with
+                    | BuiltinGenericType.Exception -> 0
                     | BuiltinGenericType.TaskScope -> 0
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List

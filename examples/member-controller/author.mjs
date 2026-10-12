@@ -20,16 +20,22 @@ const rendered=r=>mr(r,concat(text('ok:'),pat()),concat(text('err:'),pat('error'
 
 export async function define(s){
  await s.create('auditState',{host:cap('Host'),state:S,label:string},S,direct('view',{host:p('host'),state:p('state'),target:integer(0),mode:text('inspect'),label:concat(p('label'),text(':state'))}))
- await defineIntegration(s,{capability:'Host',shielded:true})
+ await defineIntegration(s,{capability:'Host',shielded:true,rawBoundary:true})
  await defineTaskWaitObserver((...args)=>s.create(...args,[]))
  // Eligibility is derived from real handles and registry fields, never host flags.
  await s.create('candidateOf',{entry:E,settled:bool,status:string,commit:string},named('Candidate'),construct('Candidate',{
   settled:p('settled'),latest:{kind:'boolNot',value:A(p('entry'),'superseded')},discarded:A(p('entry'),'discarded'),status:p('status'),commit:p('commit'),integrated:A(p('entry'),'integrated')}),[])
  const pending=direct('candidateOf',{entry:p('entry'),settled:boolean(false),status:text('running'),commit:text('')})
  await s.create('candidate',{entry:E},named('Candidate'),bind(poll(p('entry')),matchOption(first(pat()),matchOption(pat(),mr(pat(),direct('candidateOf',{entry:p('entry'),settled:boolean(true),status:F(pat(),'status'),commit:F(pat(),'commit')}),direct('candidateOf',{entry:p('entry'),settled:boolean(true),status:text('failed'),commit:text('')})),pending),pending)),[])
- await s.create('integrationWorker',{host:cap('Host'),entry:E,item:unit},result(O),
+ await s.create('integrationBody',{host:cap('Host'),entry:E,item:unit},result(O),
   bind(direct('integrate',{host:p('host'),candidate:direct('candidate',{entry:p('entry')})}),
    ok(update(pat(),'Outcome',{result:mr(field(pat(),'Outcome','result'),cond(cancellation,err(text('cancelled')),ok(pat())),err(pat('error')))}))))
+ // The serialized request worker handles failure only after the protected tail
+ // and rollback have completed. Raw faults therefore never poison the owner scope.
+ await s.create('integrationFault',{entry:E,exception:{kind:'builtinGeneric',generic:'exception',arguments:[]}},result(O),
+  ok(construct('Outcome',{candidate:direct('candidate',{entry:p('entry')}),result:err({kind:'exceptionMessage',value:p('exception')})})),[])
+ await s.create('integrationWorker',{host:cap('Host'),entry:E,item:unit},result(O),
+  {kind:'exceptionCatch',body:'integrationBody',bodyContext:ctx({host:p('host'),entry:p('entry')}),handler:'integrationFault',handlerContext:ctx({entry:p('entry')})})
  await s.create('ledgerEntry',{target:int,head:string,item:E},E,
   cond(eqInt(A(p('item'),'id'),p('target')),update(p('item'),'Entry',{integrated:p('head')}),p('item')),[])
  await s.create('acceptIntegration',{host:cap('Host'),state:S,target:int,label:string,outcome:O},S,

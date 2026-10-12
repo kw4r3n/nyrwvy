@@ -152,6 +152,9 @@ module FoundationTests =
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.TaskScope _
+                | SemanticNodeKind.ExceptionCatch _
+                | SemanticNodeKind.ExceptionMessage _
+                | SemanticNodeKind.ExceptionRethrow _
                 | SemanticNodeKind.CancellationShield _
                 | SemanticNodeKind.TaskStart _
                 | SemanticNodeKind.TaskWait _

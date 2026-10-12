@@ -62,6 +62,8 @@ module Float64Bits =
 
 [<RequireQualifiedAccess>]
 type BuiltinGenericType =
+    /// Opaque captured host exception. No construction, equality or external serialization.
+    | Exception
     | Option
     | Result
     | List
@@ -486,6 +488,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Whether cancellation was requested for the ParallelAll worker, task or TaskScope body evaluating it; false elsewhere.
     | CancellationRequested
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
+    /// Explicit host fault recovery. Contexts evaluate before the protected Unit body.
+    | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: ArgumentBinding list * handlerFunctionId: FunctionId * handlerContext: ArgumentBinding list
+    | ExceptionMessage of exceptionValue: GraphNodeId
+    | ExceptionRethrow of exceptionValue: GraphNodeId * resultType: TypeRef
     /// Runs a Unit -> Result<T, E> body with ambient cancellation masked. Context evaluates first.
     /// Restores the caller token on every exit; cancellation stays cooperative after the body.
     | CancellationShield of bodyFunctionId: FunctionId * context: ArgumentBinding list
@@ -844,6 +850,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.CapabilityConstruct _
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
+        | SemanticNodeKind.ExceptionCatch(_, bodyContext, _, handlerContext) -> contextValues bodyContext @ contextValues handlerContext
+        | SemanticNodeKind.ExceptionMessage value
+        | SemanticNodeKind.ExceptionRethrow(value, _) -> [ value ]
         | SemanticNodeKind.CancellationShield(_, context) -> contextValues context
         | SemanticNodeKind.TaskScope(_, context) -> contextValues context
         | SemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
@@ -1086,6 +1095,10 @@ module SemanticNodeShape =
                     functionId,
                     mapContextValues mapNodeId context
                 )
+            | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+                SemanticNodeKind.ExceptionCatch(body, mapContextValues mapNodeId bodyContext, handler, mapContextValues mapNodeId handlerContext)
+            | SemanticNodeKind.ExceptionMessage value -> SemanticNodeKind.ExceptionMessage(mapNodeId value)
+            | SemanticNodeKind.ExceptionRethrow(value, resultType) -> SemanticNodeKind.ExceptionRethrow(mapNodeId value, resultType)
             | SemanticNodeKind.CancellationShield(functionId, context) ->
                 SemanticNodeKind.CancellationShield(functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.TaskScope(functionId, context) ->
@@ -1298,6 +1311,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionMessage _
+        | SemanticNodeKind.ExceptionRethrow _
         | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
@@ -1388,6 +1404,7 @@ module SemanticNodeShape =
     /// graphs excluded), paired with the node's kind after `mapTypeRef` rewrote each of them.
     let private typeRefPayload (mapTypeRef: TypeRef -> TypeRef) (node: SemanticNode): TypeRef list * SemanticNodeKind =
         match node.Kind with
+        | SemanticNodeKind.ExceptionRethrow(value, resultType) -> [ resultType ], SemanticNodeKind.ExceptionRethrow(value, mapTypeRef resultType)
         | SemanticNodeKind.OneShotCreate(scope, valueType) -> [ valueType ], SemanticNodeKind.OneShotCreate(scope, mapTypeRef valueType)
         | SemanticNodeKind.ListEmpty itemType -> [ itemType ], SemanticNodeKind.ListEmpty(mapTypeRef itemType)
         | SemanticNodeKind.SetEmpty itemType -> [ itemType ], SemanticNodeKind.SetEmpty(mapTypeRef itemType)
@@ -1515,6 +1532,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
@@ -1586,6 +1605,8 @@ module SemanticNodeShape =
             [ reference FunctionReferenceRole.EffectListCallback context functionId ], []
         | SemanticNodeKind.ParallelAll(_, functionId, context)
         | SemanticNodeKind.TaskStart(_, functionId, context, _) -> [ reference FunctionReferenceRole.Worker context functionId ], []
+        | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            [ reference FunctionReferenceRole.Body bodyContext body; reference FunctionReferenceRole.Body handlerContext handler ], []
         | SemanticNodeKind.CancellationShield(functionId, context) -> [ reference FunctionReferenceRole.Body context functionId ], []
         | SemanticNodeKind.TaskScope(functionId, context) -> [ reference FunctionReferenceRole.Body context functionId ], []
         | SemanticNodeKind.UseResource(_, _, releaseOperationId, functionId, context) ->
@@ -1597,6 +1618,8 @@ module SemanticNodeShape =
                 reference (FunctionReferenceRole.CapabilityImplementation operationId) [] functionId),
             []
         | SemanticNodeKind.CapabilityInvoke(_, operationId, _) -> [], [ operationId ]
+        | SemanticNodeKind.ExceptionMessage _
+        | SemanticNodeKind.ExceptionRethrow _
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
         | SemanticNodeKind.StringLiteral _
@@ -1755,6 +1778,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ParallelAll _
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
+        | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionRethrow _
         | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
         | SemanticNodeKind.TaskStart _
@@ -1764,6 +1789,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.CapabilityInvoke _ -> true
+        | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _
         | SemanticNodeKind.StringLiteral _
@@ -1958,7 +1984,7 @@ module Snapshot =
           Functions = []
           Obligations = [] }
 
-/// Task and OneShot handles exist only inside one run. Declared fields may hold these handles
+/// Task and OneShot handles and captured Exceptions exist only inside one run. Declared fields may hold these handles
 /// but not TaskScope, which is lexical. Runtime-bearing types, including through declared types,
 /// never cross a capability or runPure boundary.
 [<RequireQualifiedAccess>]
@@ -1973,9 +1999,12 @@ module TaskTypes =
         | TypeRef.Capability _
         | TypeRef.TypeParameter _ -> false
 
-    /// Whether the type itself mentions a runtime handle or TaskScope, without inspecting declared types.
+    /// Whether the type itself mentions a runtime handle, captured exception or TaskScope, without inspecting declared types.
     let mentions (typeRef: TypeRef) =
-        occurs (function BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
+        occurs (function BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
+
+    /// Whether the type itself mentions a captured exception.
+    let mentionsException (typeRef: TypeRef) = occurs ((=) BuiltinGenericType.Exception) typeRef
 
     /// Whether the type itself mentions OneShot, without looking into declared types.
     let mentionsOneShot (typeRef: TypeRef) =
@@ -2056,7 +2085,7 @@ module EquatableTypes =
             | TypeRef.Function _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _
-            | TypeRef.BuiltinGeneric((BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map | BuiltinGenericType.Set), _) -> Some(List.rev path, typeRef)
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map | BuiltinGenericType.Set), _) -> Some(List.rev path, typeRef)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
                 arguments |> List.tryPick (visit ("List item" :: path))
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -2096,7 +2125,7 @@ module EquatableTypes =
                 match offending with
                 | TypeRef.Primitive PrimitiveType.Float64 -> "Float64 is not equatable because of NaN; compare with Float64Equal"
                 | TypeRef.Function _ -> "function values are not equatable"
-                | TypeRef.BuiltinGeneric((BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "runtime handles and scopes are not equatable"
+                | TypeRef.BuiltinGeneric((BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "runtime handles and scopes are not equatable"
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, _) -> "maps are not equatable"
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, _) -> "sets are not equatable"
                 | TypeRef.Capability _ -> "capability values are not equatable"

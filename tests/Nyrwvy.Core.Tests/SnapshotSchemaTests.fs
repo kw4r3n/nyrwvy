@@ -80,7 +80,15 @@ module SnapshotSchemaTests =
 
     /// One program per gated construct (two for the types that can appear without their nodes).
     let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
-        [ "cancellation shield", SnapshotSchemaFeature.CancellationShield, (fun create ->
+        [ "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
+              let result = generic BuiltinGenericType.Result [ stringType; stringType ]
+              let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.StringLiteral "ok"))
+              let handler = create "handler" [ "exception", generic BuiltinGenericType.Exception [] ] result [] (ExpressionRecipe.ExceptionRethrow(slot 0, result))
+              create "caught" [] result [] (ExpressionRecipe.ExceptionCatch(body.Id, [], handler.Id, [])) |> ignore)
+          "exception type only", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
+              let exceptionType = generic BuiltinGenericType.Exception []
+              create "sameException" [ "exception", exceptionType ] exceptionType [] (slot 0) |> ignore)
+          "cancellation shield", SnapshotSchemaFeature.CancellationShield, (fun create ->
               let result = generic BuiltinGenericType.Result [ boolType; stringType ]
               let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.CancellationRequested))
               create "shield" [] result [] (ExpressionRecipe.CancellationShield(body.Id, [])) |> ignore)

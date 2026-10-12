@@ -292,6 +292,8 @@ module SnapshotValidator =
                         "MapKeyTypeNotEquatable"
                         $"{context} uses a Map whose key type is not equatable: {EquatableTypes.explain snapshot.Types arguments.Head}"
                 arguments |> List.iter (validateTypeRef context)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) ->
+                if not arguments.IsEmpty then add "BuiltinGenericArityMismatch" $"{context} uses Exception with type arguments; none are allowed."
             | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
                 if not arguments.IsEmpty then
                     add
@@ -1433,6 +1435,26 @@ module SnapshotValidator =
                         | Some _, _, _ -> add "UseResourceAcquireTypeMismatch" $"UseResource node '{StableId.value node.Id}' acquisition must produce Result<R, E>."
                         | None, _, _ -> ()
                     | SemanticNodeKind.CancellationRequested -> ()
+                    | SemanticNodeKind.ExceptionCatch(bodyId, bodyContext, handlerId, handlerContext) ->
+                        let callback role id context inputType =
+                            match Map.tryFind id functionsById with
+                            | None -> add "UnknownCallTarget" $"ExceptionCatch {role} references an unknown function."; None
+                            | Some callback ->
+                                let unbound, contextSubstitution = validateCallbackContext node.Id callback context
+                                let substitution = match unbound with [ input ] -> TypeParameters.matchType contextSubstitution input.Type inputType | _ -> None
+                                if Option.isNone substitution then add "ExceptionCatchCallbackMismatch" $"ExceptionCatch {role} must have one unbound parameter of type {inputType}."
+                                for effectId in callback.RequiredEffects do
+                                    if not (Set.contains effectId requiredEffects) then add "MissingEffectRequirement" $"ExceptionCatch {role} requires effect {effectLabel effectId}."
+                                Some(TypeParameters.substitute (substitution |> Option.defaultValue contextSubstitution) callback.ResultType)
+                        match callback "body" bodyId bodyContext (TypeRef.Primitive PrimitiveType.Unit), callback "handler" handlerId handlerContext (TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as bodyResult), Some handlerResult when bodyResult = handlerResult -> ()
+                        | Some _, Some _ -> add "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>."
+                        | _ -> ()
+                    | SemanticNodeKind.ExceptionMessage value ->
+                        if nodeType value <> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) then add "ExceptionValueTypeMismatch" "ExceptionMessage requires an Exception value."
+                    | SemanticNodeKind.ExceptionRethrow(value, resultType) ->
+                        if nodeType value <> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) then add "ExceptionValueTypeMismatch" "ExceptionRethrow requires an Exception value."
+                        validateTypeRef "ExceptionRethrow result" resultType
                     | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
                         match Map.tryFind bodyFunctionId functionsById with
                         | None -> add "UnknownCallTarget" $"CancellationShield node '{StableId.value node.Id}' references an unknown body function."
@@ -2211,6 +2233,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.ExceptionCatch _
+                | SemanticNodeKind.ExceptionMessage _
+                | SemanticNodeKind.ExceptionRethrow _
                 | SemanticNodeKind.CancellationShield _
                 | SemanticNodeKind.TaskScope _
                 | SemanticNodeKind.TaskStart _

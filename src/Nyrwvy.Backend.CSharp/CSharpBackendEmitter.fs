@@ -73,11 +73,14 @@ module CSharpBackend =
             "NyOneShot<" + formatType resultType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             "NyTask<" + formatType resultType + ">"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> "System.Runtime.ExceptionServices.ExceptionDispatchInfo"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "NyTaskScope"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
             invalidOp $"C# backend received OneShot with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"C# backend received Task with {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) ->
+            invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
             invalidOp $"C# backend received TaskScope with {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
@@ -2171,6 +2174,16 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.CancellationRequested ->
             writer.Line(target + " = NyRuntime.CancellationRequested;")
+        | ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            let error = target + "_exception"
+            writer.Line("try { " + target + " = " + renderInvocation parametersOf body bodyContext [ "NyUnit.Value" ] + "; }")
+            writer.Line("catch (Exception " + error + ") { " + target + " = " + renderInvocation parametersOf handler handlerContext [ "System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + error + ")" ] + "; }")
+        | ExecutionInstructionKind.ExceptionMessage value ->
+            writer.Line(target + " = (NyStr)" + valueName value + ".SourceException.Message;")
+        | ExecutionInstructionKind.ExceptionRethrow(value, _) ->
+            writer.Line(valueName value + ".Throw();")
+            // Throw never returns; an assignment keeps C# definite-assignment analysis simple.
+            writer.Line(target + " = default!;")
         | ExecutionInstructionKind.CancellationShield(bodyFunctionId, context) ->
             let previous = target + "_cancellation"
             writer.Line("{")

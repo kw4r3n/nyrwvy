@@ -202,6 +202,7 @@ module internal WireInput =
             | "set" -> BuiltinGenericType.Set
             | "oneShot" -> BuiltinGenericType.OneShot
             | "task" -> BuiltinGenericType.Task
+            | "exception" -> BuiltinGenericType.Exception
             | "taskScope" -> BuiltinGenericType.TaskScope
             | value -> fail $"Unsupported builtin generic '{value}'."
         TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map argument)

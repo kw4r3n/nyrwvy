@@ -568,6 +568,14 @@ module ExecutionIr =
                                 ExecutionInstructionKind.ParallelAll(source, worker, lowered))
                         | TypedSemanticNodeKind.CancellationRequested ->
                             Ok(addInstruction currentBlock node ExecutionInstructionKind.CancellationRequested)
+                        | TypedSemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+                            match lowerCallArguments bodyContext, lowerCallArguments handlerContext with
+                            | Ok bodyContext, Ok handlerContext -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext)))
+                            | Error error, _ | _, Error error -> Error error
+                        | TypedSemanticNodeKind.ExceptionMessage value ->
+                            requireNodeValue environment value |> Result.map (fun value -> addInstruction currentBlock node (ExecutionInstructionKind.ExceptionMessage value))
+                        | TypedSemanticNodeKind.ExceptionRethrow(value, resultType) ->
+                            requireNodeValue environment value |> Result.map (fun value -> addInstruction currentBlock node (ExecutionInstructionKind.ExceptionRethrow(value, resultType)))
                         | TypedSemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
                             lowerCallArguments context
                             |> Result.map (fun lowered -> addInstruction currentBlock node (ExecutionInstructionKind.CancellationShield(bodyFunctionId, lowered)))

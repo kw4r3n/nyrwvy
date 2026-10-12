@@ -11,7 +11,8 @@ const failure=()=>rejected(pat('error'))
 const first=source=>matchOption({kind:'listItemAt',list:source,index:{kind:'int64Literal',value:'0'}},pat(),text(''))
 const set=source=>({kind:'setFromList',value:source})
 const updated=value=>({kind:'productUpdate',source:p('candidate'),type:'Candidate',fields:[{field:'integrated',value}]})
-export async function defineIntegration(s,{capability='Git',shielded=false}={}){
+export async function defineIntegration(s,{capability='Git',shielded=false,rawBoundary=false}={}){
+ if(rawBoundary&&!shielded)throw new Error('rawBoundary requires shielded integration')
  const rawIo=(operation,patch=text(''))=>invoke(p('host'),capability,'step',{operation:text(operation),patch})
  const io=shielded?(operation,patch)=>bind(rawIo(operation,patch),cond({kind:'cancellationRequested'},err(text('cancelled'),paths),pat())):rawIo
  const step=(operation,next,patch)=>mr(io(operation,patch),next,failure())
@@ -31,8 +32,21 @@ export async function defineIntegration(s,{capability='Git',shielded=false}={}){
  if(shielded){
   await s.create('rollbackProtected',{...params,patch:string,cause:string,item:unit},result(O),ok(call('rollback',{patch:p('patch'),cause:p('cause')})))
  }
- await s.create('commit',{...params,patch:string},O,
-  mr(io('commit'),call('record'),shielded?mr(shield('rollbackProtected',{host:p('host'),candidate:p('candidate'),patch:p('patch'),cause:pat('error')}),pat(),failure()):call('rollback',{patch:p('patch'),cause:pat('error')})))
+ const commitResult=mr(io('commit'),call('record'),shielded?mr(shield('rollbackProtected',{host:p('host'),candidate:p('candidate'),patch:p('patch'),cause:pat('error')}),pat(),failure()):call('rollback',{patch:p('patch'),cause:pat('error')}))
+ if(rawBoundary){
+  const exception={kind:'builtinGeneric',generic:'exception',arguments:[]},packet=result(result(paths),O)
+  // Catch exactly the host commit invocation. Neither record nor typed rollback
+  // belongs in this boundary, so a rollback fault never triggers rollback twice.
+  await s.create('rawCommitEffect',{...params,item:unit},packet,ok(io('commit'),O))
+  await s.create('rawUndo',{...params,patch:string,item:unit},result(paths),mr(rawIo('reverse-check',p('patch')),rawIo('reverse-apply',p('patch')),err(pat('error'),paths)))
+  await s.create('rawCommitRollback',{...params,patch:string,exception},packet,
+   mr(shield('rawUndo',{host:p('host'),candidate:p('candidate'),patch:p('patch')}),
+    {kind:'exceptionRethrow',value:p('exception'),resultType:packet},
+    err(rejected(pat('error')),result(paths))))
+  await s.create('commit',{...params,patch:string},O,
+   mr({kind:'exceptionCatch',body:'rawCommitEffect',bodyContext:[{parameter:'host',value:p('host')},{parameter:'candidate',value:p('candidate')}],handler:'rawCommitRollback',handlerContext:[{parameter:'host',value:p('host')},{parameter:'candidate',value:p('candidate')},{parameter:'patch',value:p('patch')}]},
+    mr(pat(),call('record'),mr(shield('rollbackProtected',{host:p('host'),candidate:p('candidate'),patch:p('patch'),cause:pat('error')}),pat(),failure())),pat('error')))
+ }else await s.create('commit',{...params,patch:string},O,commitResult)
  if(shielded){
   await s.create('finishIntegration',{...params,patch:string,item:unit},result(O),ok(cond(eqStr(p('patch'),text('')),call('record'),step('apply',call('commit',{patch:p('patch')}),p('patch')))))
  }
