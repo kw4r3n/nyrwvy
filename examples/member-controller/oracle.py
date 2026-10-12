@@ -62,6 +62,7 @@ async def run_case(c, m):
             if phase==c.get('fail') and counts[phase]==1 or phase==c.get('rollbackFail'):
                 raise RuntimeError(phase)
             if c.get('rawFault') and phase=='commit': raise RuntimeError('raw commit fault')
+            if c.get('rawHeadFault') and phase=='head' and counts[phase]==1: raise RuntimeError('raw head fault')
         class GitEffects:
             tampered = []
             def add_worktree(self, *_): pass
@@ -249,6 +250,18 @@ async def main():
         ('raw-save-continuation-admitted',lambda r:next(x for x in r['replies'] if x['label']=='integrated-previous').update(record='spawn:3')),
     ]:
         controls.append({'id':name,'rejected':reject_control(reference,mutate)})
+    reference=next(r for r in rows if r['id']=='raw-head-patch-cancel')
+    for name, mutate in [
+        ('raw-head-invented-ledger',lambda r:next(x for x in r['observations'] if x['label']=='integration').update(state=next(x for x in r['observations'] if x['label']=='integration')['state'].replace('commit1,passed,;','commit1,passed,integrated-head;'))),
+        ('raw-head-cancel-hides-fault',lambda r:next(x for x in r['replies'] if x['label']=='integration').update(record='err:cancelled')),
+        ('raw-head-spurious-rollback',lambda r:r['steps'].append({'operation':'reverse-check','patch':'synthetic-patch'})),
+        ('raw-head-premature-save',lambda r:next(x for x in r['observations'] if x['label']=='integration')['steps'].append({'operation':'save','patch':'integrated-head'})),
+        ('raw-head-effect-free-first-retry',lambda r:next(x for x in r['observations'] if x['label']=='retry').update(steps=next(x for x in r['observations'] if x['label']=='integration')['steps'])),
+        ('raw-head-third-repeats-commit',lambda r:next(x for x in r['observations'] if x['label']=='third')['steps'].append({'operation':'commit','patch':''})),
+    ]:
+        controls.append({'id':name,'rejected':reject_control(reference,mutate)})
+    reference=next(r for r in rows if r['id']=='raw-head-empty-cancel')
+    controls.append({'id':'raw-head-empty-commits','rejected':reject_control(reference,lambda r:r['steps'].append({'operation':'commit','patch':''}))})
     evidence={'negativeControls':controls,'oracle':PIN,'sourceProofs':proofs,'python':sys.version,'results':rows}
     (bundle/'oracle-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
 if __name__=='__main__': asyncio.run(main())

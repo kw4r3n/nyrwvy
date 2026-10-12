@@ -28,6 +28,11 @@ export const scenarios=()=>[
   script:[...ready,attempt('integration',pending?'cancel':'all'),q('inspect','ledger-now',1),q('inspect','peer-alive',2),attempt('retry'),q('wait','still-settled',1),q('spawn','integrated-previous',0,{previous:1}),...end],
   expectedReplies:{'integrated-previous':'reject:integrated'}
  }))),
+ ...['synthetic-patch',''].flatMap(patch=>[false,true].map(pending=>({
+  id:`raw-head-${patch?'patch':'empty'}-${pending?'cancel':'clear'}`,patch,rawHeadFault:true,...(pending?{cancel:'head'}:{}),
+  script:[...ready,attempt('integration',pending?'cancel':'all'),q('inspect','ledger-now',1),q('inspect','peer-alive',2),attempt('retry'),attempt('third'),q('wait','still-settled',1),q('spawn','integrated-previous',0,{previous:1}),...end],
+  expectedReplies:{'integrated-previous':'reject:integrated'}
+ }))),
 ].map(c=>({...c,patch:c.patch??'synthetic-patch',member:['a','b'],leader:['c'],providers:{1:c.providerError?'inner-timeout':'complete',2:'hold',3:'complete'},requests:1,expected:'integrated-head',expectedReplies:{early:'err:running',observer:'err:cancelled',closed:'reject:closing',...(c.expectedReplies??{})}}))
 const operations=['clean-source','clean-member','validate','ancestor','paths-member','paths-leader','close-agent','patch','check','apply','commit','head','save','reverse-check','reverse-apply']
 export function argumentsFor(c){
@@ -53,6 +58,7 @@ export function argumentsFor(c){
   if(c.rawFault&&operation==='commit')return {kind:'throw',message:'raw commit fault',delayMillis:'10'}
   if(c.rawRollbackFault&&operation===c.rollbackFail)return {kind:'throw',message:operation,delayMillis:'10'}
   if(c.rawSaveFault&&operation==='save'&&occurrence===0)return {kind:'throw',message:'raw save fault',delayMillis:'10'}
+  if(c.rawHeadFault&&operation==='head'&&occurrence===0)return {kind:'throw',message:'raw head fault',delayMillis:'10'}
   const r=responseFor(c,operation,occurrence)
   return returned({kind:'result',okType:{kind:'builtinGeneric',generic:'list',arguments:[{kind:'primitive',primitive:'string'}]},errorType:{kind:'primitive',primitive:'string'},isOk:r.ok,value:r.ok?{kind:'list',itemKind:'string',items:r.value}:sv(r.value)},10)
  })}))})
@@ -96,6 +102,23 @@ export function validate(c,response){
   for(const phase of ['head','save'])assert.equal(row.steps.filter(x=>x.operation===phase).length,1,`one ${phase}`)
   for(const phase of ['check','apply','commit'])assert.equal(row.steps.filter(x=>x.operation===phase).length,c.patch?1:0,`bounded ${phase}`)
   assert.equal(row.steps.filter(x=>x.operation.startsWith('reverse-')).length,0,'save failure does not roll back')
+ }
+ if(c.rawHeadFault){
+  const head=c.patch?'integrated-head':'source-head'
+  assert.equal(replies.integration,'err:raw head fault','original HEAD fault wins pending cancellation')
+  assert.equal(replies['ledger-now'],'1,completed,w1,base,0,false,commit1,passed,;','HEAD failed before ledger capture')
+  assert.match(replies['peer-alive'],/^2,running,/,'HEAD failure leaves peer alive')
+  assert.equal(replies.retry,`ok:${head}`,'retry captures HEAD after repeating integration')
+  assert.equal(replies.third,`ok:${head}`,'later retry returns retained HEAD')
+  const first=row.observations.find(x=>x.label==='integration'),retry=row.observations.find(x=>x.label==='retry'),third=row.observations.find(x=>x.label==='third')
+  const phases=[...operations.slice(0,8),...(c.patch?['check','apply','commit']:[]),'head']
+  assert.deepEqual(first.steps,phases.map(operation=>({operation,patch:payloadFor(c,operation)})),'successful commit then HEAD fault; no save or rollback')
+  assert.deepEqual(retry.steps,[...first.steps,...first.steps,{operation:'save',patch:head}],'retry repeats the full uncaptured integration exactly once')
+  assert.deepEqual(third.steps,retry.steps,'captured retry ledger suppresses later effects')
+  assert.equal(row.steps.filter(x=>x.operation==='head').length,2,'two HEAD reads')
+  assert.equal(row.steps.filter(x=>x.operation==='save').length,1,'save only after successful HEAD read')
+  for(const phase of ['check','apply','commit'])assert.equal(row.steps.filter(x=>x.operation===phase).length,c.patch?2:0,`retry repeats ${phase} only for nonempty patch`)
+  assert.equal(row.steps.filter(x=>x.operation.startsWith('reverse-')).length,0,'HEAD fault is outside commit rollback eligibility')
  }
  assert.equal(row.observations.length,c.script.length,'one audit per serialized request')
  assert.equal(replies['integration:pending'],c.cancel?'pending':undefined)

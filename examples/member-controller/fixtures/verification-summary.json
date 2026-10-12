@@ -7,24 +7,24 @@
     "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
     "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
   },
-  "scenarios": 38,
-  "matchedScenarios": 38,
-  "matchedRequestObservations": 537,
+  "scenarios": 42,
+  "matchedScenarios": 42,
+  "matchedRequestObservations": 609,
   "graph": {
     "base": "812bfe248e6753dcd86876519b168a8424f5eb4f",
     "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
     "functionCount": 89,
     "nodeCount": 1942,
-    "generatedSha256": "3ca09c4ca82028c5bda020b5a2017ec92e64bea75148b2a7f0a909711413a49e",
+    "generatedSha256": "44a750741abe46c8c4b5e9eb00e02f6946f94d3966be18a7b32cfda791e4bac7",
     "nodeVersion": "v26.11.1"
   },
   "hashes": {
-    "controller.json": "99e58d778a0dd36753ee9ca71d132d1cb7b6a568f42f0c7de6d855cf22fa2d89",
-    "Generated.cs": "3ca09c4ca82028c5bda020b5a2017ec92e64bea75148b2a7f0a909711413a49e",
-    "symbols.json": "09919753507d86461eba10a9c2a37c52663c1c7dbf7528b1461877c8d5b4f8b5",
-    "cases.json": "b4a157ba6ea515722be1a806fd5ad9a1735352846fd894d4eeb7c9c26b463187"
+    "controller.json": "ff2bdeeb016327041b56883ce549666cca26294f845522bd3e9e2ca0bcac7334",
+    "Generated.cs": "44a750741abe46c8c4b5e9eb00e02f6946f94d3966be18a7b32cfda791e4bac7",
+    "symbols.json": "d37763ee10aef5d7a8b8c3a58f986b43568776b9a2a127bc026311b075f56553",
+    "cases.json": "a4521862263edce234ca904cc7da80fefe6b5b38df678128ee2f3dbe8c947b07"
   },
-  "expectedSha256": "795ffc819bc339438c776cd1bae6d9575457be8b770363dfe030a93287ba7591",
+  "expectedSha256": "052b582e2d0aff2a1e66a001eda951cad9788d230bff10747c50adb1705167e8",
   "baselineRed": {
     "base": "62ea3fcbcc3052138ae10e75c4a4ebf1215f2054",
     "tree": "094fb17ff911d4f6b1024f9cddd3168a283ab26b",
@@ -834,6 +834,34 @@
     {
       "id": "raw-save-continuation-admitted",
       "rejected": true
+    },
+    {
+      "id": "raw-head-invented-ledger",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-cancel-hides-fault",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-spurious-rollback",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-premature-save",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-effect-free-first-retry",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-third-repeats-commit",
+      "rejected": true
+    },
+    {
+      "id": "raw-head-empty-commits",
+      "rejected": true
     }
   ],
   "priorEligibilityBaseline": {
@@ -868,7 +896,7 @@
     "defaultLifecycle": "15 virtual / real",
     "defaultIntegration": "36 virtual / real"
   },
-  "nextBoundedProbe": "raw HEAD-read exception after successful commit, before ledger capture; patch/empty x clear/pending cancellation with first HEAD throwing; proposed, not established RED",
+  "nextBoundedProbe": "raw apply exception after successful check, before commit; nonempty patch x clear/pending cancellation, first apply only throws; compare original error, empty ledger, retry effects, rollback eligibility, peer and finish; proposed, not established RED",
   "limits": [
     "bounded serialized requests; no concurrent admission or lock equivalence claim",
     "external controller parent cancellation not in oracle matrix",
@@ -898,6 +926,46 @@
     "finishDrainReleaseOnce": true,
     "pythonSourceUnchanged": true,
     "pythonVersion": "3.14.7 (main, Aug 14 2026, 06:38:32) [GCC 16.2.1 20260810]",
+    "publication": "none; local branch only"
+  },
+  "rawHeadProbe": {
+    "base": "0844516f0e94b1fcad7b57d2e1aba3b21a329cf8",
+    "baseTree": "558556058476fe83c85c4e927f6864a66881fea7",
+    "status": "verified closure; existing composition already matches Python",
+    "evidence": "raw-head-verified-closure.json",
+    "evidenceSha256": "dcd000212b1203dd77a6d152e99fdf08f829f74369d9b39ae9fba660be288d63",
+    "cases": [
+      "raw-head-patch-clear",
+      "raw-head-patch-cancel",
+      "raw-head-empty-clear",
+      "raw-head-empty-cancel"
+    ],
+    "unchangedBaselineGraphAndCSharp": true,
+    "implementationRepair": false,
+    "priorExpectationsPreserved": {
+      "scenarios": 38,
+      "requestObservations": 537
+    },
+    "newRequestObservations": 72,
+    "firstHeadOnlyThrows": true,
+    "originalFaultWinsCancellation": true,
+    "immediateLedger": "empty",
+    "failedAttemptSaveEffects": 0,
+    "rollbackEffects": 0,
+    "firstRetry": "full integration repeats; patch commits twice total; empty patch never commits",
+    "thirdRequestGitSaveEffects": 0,
+    "peerSurvives": true,
+    "finishDrainReleaseOnce": true,
+    "pythonSourceUnchanged": true,
+    "pythonVersion": "3.14.7 (main, Aug 14 2026, 06:38:32) [GCC 16.2.1 20260810]",
+    "compositionSourceHashes": {
+      "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+      "examples/member-controller/author.mjs": "7620b95752b60419606d568dea56f6755745c2585d1865e33ddb677a01cd37b3"
+    },
+    "pending812bfe2PayloadSha256": {
+      "raw-fault-cleanup.bundle": "087481853e5f0336f2927e58e78964292d3ceef98e7aef073b592080675988c0",
+      "raw-fault-cleanup.patch": "36a2a6b019dcd209cc833eb350441619e635a5004a9b5e678625e9420893db37"
+    },
     "publication": "none; local branch only"
   }
 }

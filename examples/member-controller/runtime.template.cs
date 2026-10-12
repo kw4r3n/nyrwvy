@@ -34,6 +34,7 @@ sealed class Effects : @@HOST@@
   if(Flag("rawFault")&&phase=="commit")throw new InvalidOperationException("raw commit fault");
   if(Flag("rawRollbackFault")&&phase==Setting("rollbackFail"))throw new InvalidOperationException(phase);
   if(Flag("rawSaveFault")&&phase=="save"&&count==1)throw new InvalidOperationException("raw save fault");
+  if(Flag("rawHeadFault")&&phase=="head"&&count==1)throw new InvalidOperationException("raw head fault");
   if((phase==Setting("fail")&&count==1)||phase==Setting("rollbackFail"))return NyResult<NyList<NyStr>,NyStr>.Err(phase);
   string[] values=phase=="paths-member"?new[]{"a","b"}:phase=="paths-leader"?new[]{"c"}:phase=="patch"?new[]{Setting("patch")}:phase=="head"?new[]{Setting("patch")==""?"source-head":"integrated-head"}:Array.Empty<string>();
   return NyResult<NyList<NyStr>,NyStr>.Ok(NyList<NyStr>.Create(values.Select(x=>(NyStr)x).ToArray()));

@@ -6,7 +6,7 @@ hosts supply effects and gates. An explicit generic ExceptionCatch boundary now
 preserves a raw commit exception through shielded rollback, then lets the request
 worker handle the fault without poisoning the owner or its peer.
 
-All **38 scenarios / 537 per-request state/effect observations** match unchanged
+All **42 scenarios / 609 per-request state/effect observations** match unchanged
 pinned Python in virtual execution and unedited emitted C#. The original
 23rd-case mismatch is retained as baseline RED evidence in the
 [verification record](../../docs/verification/member-controller-20261012.md) and
@@ -14,6 +14,10 @@ pinned Python in virtual execution and unedited emitted C#. The original
 RED against pending local commit `812bfe248e6753dcd86876519b168a8424f5eb4f`;
 their [verification record](../../docs/verification/raw-save-ledger-20261012.md)
 and [baseline traces](fixtures/raw-save-baseline-red.json) preserve that evidence.
+Four raw HEAD-read cases already match Python on the unchanged saved graph and
+unedited C# from local `0844516`; their [verified closure](fixtures/raw-head-verified-closure.json)
+and [verification record](../../docs/verification/raw-head-read-20261012.md)
+require no implementation repair. The prior 38 scenarios / 537 expectations remain unchanged.
 
 ```nu
 dotnet build Nyrwvy.slnx --configuration Release --ignore-failed-sources -p:NuGetAudit=false -m:1
@@ -53,15 +57,22 @@ outer resource release and direct TaskCancel. A separate save-only ExceptionCatc
 receives the HEAD-bearing candidate in both callbacks. A raw save fault retains
 that candidate and its original error, even with pending cancellation. Retry
 performs no Git/save effects, and continuation of the integrated Member is rejected.
+For a raw HEAD-read fault, the ledger remains empty, no save runs and no rollback
+is eligible: Python's rollback boundary ends at commit. The original fault wins
+pending cancellation. Retry repeats the full integration, including commit for a
+nonempty patch; empty patches never commit. After successful retry, the next
+request performs no effects and continuation is rejected. These are synthetic
+effect traces, with no physical index or persistence recovery claim.
 
 Virtual and real execution share the same C# emitter/runtime. Independent language
 evidence comes from unchanged Python. Fixed virtual delays and held real/Python
 events avoid comparing arbitrary wall-time races. The proof covers bounded
 serialized requests, not concurrent admission, cancellation of the entire external
 controller parent, provider shutdown, physical Git/index rollback, or restart
-recovery. Save-error ledger retention is in memory. The next bounded probe is a
-raw HEAD-read fault after commit, before ledger capture, with a subsequent retry;
-this matrix does not cover it.
+recovery. Save-error ledger retention is in memory. The next proposed bounded
+probe is a raw apply exception after successful check, before commit, with
+clear/pending cancellation and only the first apply throwing. This is not an
+established mismatch.
 
 No provider, account, credentials, physical integration Git mutation or Library
 upload is used. Branch publication is separate from the mocked integration effects.
