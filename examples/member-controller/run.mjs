@@ -15,7 +15,7 @@ try {
   const {artifact,nodes}=await author(s)
   await writeFile(join(dir,'Generated.cs'),artifact.source)
   await writeFile(join(dir,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
-  await writeFile(join(dir,'authoring.json'),JSON.stringify({base:'62ea3fcbcc3052138ae10e75c4a4ebf1215f2054',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))
+  await writeFile(join(dir,'authoring.json'),JSON.stringify({base:'812bfe248e6753dcd86876519b168a8424f5eb4f',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))
   await writeFile(join(dir,'cases.json'),JSON.stringify(scenarios().map(c=>({...c,arguments:argumentsFor(c)})),null,2))
   await s.call('close')
  }

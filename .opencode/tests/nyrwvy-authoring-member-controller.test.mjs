@@ -16,6 +16,7 @@ test('serialized Member controller composes ledger, observation, shield and drai
   const first=await json(join(bundle,'evidence.json'))
   const expected=await json(new URL('../../examples/member-controller/fixtures/oracle-expected.json',import.meta.url))
   const compare=rows=>{
+   assert.equal(rows.length,expected.matched.length,'every scenario has an independent expected observation')
    for(const e of expected.matched)assert.deepEqual(projection(rows.find(r=>r.id===e.id)),e,e.id)
 
   }

@@ -22,9 +22,17 @@ export async function defineIntegration(s,{capability='Git',shielded=false,rawBo
   {displayName:'Outcome',typeKind:{kind:'product',fields:fields({candidate:E,result:R})}}
  ]}}))
  const params={host:cap(capability),candidate:E}
+ if(rawBoundary){
+  // The HEAD-bearing candidate is explicit context for both callbacks. Catch
+  // only save: a raw fault returns its original message with the captured ledger.
+  await s.create('saveRecorded',{...params,item:unit},result(O),ok(
+   mr(io('save',f('integrated')),outcome(p('candidate'),ok(f('integrated'))),failure())))
+  await s.create('saveRecordedFault',{candidate:E,exception:{kind:'builtinGeneric',generic:'exception',arguments:[]}},result(O),
+   ok(rejected({kind:'exceptionMessage',value:p('exception')})),[])
+ }
  // Capture the ledger before save; either save result returns that same candidate.
  await s.create('record',params,O,step('head',bind(first(pat()),bind(updated(pat()),
-  mr(io('save',field(pat(),'Candidate','integrated')),
+  rawBoundary?mr({kind:'exceptionCatch',body:'saveRecorded',bodyContext:[{parameter:'host',value:p('host')},{parameter:'candidate',value:pat()}],handler:'saveRecordedFault',handlerContext:[{parameter:'candidate',value:pat()}]},pat(),failure()):mr(io('save',field(pat(),'Candidate','integrated')),
    outcome(pat('value',1),ok(field(pat('value',1),'Candidate','integrated'))),
    outcome(pat('value',1),err(pat('error'),string)))))))
  await s.create('rollback',{...params,patch:string,cause:string},O,

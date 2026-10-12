@@ -1,5 +1,9 @@
 # Serialized Member controller — raw commit fault recovery, 2026-10-12
 
+This record describes the pending ExceptionCatch feature commit. The subsequent
+local [raw save ledger probe](raw-save-ledger-20261012.md) extends its evidence to
+38 scenarios / 537 request observations without changing core behavior.
+
 All **34 scenarios / 469 per-request state/effect observations** now match
 unchanged pinned Python in virtual execution and unedited emitted C#. The former
 23rd-case raw commit mismatch is repaired with explicit generic exception

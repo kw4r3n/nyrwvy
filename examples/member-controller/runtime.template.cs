@@ -30,9 +30,13 @@ sealed class Effects : @@HOST@@
   string phase=operation.ToString();Log("step",("operation",phase),("patch",patch.ToString()));
   int count=counts.AddOrUpdate(phase,1,(_,n)=>n+1);
   if(phase==Setting("cancel")&&count==1){integrationEntered.Set();Wait(integrationRelease,"integration release");}
+  if(Flag("cooperativeCheck")&&phase=="check"&&count==1){Check(NyRuntime.CancellationRequested,"unshielded check must see pending cancellation");throw new OperationCanceledException("cancelled",NyRuntime.Cancellation.Value);}
+  if(phase==Setting("rawStepFault")&&count==1){Check(phase=="check"||!NyRuntime.CancellationRequested,"protected fault host observed cancellation");if(phase=="check"&&Setting("cancel")=="check")Check(NyRuntime.CancellationRequested,"unshielded throwing check must see pending cancellation");throw new InvalidOperationException("raw "+phase+" fault");}
   Check(!NyRuntime.CancellationRequested,"shielded effect observed cancellation: "+phase);
   if(Flag("rawFault")&&phase=="commit")throw new InvalidOperationException("raw commit fault");
   if(Flag("rawRollbackFault")&&phase==Setting("rollbackFail"))throw new InvalidOperationException(phase);
+  if(Flag("rawSaveFault")&&phase=="save"&&count==1)throw new InvalidOperationException("raw save fault");
+  if(Flag("rawHeadFault")&&phase=="head"&&count==1)throw new InvalidOperationException("raw head fault");
   if((phase==Setting("fail")&&count==1)||phase==Setting("rollbackFail"))return NyResult<NyList<NyStr>,NyStr>.Err(phase);
   string[] values=phase=="paths-member"?new[]{"a","b"}:phase=="paths-leader"?new[]{"c"}:phase=="patch"?new[]{Setting("patch")}:phase=="head"?new[]{Setting("patch")==""?"source-head":"integrated-head"}:Array.Empty<string>();
   return NyResult<NyList<NyStr>,NyStr>.Ok(NyList<NyStr>.Create(values.Select(x=>(NyStr)x).ToArray()));
