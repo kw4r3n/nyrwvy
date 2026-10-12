@@ -4,20 +4,22 @@ import {createHash} from 'node:crypto'
 import assert from 'node:assert/strict'
 import {session} from '../dynamic-worker-collector/lib.mjs'
 import {author} from './author.mjs'
-import {scenarios,argumentsFor,validate,normalize} from './cases.mjs'
+import {scenarios,recoveryScenarios,argumentsFor,validate,normalize} from './cases.mjs'
 import {scenarios as admissionScenarios,argumentsFor as admissionArgs,validate as admissionValidate,normalize as admissionNormalize} from '../member-concurrency/cases.mjs'
 const replay=process.argv[2]==='--replay',baseline=process.argv.includes('--baseline'),dir=resolve(process.argv[replay?3:2]??'member-evidence')
+const recovered=process.argv.includes('--recovered'),recoveryMatrix=recovered||process.argv.includes('--recovery-baseline')
 await mkdir(dir,{recursive:true})
 if(!replay)assert.deepEqual(await readdir(dir),[],'use an empty evidence directory')
 const hash=x=>createHash('sha256').update(x).digest('hex')
 const s=await session('controller',dir)
 try {
  if(!replay){
-  const {artifact,nodes}=await author(s,{adapted:!baseline})
+  // Explicit legacy switch preserves the previous milestone's reproducible fixtures.
+  const {artifact,nodes}=await author(s,{adapted:!baseline,recoverCompleted:recovered})
   await writeFile(join(dir,'Generated.cs'),artifact.source)
   await writeFile(join(dir,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
-  await writeFile(join(dir,'authoring.json'),JSON.stringify({base:'9e98b728b834a8ba5625c4a4a136bdbd904336fd',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))
-  await writeFile(join(dir,'cases.json'),JSON.stringify(scenarios().map(c=>({...c,adapted:!baseline,arguments:argumentsFor(c)})),null,2))
+  await writeFile(join(dir,'authoring.json'),JSON.stringify({base:recoveryMatrix?'1af5ae38ea426dbe964147151f5cd7b17efae0e9':'9e98b728b834a8ba5625c4a4a136bdbd904336fd',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',recoverCompleted:recovered,nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))
+  await writeFile(join(dir,'cases.json'),JSON.stringify((recoveryMatrix?recoveryScenarios():scenarios()).map(c=>({...c,adapted:!baseline,recovered,arguments:argumentsFor(c)})),null,2))
   await s.call('close')
  }
  await s.call('open',{mode:'open',snapshot:s.snapshot})

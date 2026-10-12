@@ -49,7 +49,7 @@ async def run_case(c, m):
         async def effect(phase, payload=''):
             steps.append({'operation':phase,'patch':payload});trace(phase,payload)
             counts[phase] = counts.get(phase,0)+1
-            if phase=='commit' and c['kind']=='integration' and counts[phase]==1:
+            if phase==('commit' if c['patch'] else 'head') and c['kind']=='integration' and counts[phase]==1:
                 integration_entered.set()
                 try:
                     await integration_release.wait()

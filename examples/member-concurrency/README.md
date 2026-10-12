@@ -10,7 +10,13 @@ inherited 51 scenarios / 771 request audits.
 exclusive request waits for its predecessor's state. Its independent supervisor
 publishes the resulting state; if the queued caller cancels, the caller settles
 immediately and the supervisor later forwards the unchanged predecessor state.
-Independent readers select the latest published snapshot. Integration retains
+Independent readers select the latest published snapshot. Readers also use
+completed exclusive request results as a second state source when parent
+cancellation closes the handoff cells. A zero-time TaskWait poll returns the
+successful immutable State; pending, Err and cancelled tasks preserve the
+folded state. Nonexclusive reader results are excluded because they can be
+stale. See the [completed-mutation proof](../../docs/verification/completed-mutation-recovery-20261013.md).
+Integration retains
 the existing cancellation shield and exception boundary. Close publishes
 `closing=true` to its successor before stopping/joining Members outside that
 ownership interval. The owner joins every request supervisor before its

@@ -1,5 +1,37 @@
 # Whole-owner cancellation and shutdown
 
+The completed-mutation milestone adds a composition-only state recovery path.
+The default admission authoring recipe polls successful completed exclusive
+task results after reading its handoffs. Parent cancellation still closes those
+cells, cancels queued callers and propagates to Members. The new retained view
+contains the completed HEAD; an explicit current-request cancellation still
+returns `err:cancelled`. The historical six-script return-only adaptation below
+is preserved by the runner's explicit legacy authoring switch.
+
+```nu
+node examples/member-owner-cancellation/run.mjs /tmp/recovery-before --recovery-baseline
+node examples/member-owner-cancellation/test-runtime.mjs /tmp/recovery-before
+node examples/member-owner-cancellation/verify.mjs /tmp/recovery-before
+node examples/member-owner-cancellation/run.mjs /tmp/recovery-after --recovered
+node examples/member-owner-cancellation/test-runtime.mjs /tmp/recovery-after
+python examples/member-owner-cancellation/oracle.py /path/to/pinned-rrawrlet /tmp/recovery-after/cases.json /tmp/recovery-after/oracle-evidence.json
+node examples/member-owner-cancellation/verify.mjs /tmp/recovery-after
+node examples/member-owner-cancellation/prove-recovery.mjs /tmp/recovery-before /tmp/recovery-after
+node examples/member-owner-cancellation/run.mjs --replay /tmp/recovery-after
+cp -r /tmp/recovery-after /tmp/recovery-moved
+node examples/member-owner-cancellation/run.mjs --replay /tmp/recovery-moved
+node examples/member-owner-cancellation/verify.mjs /tmp/recovery-moved --replay
+```
+
+The eleven scripts retain the original six and add empty integration, raw save,
+raw HEAD, typed commit, and a completed stale reader. Virtual/task/root records
+agree exactly. The independent Python oracle remains distinct: the first four
+original scripts expose owner-policy gaps; the two shutdown scripts chiefly
+differ in caller context and harness records, while drainage and release-fault
+precedence agree. No comparison erases those differences. See the
+[report](../../docs/verification/completed-mutation-recovery-20261013.md) and
+[verified closure](fixtures/recovery-verified-closure.json).
+
 Six bounded scripts distinguish parent cancellation from cancelling a request
 or observer. They test queued admission, held protected integration with and
 without a raw commit fault, held determined Member settlement, and held shutdown

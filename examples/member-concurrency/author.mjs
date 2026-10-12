@@ -20,7 +20,7 @@ const start=(worker,values)=>({kind:'taskStart',scope:p('scope'),worker,item:uni
 const mr=(input,okBody,errBody)=>({kind:'matchResult',input,okBody,errBody})
 const exclusive=op=>({kind:'boolOr',left:eqStr(op,text('spawn')),right:{kind:'boolOr',left:eqStr(op,text('integrate')),right:{kind:'boolOr',left:eqStr(op,text('discard')),right:eqStr(op,text('finish'))}}})
 
-export async function author(s){
+export async function author(s,{recoverCompleted=true}={}){
  await serialized(s)
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'AdmissionTicket',typeKind:{kind:'product',fields:fields({slot:int,parent:handle,relay:task(result(unit)),snapshot:cell,next:cell,exclusive:bool})}},
@@ -65,9 +65,15 @@ export async function author(s){
     bind(reply(q('label'),text('err:cancelled')),err(text('cancelled'),S)))))
  // Readers use the latest published immutable snapshot, including the active
  // mutation's acquired state. They never await that mutation's whole request.
- await s.create('admissionReadSnapshot',{acc:S,item:K},S,
-  bind(poll(f(p('item'),'AdmissionTicket','snapshot'),pat(),p('acc')),
-   poll(f(p('item'),'AdmissionTicket','next'),pat(),pat('value',1))),[])
+ const published=bind(poll(f(p('item'),'AdmissionTicket','snapshot'),pat(),p('acc')),
+  poll(f(p('item'),'AdmissionTicket','next'),pat(),pat('value',1)))
+ // Parent cancellation closes handoffs, but completed owned task results stay
+ // observable. Recover only exclusive successful results: readers may carry
+ // older state, and pending/Err/cancelled tasks must preserve the folded state.
+ await s.create('admissionReadSnapshot',{acc:S,item:K},S,recoverCompleted?
+  bind(published,cond(f(p('item'),'AdmissionTicket','exclusive'),
+   matchOption(first({kind:'taskWait',tasks:L(handle,f(p('item'),'AdmissionTicket','parent')),mode:'all',limit:{kind:'optionSome',value:integer(0)}}),
+    matchOption(pat(),mr(pat(),pat(),pat('value',3)),pat('value',2)),pat('value',1)),pat())):published,[])
  await s.create('admissionCurrent',{owner:W},S,
   {kind:'listEffectFold',source:w('tickets'),seed:w('initial'),function:'admissionReadSnapshot',context:[]},[])
  await s.create('admissionReader',{host:cap('Host'),scope,state:S,request:Q,item:unit},R,
