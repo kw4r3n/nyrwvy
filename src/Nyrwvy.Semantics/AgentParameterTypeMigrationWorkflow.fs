@@ -431,6 +431,13 @@ module internal SignatureMigrationCore =
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
+            | ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+                nonCallTargetUse body
+                |> Result.bind (fun () -> nonCallTargetUse handler)
+                |> Result.bind (fun () -> rewritePairs bodyContext)
+                |> Result.bind (fun bodyContext -> rewritePairs handlerContext |> Result.map (fun handlerContext -> ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext)))
+            | ExpressionRecipe.ExceptionMessage value -> rewrite value |> Result.map ExpressionRecipe.ExceptionMessage
+            | ExpressionRecipe.ExceptionRethrow(value, resultType) -> rewrite value |> Result.map (fun value -> ExpressionRecipe.ExceptionRethrow(value, resultType))
             | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
                 nonCallTargetUse bodyFunctionId
                 |> Result.bind (fun () -> rewritePairs context |> Result.map (fun context -> ExpressionRecipe.CancellationShield(bodyFunctionId, context)))

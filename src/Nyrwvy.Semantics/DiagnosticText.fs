@@ -31,6 +31,7 @@ module DiagnosticText =
             "(" + (parameters |> List.map render |> String.concat ", ") + ") -> " + render result
         | TypeRef.TypeParameter(id, displayName) when withTypeParameterIds -> $"{displayName} (type parameter {StableId.value id})"
         | TypeRef.TypeParameter(_, displayName) -> displayName
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> "Exception"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) -> generic "Option" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) -> generic "Result" arguments
@@ -39,6 +40,8 @@ module DiagnosticText =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) -> generic "Set" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) -> generic "OneShot" arguments
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) -> generic "Task" arguments
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) ->
+            invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) -> generic "TaskScope" arguments
 
     let typeRef (snapshot: Snapshot) (value: TypeRef): string = render snapshot false value

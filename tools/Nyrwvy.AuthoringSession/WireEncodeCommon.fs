@@ -40,6 +40,7 @@ module internal WireEncodeCommon =
                 | BuiltinGenericType.Set -> "set"
                 | BuiltinGenericType.OneShot -> "oneShot"
                 | BuiltinGenericType.Task -> "task"
+                | BuiltinGenericType.Exception -> "exception"
                 | BuiltinGenericType.TaskScope -> "taskScope"
             objectValue
                 [ "kind", box "builtinGeneric"

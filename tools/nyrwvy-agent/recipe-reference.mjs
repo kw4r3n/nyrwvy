@@ -6,7 +6,7 @@ const typeRef = {
   capability: { kind: "capability", name: "<capability display name>" },
   function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
   typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
-  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|set|task|taskScope|oneShot>", arguments: ["<typeRef>"] },
+  builtinGeneric: { kind: "builtinGeneric", generic: "<option|result|list|map|set|task|taskScope|oneShot|exception>", arguments: ["<typeRef>"] },
 }
 
 /**
@@ -170,6 +170,9 @@ const categories = {
     "setToList": fixed.setToList,
   },
   tasks: {
+    "exceptionCatch": "(body: Unit -> Result<T, E>, bodyContext, handler: Exception -> Result<T, E>, handlerContext) -> Result<T, E>",
+    "exceptionMessage": "(value: Exception) -> String",
+    "exceptionRethrow": "(value: Exception, resultType: T) -> T (throws)",
     "cancellationShield": "(body: Unit -> Result<T, E>, context) -> Result<T, E>",
     "taskScope": "(body: TaskScope -> Result<T, E>, context) -> Result<T, E>",
     "taskStart": "(scope: TaskScope, worker: T -> Result<U, E>, item: T, context) -> Task<Result<U, E>>",
@@ -360,6 +363,9 @@ const references = {
   listFold: { shape: { kind: "listFold", source: recipe, seed: recipe, function: "<function display name>", context: callbackContext }, notes: "Pure folder: (accumulator, item) -> accumulator over its parameters not bound by the optional context. Iterates left to right, returning the seed for an empty list. Context binds further folder parameters to values computed once. To stop at the first Err (a folder returning Result<S, E>), use listEffectFold instead of a Result accumulator." },
   parallelAll: { shape: { kind: "parallelAll", source: recipe, worker: "<function display name>", context: callbackContext }, notes: "Runs the worker (item -> Result<U, E>, effects allowed, capabilities via context) for every item concurrently and awaits all. The first Err or exception cancels the others. Result: the lowest-index Err, else Ok of all values in order." },
   cancellationRequested: { shape: { kind: "cancellationRequested" }, notes: "Bool: whether the current ParallelAll worker, task or task scope body was asked to stop; false outside them. Check it between steps to stop cooperatively." },
+  exceptionCatch: { shape: { kind: "exceptionCatch", body: "<function display name>", bodyContext: callbackContext, handler: "<function display name>", handlerContext: callbackContext }, notes: "Explicitly catches host System.Exception from the body, including OperationCanceledException. Handler receives an opaque run-local Exception preserving identity and dispatch stack. Body has one unbound Unit parameter; handler one unbound Exception; both return the same Result<T, E>. Both contexts evaluate before the protected body. Typed Err/Abort is ordinary Result control flow and never invokes the handler. Handler exceptions propagate to enclosing boundaries. This node does not shield, cancel, drain or release; compose existing nodes for those policies." },
+  exceptionMessage: { shape: { kind: "exceptionMessage", value: "<Exception recipe>" }, notes: "Reads the captured host exception message. Exception has zero type arguments; it is not equatable and cannot cross capability or run-value boundaries." },
+  exceptionRethrow: { shape: { kind: "exceptionRethrow", value: "<Exception recipe>", resultType: typeRef }, notes: "Rethrows the captured original exception with its dispatch information. resultType ascribes the expression in a typed position; no normal value is returned. No automatic translation to Err or cancellation." },
   cancellationShield: { shape: { kind: "cancellationShield", body: "<function display name>", context: callbackContext }, notes: "Runs a Unit -> Result<T, E> body synchronously with ambient cancellation masked. Context evaluates before masking. Restores the caller token on Ok, Err and host exceptions; the caller explicitly checks cancellation afterward. Existing scopes retain their captured tokens. New nested scopes remain owned and drain normally. No automatic fault capture or cancellation error." },
   taskScope: { shape: { kind: "taskScope", body: "<function display name>", context: callbackContext }, notes: "Runs the body with a new TaskScope through its one unbound parameter; the body returns Result<T, E>, which is the result. On every exit of the body (Ok, Err or a host exception) each unfinished task of the scope is cancelled and awaited before the node completes. A task's host exception is rethrown then unless the body threw first." },
   taskStart: { shape: { kind: "taskStart", scope: recipe, worker: "<function display name>", item: recipe, context: callbackContext }, notes: "Starts the worker (item -> Result<U, E>, effects allowed, capabilities via context) as a task of the TaskScope and returns Task<Result<U, E>> at once. A task's Err does not cancel other tasks." },

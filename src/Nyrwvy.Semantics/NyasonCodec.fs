@@ -141,6 +141,7 @@ module NyasonCodec =
             record "one-shot-type" [ "value", encodeTypeRef resultType ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ resultType ]) ->
             record "task-type" [ "result", encodeTypeRef resultType ]
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> record "exception-type" []
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> record "task-scope-type" []
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
             invalidOp $"Validated Option type unexpectedly has {arguments.Length} type arguments."
@@ -156,6 +157,7 @@ module NyasonCodec =
             invalidOp $"Validated OneShot type unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, arguments) ->
             invalidOp $"Validated Task type unexpectedly has {arguments.Length} type arguments."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) -> invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
             invalidOp $"Validated TaskScope type unexpectedly has {arguments.Length} type arguments."
 
@@ -219,6 +221,9 @@ module NyasonCodec =
         | NyasonValue.Record("task-type", _) ->
             let fields = recordFields "task-type" [ "result" ] [] value
             TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ decodeTypeRef (require "result" fields) ])
+        | NyasonValue.Record("exception-type", _) ->
+            recordFields "exception-type" [] [] value |> ignore
+            TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])
         | NyasonValue.Record("task-scope-type", _) ->
             recordFields "task-scope-type" [] [] value |> ignore
             TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
@@ -465,9 +470,11 @@ module NyasonCodec =
     and private encodeUnaryNode tag nodeId valueNodeId =
         record tag [ nodeId; "value", encodeId "node" valueNodeId ]
 
-    and private encodeCallbackContext (context: ArgumentBinding list) =
+    and private encodeNamedCallbackContext name (context: ArgumentBinding list) =
         if List.isEmpty context then []
-        else [ "context", context |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map encodeArgument |> list ]
+        else [ name, context |> List.sortBy (fun argument -> StableId.value argument.TargetParameterId) |> List.map encodeArgument |> list ]
+
+    and private encodeCallbackContext context = encodeNamedCallbackContext "context" context
 
     and private encodeListCallbackNode tag nodeId sourceListNodeId callbackFunctionId context =
         record
@@ -822,6 +829,10 @@ module NyasonCodec =
         | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
             record "parallel-all" ([ nodeId; "source", encodeId "node" sourceListNodeId; "worker", encodeId "function" workerFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.CancellationRequested -> record "cancellation-requested" [ nodeId ]
+        | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            record "exception-catch" ([ nodeId; "body", encodeId "function" body; "handler", encodeId "function" handler ] @ encodeNamedCallbackContext "body-context" bodyContext @ encodeNamedCallbackContext "handler-context" handlerContext)
+        | SemanticNodeKind.ExceptionMessage value -> encodeUnaryNode "exception-message" nodeId value
+        | SemanticNodeKind.ExceptionRethrow(value, resultType) -> record "exception-rethrow" [ nodeId; "value", encodeId "node" value; "result-type", encodeTypeRef resultType ]
         | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
             record "cancellation-shield" ([ nodeId; "body", encodeId "function" bodyFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
@@ -1030,13 +1041,15 @@ module NyasonCodec =
         { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
           Kind = constructor (decodeId<GraphNodeTag> "node" (require "value" fields)) }
 
-    and private decodeCallbackContext fields =
-        match optional "context" fields with
+    and private decodeNamedCallbackContext name fields =
+        match optional name fields with
         | None -> []
         | Some value ->
             match decodeList decodeArgument value with
             | [] -> shape "Callback context must be omitted rather than empty."
             | context -> context
+
+    and private decodeCallbackContext fields = decodeNamedCallbackContext "context" fields
 
     and private decodeListCallbackNode tag value constructor =
         let fields = recordFields tag [ "id"; "source"; "callback" ] [ "context" ] value
@@ -1564,6 +1577,15 @@ module NyasonCodec =
         | NyasonValue.Record("cancellation-requested", _) ->
             let fields = recordFields "cancellation-requested" [ "id" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields); Kind = SemanticNodeKind.CancellationRequested }
+        | NyasonValue.Record("exception-catch", _) ->
+            let fields = recordFields "exception-catch" [ "id"; "body"; "handler" ] [ "body-context"; "handler-context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ExceptionCatch(decodeId<FunctionTag> "function" (require "body" fields), decodeNamedCallbackContext "body-context" fields, decodeId<FunctionTag> "function" (require "handler" fields), decodeNamedCallbackContext "handler-context" fields) }
+        | NyasonValue.Record("exception-message", _) -> decodeUnaryNode "exception-message" value SemanticNodeKind.ExceptionMessage
+        | NyasonValue.Record("exception-rethrow", _) ->
+            let fields = recordFields "exception-rethrow" [ "id"; "value"; "result-type" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ExceptionRethrow(decodeId<GraphNodeTag> "node" (require "value" fields), decodeTypeRef (require "result-type" fields)) }
         | NyasonValue.Record("cancellation-shield", _) ->
             let fields = recordFields "cancellation-shield" [ "id"; "body" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

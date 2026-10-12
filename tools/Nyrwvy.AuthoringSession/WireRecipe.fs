@@ -28,10 +28,12 @@ module internal WireRecipe =
                 id<ParameterTag> "parameterId" item, recipe (property "value" item))
 
         /// Optional callback context: `[{ "parameterId", "value" }]`, like call arguments.
-        let callbackContext () =
-            match tryProperty "context" element with
+        let namedCallbackContext name =
+            match tryProperty name element with
             | None -> []
-            | Some _ -> callArguments "context"
+            | Some _ -> callArguments name
+
+        let callbackContext () = namedCallbackContext "context"
 
         let capabilityArguments name =
             array name element
@@ -271,6 +273,13 @@ module internal WireRecipe =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "exceptionCatch" ->
+            ensureFields "exception-catch recipe" [ "kind"; "bodyFunctionId"; "handlerFunctionId"; "bodyContext"; "handlerContext" ] [ "kind"; "bodyFunctionId"; "handlerFunctionId" ] element
+            ExpressionRecipe.ExceptionCatch(id<FunctionTag> "bodyFunctionId" element, namedCallbackContext "bodyContext", id<FunctionTag> "handlerFunctionId" element, namedCallbackContext "handlerContext")
+        | "exceptionMessage" -> unary "exception-message recipe" ExpressionRecipe.ExceptionMessage
+        | "exceptionRethrow" ->
+            ensureFields "exception-rethrow recipe" [ "kind"; "value"; "resultType" ] [ "kind"; "value"; "resultType" ] element
+            ExpressionRecipe.ExceptionRethrow(recipe (property "value" element), typeRef (property "resultType" element))
         | "cancellationShield" ->
             ensureFields "cancellation-shield recipe" [ "kind"; "bodyFunctionId"; "context" ] [ "kind"; "bodyFunctionId" ] element
             ExpressionRecipe.CancellationShield(id<FunctionTag> "bodyFunctionId" element, callbackContext ())

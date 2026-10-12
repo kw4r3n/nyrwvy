@@ -4,6 +4,7 @@ namespace Nyrwvy.Core
 /// `SnapshotSchema.minimumVersions`.
 [<RequireQualifiedAccess>]
 type SnapshotSchemaFeature =
+    | ExceptionBoundary
     | CancellationShield
     /// CapabilityConstruct.
     | CapabilityConstruct
@@ -56,12 +57,15 @@ module SnapshotSchema =
     let private v14 = version 14 "nayamnyam.snapshot.v10"
     let private v15 = version 15 "nayamnyam.snapshot.v11"
 
+    let private v16 = version 16 "nayamnyam.snapshot.v12"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
+        [ SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
+          SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
           SnapshotSchemaFeature.CapabilityConstruct, v10, "Capability construction"
           SnapshotSchemaFeature.FunctionAbort, v11, "Function abort"
@@ -90,6 +94,9 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionMessage _
+        | SemanticNodeKind.ExceptionRethrow _ -> Some SnapshotSchemaFeature.ExceptionBoundary
         | SemanticNodeKind.CancellationShield _ -> Some SnapshotSchemaFeature.CancellationShield
         | SemanticNodeKind.OneShotCreate _
         | SemanticNodeKind.OneShotComplete _
@@ -265,6 +272,7 @@ module SnapshotSchema =
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             let own =
                 match generic with
+                | BuiltinGenericType.Exception -> [ SnapshotSchemaFeature.ExceptionBoundary ]
                 | BuiltinGenericType.OneShot -> [ SnapshotSchemaFeature.OneShot ]
                 | BuiltinGenericType.Map -> [ SnapshotSchemaFeature.Map ]
                 | BuiltinGenericType.Set -> [ SnapshotSchemaFeature.Set ]

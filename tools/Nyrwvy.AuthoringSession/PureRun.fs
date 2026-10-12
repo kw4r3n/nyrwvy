@@ -221,7 +221,7 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
         | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
         | TypeRef.BuiltinGeneric(kind, arguments) ->
-            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Runtime handles are not run values."
+            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Runtime handles are not run values."
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | _ -> invalidOp "Unsupported runner type passed validation."
 

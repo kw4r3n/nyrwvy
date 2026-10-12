@@ -201,6 +201,9 @@ type ExecutionInstructionKind =
     | MapFold of sourceMapValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
+    | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: ExecutionCallArgument list * handlerFunctionId: FunctionId * handlerContext: ExecutionCallArgument list
+    | ExceptionMessage of exceptionValue: ExecutionValueId
+    | ExceptionRethrow of exceptionValue: ExecutionValueId * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | TaskScope of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | TaskStart of scopeValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list * itemValueId: ExecutionValueId
@@ -289,6 +292,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ParallelAll(_, functionId, _) ->
             [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.CancellationRequested -> [ ExecutionInstructionUse.ConcurrencyRuntime ]
+        | ExecutionInstructionKind.ExceptionCatch(body, _, handler, _) -> [ callback FunctionReferenceRole.Body body; callback FunctionReferenceRole.Body handler ]
+        | ExecutionInstructionKind.ExceptionMessage _
+        | ExecutionInstructionKind.ExceptionRethrow _ -> []
         | ExecutionInstructionKind.CancellationShield(functionId, _) ->
             [ callback FunctionReferenceRole.Body functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.TaskScope(functionId, _) ->

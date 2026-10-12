@@ -271,11 +271,11 @@ module internal WireSymbolic =
             )
 
         /// Optional callback context: `[{ "parameter": <callback parameter display name>, "value" }]`.
-        let callbackContext (callback: SemanticFunction) =
-            match tryProperty "context" element with
+        let namedCallbackContext name (callback: SemanticFunction) =
+            match tryProperty name element with
             | None -> []
             | Some _ ->
-                array "context" element
+                array name element
                 |> List.map (fun item ->
                     ensureFields "callback context" [ "parameter"; "value" ] [ "parameter"; "value" ] item
                     let parameter =
@@ -285,6 +285,7 @@ module internal WireSymbolic =
                             callback.Parameters
                             (fun value -> value.DisplayName)
                     parameter.Id, recipe declarations parameterContext (property "value" item))
+        let callbackContext callback = namedCallbackContext "context" callback
         match requiredString "kind" element with
         | "parameter" ->
             ensureFields "parameter recipe" [ "kind"; "name" ] [ "kind"; "name" ] element
@@ -647,6 +648,15 @@ module internal WireSymbolic =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "exceptionCatch" ->
+            ensureFields "exception-catch recipe" [ "kind"; "body"; "handler"; "bodyContext"; "handlerContext" ] [ "kind"; "body"; "handler" ] element
+            let body = resolveReferencedFunction declarations parameterContext (property "body" element)
+            let handler = resolveReferencedFunction declarations parameterContext (property "handler" element)
+            ExpressionRecipe.ExceptionCatch(body.Id, namedCallbackContext "bodyContext" body, handler.Id, namedCallbackContext "handlerContext" handler)
+        | "exceptionMessage" -> unary "exception-message recipe" ExpressionRecipe.ExceptionMessage
+        | "exceptionRethrow" ->
+            ensureFields "exception-rethrow recipe" [ "kind"; "value"; "resultType" ] [ "kind"; "value"; "resultType" ] element
+            ExpressionRecipe.ExceptionRethrow(recipe declarations parameterContext (property "value" element), typeRef declarations (property "resultType" element))
         | "cancellationShield" ->
             ensureFields "cancellation-shield recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
             let body = resolveReferencedFunction declarations parameterContext (property "body" element)

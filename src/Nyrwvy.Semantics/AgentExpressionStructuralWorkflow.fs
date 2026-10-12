@@ -137,6 +137,9 @@ type ExpressionRecipe =
     | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | CancellationRequested
     /// The body's one unbound Unit parameter is supplied while ambient cancellation is masked.
+    | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: (ParameterId * ExpressionRecipe) list * handlerFunctionId: FunctionId * handlerContext: (ParameterId * ExpressionRecipe) list
+    | ExceptionMessage of exceptionValue: ExpressionRecipe
+    | ExceptionRethrow of exceptionValue: ExpressionRecipe * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     /// The body's one unbound parameter receives the new `TaskScope`.
     | TaskScope of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -352,6 +355,9 @@ module ExpressionRecipeTypes =
             ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
         | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
         | ExpressionRecipe.CancellationRequested -> recipe
+        | ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext) -> ExpressionRecipe.ExceptionCatch(body, pairs bodyContext, handler, pairs handlerContext)
+        | ExpressionRecipe.ExceptionMessage value -> ExpressionRecipe.ExceptionMessage(go value)
+        | ExpressionRecipe.ExceptionRethrow(value, resultType) -> ExpressionRecipe.ExceptionRethrow(go value, mapType resultType)
         | ExpressionRecipe.CancellationShield(body, context) -> ExpressionRecipe.CancellationShield(body, pairs context)
         | ExpressionRecipe.TaskScope(body, context) -> ExpressionRecipe.TaskScope(body, pairs context)
         | ExpressionRecipe.TaskStart(scope, worker, context, item) -> ExpressionRecipe.TaskStart(go scope, worker, pairs context, go item)
@@ -674,6 +680,9 @@ module AgentExpressionStructuralWorkflow =
             seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
         | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.CancellationRequested -> Seq.empty
+        | ExpressionRecipe.ExceptionCatch(_, bodyContext, _, handlerContext) -> (bodyContext @ handlerContext) |> Seq.map snd
+        | ExpressionRecipe.ExceptionMessage value
+        | ExpressionRecipe.ExceptionRethrow(value, _) -> Seq.singleton value
         | ExpressionRecipe.CancellationShield(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskScope(_, context) -> context |> Seq.map snd
         | ExpressionRecipe.TaskStart(scope, _, context, item) -> seq { yield scope; yield item; yield! context |> Seq.map snd }
@@ -842,6 +851,7 @@ module AgentExpressionStructuralWorkflow =
             | TypeRef.BuiltinGeneric(kind, arguments) ->
                 let expectedArity =
                     match kind with
+                    | BuiltinGenericType.Exception -> 0
                     | BuiltinGenericType.TaskScope -> 0
                     | BuiltinGenericType.Option
                     | BuiltinGenericType.List
@@ -1742,6 +1752,34 @@ module AgentExpressionStructuralWorkflow =
                                     fail "UseResourceReleaseSignatureMismatch" "The release operation must take exactly the resource and return Unit or Result<Unit, E>."
                             | _ -> fail "UseResourceResultMismatch" $"UseResource body {callbackName body} must return Result<T, E> with the acquisition error type E = {ty errorType}; it returns {ty bodyResult}."
                 | Ok actual -> fail "UseResourceAcquireTypeMismatch" $"UseResource acquisition must produce Result<R, E>, not {ty actual}."
+            | ExpressionRecipe.ExceptionCatch(bodyId, bodyContext, handlerId, handlerContext) ->
+                let callback role id context inputType =
+                    match Map.tryFind id functionsById with
+                    | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ExceptionCatch {role} function does not exist.")
+                    | Some callback ->
+                        validateCallbackContext "ExceptionCatch" callback context (infer frames)
+                        |> Result.bind (fun (unbound, substitution) ->
+                            match (match unbound with [ input ] -> TypeParameters.matchType substitution input.Type inputType | _ -> None), missingEffect callback.RequiredEffects with
+                            | None, _ -> Error(diagnostic "ExceptionCatchCallbackMismatch" $"ExceptionCatch {role} must have one unbound input of type {ty inputType}.")
+                            | _, Some effectId -> Error(missingEffectError "ExceptionCatch" effectId)
+                            | Some current, None -> Ok(TypeParameters.substitute current callback.ResultType))
+                match callback "body" bodyId bodyContext (TypeRef.Primitive PrimitiveType.Unit), callback "handler" handlerId handlerContext (TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) with
+                | Ok bodyResult, Ok handlerResult when bodyResult = handlerResult ->
+                    match bodyResult with
+                    | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> Ok bodyResult
+                    | _ -> Error(diagnostic "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>.")
+                | Ok _, Ok _ -> Error(diagnostic "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>.")
+                | Error error, _ | _, Error error -> Error error
+            | ExpressionRecipe.ExceptionMessage value ->
+                match infer frames value with
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) -> Ok stringType
+                | Ok _ -> Error(diagnostic "ExceptionValueTypeMismatch" "ExceptionMessage requires Exception.")
+                | Error error -> Error error
+            | ExpressionRecipe.ExceptionRethrow(value, resultType) ->
+                match validateTypeRef index resultType, infer frames value with
+                | Ok (), Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) -> Ok resultType
+                | Ok (), Ok _ -> Error(diagnostic "ExceptionValueTypeMismatch" "ExceptionRethrow requires Exception.")
+                | Error error, _ | _, Error error -> Error error
             | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
                 match Map.tryFind bodyFunctionId functionsById with
                 | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"CancellationShield body '{StableId.value bodyFunctionId}' does not exist.")
@@ -2567,6 +2605,13 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.CancellationRequested ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.CancellationRequested } ], nodeId
+        | ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
+            let bodyNodes, bodyBindings = materializeContext body bodyContext
+            let handlerNodes, handlerBindings = materializeContext handler handlerContext
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            bodyNodes @ handlerNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ExceptionCatch(body, bodyBindings, handler, handlerBindings) } ], nodeId
+        | ExpressionRecipe.ExceptionMessage value -> unary SemanticNodeKind.ExceptionMessage value
+        | ExpressionRecipe.ExceptionRethrow(value, resultType) -> unary (fun value -> SemanticNodeKind.ExceptionRethrow(value, resultType)) value
         | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
             let contextNodes, contextBindings = materializeContext bodyFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
