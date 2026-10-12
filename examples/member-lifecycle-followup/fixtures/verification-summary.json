@@ -1,0 +1,119 @@
+{
+  "variant": "followup",
+  "nyrwvyBase": "ec6f3c4eb18c7c1e5385ce19a92fb93b06cac851",
+  "teamOracleBase": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "graph": {
+    "functions": 74,
+    "nodes": 1585,
+    "snapshotSha256": "beb3bfab4a8437188798e6630a11dba7668a70f3cdf96687078fa9fe94c4a704",
+    "generatedSha256": "7b1006d433dbc1c482ac4dcf49fe57487f0979abdd841471b7102cc9faf9b14d",
+    "reemissionMatches": true,
+    "symbolsSha256": "0a6903f1d9536b86ed4a86e74ff46256b8648a734bbe8201958e77c226e52ded",
+    "casesSha256": "c77beea5ac1dee20caec2ff293c63456343fe2f779daf991905ef5840ee49e14",
+    "status": {
+      "snapshotId": "01a12de5-790e-7922-bc3b-41e5e257148f",
+      "snapshotFingerprint": "sha256:f78c4b0bb755e6fb71965e3cee3be73384664c62332e780dc2e0196cc9a5a387",
+      "semanticFingerprint": "sha256:4b0be5c0071e9c279de0614395b612dbb9c448cd3cef75f510570261767f12b1"
+    }
+  },
+  "validation": {
+    "virtualAssertionPasses": 16,
+    "runtimeAssertionPasses": 16,
+    "reopenedReplayPasses": 16,
+    "teamMatches": 13,
+    "teamDivergences": 3,
+    "negativeControlsRejected": 5,
+    "generatedSourceUnedited": true
+  },
+  "cases": [
+    {
+      "id": "any",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "all",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "timeout",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "timeout-zero",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "caller-cancel",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "race-cancel-first",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "race-complete-first",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "race-published-cancel",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "snapshot-timeout",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "tagged-isolation",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "tagged-expected",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "global-exit",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "global-external",
+      "teamComparison": "matched normalized Team observations"
+    },
+    {
+      "id": "cleanup-fault",
+      "teamComparison": "intentional raw-fault control; Team isolates, graph propagates"
+    },
+    {
+      "id": "outside-provider-fault",
+      "teamComparison": "intentional raw-fault control; Team isolates, graph propagates"
+    },
+    {
+      "id": "foreign-cancellation",
+      "teamComparison": "intentional raw-fault control; Team isolates, graph propagates"
+    }
+  ],
+  "tools": {
+    "node": "v26.11.1",
+    "python": "3.14.7",
+    "nushell": "0.116.1",
+    "sdk": "10.0.112",
+    "runtime": "10.0.12",
+    "referencePack": "10.0.12",
+    "roslyn": "5.0.0-dev"
+  },
+  "sourceSha256": {
+    "examples/member-lifecycle-followup/README.md": "285aa63216ebc216428ced403e96554a958fe13825ec3a0728e78de382826f81",
+    "examples/member-lifecycle-followup/author.mjs": "02842922880d8e96db8671209e87b3490675001a199cfbb3e8b2c94879ca7e8e",
+    "examples/member-lifecycle-followup/cases.mjs": "768828b2a7a421eee28446b6deb17eeef0578508a2658635e1cfba208d8ebd9a",
+    "examples/member-lifecycle-followup/oracle.py": "2be9a9ce31f3bc2b71a2362fd5a6f1d123a80e72276b5773e0d02c103c698eec",
+    "examples/member-lifecycle-followup/run.mjs": "3ac67b672b81fab2d72d592ff4a2a80ec67b5fbf685e4bce9a3cfd6418e81010",
+    "examples/member-lifecycle-followup/runtime.template.cs": "25cc5365c3b5f9b8ea1f999e15e005edf5c3b89fd5380f67bc1e22c6f88fbce1",
+    "examples/member-lifecycle-followup/test-runtime.mjs": "4df7399f143dacfe70347e469a03d26ed3998b5a957e13cb3c867699541cdd82"
+  },
+  "dataPolicy": "Synthetic graph definitions and arguments only; no runtime logs, host paths, credentials, live task state, generated C# or binaries.",
+  "runtimeChanged": false,
+  "argumentFixtureEncoding": {
+    "committed": "compact JSON; parsed tree identical to verified local fixture",
+    "observedPrettyJsonSha256": "c77beea5ac1dee20caec2ff293c63456343fe2f779daf991905ef5840ee49e14",
+    "committedSha256": "f2eb8a10042ed6709f76799149ee72371fc6e00cda4765ead9855b876d62d4e9"
+  }
+}
