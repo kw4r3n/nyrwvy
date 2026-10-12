@@ -34,17 +34,21 @@ static class Program
  public static void Main(string[] args)
  {
   foreach(var c in JsonDocument.Parse(System.IO.File.ReadAllText(args[0])).RootElement.EnumerateArray()) {
+   var observations=new List<object>();
+   for(int request=1;request<=c.GetProperty("requests").GetInt32();request++) {
    var e=c.GetProperty("candidate");var host=new Effects(c);
    var candidate=new @@CANDIDATE@@(@@CANDIDATE_ARGS@@);
    var result=NyFunctions.@@RUN@@(@@RUN_HOST@@:host,@@RUN_CANDIDATE@@:candidate,
-      @@RUN_REQUESTS@@:NyList<NyUnit>.Create(Enumerable.Repeat(NyUnit.Value,c.GetProperty("requests").GetInt32()).ToArray()));
+      @@RUN_REQUESTS@@:NyList<NyUnit>.Create(Enumerable.Repeat(NyUnit.Value,request).ToArray()));
    var outcome=result.@@OUT_RESULT@@;
    var entry=result.@@OUT_CANDIDATE@@;
    // Serialize the projection's actual outcome/ledger; nothing recomputes policy.
    var value=new {kind="product",fields=new object[]{
     new {field="candidate",value=new {kind="product",fields=new object[]{@@ENTRY_FIELDS@@}}},
     new {field="result",value=new {kind="result",isOk=outcome.IsOk,value=outcome.IsOk?outcome.OkValue.ToString():outcome.ErrorValue.ToString()}}}};
-   Console.WriteLine(JsonSerializer.Serialize(new {id=c.GetProperty("id").GetString(),response=new {ok=true,result=new {actual=value,calls=host.Calls}}}));
+   observations.Add(new {ok=true,result=new {actual=value,calls=host.Calls}});
+   }
+   Console.WriteLine(JsonSerializer.Serialize(new {id=c.GetProperty("id").GetString(),observations}));
   }
  }
 }

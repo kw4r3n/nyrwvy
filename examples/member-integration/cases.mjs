@@ -22,6 +22,15 @@ export const scenarios=()=>[
  {id:'rollback-check-fails',fail:'commit',rollbackFail:'reverse-check',trace:[...pre,'check','apply','commit','reverse-check'],error:'reverse-check'},
  {id:'rollback-apply-fails',fail:'commit',rollbackFail:'reverse-apply',trace:[...pre,'check','apply','commit','reverse-check','reverse-apply'],error:'reverse-apply'},
  {id:'retry-after-rollback',fail:'commit',requests:2,trace:[...pre,'check','apply','commit','reverse-check','reverse-apply',...full]},
+ ...['synthetic-patch',''].flatMap(patch=>{
+  const effects=patch?full:[...pre,'head','save'],head=patch?'integrated-head':'source-head',suffix=patch?'patch':'empty'
+  return [1,2,3].map(requests=>({id:`save-failure-${suffix}-${requests}`,patch,fail:'save',requests,trace:effects,expected:head,
+   requestTraces:Array.from({length:requests},()=>effects),requestErrors:['save',...Array(requests-1).fill(null)],requestLedgers:Array(requests).fill(head),error:requests===1?'save':undefined}))
+ }),
+ ...['synthetic-patch',''].map(patch=>{
+  const effects=patch?full:[...pre,'head','save'],failed=effects.slice(0,-1)
+  return {id:`head-failure-retry-${patch?'patch':'empty'}`,patch,fail:'head',requests:2,trace:[...failed,...effects],expected:patch?'integrated-head':'source-head',requestTraces:[failed,[...failed,...effects]],requestErrors:['head',null]}
+ }),
 ].map(c=>({...c,candidate:{...candidate,...c.candidate},member:c.member??['a','b'],leader:c.leader??['c'],patch:c.patch??'synthetic-patch',requests:c.requests??1,expected:c.expected??'integrated-head'}))
 export function responseFor(c,operation,occurrence=0){
  if((operation===c.fail&&occurrence===0)||operation===c.rollbackFail)return {ok:false,value:operation}
@@ -39,20 +48,31 @@ export function argumentsFor(c,graph){
   {kind:'list',itemType:{kind:'primitive',primitive:'unit'},items:Array.from({length:c.requests},()=>({kind:'unit'}))}
  ]
 }
-export function validate(c,response){
+export function validate(c,response,request=c.requests){
  assert.notEqual(response.ok,false,JSON.stringify(response).slice(0,1500))
  const body=response.result??response
  const calls=body.calls??[]
  const arg=(x,name)=>x.arguments.find(a=>a.parameter===name).value.value
  const trace=calls.map(x=>arg(x,'operation'))
- assert.deepEqual(trace,c.trace,c.id+' ordered effects')
+ const expectedTrace=c.requestTraces?.[request-1]??(c.id==='retry-after-rollback'&&request===1?c.trace.slice(0,-full.length):c.trace)
+ const error=c.requestErrors?.[request-1]??(c.id==='retry-after-rollback'&&request===1?'commit':c.error)
+ const ledger=c.requestLedgers?.[request-1]??(error?c.candidate.integrated:c.expected)
+ assert.deepEqual(trace,expectedTrace,c.id+` request ${request} ordered effects`)
  for(const x of calls)assert.equal(arg(x,'patch'),payloadFor(c,arg(x,'operation')))
  const output=body.actual
  const values=output.fields.map(f=>f.value),entry=values.find(x=>x.kind==='product'),outcome=values.find(x=>x.kind==='result')
  const saved=Object.fromEntries(entry.fields.map(f=>[f.field,f.value.value])),integrated=saved.integrated
- assert.deepEqual(saved,{...c.candidate,integrated:c.error?c.candidate.integrated:c.expected},c.id+' complete candidate')
- assert.equal(outcome.isOk,!c.error,c.id)
- assert.equal(outcome.value,c.error??c.expected,c.id)
- assert.equal(integrated,c.error?c.candidate.integrated:c.expected,c.id+' ledger')
+ assert.deepEqual(saved,{...c.candidate,integrated:ledger},c.id+` request ${request} complete candidate`)
+ assert.equal(outcome.isOk,!error,c.id)
+ assert.equal(outcome.value,error??c.expected,c.id)
+ assert.equal(integrated,ledger,c.id+' ledger')
  return {id:c.id,trace,result:{ok:outcome.isOk,value:outcome.value},integrated}
+}
+// Observation only, for proving the old graph fails the new ledger contract.
+export function observe(c,response){
+ assert.notEqual(response.ok,false,JSON.stringify(response).slice(0,1500))
+ const body=response.result??response,values=body.actual.fields.map(f=>f.value)
+ const candidate=values.find(x=>x.kind==='product'),outcome=values.find(x=>x.kind==='result')
+ return {id:c.id,trace:body.calls.map(x=>x.arguments.find(a=>a.parameter==='operation').value.value),
+  result:{ok:outcome.isOk,value:outcome.value},integrated:candidate.fields.find(f=>f.field==='integrated').value.value}
 }
