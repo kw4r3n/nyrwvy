@@ -23,6 +23,11 @@ export const scenarios=()=>[
  {id:'raw-host-fault',rawFault:true,script:rawScript('all')},
  ...['commit','reverse-check','reverse-apply'].map(cancel=>({id:`raw-cancel-${cancel}`,rawFault:true,cancel,script:rawScript('cancel')})),
  ...['reverse-check','reverse-apply'].flatMap(rollbackFail=>[false,true].flatMap(rawRollbackFault=>[false,true].map(pending=>({id:`raw-rollback-${rawRollbackFault?'raw':'typed'}-${rollbackFail}-${pending?'cancel':'clear'}`,rawFault:true,rollbackFail,rawRollbackFault,...(pending?{cancel:rollbackFail}:{}),script:rawScript(pending?'cancel':'all')})))),
+ ...['synthetic-patch',''].flatMap(patch=>[false,true].map(pending=>({
+  id:`raw-save-${patch?'patch':'empty'}-${pending?'cancel':'clear'}`,patch,rawSaveFault:true,...(pending?{cancel:'save'}:{}),
+  script:[...ready,attempt('integration',pending?'cancel':'all'),q('inspect','ledger-now',1),q('inspect','peer-alive',2),attempt('retry'),q('wait','still-settled',1),q('spawn','integrated-previous',0,{previous:1}),...end],
+  expectedReplies:{'integrated-previous':'reject:integrated'}
+ }))),
 ].map(c=>({...c,patch:c.patch??'synthetic-patch',member:['a','b'],leader:['c'],providers:{1:c.providerError?'inner-timeout':'complete',2:'hold',3:'complete'},requests:1,expected:'integrated-head',expectedReplies:{early:'err:running',observer:'err:cancelled',closed:'reject:closing',...(c.expectedReplies??{})}}))
 const operations=['clean-source','clean-member','validate','ancestor','paths-member','paths-leader','close-agent','patch','check','apply','commit','head','save','reverse-check','reverse-apply']
 export function argumentsFor(c){
@@ -47,6 +52,7 @@ export function argumentsFor(c){
  host.operations.push({operation:'step',cases:operations.map(operation=>({arguments:[{parameter:'operation',value:sv(operation)},{parameter:'patch',value:sv(payloadFor(c,operation))}],responses:Array.from({length:8},(_,occurrence)=>{
   if(c.rawFault&&operation==='commit')return {kind:'throw',message:'raw commit fault',delayMillis:'10'}
   if(c.rawRollbackFault&&operation===c.rollbackFail)return {kind:'throw',message:operation,delayMillis:'10'}
+  if(c.rawSaveFault&&operation==='save'&&occurrence===0)return {kind:'throw',message:'raw save fault',delayMillis:'10'}
   const r=responseFor(c,operation,occurrence)
   return returned({kind:'result',okType:{kind:'builtinGeneric',generic:'list',arguments:[{kind:'primitive',primitive:'string'}]},errorType:{kind:'primitive',primitive:'string'},isOk:r.ok,value:r.ok?{kind:'list',itemKind:'string',items:r.value}:sv(r.value)},10)
  })}))})
@@ -78,6 +84,18 @@ export function validate(c,response){
   assert.equal(row.steps.filter(x=>x.operation==='reverse-check').length,attempts,'one rollback per failed commit')
   assert.equal(row.steps.filter(x=>x.operation==='reverse-apply').length,c.rollbackFail==='reverse-check'?0:attempts)
   assert.equal(row.steps.filter(x=>['head','save'].includes(x.operation)).length,0,'no ledger after failed commit')
+ }
+ if(c.rawSaveFault){
+  const head=c.patch?'integrated-head':'source-head'
+  assert.equal(replies.integration,'err:raw save fault','original save fault wins pending cancellation')
+  assert.equal(replies['ledger-now'],`1,completed,w1,base,0,false,commit1,passed,${head};`,'immediate retained HEAD')
+  assert.match(replies['peer-alive'],/^2,running,/,'save failure leaves peer alive')
+  assert.equal(replies.retry,`ok:${head}`,'retry returns retained HEAD')
+  const first=row.observations.find(x=>x.label==='integration'),retry=row.observations.find(x=>x.label==='retry')
+  assert.deepEqual(retry.steps,first.steps,'retry performs no Git/save effects')
+  for(const phase of ['head','save'])assert.equal(row.steps.filter(x=>x.operation===phase).length,1,`one ${phase}`)
+  for(const phase of ['check','apply','commit'])assert.equal(row.steps.filter(x=>x.operation===phase).length,c.patch?1:0,`bounded ${phase}`)
+  assert.equal(row.steps.filter(x=>x.operation.startsWith('reverse-')).length,0,'save failure does not roll back')
  }
  assert.equal(row.observations.length,c.script.length,'one audit per serialized request')
  assert.equal(replies['integration:pending'],c.cancel?'pending':undefined)

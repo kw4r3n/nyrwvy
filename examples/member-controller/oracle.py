@@ -10,6 +10,18 @@ from pathlib import Path
 from unittest.mock import patch
 PIN = '4bab9e030744a0887c1ee13bdd8fc8db3b98334f'
 
+def compare_case(expected, source):
+    assert expected['observations']==source['observations'],(expected['id'],'observations')
+    assert expected['steps']==source['steps'],(expected['id'],'steps')
+    actual=[x for x in source['replies'] if not x['label'].endswith(':state')]
+    assert sorted(expected['replies'],key=lambda x:x['label'])==sorted(actual,key=lambda x:x['label']),(expected['id'],'replies')
+
+def reject_control(reference, mutate):
+    mutant=json.loads(json.dumps(reference));mutate(mutant)
+    try: compare_case(reference,mutant)
+    except AssertionError: return True
+    raise AssertionError('comparison accepted control mutation')
+
 async def run_case(c, m):
     from rrawrlet.backend import AttemptOutcome
     from rrawrlet.codex import await_cleanup
@@ -73,6 +85,7 @@ async def run_case(c, m):
                 if c.get('cancel')==phase and counts[phase]==1:
                     parent.cancel();parent.cancel();assert not parent.done();reply(current_label+':pending','pending')
                 assert not asyncio.current_task().cancelling()
+                if c.get('rawSaveFault') and counts[phase]==1: raise RuntimeError('raw save fault')
                 if c.get('fail')==phase and counts[phase]==1: raise RuntimeError(phase)
         team.save = save
         async def git(cwd, *args, **kwargs):
@@ -210,10 +223,7 @@ async def main():
     for c in json.loads((bundle/'cases.json').read_text()):
         row=await asyncio.wait_for(run_case(c,module),20)
         for source in [virtual[c['id']],runtime[c['id']]]:
-            assert row['observations']==source['observations'],(c['id'],'observations',row['observations'],source['observations'])
-            assert row['steps']==source['steps'],(c['id'],'steps',row['steps'],source['steps'])
-            actual=[x for x in source['replies'] if not x['label'].endswith(':state')]
-            assert sorted(row['replies'],key=lambda x:x['label'])==sorted(actual,key=lambda x:x['label']),(c['id'],'replies',row['replies'],actual)
+            compare_case(row,source)
         row['comparison']='exact normalized observations/effects/replies'
         rows.append(row);print('PASS:',c['id'],row['comparison'])
     # Comparison-sensitivity controls, not compiled graph mutants.
@@ -226,9 +236,19 @@ async def main():
         ('integrated-continuation-admitted',lambda r:next(x for x in r['replies'] if x['label']=='integrated-previous').update(record='spawn:3')),
         ('observer-cancels-peer',lambda r:r['observations'][4].update(state=r['observations'][4]['state'].replace('2,running','2,stopped'))),
     ]:
-        mutant=json.loads(json.dumps(reference));mutate(mutant);assert mutant!=reference;controls.append({'id':name,'rejected':True})
+        controls.append({'id':name,'rejected':reject_control(reference,mutate)})
     for name, case_id, label, record in [('premature-settlement','checks-boundary','checks-running','ok:integrated-head'),('cancel-hides-rollback-error','rollback-error-reverse-apply','integration','err:cancelled'),('finish-loses-cancellation','finish-cancel-snapshot','finish:outcome','ok:drained')]:
-        reference=next(r for r in rows if r['id']==case_id);mutant=json.loads(json.dumps(reference));next(x for x in mutant['replies'] if x['label']==label)['record']=record;assert mutant!=reference;controls.append({'id':name,'rejected':True})
+        reference=next(r for r in rows if r['id']==case_id)
+        controls.append({'id':name,'rejected':reject_control(reference,lambda r:next(x for x in r['replies'] if x['label']==label).update(record=record))})
+    reference=next(r for r in rows if r['id']=='raw-save-patch-cancel')
+    for name, mutate in [
+        ('raw-save-immediate-ledger-lost',lambda r:next(x for x in r['observations'] if x['label']=='integration').update(state=next(x for x in r['observations'] if x['label']=='integration')['state'].replace('integrated-head',''))),
+        ('raw-save-cancel-hides-fault',lambda r:next(x for x in r['replies'] if x['label']=='integration').update(record='err:cancelled')),
+        ('raw-save-retry-repeats-commit',lambda r:next(x for x in r['observations'] if x['label']=='retry')['steps'].append({'operation':'commit','patch':''})),
+        ('raw-save-spurious-rollback',lambda r:r['steps'].append({'operation':'reverse-apply','patch':'synthetic-patch'})),
+        ('raw-save-continuation-admitted',lambda r:next(x for x in r['replies'] if x['label']=='integrated-previous').update(record='spawn:3')),
+    ]:
+        controls.append({'id':name,'rejected':reject_control(reference,mutate)})
     evidence={'negativeControls':controls,'oracle':PIN,'sourceProofs':proofs,'python':sys.version,'results':rows}
     (bundle/'oracle-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
 if __name__=='__main__': asyncio.run(main())
