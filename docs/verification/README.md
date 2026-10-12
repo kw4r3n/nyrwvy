@@ -38,6 +38,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Program-defined capability implementations](program-capability-implementations-20260926.md)
 - [Typed function abort and cleanup](typed-function-abort-20260926.md)
 - [Serialized integration error boundary milestone](integration-error-boundary-milestone-20261012.md): 51 scenarios / 771 audits against pinned Python; finite coverage matrix, baseline pass for remaining check/apply/reverse faults, and publication blocked
+- [Bounded concurrent request admission](bounded-request-admission-20261013.md): six runs from five gated scripts; task/cell ownership composition keeps wait/stop independent and publishes close cutoff before drain; local branch only
 - [Argument-keyed fake responses](argument-keyed-fakes-20260927.md)
 - [runPure Release build, Roslyn build and early StringSlice](runpure-release-build-20260930.md)
 - [runPure arguments as input and the build cache](runpure-build-cache-20261001.md): repeated calls of one entry reuse the built program (about 75 ms instead of 213 ms per call)
