@@ -192,6 +192,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
     | CancellationRequested
+    | CancellationShield of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | TaskScope of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | TaskStart of scopeNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list * itemNodeId: GraphNodeId
     | TaskWait of tasksNodeId: GraphNodeId * mode: TaskWaitMode * limitNodeId: GraphNodeId option
@@ -383,6 +384,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapFold _
         | TypedSemanticNodeKind.ParallelAll _
         | TypedSemanticNodeKind.CancellationRequested
+        | TypedSemanticNodeKind.CancellationShield _
         | TypedSemanticNodeKind.TaskScope _
         | TypedSemanticNodeKind.TaskStart _
         | TypedSemanticNodeKind.TaskWait _
@@ -547,6 +549,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ParallelAll(sourceListNodeId, _, context) ->
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
+        | TypedSemanticNodeKind.CancellationShield(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.TaskScope(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
         | TypedSemanticNodeKind.TaskStart(scopeNodeId, _, context, itemNodeId) ->
             scopeNodeId :: itemNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
@@ -917,6 +920,8 @@ module TypedSemanticIr =
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, projectContext context))
                     | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
+                    | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.CancellationShield(bodyFunctionId, projectContext context))
                     | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.TaskScope(bodyFunctionId, projectContext context))
                     | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->

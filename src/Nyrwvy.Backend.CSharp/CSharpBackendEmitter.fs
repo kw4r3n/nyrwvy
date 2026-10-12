@@ -2171,6 +2171,16 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.CancellationRequested ->
             writer.Line(target + " = NyRuntime.CancellationRequested;")
+        | ExecutionInstructionKind.CancellationShield(bodyFunctionId, context) ->
+            let previous = target + "_cancellation"
+            writer.Line("{")
+            writer.Push()
+            writer.Line("var " + previous + " = NyRuntime.Cancellation.Value;")
+            writer.Line("NyRuntime.Cancellation.Value = System.Threading.CancellationToken.None;")
+            writer.Line("try { " + target + " = " + renderInvocation parametersOf bodyFunctionId context [ "NyUnit.Value" ] + "; }")
+            writer.Line("finally { NyRuntime.Cancellation.Value = " + previous + "; }")
+            writer.Pop()
+            writer.Line("}")
         | ExecutionInstructionKind.TaskScope(bodyFunctionId, context) ->
             // Every exit of the body, including a host exception, cancels and awaits the scope's tasks.
             let scope, body = target + "_scope", target + "_body"

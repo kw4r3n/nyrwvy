@@ -673,6 +673,10 @@ module TypedSemanticIrSerializer =
             writer.WriteString("workerFunctionId", StableId.value workerFunctionId)
             writeCallbackContext writer context
         | TypedSemanticNodeKind.CancellationRequested -> writer.WriteString("kind", "cancellationRequested")
+        | TypedSemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+            writer.WriteString("kind", "cancellationShield")
+            writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.TaskScope(bodyFunctionId, context) ->
             writer.WriteString("kind", "taskScope")
             writer.WriteString("bodyFunctionId", StableId.value bodyFunctionId)

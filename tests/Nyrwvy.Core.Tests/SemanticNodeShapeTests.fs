@@ -306,6 +306,7 @@ module SemanticNodeShapeTests =
               "TaskStart", "Worker"
               "UseResource", "Body"
               "TaskScope", "Body"
+              "CancellationShield", "Body"
               "FunctionReference", "FunctionValue"
               "CapabilityConstruct", "CapabilityImplementation" ]
 
@@ -358,7 +359,7 @@ module SemanticNodeShapeTests =
     let ``intrinsically effectful kinds are exactly the capability, resource, concurrency and task kinds`` () =
         let expected =
             set [ "CapabilityInvoke"; "UseResource"; "ParallelAll"; "CancellationRequested"
-                  "TaskScope"; "TaskStart"; "TaskWait"; "TaskCancel"; "OneShotCreate"; "OneShotComplete"; "OneShotWait" ]
+                  "CancellationShield"; "TaskScope"; "TaskStart"; "TaskWait"; "TaskCancel"; "OneShotCreate"; "OneShotComplete"; "OneShotWait" ]
         forEveryCase semanticKinds (fun kind ->
             Assert.Equal(Set.contains (caseName kind) expected, SemanticNodeShape.isIntrinsicallyEffectful (nodeOfKind kind)))
 
@@ -431,6 +432,7 @@ module ExecutionShapeTests =
             Map.ofList
                 [ "ParallelAll", [ "ConcurrencyRuntime" ]
                   "CancellationRequested", [ "ConcurrencyRuntime" ]
+                  "CancellationShield", [ "ConcurrencyRuntime" ]
                   "TaskScope", [ "TaskRuntime" ]
                   "TaskStart", [ "TaskRuntime" ]
                   "TaskWait", [ "TaskRuntime" ]

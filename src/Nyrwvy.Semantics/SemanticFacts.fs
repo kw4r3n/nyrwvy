@@ -382,6 +382,9 @@ module SemanticFacts =
                                 | _ -> []
                             Some(callbackResult nextVisiting body context resource)
                     | SemanticNodeKind.CancellationRequested -> Some(TypeRef.Primitive PrimitiveType.Bool)
+                    | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+                        Map.tryFind bodyFunctionId index.Functions
+                        |> Option.map (fun body -> callbackResult nextVisiting body context [ TypeRef.Primitive PrimitiveType.Unit ])
                     | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
                         Map.tryFind bodyFunctionId index.Functions
                         |> Option.map (fun body -> callbackResult nextVisiting body context [ TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ])

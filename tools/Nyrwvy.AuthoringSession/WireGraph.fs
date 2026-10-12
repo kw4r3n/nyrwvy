@@ -184,6 +184,7 @@ module internal WireGraph =
         | SemanticNodeKind.ParallelAll(source, worker, bindings) ->
             tagged "parallelAll" ([ "sourceNodeId", identity source; "workerFunctionId", identity worker ] @ context bindings)
         | SemanticNodeKind.CancellationRequested -> tagged "cancellationRequested" []
+        | SemanticNodeKind.CancellationShield(body, bindings) -> tagged "cancellationShield" ([ "bodyFunctionId", identity body ] @ context bindings)
         | SemanticNodeKind.TaskScope(body, bindings) -> tagged "taskScope" ([ "bodyFunctionId", identity body ] @ context bindings)
         | SemanticNodeKind.TaskStart(scope, worker, bindings, item) ->
             tagged "taskStart" ([ "scopeNodeId", identity scope; "workerFunctionId", identity worker; "itemNodeId", identity item ] @ context bindings)

@@ -647,6 +647,10 @@ module internal WireSymbolic =
         | "cancellationRequested" ->
             ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.CancellationRequested
+        | "cancellationShield" ->
+            ensureFields "cancellation-shield recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
+            let body = resolveReferencedFunction declarations parameterContext (property "body" element)
+            ExpressionRecipe.CancellationShield(body.Id, callbackContext body)
         | "taskScope" ->
             ensureFields "task-scope recipe" [ "kind"; "body"; "context" ] [ "kind"; "body" ] element
             let body = resolveReferencedFunction declarations parameterContext (property "body" element)

@@ -21,6 +21,7 @@ module internal OneShotPayloadRequirements =
                 ValueGraph.collectNodes fn.Body |> List.collect (fun node ->
                     let iteration =
                         match node.Kind with
+                        | SemanticNodeKind.CancellationShield _ -> [ TypeRef.Primitive PrimitiveType.Unit ]
                         | SemanticNodeKind.TaskScope _ -> [ TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ]
                         | SemanticNodeKind.TaskStart(_, _, _, item) -> nodeType item |> Option.toList
                         | SemanticNodeKind.UseResource(acquire, _, _, _, _) ->

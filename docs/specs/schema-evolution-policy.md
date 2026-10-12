@@ -49,6 +49,7 @@ The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the sa
 | 12 | `nayamnyam.snapshot.v8` | `TaskWait` with a `limit` operand. |
 | 13 | `nayamnyam.snapshot.v9` | `Int64CheckedAdd`, `Int64CheckedSubtract`, `Int64CheckedMultiply`; a `MatchUnion` arm that names several variants; `StringToUpper`; `Float64Round`; the `Map<K, V>` type anywhere and every `Map*` node; the `Set<T>` type anywhere and every `Set*` node; `ListMinBy`; `ListLast`, `ListDropLast`; `ListIndexOf`, `ListLastIndexOf`, `ListFindIndex`. |
 | 14 | `nayamnyam.snapshot.v10` | `OneShot<T>` anywhere; `OneShotCreate`, `OneShotComplete`, `OneShotWait`. |
+| 15 | `nayamnyam.snapshot.v11` | `CancellationShield`. |
 
 Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Older versions (JSON 8, Nyason v4 and before) are rejected.
 

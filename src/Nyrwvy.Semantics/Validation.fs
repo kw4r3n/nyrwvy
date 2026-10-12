@@ -1433,6 +1433,23 @@ module SnapshotValidator =
                         | Some _, _, _ -> add "UseResourceAcquireTypeMismatch" $"UseResource node '{StableId.value node.Id}' acquisition must produce Result<R, E>."
                         | None, _, _ -> ()
                     | SemanticNodeKind.CancellationRequested -> ()
+                    | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
+                        match Map.tryFind bodyFunctionId functionsById with
+                        | None -> add "UnknownCallTarget" $"CancellationShield node '{StableId.value node.Id}' references an unknown body function."
+                        | Some body ->
+                            let unbound, contextSubstitution = validateCallbackContext node.Id body context
+                            let bodySubstitution =
+                                match unbound with
+                                | [ scope ] -> TypeParameters.matchType contextSubstitution scope.Type (TypeRef.Primitive PrimitiveType.Unit)
+                                | _ -> None
+                            if Option.isNone bodySubstitution then
+                                add "CancellationShieldBodyMismatch" $"CancellationShield node '{StableId.value node.Id}' body must have exactly one unbound parameter of type Unit."
+                            match TypeParameters.substitute (bodySubstitution |> Option.defaultValue contextSubstitution) body.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
+                            | _ -> add "CancellationShieldResultMismatch" $"CancellationShield node '{StableId.value node.Id}' body must return Result<T, E>."
+                            for effectId in body.RequiredEffects do
+                                if not (Set.contains effectId requiredEffects) then
+                                    add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} runs cancellation shield body {StableId.describe body.DisplayName body.Id} but does not declare required effect {effectLabel effectId}."
                     | SemanticNodeKind.TaskScope(bodyFunctionId, context) ->
                         match Map.tryFind bodyFunctionId functionsById with
                         | None -> add "UnknownCallTarget" $"TaskScope node '{StableId.value node.Id}' references an unknown body function."
@@ -2194,6 +2211,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
+                | SemanticNodeKind.CancellationShield _
                 | SemanticNodeKind.TaskScope _
                 | SemanticNodeKind.TaskStart _
                 | SemanticNodeKind.TaskWait _

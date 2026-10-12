@@ -431,6 +431,9 @@ module internal SignatureMigrationCore =
                     |> Result.map (fun context -> ExpressionRecipe.UseResource(acquire, releaseCapability, operationId, bodyFunctionId, context)))
             | ExpressionRecipe.ParallelAll(source, functionId, context) -> callback ExpressionRecipe.ParallelAll source functionId context
             | ExpressionRecipe.CancellationRequested -> Ok recipe
+            | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
+                nonCallTargetUse bodyFunctionId
+                |> Result.bind (fun () -> rewritePairs context |> Result.map (fun context -> ExpressionRecipe.CancellationShield(bodyFunctionId, context)))
             | ExpressionRecipe.TaskScope(bodyFunctionId, context) ->
                 nonCallTargetUse bodyFunctionId
                 |> Result.bind (fun () -> rewritePairs context |> Result.map (fun context -> ExpressionRecipe.TaskScope(bodyFunctionId, context)))

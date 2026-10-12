@@ -626,6 +626,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "MapFold"
               "ParallelAll"
               "CancellationRequested"
+              "CancellationShield"
               "TaskScope"
               "TaskStart"
               "TaskWait"

@@ -80,7 +80,11 @@ module SnapshotSchemaTests =
 
     /// One program per gated construct (two for the types that can appear without their nodes).
     let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
-        [ "capability construction", SnapshotSchemaFeature.CapabilityConstruct, (fun create ->
+        [ "cancellation shield", SnapshotSchemaFeature.CancellationShield, (fun create ->
+              let result = generic BuiltinGenericType.Result [ boolType; stringType ]
+              let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.CancellationRequested))
+              create "shield" [] result [] (ExpressionRecipe.CancellationShield(body.Id, [])) |> ignore)
+          "capability construction", SnapshotSchemaFeature.CapabilityConstruct, (fun create ->
               let ten = create "ten" [] int64Type [] (ExpressionRecipe.Int64Literal 10L)
               create "values" [] (TypeRef.Capability valuesId) [] (ExpressionRecipe.CapabilityConstruct(valuesId, [ readOperationId, ten.Id ])) |> ignore)
           "one-shot node", SnapshotSchemaFeature.OneShot, (fun create ->

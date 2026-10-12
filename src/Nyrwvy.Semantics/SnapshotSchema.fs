@@ -4,6 +4,7 @@ namespace Nyrwvy.Core
 /// `SnapshotSchema.minimumVersions`.
 [<RequireQualifiedAccess>]
 type SnapshotSchemaFeature =
+    | CancellationShield
     /// CapabilityConstruct.
     | CapabilityConstruct
     | OneShot
@@ -53,13 +54,15 @@ module SnapshotSchema =
     let private v12 = version 12 "nayamnyam.snapshot.v8"
     let private v13 = version 13 "nayamnyam.snapshot.v9"
     let private v14 = version 14 "nayamnyam.snapshot.v10"
+    let private v15 = version 15 "nayamnyam.snapshot.v11"
 
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
+        [ SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
+          SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
           SnapshotSchemaFeature.CapabilityConstruct, v10, "Capability construction"
           SnapshotSchemaFeature.FunctionAbort, v11, "Function abort"
           SnapshotSchemaFeature.TimedTaskWait, v12, "Timed TaskWait"
@@ -87,6 +90,7 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.CancellationShield _ -> Some SnapshotSchemaFeature.CancellationShield
         | SemanticNodeKind.OneShotCreate _
         | SemanticNodeKind.OneShotComplete _
         | SemanticNodeKind.OneShotWait _ -> Some SnapshotSchemaFeature.OneShot

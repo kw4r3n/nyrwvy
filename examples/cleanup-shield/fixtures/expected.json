@@ -1,0 +1,230 @@
+{
+  "results": [
+    {
+      "id": "ordinary",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|ok:integrated-head"
+      ]
+    },
+    {
+      "id": "cancel-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "parent-pending",
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=clear",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-head",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=clear",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "cancel-save",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "integrated-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-head",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "parent-pending",
+        "head=clear",
+        "save=clear",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "empty-cancel-save",
+      "steps": [
+        "head",
+        "save"
+      ],
+      "reports": [
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "source-head|err:cancelled"
+      ]
+    },
+    {
+      "id": "rollback",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-commit",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "parent-pending",
+        "commit=clear",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-check",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "reverse-check=clear",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-cancel-reverse-apply",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=clear",
+        "|err:commit"
+      ]
+    },
+    {
+      "id": "rollback-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "reverse-check",
+        "reverse-apply"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "reverse-check=clear",
+        "parent-pending",
+        "reverse-apply=clear",
+        "|err:reverse-apply"
+      ]
+    },
+    {
+      "id": "head-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "parent-pending",
+        "head=clear",
+        "|err:head"
+      ]
+    },
+    {
+      "id": "save-failure",
+      "steps": [
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "reports": [
+        "apply=clear",
+        "commit=clear",
+        "head=clear",
+        "parent-pending",
+        "save=clear",
+        "integrated-head|err:save"
+      ]
+    }
+  ]
+}

@@ -153,6 +153,7 @@ type ViewerNodeRole =
     | UseResource
     | ParallelAll
     | CancellationRequested
+    | CancellationShield
     | TaskScope
     | TaskStart
     | TaskWait of mode: TaskWaitMode
@@ -419,6 +420,7 @@ module ViewerProjection =
         | SemanticNodeKind.UseResource _ -> ViewerNodeRole.UseResource, []
         | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
+        | SemanticNodeKind.CancellationShield _ -> ViewerNodeRole.CancellationShield, []
         | SemanticNodeKind.TaskScope _ -> ViewerNodeRole.TaskScope, []
         | SemanticNodeKind.TaskStart _ -> ViewerNodeRole.TaskStart, []
         | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
