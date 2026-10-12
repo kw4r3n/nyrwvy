@@ -130,7 +130,7 @@ module ScopeDepthDiagnosticsTests =
             |> rejection
         Assert.Equal("PureExpressionPatternScopeNotFound", diagnostic.Code)
         Assert.Equal(
-            "Pattern-reference scope depth 3 for slot Value is not visible here. The slot is found at depths 0, 1 (the innermost is usually meant). "
+            "Pattern-reference scope depth 3 for slot Value is not visible here. The slot is found at depths 0, 1; choose the frame that binds the intended value. Empty frames still count toward scope depth. "
             + "Visible frames, innermost first: depth 0 = Some arm of MatchOption (binds Value); depth 1 = Bind body (binds Value). "
             + "At replacement.body.someBody (patternReference).",
             diagnostic.Message
@@ -138,6 +138,48 @@ module ScopeDepthDiagnosticsTests =
         let outside = rejection (pattern 0 RecipePatternSlot.Value)
         Assert.Equal("PureExpressionPatternScopeNotFound", outside.Code)
         Assert.EndsWith("No frames are visible here; only a Bind body or a match arm opens one. At replacement (patternReference).", outside.Message)
+
+    [<Fact>]
+    let ``nested Result matches under None report both candidate depths without choosing one`` () =
+        let nested reference =
+            ExpressionRecipe.MatchResult(
+                ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.StringLiteral "left"),
+                ExpressionRecipe.MatchResult(
+                    ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.StringLiteral "right"),
+                    ExpressionRecipe.MatchOption(
+                        ExpressionRecipe.OptionNone int64Type,
+                        ExpressionRecipe.StringLiteral "some",
+                        reference
+                    ),
+                    ExpressionRecipe.StringLiteral "right error"
+                ),
+                ExpressionRecipe.StringLiteral "left error"
+            )
+        for depth, code in
+            [ 0, "PureExpressionPatternSlotNotFound"
+              3, "PureExpressionPatternScopeNotFound"
+              -1, "PureExpressionPatternScopeDepthInvalid" ] do
+            let diagnostic = rejection (nested (pattern depth RecipePatternSlot.Value))
+            Assert.Equal(code, diagnostic.Code)
+            Assert.Contains("The slot is found at depths 1, 2; choose the frame that binds the intended value.", diagnostic.Message)
+            Assert.Contains("Empty frames still count toward scope depth.", diagnostic.Message)
+            Assert.Contains("depth 0 = None arm of MatchOption (no bindings); depth 1 = Ok arm of MatchResult (binds Value); depth 2 = Ok arm of MatchResult (binds Value)", diagnostic.Message)
+            Assert.DoesNotContain("usually meant", diagnostic.Message)
+            Assert.EndsWith("At replacement.okBody.okBody.noneBody (patternReference).", diagnostic.Message)
+        let missing = rejection (nested (pattern 0 RecipePatternSlot.Error))
+        Assert.Equal("PureExpressionPatternSlotNotFound", missing.Code)
+        Assert.DoesNotContain("The slot is found", missing.Message)
+        // Both depths remain legal; the author must select the intended producer, not just a valid slot.
+        for depth in [ 1; 2 ] do
+            let workspace = AgentWorkspace.create snapshot |> function Ok value -> value | Error issues -> failwithf "%A" issues
+            let request: AgentReplaceFunctionBodyWithExpressionRecipe =
+                { TargetFunctionId = targetId
+                  ExpectedBaseSnapshotId = snapshot.Id
+                  ExpectedCurrentResultNodeId = resultNodeId
+                  Replacement = nested (pattern depth RecipePatternSlot.Value) }
+            match AgentExpressionStructuralWorkflow.simulate workspace request with
+            | Ok _ -> ()
+            | Error error -> failwithf "Valid nested depth %d was rejected: %A" depth error
 
     [<Fact>]
     let ``a parameter of another function is named with its owner and the target's parameters`` () =

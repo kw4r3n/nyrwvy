@@ -19,3 +19,17 @@ test("every generated fixed signature is listed under one category", () => {
     assert.deepEqual(listed.filter(([name]) => name === kind), [[kind, signature]], kind)
   }
 })
+
+test("patternReference guidance counts empty frames without guessing the intended binding", () => {
+  for (const entry of [
+    recipeReference({ kind: "patternReference" }),
+    recipeReference({ kinds: ["patternReference", "matchOption"] }).entries[0],
+  ]) {
+    assert.match(entry.notes, /including empty MatchOption None/)
+    assert.match(entry.notes, /conditional branches do not add a frame/)
+    assert.match(entry.notes, /Bind value or match input is outside/)
+    assert.match(entry.notes, /several frames can bind value with the same type/)
+    assert.match(entry.notes, /depth 1 is right, and depth 2 is left/)
+    assert.doesNotMatch(entry.notes, /innermost is usually meant/)
+  }
+})

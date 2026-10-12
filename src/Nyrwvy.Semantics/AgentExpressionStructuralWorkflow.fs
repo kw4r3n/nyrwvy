@@ -946,7 +946,7 @@ module AgentExpressionStructuralWorkflow =
         | [ depth ] -> $"The slot is found at depth {depth}. {listing}"
         | depths ->
             let text = depths |> List.map string |> String.concat ", "
-            $"The slot is found at depths {text} (the innermost is usually meant). {listing}"
+            $"The slot is found at depths {text}; choose the frame that binds the intended value. Empty frames still count toward scope depth. {listing}"
 
     let private resolvePatternType (snapshot: Snapshot) (frames: PatternTypeFrame list) (reference: RecipePatternReference) =
         let slotText () = describePatternSlot snapshot reference.Slot
