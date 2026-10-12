@@ -85,6 +85,7 @@ async def run_case(c, module):
                     return name
             return 'unsnapshotted' if a.status == 'completed' else 'status'
         try:
+            requests = []
             with patch.object(module, 'clean', clean):
                 for _ in range(c['requests']):
                     try:
@@ -92,7 +93,8 @@ async def run_case(c, module):
                         observed = {'ok': True, 'value': result[0]['integrated']}
                     except (ValueError, RuntimeError) as exc:
                         observed = {'ok': False, 'value': normalize(exc)}
-            return {'id': c['id'], 'trace': trace, 'result': observed, 'integrated': a.integrated or ''}
+                    requests.append({'id': c['id'], 'trace': list(trace), 'result': observed, 'integrated': a.integrated or ''})
+            return requests[-1] | {'requests': requests}
         finally:
             worker.cancel()
             await asyncio.gather(worker, return_exceptions=True)
@@ -106,6 +108,7 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('rrawrlet')
     parser.add_argument('bundle')
+    parser.add_argument('--baseline', action='store_true', help='Assert exactly the six save-failure scenarios disagree with the unchanged oracle')
     args = parser.parse_args()
     repo, bundle = Path(args.rrawrlet).resolve(), Path(args.bundle).resolve()
     head = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -122,14 +125,33 @@ async def main():
         virtual_file = bundle / 'replay-evidence.json'
     virtual = {r['checks']['id']: r['checks'] for r in json.loads(virtual_file.read_text())}
     runtime = {r['id']: r for r in json.loads((bundle / 'runtime-evidence.json').read_text())['results']}
-    rows = []
+    rows, mismatches = [], []
     for c in cases:
         actual = await asyncio.wait_for(run_case(c, module), 10)
-        compare(virtual[c['id']], actual)
-        compare(runtime[c['id']], actual)
+        if args.baseline:
+            compare(virtual[c['id']], runtime[c['id']])
+            if virtual[c['id']] != actual:
+                mismatches.append({'id': c['id'], 'baseline': virtual[c['id']], 'oracle': actual})
+        else:
+            compare(virtual[c['id']], actual)
+            compare(runtime[c['id']], actual)
         rows.append(actual)
-        print('PASS: unchanged Team.integrate', c['id'])
+        print('OBSERVE: unchanged Team.integrate' if args.baseline else 'PASS: unchanged Team.integrate', c['id'])
+    if args.baseline:
+        assert {r['id'] for r in mismatches} == {c['id'] for c in cases if c['id'].startswith('save-failure-')}
+        for row in mismatches:
+            assert row['baseline']['requests'][0]['result'] == {'ok': False, 'value': 'save'}
+            assert row['baseline']['requests'][0]['integrated'] == ''
+            assert row['oracle']['requests'][0]['integrated'] in ('integrated-head', 'source-head')
+            if len(row['oracle']['requests']) > 1:
+                assert row['oracle']['requests'][1]['trace'] == row['oracle']['requests'][0]['trace']
+                assert len(row['baseline']['requests'][1]['trace']) > len(row['baseline']['requests'][0]['trace'])
+        (bundle / 'baseline-comparison.json').write_text(json.dumps({'oracleHead': head, 'teamSha256': hashlib.sha256(pinned).hexdigest(), 'mismatches': mismatches}, indent=2) + '\n')
+        print(f'PASS: reproduced {len(mismatches)} baseline save ledger mismatches; other {len(cases)-len(mismatches)} cases agree')
+        return
     controls = []
+    def requests_for(case_id):
+        return next(r['requests'] for r in rows if r['id'] == case_id)
     mutations = [
         ('reintegrate-does-effects', 'already-integrated', 'trace', ['apply']),
         ('running-determined-as-settled', 'running', 'result', {'ok': True, 'value': 'integrated-head'}),
@@ -137,6 +159,14 @@ async def main():
         ('commit-failure-without-rollback', 'commit-rollback', 'trace', next(r['trace'][:-2] for r in rows if r['id'] == 'commit-rollback')),
         ('failed-commit-publishes-ledger', 'commit-rollback', 'integrated', 'integrated-head'),
         ('rollback-failure-hidden', 'rollback-check-fails', 'result', {'ok': False, 'value': 'commit'}),
+        ('save-failure-loses-ledger', 'save-failure-patch-1', 'integrated', ''),
+        ('empty-save-failure-loses-ledger', 'save-failure-empty-1', 'integrated', ''),
+        ('save-error-hidden-before-retry', 'save-failure-patch-2', 'requests', [
+            r | {'result': {'ok': True, 'value': 'integrated-head'}} if i == 0 else r
+            for i, r in enumerate(requests_for('save-failure-patch-2'))]),
+        ('save-retry-repeats-effects', 'save-failure-empty-2', 'requests', [
+            r if i == 0 else r | {'trace': r['trace'] + ['save']}
+            for i, r in enumerate(requests_for('save-failure-empty-2'))]),
     ]
     for name, case_id, key, mutant in mutations:
         row = next(r for r in rows if r['id'] == case_id)

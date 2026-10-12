@@ -5,7 +5,8 @@ import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
 import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
-import {validate} from './cases.mjs'
+import {validate,observe} from './cases.mjs'
+const baseline=process.argv[3]==='--baseline'
 const dir=resolve(process.argv[2]),hash=x=>createHash('sha256').update(x).digest('hex')
 const graph=JSON.parse(await readFile(join(dir,'integration.json'),'utf8')),symbols=JSON.parse(await readFile(join(dir,'symbols.json'),'utf8'))
 const meta=JSON.parse(await readFile(join(dir,'authoring.json'),'utf8')),cases=JSON.parse(await readFile(join(dir,'cases.json'),'utf8'))
@@ -24,7 +25,7 @@ try{
  const {assembly,evidence:compilation}=await compileRuntime(scratch,opts)
  const rows=execFileSync('dotnet',[assembly,join(dir,'cases.json')],opts).trim().split(/\r?\n/).map(x=>JSON.parse(x))
  assert.equal(rows.length,cases.length)
- const results=rows.map(row=>{const check=validate(cases.find(c=>c.id===row.id),row.response);console.log('PASS: unedited C# '+row.id);return check})
+ const results=rows.map(row=>{const c=cases.find(c=>c.id===row.id);assert.equal(row.observations.length,c.requests);const requests=row.observations.map((response,i)=>baseline?observe(c,response):validate(c,response,i+1));console.log((baseline?'OBSERVE baseline':'PASS')+': unedited C# '+row.id);return {...requests.at(-1),requests}})
  assert.equal(hash(await readFile(join(scratch,'Generated.cs'))),meta.generatedSha256)
  assert.equal(hash(await readFile(join(dir,'Generated.cs'))),meta.generatedSha256)
  await writeFile(join(dir,'runtime-evidence.json'),JSON.stringify({compilation,generatedSha256:meta.generatedSha256,sourceUnchanged:true,results},null,2))
