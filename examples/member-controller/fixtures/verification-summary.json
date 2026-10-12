@@ -1,0 +1,266 @@
+{
+  "base": "c7bf1a57345e19be72f284409143463381897586",
+  "baseTree": "e1f984651242acec70bc5a06e9c64fbe0412edb8",
+  "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "sourceProofs": {
+    "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+    "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679"
+  },
+  "scenarios": 23,
+  "matchedScenarios": 22,
+  "matchedRequestObservations": 289,
+  "graph": {
+    "base": "c7bf1a57345e19be72f284409143463381897586",
+    "oracle": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "functionCount": 82,
+    "nodeCount": 1881,
+    "generatedSha256": "a6a06ac033a2274abead68aa6c133556275da21d214b259c654be0591b820e7c",
+    "nodeVersion": "v26.11.1"
+  },
+  "hashes": {
+    "controller.json": "5d58fee3a448da532ecb5057cb1c1d0605a09f18c989fa172631566f4e72955e",
+    "Generated.cs": "a6a06ac033a2274abead68aa6c133556275da21d214b259c654be0591b820e7c",
+    "symbols.json": "d9bfa7cbc294a7c402fd566a04f3da299a70eeeddd63da21cd35a18a3bb91436",
+    "cases.json": "99fc72f0838b808bc54865bd589982d5ae59b92e52e58753bf23cff4934dffee",
+    "oracle-expected.json": "51f4e517ffed0e5f593a72a557916249ace0976d7da9d063a7e501d41e1b03de"
+  },
+  "preGuard": {
+    "scenario": "ledger-patch",
+    "request": "integrated-previous",
+    "virtual": "spawn:3",
+    "uneditedCSharp": "spawn:3",
+    "python": "reject:integrated",
+    "observations": 15,
+    "hashes": {
+      "controller.json": "0dc5a35460d69bdd3cab79b0ccf151fc796bd66e520c00ce536dccf502c10dc8",
+      "Generated.cs": "ec3882dfc57954b6e202d59f9031900c01d4e1a9120668147aba65eafe73e48b"
+    }
+  },
+  "rawFaultGap": {
+    "oracleSteps": [
+      {
+        "operation": "clean-source",
+        "patch": ""
+      },
+      {
+        "operation": "clean-member",
+        "patch": ""
+      },
+      {
+        "operation": "validate",
+        "patch": ""
+      },
+      {
+        "operation": "ancestor",
+        "patch": ""
+      },
+      {
+        "operation": "paths-member",
+        "patch": ""
+      },
+      {
+        "operation": "paths-leader",
+        "patch": ""
+      },
+      {
+        "operation": "close-agent",
+        "patch": ""
+      },
+      {
+        "operation": "patch",
+        "patch": ""
+      },
+      {
+        "operation": "check",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "apply",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "commit",
+        "patch": ""
+      },
+      {
+        "operation": "reverse-check",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "reverse-apply",
+        "patch": "synthetic-patch"
+      }
+    ],
+    "virtualSteps": [
+      {
+        "operation": "clean-source",
+        "patch": ""
+      },
+      {
+        "operation": "clean-member",
+        "patch": ""
+      },
+      {
+        "operation": "validate",
+        "patch": ""
+      },
+      {
+        "operation": "ancestor",
+        "patch": ""
+      },
+      {
+        "operation": "paths-member",
+        "patch": ""
+      },
+      {
+        "operation": "paths-leader",
+        "patch": ""
+      },
+      {
+        "operation": "close-agent",
+        "patch": ""
+      },
+      {
+        "operation": "patch",
+        "patch": ""
+      },
+      {
+        "operation": "check",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "apply",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "commit",
+        "patch": ""
+      }
+    ],
+    "realSteps": [
+      {
+        "operation": "clean-source",
+        "patch": ""
+      },
+      {
+        "operation": "clean-member",
+        "patch": ""
+      },
+      {
+        "operation": "validate",
+        "patch": ""
+      },
+      {
+        "operation": "ancestor",
+        "patch": ""
+      },
+      {
+        "operation": "paths-member",
+        "patch": ""
+      },
+      {
+        "operation": "paths-leader",
+        "patch": ""
+      },
+      {
+        "operation": "close-agent",
+        "patch": ""
+      },
+      {
+        "operation": "patch",
+        "patch": ""
+      },
+      {
+        "operation": "check",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "apply",
+        "patch": "synthetic-patch"
+      },
+      {
+        "operation": "commit",
+        "patch": ""
+      }
+    ]
+  },
+  "negativeControls": [
+    {
+      "id": "lost-ledger",
+      "rejected": true
+    },
+    {
+      "id": "hidden-first-save-error",
+      "rejected": true
+    },
+    {
+      "id": "duplicate-save",
+      "rejected": true
+    },
+    {
+      "id": "integrated-continuation-admitted",
+      "rejected": true
+    },
+    {
+      "id": "observer-cancels-peer",
+      "rejected": true
+    },
+    {
+      "id": "premature-settlement",
+      "rejected": true
+    },
+    {
+      "id": "cancel-hides-rollback-error",
+      "rejected": true
+    },
+    {
+      "id": "finish-loses-cancellation",
+      "rejected": true
+    }
+  ],
+  "runtimeSourceUnchanged": true,
+  "compilation": {
+    "method": "installed-roslyn-no-restore",
+    "sdkVersion": "10.0.112",
+    "referencePackVersion": "10.0.12",
+    "runtimeVersion": "10.0.12",
+    "referenceAssemblyCount": 167,
+    "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
+  },
+  "localVerification": {
+    "releaseBuild": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "dotnetFast": 855,
+    "dotnetExtended": {
+      "core": 123,
+      "extendedProject": 31
+    },
+    "npm": {
+      "adapter": 8,
+      "nodeAndScripts": 39,
+      "mcp": 12
+    },
+    "bun": 23,
+    "typechecks": [
+      "adapter",
+      "bun"
+    ],
+    "suitePartition": "disjoint and exhaustive",
+    "fishChecks": "pass",
+    "controllerRegression": "pass",
+    "defaultLifecycleRegression": 15,
+    "defaultIntegrationRegression": {
+      "scenarios": 36,
+      "requestObservations": 46
+    },
+    "replay": {
+      "sameSnapshot": 23,
+      "copiedDirectory": 23,
+      "filename": "controller.json"
+    },
+    "oracleNegativeControls": 8
+  }
+}

@@ -92,4 +92,5 @@ Most records in this section are *porting probes*: a slice of an existing progra
 
 - [Offline Member integration composition](member-integration-20261012.md): 28 sequential policy cases, exact effect ordering and rollback, unchanged Team comparison, virtual/replay/C# evidence; no core change.
 - [Member integration save-failure ledger](member-integration-save-failure-20261012.md): baseline gap reproduced; 36 scenarios / 46 per-request comparisons preserve HEAD across save Err and skip repeated effects, with unchanged Python and emitted C#; no core change.
+- [Serialized Member controller](member-controller-20261012.md): live eligibility, ledger, observer and shield composition; 22 mixed scenarios / 289 per-request Python matches, integrated-continuation adjustment and raw-fault gap.
 - [Parent cancellation shielding for finish and rollback](cleanup-shield-20261012.md): generic lexical shield; unchanged pinned-main negative reproduction, 14 Python/virtual/replay/C# matches and resource-drain controls.
