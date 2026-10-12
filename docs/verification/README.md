@@ -91,3 +91,4 @@ Most records in this section are *porting probes*: a slice of an existing progra
 - [Semantic-facts scaling repair](semantic-facts-scaling.md)
 
 - [Offline Member integration composition](member-integration-20261012.md): 28 sequential policy cases, exact effect ordering and rollback, unchanged Team comparison, virtual/replay/C# evidence; no core change.
+- [Member integration save-failure ledger](member-integration-save-failure-20261012.md): baseline gap reproduced; 36 scenarios / 46 per-request comparisons preserve HEAD across save Err and skip repeated effects, with unchanged Python and emitted C#; no core change.

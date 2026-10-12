@@ -1,5 +1,9 @@
 # Offline Member integration composition
 
+Historical 28-case record. The [save-failure follow-up](member-integration-save-failure-20261012.md)
+extends this matrix to 36 scenarios / 46 per-request observations and closes the
+ledger gap excluded below, using the existing graph operations.
+
 Existing Nyrwvy graph operations express a bounded `Team.integrate` policy slice:
 28 normalized Python matches, 28 virtual/reopened/moved/C# passes per stage,
 12 functions and 231 nodes. No missing language capability was found in this

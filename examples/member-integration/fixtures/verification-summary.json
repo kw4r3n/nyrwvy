@@ -1,46 +1,57 @@
 {
-  "base": "44835914c6f10d845facbe872d8be660c5fd5e53",
-  "baseTree": "2f5254910f6e4fb19f097d4f66557eb77bde4692",
+  "base": "37e512c682b32bbacdf40e9b47f26910f2b59c68",
+  "baseTree": "dee2939eab31d3e3b6138ba63e8b9f2a2f62d335",
   "oracleHead": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "oracleTree": "b26815ab2cc17c1e045f3cde1dc896b265c23851",
+  "teamBlob": "3dc217e290dc60db3ca20ff0c2fe32cbfc8cb991",
   "teamSha256": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
   "authoring": {
     "functions": 12,
-    "nodes": 231,
+    "nodes": 272,
     "ordinaryTools": true
   },
   "checks": {
-    "virtual": 28,
-    "reopened": 28,
-    "moved": 28,
-    "uneditedCSharp": 28,
-    "teamMatches": 28,
-    "negativeControls": 6,
+    "virtual": 36,
+    "reopened": 36,
+    "copiedDirectory": 36,
+    "requestsPerStage": 46,
+    "uneditedCSharp": 36,
+    "teamMatches": 36,
+    "negativeControls": 10,
+    "baselineSaveMismatches": 6,
     "fastDotnet": 854,
     "extendedDotnet": 154,
     "adapterTests": 8,
-    "nodeContracts": 36,
+    "nodeContracts": 37,
     "mcpContracts": 12,
+    "bunTests": 23,
     "typecheckAdapters": true,
     "typecheckBun": true,
     "releaseBuildWarnings": 0
   },
+  "replay": {
+    "change": "directory only; integration.json filename unchanged",
+    "identitiesEqual": true,
+    "perRequestObservation": "deterministic prefix fold reruns; sequential Python requests"
+  },
   "identity": {
-    "snapshotSha256": "e4e93ef1ebcdbf02a0bb96a08f646a8d22a1feaca25fa686adef20404b7d63d2",
-    "generatedSha256": "ff30a1c106c4d035343bf3532b4d8367ee9c49e5d1d1cb2da339168466c1aa77",
+    "snapshotSha256": "f1e6ee4cc72b9658c4e9869ca247aac12af74de09dbaf097c9555eefbbb78f25",
+    "generatedSha256": "5d1c2992cc4e793ae2e02a25de85b5485ac5ed65b088dbf69aa8ab493def0f00",
     "reemissionMatches": true,
-    "symbolsSha256": "d01cde86a8af90104fe4b727a891a103ea29b8ba977cf3b466f6b8597320f2c1",
-    "casesSha256": "bb5f6431891ebb07bd0f638e48a80b9b1db79127764f774b4480463ad1ca37d4",
+    "symbolsSha256": "2fcfa4aa326f04a4d6b1ed5047c02f73e0d9baae05bc586400162fd32e850942",
+    "casesSha256": "707937dabd1437ead16abd2bf44fbcf41c32de4faf14be7ee4b9b403e437e07c",
     "status": {
-      "snapshotId": "01a12e37-97f7-7f37-85cd-8d78c3e02abf",
-      "snapshotFingerprint": "sha256:5c5d68ba66bfd29f2f443b9c7d34e79b0c9d37fac0883a0948a119b67d43aebe",
-      "semanticFingerprint": "sha256:dc1086cbdb9ccc33a69d31673b9734af8791fdcb42d25e5b107be5a3e41fae15"
+      "snapshotId": "01a12fbf-ea94-7866-a566-b79982ea99b6",
+      "snapshotFingerprint": "sha256:fa9fb2a5a1988c8e96f2771e087d1bd68aea34a2819e3f5ac33e7789e4795dd2",
+      "semanticFingerprint": "sha256:490aac98cd8b12c4fb8b2370080342b107fdcc2c53c240c22a8aed0fc94296ad"
     }
   },
   "committedSha256": {
-    "integration.json": "e4e93ef1ebcdbf02a0bb96a08f646a8d22a1feaca25fa686adef20404b7d63d2",
-    "symbols.json": "d01cde86a8af90104fe4b727a891a103ea29b8ba977cf3b466f6b8597320f2c1",
-    "authoring.json": "1a9b17232922f2e4bf3d691fae450fe42003b8b016e76e955e52eeb3eb1a57f8",
-    "cases.json": "424156aa44ccf04223758bd9f3f5479bcd38fd247231c6f9853481b0feb4e6f1"
+    "integration.json": "f1e6ee4cc72b9658c4e9869ca247aac12af74de09dbaf097c9555eefbbb78f25",
+    "symbols.json": "2fcfa4aa326f04a4d6b1ed5047c02f73e0d9baae05bc586400162fd32e850942",
+    "authoring.json": "974f895b2544549d0af9649c09c5dbcd78b9dc9ba50f2bee529e543b32039fd3",
+    "cases.json": "496e7520811aa876666793f8cfa9fa403fd311192b57fdcb85537bed733e110c",
+    "baseline-comparison.json": "4516469c25af312c2b9f434f140390fe33eab53ca3a217a9d2e913974c0112d1"
   },
   "runtime": {
     "compilation": {
@@ -51,7 +62,7 @@
       "referenceAssemblyCount": 167,
       "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
     },
-    "generatedSha256": "ff30a1c106c4d035343bf3532b4d8367ee9c49e5d1d1cb2da339168466c1aa77",
+    "generatedSha256": "5d1c2992cc4e793ae2e02a25de85b5485ac5ed65b088dbf69aa8ab493def0f00",
     "sourceUnchanged": true
   },
   "methodsUnmodified": [
@@ -88,7 +99,32 @@
         "ok": true,
         "value": "integrated-head"
       },
-      "integrated": "integrated-head"
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "disjoint",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
     },
     {
       "id": "repeat-idempotent",
@@ -111,7 +147,55 @@
         "ok": true,
         "value": "integrated-head"
       },
-      "integrated": "integrated-head"
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "repeat-idempotent",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        },
+        {
+          "id": "repeat-idempotent",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
     },
     {
       "id": "already-integrated",
@@ -120,7 +204,18 @@
         "ok": true,
         "value": "prior-head"
       },
-      "integrated": "prior-head"
+      "integrated": "prior-head",
+      "requests": [
+        {
+          "id": "already-integrated",
+          "trace": [],
+          "result": {
+            "ok": true,
+            "value": "prior-head"
+          },
+          "integrated": "prior-head"
+        }
+      ]
     },
     {
       "id": "superseded-integrated",
@@ -129,7 +224,18 @@
         "ok": false,
         "value": "superseded"
       },
-      "integrated": "prior-head"
+      "integrated": "prior-head",
+      "requests": [
+        {
+          "id": "superseded-integrated",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "superseded"
+          },
+          "integrated": "prior-head"
+        }
+      ]
     },
     {
       "id": "discarded",
@@ -138,7 +244,18 @@
         "ok": false,
         "value": "discarded"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "discarded",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "discarded"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "running",
@@ -147,7 +264,18 @@
         "ok": false,
         "value": "running"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "running",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "running"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "failed",
@@ -156,7 +284,18 @@
         "ok": false,
         "value": "status"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "failed",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "status"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "stopped",
@@ -165,7 +304,18 @@
         "ok": false,
         "value": "status"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "stopped",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "status"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "no-snapshot",
@@ -174,7 +324,18 @@
         "ok": false,
         "value": "unsnapshotted"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "no-snapshot",
+          "trace": [],
+          "result": {
+            "ok": false,
+            "value": "unsnapshotted"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "overlap",
@@ -190,7 +351,25 @@
         "ok": false,
         "value": "overlap"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "overlap",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader"
+          ],
+          "result": {
+            "ok": false,
+            "value": "overlap"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "duplicate-disjoint-paths",
@@ -213,7 +392,32 @@
         "ok": true,
         "value": "integrated-head"
       },
-      "integrated": "integrated-head"
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "duplicate-disjoint-paths",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
     },
     {
       "id": "empty-paths",
@@ -236,7 +440,32 @@
         "ok": true,
         "value": "integrated-head"
       },
-      "integrated": "integrated-head"
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "empty-paths",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
     },
     {
       "id": "empty-patch",
@@ -256,7 +485,29 @@
         "ok": true,
         "value": "source-head"
       },
-      "integrated": "source-head"
+      "integrated": "source-head",
+      "requests": [
+        {
+          "id": "empty-patch",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "source-head"
+          },
+          "integrated": "source-head"
+        }
+      ]
     },
     {
       "id": "fail-clean-source",
@@ -267,7 +518,20 @@
         "ok": false,
         "value": "clean-source"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-clean-source",
+          "trace": [
+            "clean-source"
+          ],
+          "result": {
+            "ok": false,
+            "value": "clean-source"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-clean-member",
@@ -279,7 +543,21 @@
         "ok": false,
         "value": "clean-member"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-clean-member",
+          "trace": [
+            "clean-source",
+            "clean-member"
+          ],
+          "result": {
+            "ok": false,
+            "value": "clean-member"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-validate",
@@ -292,7 +570,22 @@
         "ok": false,
         "value": "validate"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-validate",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate"
+          ],
+          "result": {
+            "ok": false,
+            "value": "validate"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-ancestor",
@@ -306,7 +599,23 @@
         "ok": false,
         "value": "ancestor"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-ancestor",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor"
+          ],
+          "result": {
+            "ok": false,
+            "value": "ancestor"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-paths-member",
@@ -321,7 +630,24 @@
         "ok": false,
         "value": "paths-member"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-paths-member",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member"
+          ],
+          "result": {
+            "ok": false,
+            "value": "paths-member"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-paths-leader",
@@ -337,7 +663,25 @@
         "ok": false,
         "value": "paths-leader"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-paths-leader",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader"
+          ],
+          "result": {
+            "ok": false,
+            "value": "paths-leader"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-close-agent",
@@ -354,7 +698,26 @@
         "ok": false,
         "value": "close-agent"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-close-agent",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent"
+          ],
+          "result": {
+            "ok": false,
+            "value": "close-agent"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-patch",
@@ -372,7 +735,27 @@
         "ok": false,
         "value": "patch"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-patch",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch"
+          ],
+          "result": {
+            "ok": false,
+            "value": "patch"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-check",
@@ -391,7 +774,28 @@
         "ok": false,
         "value": "check"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-check",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check"
+          ],
+          "result": {
+            "ok": false,
+            "value": "check"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-apply",
@@ -411,7 +815,29 @@
         "ok": false,
         "value": "apply"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-apply",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply"
+          ],
+          "result": {
+            "ok": false,
+            "value": "apply"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "fail-head",
@@ -433,7 +859,31 @@
         "ok": false,
         "value": "head"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "fail-head",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head"
+          ],
+          "result": {
+            "ok": false,
+            "value": "head"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "commit-rollback",
@@ -456,7 +906,32 @@
         "ok": false,
         "value": "commit"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "commit-rollback",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "reverse-check",
+            "reverse-apply"
+          ],
+          "result": {
+            "ok": false,
+            "value": "commit"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "rollback-check-fails",
@@ -478,7 +953,31 @@
         "ok": false,
         "value": "reverse-check"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "rollback-check-fails",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "reverse-check"
+          ],
+          "result": {
+            "ok": false,
+            "value": "reverse-check"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "rollback-apply-fails",
@@ -501,7 +1000,32 @@
         "ok": false,
         "value": "reverse-apply"
       },
-      "integrated": ""
+      "integrated": "",
+      "requests": [
+        {
+          "id": "rollback-apply-fails",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "reverse-check",
+            "reverse-apply"
+          ],
+          "result": {
+            "ok": false,
+            "value": "reverse-apply"
+          },
+          "integrated": ""
+        }
+      ]
     },
     {
       "id": "retry-after-rollback",
@@ -537,7 +1061,640 @@
         "ok": true,
         "value": "integrated-head"
       },
-      "integrated": "integrated-head"
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "retry-after-rollback",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "reverse-check",
+            "reverse-apply"
+          ],
+          "result": {
+            "ok": false,
+            "value": "commit"
+          },
+          "integrated": ""
+        },
+        {
+          "id": "retry-after-rollback",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "reverse-check",
+            "reverse-apply",
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-patch-1",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": false,
+        "value": "save"
+      },
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "save-failure-patch-1",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-patch-2",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "save-failure-patch-2",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "integrated-head"
+        },
+        {
+          "id": "save-failure-patch-2",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-patch-3",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "save-failure-patch-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "integrated-head"
+        },
+        {
+          "id": "save-failure-patch-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        },
+        {
+          "id": "save-failure-patch-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-empty-1",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": false,
+        "value": "save"
+      },
+      "integrated": "source-head",
+      "requests": [
+        {
+          "id": "save-failure-empty-1",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "source-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-empty-2",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "source-head"
+      },
+      "integrated": "source-head",
+      "requests": [
+        {
+          "id": "save-failure-empty-2",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "source-head"
+        },
+        {
+          "id": "save-failure-empty-2",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "source-head"
+          },
+          "integrated": "source-head"
+        }
+      ]
+    },
+    {
+      "id": "save-failure-empty-3",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "source-head"
+      },
+      "integrated": "source-head",
+      "requests": [
+        {
+          "id": "save-failure-empty-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": false,
+            "value": "save"
+          },
+          "integrated": "source-head"
+        },
+        {
+          "id": "save-failure-empty-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "source-head"
+          },
+          "integrated": "source-head"
+        },
+        {
+          "id": "save-failure-empty-3",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "source-head"
+          },
+          "integrated": "source-head"
+        }
+      ]
+    },
+    {
+      "id": "head-failure-retry-patch",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "check",
+        "apply",
+        "commit",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "integrated-head"
+      },
+      "integrated": "integrated-head",
+      "requests": [
+        {
+          "id": "head-failure-retry-patch",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head"
+          ],
+          "result": {
+            "ok": false,
+            "value": "head"
+          },
+          "integrated": ""
+        },
+        {
+          "id": "head-failure-retry-patch",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "check",
+            "apply",
+            "commit",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "integrated-head"
+          },
+          "integrated": "integrated-head"
+        }
+      ]
+    },
+    {
+      "id": "head-failure-retry-empty",
+      "trace": [
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "clean-source",
+        "clean-member",
+        "validate",
+        "ancestor",
+        "paths-member",
+        "paths-leader",
+        "close-agent",
+        "patch",
+        "head",
+        "save"
+      ],
+      "result": {
+        "ok": true,
+        "value": "source-head"
+      },
+      "integrated": "source-head",
+      "requests": [
+        {
+          "id": "head-failure-retry-empty",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head"
+          ],
+          "result": {
+            "ok": false,
+            "value": "head"
+          },
+          "integrated": ""
+        },
+        {
+          "id": "head-failure-retry-empty",
+          "trace": [
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "clean-source",
+            "clean-member",
+            "validate",
+            "ancestor",
+            "paths-member",
+            "paths-leader",
+            "close-agent",
+            "patch",
+            "head",
+            "save"
+          ],
+          "result": {
+            "ok": true,
+            "value": "source-head"
+          },
+          "integrated": "source-head"
+        }
+      ]
     }
   ],
   "negativeControls": [
@@ -564,6 +1721,36 @@
     {
       "id": "rollback-failure-hidden",
       "rejected": true
+    },
+    {
+      "id": "save-failure-loses-ledger",
+      "rejected": true
+    },
+    {
+      "id": "empty-save-failure-loses-ledger",
+      "rejected": true
+    },
+    {
+      "id": "save-error-hidden-before-retry",
+      "rejected": true
+    },
+    {
+      "id": "save-retry-repeats-effects",
+      "rejected": true
     }
-  ]
+  ],
+  "baseline": {
+    "base": "37e512c682b32bbacdf40e9b47f26910f2b59c68",
+    "authorBlob": "7afafa92d960eab2adff470d266118a5d6b4ebe8",
+    "frozenGraphBlob": "16f63be6f6ada2036af461a6e8f25c3ac3a7272c",
+    "mismatches": [
+      "save-failure-patch-1",
+      "save-failure-patch-2",
+      "save-failure-patch-3",
+      "save-failure-empty-1",
+      "save-failure-empty-2",
+      "save-failure-empty-3"
+    ],
+    "otherCasesMatch": 30
+  }
 }

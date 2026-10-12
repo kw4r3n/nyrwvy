@@ -1,0 +1,949 @@
+{
+  "oracleHead": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "teamSha256": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+  "mismatches": [
+    {
+      "id": "save-failure-patch-1",
+      "baseline": {
+        "id": "save-failure-patch-1",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": false,
+          "value": "save"
+        },
+        "integrated": "",
+        "requests": [
+          {
+            "id": "save-failure-patch-1",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-patch-1",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": false,
+          "value": "save"
+        },
+        "integrated": "integrated-head",
+        "requests": [
+          {
+            "id": "save-failure-patch-1",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "integrated-head"
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-failure-patch-2",
+      "baseline": {
+        "id": "save-failure-patch-2",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save",
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "integrated-head"
+        },
+        "integrated": "integrated-head",
+        "requests": [
+          {
+            "id": "save-failure-patch-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          },
+          {
+            "id": "save-failure-patch-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-patch-2",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "integrated-head"
+        },
+        "integrated": "integrated-head",
+        "requests": [
+          {
+            "id": "save-failure-patch-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "integrated-head"
+          },
+          {
+            "id": "save-failure-patch-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-failure-patch-3",
+      "baseline": {
+        "id": "save-failure-patch-3",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save",
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "integrated-head"
+        },
+        "integrated": "integrated-head",
+        "requests": [
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          },
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          },
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-patch-3",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "check",
+          "apply",
+          "commit",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "integrated-head"
+        },
+        "integrated": "integrated-head",
+        "requests": [
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "integrated-head"
+          },
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          },
+          {
+            "id": "save-failure-patch-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "check",
+              "apply",
+              "commit",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "integrated-head"
+            },
+            "integrated": "integrated-head"
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-failure-empty-1",
+      "baseline": {
+        "id": "save-failure-empty-1",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": false,
+          "value": "save"
+        },
+        "integrated": "",
+        "requests": [
+          {
+            "id": "save-failure-empty-1",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-empty-1",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": false,
+          "value": "save"
+        },
+        "integrated": "source-head",
+        "requests": [
+          {
+            "id": "save-failure-empty-1",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "source-head"
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-failure-empty-2",
+      "baseline": {
+        "id": "save-failure-empty-2",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save",
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "source-head"
+        },
+        "integrated": "source-head",
+        "requests": [
+          {
+            "id": "save-failure-empty-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          },
+          {
+            "id": "save-failure-empty-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-empty-2",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "source-head"
+        },
+        "integrated": "source-head",
+        "requests": [
+          {
+            "id": "save-failure-empty-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "source-head"
+          },
+          {
+            "id": "save-failure-empty-2",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          }
+        ]
+      }
+    },
+    {
+      "id": "save-failure-empty-3",
+      "baseline": {
+        "id": "save-failure-empty-3",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save",
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "source-head"
+        },
+        "integrated": "source-head",
+        "requests": [
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": ""
+          },
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          },
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save",
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          }
+        ]
+      },
+      "oracle": {
+        "id": "save-failure-empty-3",
+        "trace": [
+          "clean-source",
+          "clean-member",
+          "validate",
+          "ancestor",
+          "paths-member",
+          "paths-leader",
+          "close-agent",
+          "patch",
+          "head",
+          "save"
+        ],
+        "result": {
+          "ok": true,
+          "value": "source-head"
+        },
+        "integrated": "source-head",
+        "requests": [
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": false,
+              "value": "save"
+            },
+            "integrated": "source-head"
+          },
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          },
+          {
+            "id": "save-failure-empty-3",
+            "trace": [
+              "clean-source",
+              "clean-member",
+              "validate",
+              "ancestor",
+              "paths-member",
+              "paths-leader",
+              "close-agent",
+              "patch",
+              "head",
+              "save"
+            ],
+            "result": {
+              "ok": true,
+              "value": "source-head"
+            },
+            "integrated": "source-head"
+          }
+        ]
+      }
+    }
+  ],
+  "identity": {
+    "snapshotSha256": "ff9a0078148b3710b027843007f0f4abc175166f35a8c1cfa5ce207d87fae393",
+    "generatedSha256": "cda333665c2bd8b761b30e5ea8497d315d9a24608b6ebb9c195891d88c3d26b3",
+    "reemissionMatches": true,
+    "symbolsSha256": "0998c4d9ec6dfd21c66bdb1e6442d9e76766effe0af8dec7f176c14fc4ca1ef9",
+    "casesSha256": "69035a98cfb6cf315abcb0b9d82d2382f80608f1d49a8d176907e23599559548",
+    "status": {
+      "snapshotId": "01a12fbd-5378-73b5-866d-65d6ccada5c3",
+      "snapshotFingerprint": "sha256:4ced989fb67beab768fce8a8535944e952ed3ea7b8cbb039ef756939a022aef5",
+      "semanticFingerprint": "sha256:58114606ab8246a38936a22157395baae95c087e5b52dcf657cf4e16ee89607d"
+    }
+  }
+}

@@ -494,8 +494,16 @@ uses existing products, Results, Sets and effectful folds for the sequential
 Python comparisons and virtual/reopened/moved/unedited-C# cases. It found no
 missing primitive and adds no implementation queue. Live settlement polling,
 concurrent lock equivalence, real Git safety/persistence and cancellation during
-rollback remain outside that evidence. TaskWait caller cancellation remains a
-separate confirmed gap in the Member lifecycle reports.
+rollback remain outside that evidence. At that point, the Member lifecycle
+reports tracked TaskWait caller cancellation as a separate confirmed gap.
+
+The [save-failure follow-up](../verification/member-integration-save-failure-20261012.md)
+extends the existing composition to 36 scenarios / 46 per-request observations:
+the candidate retains captured HEAD even when save returns Err, so eligible
+retries return Ok without repeating effects. It uses the existing Outcome product
+and effectful fold and adds no primitive. Parent cancellation shielding during
+integration/rollback remains separate; PR382's observer cancellation does not
+establish that behavior.
 
 ## Evidence and authority pointers
 
