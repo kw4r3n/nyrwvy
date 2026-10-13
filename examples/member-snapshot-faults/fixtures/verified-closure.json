@@ -1122,7 +1122,7 @@
     }
   },
   "sourceHashes": {
-    "examples/member-snapshot-faults/README.md": "79adf2460793897be70a95ae4f0c4a8f10a02b3312ac675756ba6f0f83dd0ce7",
+    "examples/member-snapshot-faults/README.md": "a028e6e4cfaff6738c585a20f2e04fa1dc7c1bc8ba24d93aff4c4f6270e03428",
     "examples/member-snapshot-faults/author.mjs": "741445e6e3c0b9584163ee828a525d6725b4126b859fa60c58aa10aea42b4d02",
     "examples/member-snapshot-faults/cases.mjs": "f339efc1116dcadef4a547887f58554a62b9849021dbfd57d6ade25e8db54b96",
     "examples/member-snapshot-faults/oracle.py": "3d494c514b5d4edbaea1ba69b2818607161be1c2d5984ba4814fac98e6cb4430",
@@ -1131,7 +1131,7 @@
     "examples/member-snapshot-faults/runtime.template.cs": "490ac094a129bb3cee7494dab81e4afe9cb11ddc501a69f830b7b1e30dc74eec",
     "examples/member-snapshot-faults/test-runtime.mjs": "c9e564ef2d7753f9ce2f62830674fe6a0a3fd6736f8a4361c4d8fd62270a7dd6",
     ".opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs": "80d9be8fbb441f5581a0df995b1f999643b274a2101a03889a569a2e202f0a8b",
-    "docs/verification/snapshot-fault-containment-20261013.md": "484f39e5dedb8737b596a8dcef6da5f61fd45e9f58add4fa2aed582d5f3767ec",
+    "docs/verification/snapshot-fault-containment-20261013.md": "b2b8011a8dc8d36c63db881123146d1c72702e2203fe32b527f98ec32ccf49ef",
     "docs/verification/README.md": "e605f01f0939a90eedc07d4afdab86760d46a54afaa8910a2479f80c3c8ddb40",
     "examples/README.md": "cbaf9bd27bba6a2e5cccef0d28480bfeae968abb76678d68e068e332a2ed6021",
     "examples/member-lifecycle/author.mjs": "5ac2456954b4c871c055a8fcfba07861377766836b2f0da496272a5436fa2b48",

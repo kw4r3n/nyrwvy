@@ -72,8 +72,9 @@ cancellation-injection and release barriers. The provider witnesses cancellation
 before its release gate. Python independently uses asyncio events and the real
 Team.lock; admitted close waits behind that lock until after owner cancellation.
 Every retained graph view follows an explicit wait/join. Every opened provider
-lease cleans up once; all owned requests/relays/Members and the external driver
-drain before one release attempt. All per-script external effect sequences agree
+lease cleans up once; graph-owned requests/relays/Members drain before one release
+attempt. The synthetic external driver is explicitly joined after the graph
+invocation finishes, before publishing evidence. All per-script external effect sequences agree
 before/after. Virtual and real share the emitter/runtime; Python is independent.
 
 Fourteen sensitivity controls reject escaping snapshot faults, late checks,

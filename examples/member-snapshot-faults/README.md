@@ -13,8 +13,9 @@ cancellation, admitted close, competing release fault, typed failure, success
 with and without close, successful snapshot plus release fault, raw checks fault,
 undetermined provider cancellation, and an explicitly thrown OCE. Real effects
 use entry/release barriers. All retained views follow an explicit Member join;
-scope exit drains owned requests, relays, Members and the external driver before
-one release attempt. Virtual scheduling is supplementary.
+scope exit drains graph-owned requests, relays and Members before one release
+attempt. The synthetic external driver is explicitly joined after the graph
+invocation finishes, before publishing evidence. Virtual scheduling is supplementary.
 
 ```nu
 node examples/member-snapshot-faults/run.mjs /tmp/snapshot-before --baseline
