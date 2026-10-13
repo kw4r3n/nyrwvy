@@ -53,7 +53,9 @@ pending cancellation becomes stopped.
 This closes the bounded token/settlement gap, without claiming whole Python
 policy equivalence. Python records snapshot errors as failed attempts, while
 raw graph snapshot faults propagate. Python close suppresses subsequent checks;
-the graph's cancelled closing handoff remains closed, so checks can still run.
+this historical probe disables the later close-intent composition so its
+cancelled closing handoff can still leave checks runnable. The default admission
+recipe now [retains admitted close intent](../member-close-intent/README.md).
 Python may acquire an agent before provider entry; the graph pre-entry path
 creates none. Queue protection, arbitrary faults/interleavings, persistent
 recovery, provider-specific shutdown and physical Git effects remain separate.

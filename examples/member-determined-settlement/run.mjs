@@ -13,7 +13,7 @@ const s=await session('controller',dir)
 try {
  if(!replay){
   // Both variants use the same token audits and cancellation harness.
-  const {artifact,nodes}=await author(s,{protectDetermined:!baseline})
+  const {artifact,nodes}=await author(s,{protectDetermined:!baseline,retainCloseIntent:process.argv.includes('--current-close')})
   await writeFile(join(dir,'Generated.cs'),artifact.source)
   await writeFile(join(dir,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
   await writeFile(join(dir,'authoring.json'),JSON.stringify({base:'b09bb5675354439b61a9adcc9b3431428aef5819',oracle:'4bab9e030744a0887c1ee13bdd8fc8db3b98334f',baseline,nodes,functionCount:Object.keys(nodes).length,nodeCount:Object.values(nodes).reduce((a,b)=>a+b,0),generatedSha256:hash(artifact.source),nodeVersion:process.version},null,2))

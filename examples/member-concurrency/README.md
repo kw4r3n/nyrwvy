@@ -27,6 +27,11 @@ tail. Parent cancellation still promptly reaches undetermined provider work;
 it no longer interrupts a determined snapshot or downgrades a completion during
 cleanup. See the [bounded settlement proof](../member-determined-settlement/README.md).
 
+An admitted close now retains its check-suppression latch in a separate shielded
+scope until cancellable admission work drains. State handoffs and provider work
+keep their original cancellation linkage. A queued close cancelled before
+admission does not set intent. See the [close-intent proof](../member-close-intent/README.md).
+
 The real and Python runs use explicit held workspace, commit and close-drain
 events. Python uses actual pinned Team methods, asyncio.Lock and await_cleanup;
 ContextVar attributes effects to individual requests, including shielded child
