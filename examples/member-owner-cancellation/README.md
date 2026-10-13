@@ -1,5 +1,27 @@
 # Whole-owner cancellation and shutdown
 
+The integration scripts now explicitly stop/join peer Member 2 before requiring
+its terminal retained view. Joining the integration request tickets alone did
+not join that Member; a delayed cancelled provider could legitimately leave it
+`running` at inspection. The [pre-join repair report](../../docs/verification/owner-prejoin-observation-20261014.md)
+retains the old failure and distinguishes that observation from the joined
+`stopped` result. Historical fixtures remain intact; the verifier adds the new
+`settled-b` reply while checking every original golden field exactly.
+
+After authoring a bundle, reproduce deterministic old RED and alternate joined
+GREEN schedules in both task and root cancellation modes:
+
+```nu
+node examples/member-owner-cancellation/prove-prejoin.mjs /tmp/owner-final /tmp/owner-schedules
+```
+
+The output directory must be fresh. The synthetic host releases the cancelled
+peer at the retained reply (old script), at an explicit pre-join observation,
+or alongside mutation release. The maintained default holds it until the
+existing stop/join gate. Only the graph join establishes completion; provider
+return or cleanup entry is not treated as a completed task. No sleeps, retries,
+runtime changes or relaxed terminal expectations are used.
+
 The default authoring API now protects determined Member settlement. This
 historical runner explicitly selects `protectDetermined:false` to reproduce
 the earlier six and eleven fixtures. The new bounded before/after matrix is in

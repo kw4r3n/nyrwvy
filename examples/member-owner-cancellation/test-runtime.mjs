@@ -7,6 +7,8 @@ import {execFileSync} from 'node:child_process'
 import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
 import {validate,normalize} from './cases.mjs'
 const input=resolve(process.argv[2]),hash=x=>createHash('sha256').update(x).digest('hex')
+const peerSchedule=process.argv[3]??'join'
+assert.ok(['join','early','retained','observed'].includes(peerSchedule),'explicit peer schedule')
 const graph=JSON.parse(await readFile(join(input,'controller.json'),'utf8')),manifest=JSON.parse(await readFile(join(input,'symbols.json'),'utf8'))
 const authoring=JSON.parse(await readFile(join(input,'authoring.json'),'utf8'))
 const source=await readFile(join(input,'Generated.cs'))
@@ -26,7 +28,7 @@ try {
  await writeFile(join(scratch,'Program.cs'),program)
  const options={cwd:scratch,encoding:'utf8',env:{...process.env,DOTNET_NOLOGO:'1',DOTNET_CLI_TELEMETRY_OPTOUT:'1'},timeout:90000}
  const {assembly,evidence:compilation}=await compileRuntime(scratch,options)
- const stdout=execFileSync('dotnet',[assembly,join(input,'cases.json')],options)
+ const stdout=execFileSync('dotnet',[assembly,join(input,'cases.json'),peerSchedule],options)
  await writeFile(join(input,'runtime-raw.json'),stdout)
  const results=stdout.trim().split(/\r?\n/).map(x=>JSON.parse(x)),cases=JSON.parse(await readFile(join(input,'cases.json'),'utf8'))
  assert.equal(results.length,cases.length*2)
@@ -43,7 +45,7 @@ try {
  }
  assert.equal(hash(await readFile(join(scratch,'Generated.cs'))),authoring.generatedSha256)
  assert.equal(hash(await readFile(join(input,'Generated.cs'))),authoring.generatedSha256)
- await writeFile(join(input,'runtime-evidence.json'),JSON.stringify({generatedSha256:authoring.generatedSha256,sourceUnchanged:true,compilation,results},null,2))
+ await writeFile(join(input,'runtime-evidence.json'),JSON.stringify({generatedSha256:authoring.generatedSha256,sourceUnchanged:true,peerSchedule,compilation,results},null,2))
  await writeFile(join(input,'Runtime.Program.cs'),program)
  console.log('PASS: unedited generated C#, offline compilation, scope joins and provider closure')
 }finally{await rm(scratch,{recursive:true,force:true})}

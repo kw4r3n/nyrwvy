@@ -7,7 +7,9 @@ const ready=[q('spawn','a'),q('spawn','b'),gate('snapshot1'),gate('release1'),q(
 const parked=gate('owner-park'),retained=q('inspect','retained')
 export const scenarios=()=>[
  {id:'parent-queued-admission',kind:'queued',script:[q('spawn','a'),gate('provider1'),begin('spawn','winner',1),gate('spawn-held'),begin('spawn','loser',2),gate('queued:loser'),parked,join(1),join(2),begin('spawn','late',3),join(3),q('stop','settled-a',1),retained]},
- ...[false,true].map(rawFault=>({id:`parent-protected-integration-${rawFault?'fault':'clear'}`,kind:'integration',rawFault,script:[...ready,begin('integrate','first',1,1),gate('commit-held'),begin('integrate','second',2,1),gate('queued:second'),parked,join(1),join(2),begin('spawn','late',3),join(3),retained]})),
+ // Request-ticket joins do not join the peer Member. Require its completion
+ // before asserting a terminal retained view; stop uses the existing task join.
+ ...[false,true].map(rawFault=>({id:`parent-protected-integration-${rawFault?'fault':'clear'}`,kind:'integration',rawFault,script:[...ready,begin('integrate','first',1,1),gate('commit-held'),begin('integrate','second',2,1),gate('queued:second'),parked,join(1),join(2),begin('spawn','late',3),join(3),q('stop','settled-b',2),retained]})),
  {id:'parent-held-member-settlement',kind:'settlement',script:[q('spawn','a'),q('spawn','b'),gate('snapshot1'),parked,q('stop','settled-b',2),retained]},
  ...[false,true].map(releaseFault=>({id:`parent-shutdown-${releaseFault?'fault':'clear'}`,kind:'shutdown',releaseFault,script:[...ready,begin('finish','closing',1),gate('close-held'),parked,begin('spawn','late',3),join(3),join(1),retained]})),
 ].map(c=>({...c,patch:'synthetic-patch',providers:{1:c.kind==='queued'?'hold':'complete',2:'hold'}}))
@@ -56,6 +58,11 @@ export function validate(c,row){
   assert.equal(row.events.filter(e=>e.request==='second'&&!['reply','gate'].includes(e.operation)).length,0,'cancelled queued duplicate performs no mutation')
   if(c.recovered&&!rollback&&!c.rawHeadFault)assert.match(row.state,new RegExp(`passed,${head};`),'completed mutation result retains HEAD after closed handoff')
   else assert.ok(!row.state.includes('integrated-head')&&!row.state.includes('source-head'),'no uncaptured or baseline ledger')
+  if(c.script.some(r=>r.label==='settled-b')){
+   assert.equal(replies['settled-b'],'2,stopped,w2,base,0,false,,,;','peer Member is joined before its terminal view')
+   assert.match(row.state,/2,stopped,w2,base,0,false,,,;/,'retained peer is terminal after completion')
+   assert.ok(row.events.findIndex(e=>e.operation==='reply'&&e.request==='settled-b')<row.events.findIndex(e=>e.operation==='reply'&&e.request==='retained'),'completion precedes retained observation')
+  }
  }
  if(c.kind!=='settlement')assert.equal(replies.late,'err:cancelled','cancelled queued worker cannot admit')
  assert.equal(row.outcome,c.releaseFault?'error:release fault':c.kind==='settlement'?'error:snapshot cancelled':c.adapted?'err:owner cancelled':'ok','owner cancellation reports only after drain; faults preserve precedence')

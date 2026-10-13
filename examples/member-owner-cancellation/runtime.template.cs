@@ -11,6 +11,8 @@ using Nyrwvy.Generated;
 sealed class Effects : @@HOST@@
 {
  readonly JsonElement scenario;
+ readonly string peerSchedule;
+ readonly ManualResetEventSlim peerRelease=new(false);
  readonly CancellationTokenSource root; readonly string mode;
  readonly ManualResetEventSlim ownerParked=new(false),rootInjected=new(false);
  readonly ConcurrentDictionary<long,int> leases=new();
@@ -52,7 +54,7 @@ sealed class Effects : @@HOST@@
  }
  readonly ConcurrentQueue<object> calls=new();
  public int Active,MaxActive,Opened,Closed;
- public Effects(JsonElement scenario,CancellationTokenSource root,string mode){this.scenario=scenario;this.root=root;this.mode=mode;name=scenario.GetProperty("id").GetString()!; if(mode=="external") Driver=System.Threading.Tasks.Task.Run(()=>{Wait(ownerParked,"external owner parked");root.Cancel();rootInjected.Set();});}
+ public Effects(JsonElement scenario,CancellationTokenSource root,string mode,string peerSchedule){this.scenario=scenario;this.root=root;this.mode=mode;this.peerSchedule=peerSchedule;name=scenario.GetProperty("id").GetString()!; if(mode=="external") Driver=System.Threading.Tasks.Task.Run(()=>{Wait(ownerParked,"external owner parked");root.Cancel();rootInjected.Set();});}
  static ManualResetEventSlim Cell(ConcurrentDictionary<long,ManualResetEventSlim> map,long id)=>map.GetOrAdd(id,_=>new(false));
  public object[] Calls=>calls.ToArray();
  void Log(string op,params (string Name,object Value)[] args)=>calls.Enqueue(new {operation=op,request=requestLabel.Value,arguments=args.Select(a=>new {parameter=a.Name,value=new {value=a.Value}}).ToArray()});
@@ -74,7 +76,13 @@ sealed class Effects : @@HOST@@
   bool overlap=false;
   try {
    if(overlap&&id<=2){bothProviders.Signal();Check(bothProviders.Wait(TimeSpan.FromSeconds(5)),"provider overlap barrier");}
-   if(Kind(id)=="hold"){NyRuntime.Cancellation.Value.WaitHandle.WaitOne();return NyResult<NyStr,NyStr>.Err("cancelled");}
+   if(Kind(id)=="hold"){
+    NyRuntime.Cancellation.Value.WaitHandle.WaitOne();
+    // Synthetic provider scheduling only. The graph owns Member status and
+    // completion. Hold the cancelled peer until an explicit observation/join.
+    if(id==2&&Setting("kind")=="integration")Wait(peerRelease,"peer provider release: "+peerSchedule);
+    return NyResult<NyStr,NyStr>.Err("cancelled");
+   }
    try {
     if(Kind(id)=="expected-error")throw new ExpectedProviderError();
     if(Kind(id)=="inner-timeout")throw new TimeoutException("inner timeout");
@@ -103,7 +111,7 @@ sealed class Effects : @@HOST@@
   if(label=="owner-park"){ownerParked.Set();NyRuntime.Cancellation.Value.WaitHandle.WaitOne();}
   else if(label=="probe-ready"){Wait(ownerParked,label);if(mode=="external")Wait(rootInjected,label);}
   else if(label=="probe-cancelled"){if(Setting("kind")=="queued"||Setting("kind")=="integration")Wait(callerReplied.GetOrAdd(Setting("kind")=="queued"?"loser":"second",_=>new(false)),"queued cancellation reply before held mutation release");}
-  else if(label=="probe-release"){spawnReleased.Set();integrationRelease.Set();closeReleased.Set();if(Setting("kind")!="settlement")Cell(snapshotRelease,1).Set();Cell(workerRelease,1).Set();Cell(workerRelease,2).Set();}
+  else if(label=="probe-release"){if(peerSchedule=="early")peerRelease.Set();spawnReleased.Set();integrationRelease.Set();closeReleased.Set();if(Setting("kind")!="settlement")Cell(snapshotRelease,1).Set();Cell(workerRelease,1).Set();Cell(workerRelease,2).Set();}
   else if(label.StartsWith("request-start:"))requestStarted.GetOrAdd(label[14..],_=>new(false)).Set();
   else if(label.StartsWith("enter:")){requestLabel.Value=label[6..];acquired[label[6..]]=true;}
   else if(label.StartsWith("released:")){}
@@ -126,6 +134,7 @@ sealed class Effects : @@HOST@@
   else if(label=="release-checks")checkRelease.Set();
   else if(label.StartsWith("stop-join:")){
    long id=long.Parse(label[10..]);Cell(workerRelease,id).Set();
+   if(id==2&&peerSchedule=="join")peerRelease.Set();
    if(Flag("finishCancel")&&id==1){finishEntered.Set();Wait(finishRelease,"finish release");Check(!NyRuntime.CancellationRequested,"finish shield lost token mask");Cell(snapshotRelease,1).Set();}
   }
   else if(label=="integration-await")Wait(integrationEntered,label);
@@ -139,7 +148,9 @@ sealed class Effects : @@HOST@@
   if(label.ToString()=="observer")Check(providerTokens.TryGetValue(2,out var token)&&!token.IsCancellationRequested,"observer cancelled its Member");
 
   // The release audit waits for the next explicit settled request. No host policy.
-  Log("reply",("label",label.ToString()),("record",record.ToString()));callerReplied.GetOrAdd(label.ToString(),_=>new(false)).Set();if(Setting("kind")=="settlement"&&label.ToString()=="retained")Cell(snapshotRelease,1).Set();return NyUnit.Value;
+  Log("reply",("label",label.ToString()),("record",record.ToString()));
+  if((peerSchedule=="retained"&&label.ToString()=="retained")||(peerSchedule=="observed"&&label.ToString()=="@prejoin"))peerRelease.Set();
+  callerReplied.GetOrAdd(label.ToString(),_=>new(false)).Set();if(Setting("kind")=="settlement"&&label.ToString()=="retained")Cell(snapshotRelease,1).Set();return NyUnit.Value;
  }
 
  @@METHODS@@
@@ -152,7 +163,7 @@ static class Program
   using var data=JsonDocument.Parse(System.IO.File.ReadAllText(args[0]));
   foreach(var c in data.RootElement.EnumerateArray()){
    foreach(var mode in new[]{"task","external"}){
-   using var root=new CancellationTokenSource();NyRuntime.Cancellation.Value=root.Token;var effects=new Effects(c,root,mode);
+   using var root=new CancellationTokenSource();NyRuntime.Cancellation.Value=root.Token;var effects=new Effects(c,root,mode,args.Length>1?args[1]:"join");
    object response;
    try {
     NyResult<NyUnit,NyStr> result;
