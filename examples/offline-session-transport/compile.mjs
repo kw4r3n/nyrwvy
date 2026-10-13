@@ -18,11 +18,11 @@ effects=effects.replace('void Log(string op,params (string Name,object Value)[] 
  void Log(string op,params (string Name,object Value)[] args){var row=new {operation=op,request=requestLabel.Value,arguments=args.Select(a=>new {parameter=a.Name,value=new {value=a.Value}}).ToArray()};calls.Enqueue(row);Observe(row);}
  public void ReleaseGates(){snapshotReleased.Set();commitReleased.Set();spawnReleased.Set();closeReleased.Set();}
  public void InputEnded(){Observe(new {operation="input-eof"});if(Setting("releaseOn")=="eof")ReleaseGates();}`)
-effects=effects.replace('Log("close");Closed++;','Log("close");Closed++;if(control=="double-close"){Log("close");Closed++;}')
+effects=effects.replace('Log("close");Closed++;','Log("close");Closed++;if(control=="double-close"){Log("close");Closed++;Observe(new {operation="duplicate-close",count=Closed});}')
 effects=effects.replace('Log("reply",("label",label.ToString()),("record",record.ToString()));return NyUnit.Value;',`Log("reply",("label",label.ToString()),("record",record.ToString()));
   if(label.ToString()=="@wire"||label.ToString()=="@wire-terminal"){
    string output=record.ToString();
-   if(control=="wrong-id" && label.ToString()=="@wire") {using var json=JsonDocument.Parse(output);var id=json.RootElement.GetProperty("id").GetRawText();output=output.Replace("\\\"id\\\":"+id,"\\\"id\\\":\\\"wrong\\\"");}
+   if(control=="wrong-id" && label.ToString()=="@wire") {using var json=JsonDocument.Parse(output);var id=json.RootElement.GetProperty("id").GetRawText();output=output.Replace("\\\"id\\\":"+id,"\\\"id\\\":\\\"wrong\\\"");Observe(new {operation="response-id-rewritten",before=record.ToString(),after=output});}
    lock(typeof(Effects)){Console.Out.WriteLine(output);Console.Out.Flush();}
   }return NyUnit.Value;`)
 const template=effects+await readFile(new URL('./pipe.template.cs',import.meta.url),'utf8')

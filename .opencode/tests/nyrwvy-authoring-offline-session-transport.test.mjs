@@ -14,5 +14,9 @@ test('compiled JSONL pipes compose EOF and cancellation with the owned offline s
   const proof=JSON.parse(await readFile(join(bundle,'pipe-proof.json'),'utf8'))
   assert.equal(proof.proof.filter(x=>x.releaseCount===1).length,13)
   assert.deepEqual(proof.proof.filter(x=>x.rejected).map(x=>x.control),['drop-tail','wrong-id','double-close','uninterruptible-read'])
+  assert.deepEqual(proof.proof.filter(x=>x.rejected).map(x=>x.contract),['response-correlation-order','response-correlation-order','resource-release-count','application-outcome'])
+  const tail=proof.proof.find(x=>x.control==='drop-tail')
+  assert.equal(tail.cause.healthyOutcome,true);assert.equal(tail.cause.missingResponseId,'tail');assert.equal(tail.cause.releaseCount,1)
+  assert.deepEqual(proof.verificationGuards,[{id:'unrelated-tail-control-fault',refusedAsTailLoss:true,contract:'application-success',observedType:'NotSupportedException'}])
  }finally{await rm(root,{recursive:true,force:true})}
 })

@@ -39,9 +39,10 @@ were not recovered and no Python/encoding/MCP equivalence is claimed.
 | Proven | EOF/cancellation with work in flight | Active held Member, queued spawn, and held integration commit; real EOF/SIGTERM and deterministic gates |
 | Reused and proven here | Protected mutation tail and cleanup | Commit/head/save finish once after terminal condition; EOF reports integrated HEAD; cancellation reports err:cancelled despite completed synthetic save |
 | Proven | Terminal ownership | Every positive row releases once with zero providers active, joins peer-closed read, closes transport once, then records process terminal; successful wire terminal follows application release |
-| Proven rejection | Compiled negative controls | Dropped tail, wrong ID, double cleanup and uninterruptible read fail the paired positive acceptance |
+| Proven rejection | Compiled negative controls | Intended defects observed; paired lifecycle checks pass except for that defect; dropped tail/wrong ID/double cleanup/blocked read fail their specific positive contracts; unrelated exception refused |
 | Reused | Finite typed/decoded-text paths | Existing focused session regressions; parser and previous Member/cleanup/release fault identity controls remain authoritative |
 | Missing | Complete reconstruction | Historical private artifacts, durable restart/lost-response reconciliation and autonomous deadline/escalation for a retained peer pipe |
+| Measured limitation | Terminal delivery and independent EOF | Review observed no final read drainage with retained stdin, delayed EOF during a held foreground fold, and local success without terminal delivery after stdout closed; unchanged in this verification revision |
 | Unverified | Further transport/application boundaries | EOF detection during blocked foreground folds, write/backpressure failure, pre-decode frame-byte bound, arbitrary host failure, multi-client/process-group transport, full protocol/Python equivalence, live provider/physical Git, budgets/fairness |
 
 The first host attempt exposed a concrete limitation of the installed Linux
@@ -69,18 +70,23 @@ foreground fold itself remains blocked.
 
 The maintained regression authors/reviews/commits the graph, saves/reopens it,
 compiles its unedited C# with installed Roslyn and reference assemblies, runs
-13 positive cases and four negative controls serially, moves the bundle,
+13 positive cases, four causal negative controls and one unrelated-fault guard
+serially, moves the bundle,
 reopens/re-emits/recompiles, repeats pipe execution and verifies exact required
 bytes, peer actions, wire outputs/outcomes and both artifact/source hash closure.
 Concurrent effect interleavings are allowed to differ; each replay separately
 checks required happens-before relations and effect counts.
 
-Durable local evidence is retained in `artifacts/transport/proof-bundle` and
-`artifacts/transport/proof-moved`: `pipe-proof.json`, `pipe-raw.json`,
+Corrected local evidence is retained in `artifacts/transport/revision-bundle` and
+`artifacts/transport/revision-moved`: `pipe-proof.json`, `pipe-raw.json`,
 `verified.json`, the authoring transcript/snapshot, source/symbol/declaration
 files, host, assembly/runtime configuration, cases and compilation record.
 [`fixtures/proof.json`](../../examples/offline-session-transport/fixtures/proof.json)
-retains compact proof, verification and check/log hash records. Fresh authoring
+retains corrected compact proof, verification and check/log hash records. The
+original rejected evidence remains in `artifacts/transport/proof-bundle` and
+`artifacts/transport/proof-moved`. Hash closure means the declared artifact and
+application-source set, excluding transcript, mutable scenario, tool binaries,
+compiler and reference-pack bytes. Fresh authoring
 IDs vary; retained hashes identify this run. The README provides replay commands.
 
 Only examples, documentation and a Node regression change. No backend semantic
@@ -88,13 +94,36 @@ change requires the extended backend suite. Heavy builds/tests run serially with
 one .NET build worker. No push, PR creation, merge or modification of the source
 working trees is part of this milestone.
 
-Final validation: Release fast-test graph build **zero errors/warnings**, fast
-suite **864/864**, maintained focused transport regression **1/1**, serial
-authoring/script aggregate **47/47**, including both existing session regressions
-and the transport regression. The retained final original/moved execution each
-passes **13** positive pipe cases and **four** negative controls. Exact moved
-replay and artifact/application-source hash verification pass. Counts describe
-this run rather than imposing future count gates.
+Independent review of `08ed17df46dff79f754db220d8b594354d43b45a` rejected the
+four-control claim: `drop-tail` reached an unsupported synchronous read from
+`StreamReader.EndOfStream`, threw `NotSupportedException`, and the harness
+accepted that unrelated failure as tail-loss evidence. No supported-path defect
+was found in the 13 positive pipe cases. The other three negative rows showed
+their intended defects.
+
+This revision implements recorded synchronous reads for the control's EOF probe
+and records `tail-dropped` before returning EOF. The control must now complete
+gracefully with once-only release and a delivered terminal, while omitting only
+the correlated tail reply. The other three controls require cause-specific
+observations and reject only their intended positive contract. A compiled
+unrelated-exception guard recreates the old failure category and is refused by
+the causal checker. No authored graph, core or supported transport policy change
+is part of this verification-only correction.
+
+Prior validation remains retained evidence: Release build **zero errors/warnings**,
+fast suite **864/864**, serial aggregate **47/47**. The reviewer freshly reran the
+fast suite and three related regressions, **3/3**. Those checks did not validate
+the defective tail-loss claim and are not presented as fresh revision runs.
+Corrected validation passed the maintained focused transport regression **1/1**,
+including fresh authoring and moved replay. Retained corrected original/moved
+bundles each passed **13** positive cases, **four** causal negative controls and
+the unrelated-fault guard. Exact moved replay, sent/read byte equality and
+declared artifact/application-source hash closure passed. The corrected retained
+snapshot, unedited generated C#, symbols, declarations and authoring record are
+byte-identical to the reviewed candidate; only the host/control verification and
+evidence changed. `artifacts/transport/revision-checks.json` separates fresh
+revision results from reused prior checks and records their log hashes. Counts
+describe observations rather than future count gates.
 
 Execution used approved sandbox exceptions for local .NET child execution and
 test-framework IPC. Dependencies came from existing local caches; restore used

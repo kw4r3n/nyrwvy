@@ -26,10 +26,15 @@ const cases=[
 ]
 await writeFile(join(dir,'pipe-cases.json'),JSON.stringify(cases,null,2)+'\n')
 const retained=[]
-function acceptance(c,row){
+function contract(name,check){try{return check()}catch(error){error.contract=name;throw error}}
+function acceptance(c,row,{responses,releaseCount=1}={}){
  const events=row.events,outputs=row.outputs,outcome=events.find(x=>x.operation==='outcome'),calls=events.filter(x=>x.arguments)
- assert.ok(outcome,'child must publish an outcome');assert.equal(outcome.Opened,1);assert.equal(outcome.Closed,1,'exactly-once resource cleanup');assert.equal(outcome.Active,0,'providers joined before release')
- assert.equal(events.filter(x=>x.operation==='close').length,1,'exactly one close effect')
+ contract('application-outcome',()=>assert.ok(outcome,'child must publish an outcome'))
+ assert.equal(outcome.Opened,1);assert.equal(outcome.Active,0,'providers joined before release')
+ contract('resource-release-count',()=>{
+  assert.equal(outcome.Closed,releaseCount,'exactly-once resource cleanup')
+  assert.equal(events.filter(x=>x.operation==='close').length,releaseCount,'exactly one close effect')
+ })
  assert.equal(events.filter(x=>x.operation==='process-terminal').length,1)
  assert.equal(events.filter(x=>x.operation==='transport-close').length,1,'exactly one drained pipe close')
  assert.ok(events.findIndex(x=>x.operation==='input-drain-start')<events.findIndex(x=>x.operation==='transport-close'))
@@ -38,7 +43,8 @@ function acceptance(c,row){
  const terminal=outputs.filter(x=>JSON.parse(x).method==='session/terminal')
  const success=!c.mode.includes('cancel')&&!c.mode.includes('utf8')
  if(success){
-  assert.equal(outcome.ok,true);assert.equal(outcome.isOk,true);assert.equal(terminal.length,1)
+  contract('application-success',()=>{assert.equal(outcome.ok,true);assert.equal(outcome.isOk,true)})
+  assert.equal(terminal.length,1)
   assert.equal(outputs.at(-1),terminal[0]);assert.equal(JSON.parse(terminal[0]).params.report,outcome.value)
   assert.ok(events.findIndex(x=>x.operation==='close')<events.findIndex(x=>x.operation==='reply'&&arg(x,'label')==='@wire-terminal'),'release precedes wire terminal')
   assert.ok(events.findIndex(x=>x.operation==='input-eof')<events.findIndex(x=>x.operation==='close'))
@@ -63,7 +69,7 @@ function acceptance(c,row){
    if(value.method==='ping')return [`{"jsonrpc":"2.0","id":${JSON.stringify(value.id)},"result":{}}`]
    return ['{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"Invalid params"}}']
   })
-  assert.deepEqual(outputs.filter(x=>!JSON.parse(x).method),expected,'exact correlated ordered responses')
+  contract('response-correlation-order',()=>assert.deepEqual(outputs.filter(x=>!JSON.parse(x).method),responses??expected,'exact correlated ordered responses'))
   assert.ok(!calls.some(x=>['workspaceCreate','provider','snapshot','step'].includes(x.operation)),'rejected/notification inspection frames have no mutation')
  }else{
   const count=c.mode.startsWith('integration')?7:c.mode==='queued-cancel'?6:2
@@ -86,7 +92,44 @@ function acceptance(c,row){
   assert.ok(events.findIndex(x=>x.operation==='step'&&arg(x,'operation')==='commit')<end,'terminal condition arrives during held mutation')
   assert.ok(end<events.findIndex(x=>x.operation==='step'&&arg(x,'operation')==='head'),'protected mutation completes after terminal condition')
  }
- return {id:c.id,outputs:outputs.length,success,releaseCount:1,activeAtRelease:0}
+ return {id:c.id,outputs:outputs.length,success,releaseCount,activeAtRelease:0}
+}
+// A rejected positive contract is necessary but insufficient: each negative
+// row must execute its intended defect and otherwise meet its paired lifecycle.
+function controlCause(c,row,control=row.control){
+ const events=row.events,of=operation=>events.filter(x=>x.operation===operation)
+ const index=operation=>events.findIndex(x=>x.operation===operation)
+ if(control==='drop-tail'){
+  acceptance(c,row,{responses:[]})
+  const drops=of('tail-dropped');assert.equal(drops.length,1);assert.equal(drops[0].line,c.lines[0])
+  assert.ok(index('readLine')<index('tail-dropped')&&index('tail-dropped')<index('input-eof'))
+  assert.equal(of('input-eof').length,1)
+  assert.ok(of('pipe-read').some(x=>x.synchronous===true&&x.hex===''),'EOF probe actually completed')
+  assert.ok(!events.some(x=>x.operation==='reply'&&arg(x,'label')==='@wire'),'dropped frame never reaches wire response')
+  return {contract:'response-correlation-order',evidence:{healthyOutcome:true,droppedLine:drops[0].line,missingResponseId:'tail',releaseCount:1}}
+ }
+ if(control==='wrong-id'){
+  const before='{"jsonrpc":"2.0","id":"tail","result":{}}',after='{"jsonrpc":"2.0","id":"wrong","result":{}}'
+  acceptance(c,row,{responses:[after]})
+  assert.deepEqual(of('response-id-rewritten'),[{operation:'response-id-rewritten',before,after}])
+  assert.ok(events.some(x=>x.operation==='reply'&&arg(x,'label')==='@wire'&&arg(x,'record')===before),'graph produces the correct ID before host corruption')
+  return {contract:'response-correlation-order',evidence:{healthyOutcome:true,graphResponse:before,deliveredResponse:after,releaseCount:1}}
+ }
+ if(control==='double-close'){
+  acceptance(c,row,{releaseCount:2})
+  assert.deepEqual(of('duplicate-close'),[{operation:'duplicate-close',count:2}])
+  return {contract:'resource-release-count',evidence:{healthyOutcome:true,closeCount:2}}
+ }
+ assert.equal(control,'uninterruptible-read')
+ assert.equal(row.deadlineExceeded,'pipe test deadline');assert.equal(row.signal,'SIGKILL');assert.equal(row.exitCode,null)
+ assert.equal(of('transport-cancel').length,1);assert.ok(row.actions.some(x=>x.signal==='SIGTERM'))
+ assert.ok(!row.actions.some(x=>x.eof),'peer never supplies the EOF that could release this blocked read')
+ const wait=events.findLastIndex(x=>x.operation==='uninterruptible-read-wait')
+ assert.ok(wait>events.findLastIndex(x=>x.operation==='readLine')&&wait<index('transport-cancel'),'cancellation arrives during the deliberately uninterruptible wait')
+ assert.equal(events.filter(x=>x.operation==='memberClose'&&arg(x,'id')==='1').length,1,'provider actually observes cancellation and cleans up')
+ for(const operation of ['outcome','close','input-drain-start','transport-close','process-terminal','input-drain-fault'])assert.equal(of(operation).length,0,operation)
+ assert.deepEqual(row.outputs,[1,2].map(id=>`{"jsonrpc":"2.0","id":${id},"result":{"dispatched":true}}`),'all preceding requests completed normally')
+ return {contract:'application-outcome',evidence:{waitObserved:true,cancellationDelivered:true,memberCleanups:1,watchdogReaped:true,noApplicationRelease:true}}
 }
 async function execute(c,control=''){
  const fixture=join(dir,'scenario.json');await writeFile(fixture,JSON.stringify({kind:'transport',patch:'diff',providers:{},...c}))
@@ -99,7 +142,8 @@ async function execute(c,control=''){
  }
  child.on('error',error=>{failure=error;wake()});child.stdin.on('error',error=>{failure=error;wake()})
  const ended=new Promise(resolve=>child.once('close',(code,sig)=>{exitCode=code;signal=sig;wake();resolve()}))
- const timer=setTimeout(()=>{failure=new Error('pipe test deadline');child.kill('SIGKILL');wake()},control==='uninterruptible-read'?2000:20000)
+ const deadline=()=>{failure=new Error('pipe test deadline');child.kill('SIGKILL');wake()}
+ let timer=setTimeout(deadline,20000)
  async function until(predicate){
   if(predicate())return
   await new Promise((resolve,reject)=>{const check=()=>{if(failure||exitCode!==undefined){waiters.delete(check);reject(failure??new Error('child ended before gate'))}else if(predicate()){waiters.delete(check);resolve()}};waiters.add(check);check()})
@@ -136,7 +180,13 @@ async function execute(c,control=''){
    if(c.mode.endsWith('eof'))eof()
    else if(c.mode==='member-bad-utf8'){await write(Buffer.from([0xff,0x0a]));eof()}
    else if(c.mode==='member-short-utf8'){await write(Buffer.from([0xe2,0x82]));eof()}
-   else {cancel();await until(()=>events.some(x=>x.operation==='input-drain-start'));eof()}
+   else {
+    if(control==='uninterruptible-read'){
+     await until(()=>events.filter(x=>x.operation==='uninterruptible-read-wait').length>reads)
+     clearTimeout(timer);timer=setTimeout(deadline,2000)
+    }
+    cancel();await until(()=>events.some(x=>x.operation==='input-drain-start'));eof()
+   }
   }
   await ended
   const row={id:c.id,control,scenario:{kind:'transport',patch:'diff',providers:{},...c},actions,events,outputs,exitCode,signal}
@@ -150,20 +200,26 @@ async function execute(c,control=''){
   retained.push(row);return row
  }finally{clearTimeout(timer);if(exitCode===undefined){child.kill('SIGKILL');await ended}}
 }
-const proof=[]
+const proof=[],verificationGuards=[]
 try{
  for(const c of cases){const row=await execute(c);proof.push(acceptance(c,row));console.log(`PASS: actual pipes ${c.id}`)}
  for(const [id,control] of [['valid-unterminated-eof','drop-tail'],['valid-unterminated-eof','wrong-id'],['empty-eof','double-close'],['cancel-read-active-member','uninterruptible-read']]){
   const c=cases.find(x=>x.id===id),row=await execute(c,control)
-  let rejection;try{acceptance(c,row)}catch(error){rejection=error.message}
+  const cause=controlCause(c,row)
+  let rejection;try{acceptance(c,row)}catch(error){rejection=error}
   assert.ok(rejection,`${control} must fail the identical positive acceptance`)
-  if(control==='uninterruptible-read'){
-   assert.equal(row.deadlineExceeded,'pipe test deadline');assert.equal(row.signal,'SIGKILL')
-   assert.ok(row.events.some(x=>x.operation==='transport-cancel'),'cancellation was actually delivered')
-   assert.ok(!row.events.some(x=>x.operation==='close'),'blocked host read prevents resource release')
-  }
-  proof.push({id,control,rejected:true,reason:rejection});console.log(`PASS: compiled ${control} rejected`)
+  assert.equal(rejection.contract,cause.contract,`${control} must fail its intended contract`)
+  proof.push({id,control,rejected:true,contract:cause.contract,cause:cause.evidence,reason:rejection.message});console.log(`PASS: compiled ${control} defect observed; intended contract rejected`)
  }
+ // Compiled guard against the old false positive: unrelated host exceptions
+ // must be refused as tail-loss evidence, even though positive acceptance fails.
+ const c=cases.find(x=>x.id==='valid-unterminated-eof'),row=await execute(c,'drop-tail-fault')
+ assert.equal(row.events.filter(x=>x.operation==='tail-control-fault').length,1)
+ assert.equal(row.events.find(x=>x.operation==='outcome').type,'NotSupportedException')
+ let rejected;try{controlCause(c,row,'drop-tail')}catch(error){rejected=error}
+ assert.equal(rejected?.contract,'application-success','unhealthy control cannot masquerade as intended tail loss')
+ verificationGuards.push({id:'unrelated-tail-control-fault',refusedAsTailLoss:true,contract:rejected.contract,observedType:'NotSupportedException'})
+ console.log('PASS: compiled unrelated exception refused as tail-loss evidence')
 }finally{await writeFile(join(dir,'pipe-raw.json'),JSON.stringify(retained,null,2)+'\n')}
 const hashes={};for(const file of ['session.json','Generated.cs','Program.cs','Runtime.dll','Runtime.runtimeconfig.json','symbols.json','declarations.json','authoring.json','pipe-cases.json','compilation.json','pipe-raw.json'])hashes[file]=hash(await readFile(join(dir,file)))
 const sourceHashes={}
@@ -177,4 +233,4 @@ async function source(path){
 for(const name of ['author.mjs','run.mjs','compile.mjs','test-runtime.mjs','verify.mjs','pipe.template.cs'])await source(resolve('examples/offline-session-transport',name))
 await source(resolve('examples/offline-leader-jsonrpc/runtime.template.cs'))
 await source(resolve('examples/dynamic-worker-collector/compile-runtime.mjs'))
-await writeFile(join(dir,'pipe-proof.json'),JSON.stringify({base:'9171508041350969a8d41e0408d9e6b4cba55dd5',baseTree:'93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed',dependency:'PR396 stacked on unmerged PR395',execution:'actual OS child-process stdin/stdout pipes, compiled unedited graph, strict platform UTF-8 line reader; synthetic effects/gates',proof,hashes,sourceHashes:Object.fromEntries(Object.entries(sourceHashes).map(([path,value])=>[path.slice(resolve('.').length+1),value]))},null,2)+'\n')
+await writeFile(join(dir,'pipe-proof.json'),JSON.stringify({base:'9171508041350969a8d41e0408d9e6b4cba55dd5',baseTree:'93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed',dependency:'PR396 stacked on unmerged PR395',execution:'actual OS child-process stdin/stdout pipes, compiled unedited graph, strict platform UTF-8 line reader; synthetic effects/gates',proof,verificationGuards,hashes,sourceHashes:Object.fromEntries(Object.entries(sourceHashes).map(([path,value])=>[path.slice(resolve('.').length+1),value]))},null,2)+'\n')

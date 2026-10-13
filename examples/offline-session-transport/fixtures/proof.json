@@ -99,39 +99,74 @@
       "id": "valid-unterminated-eof",
       "control": "drop-tail",
       "rejected": true,
-      "reason": "Expected values to be strictly equal:\n\nfalse !== true\n"
+      "contract": "response-correlation-order",
+      "cause": {
+        "healthyOutcome": true,
+        "droppedLine": "{\"jsonrpc\":\"2.0\",\"id\":\"tail\",\"method\":\"ping\"}",
+        "missingResponseId": "tail",
+        "releaseCount": 1
+      },
+      "reason": "exact correlated ordered responses\n+ actual - expected\n\n+ []\n- [\n-   '{\"jsonrpc\":\"2.0\",\"id\":\"tail\",\"result\":{}}'\n- ]\n"
     },
     {
       "id": "valid-unterminated-eof",
       "control": "wrong-id",
       "rejected": true,
+      "contract": "response-correlation-order",
+      "cause": {
+        "healthyOutcome": true,
+        "graphResponse": "{\"jsonrpc\":\"2.0\",\"id\":\"tail\",\"result\":{}}",
+        "deliveredResponse": "{\"jsonrpc\":\"2.0\",\"id\":\"wrong\",\"result\":{}}",
+        "releaseCount": 1
+      },
       "reason": "exact correlated ordered responses\n+ actual - expected\n\n  [\n+   '{\"jsonrpc\":\"2.0\",\"id\":\"wrong\",\"result\":{}}'\n-   '{\"jsonrpc\":\"2.0\",\"id\":\"tail\",\"result\":{}}'\n  ]\n"
     },
     {
       "id": "empty-eof",
       "control": "double-close",
       "rejected": true,
+      "contract": "resource-release-count",
+      "cause": {
+        "healthyOutcome": true,
+        "closeCount": 2
+      },
       "reason": "exactly-once resource cleanup\n\n2 !== 1\n"
     },
     {
       "id": "cancel-read-active-member",
       "control": "uninterruptible-read",
       "rejected": true,
+      "contract": "application-outcome",
+      "cause": {
+        "waitObserved": true,
+        "cancellationDelivered": true,
+        "memberCleanups": 1,
+        "watchdogReaped": true,
+        "noApplicationRelease": true
+      },
       "reason": "child must publish an outcome"
+    }
+  ],
+  "verificationGuards": [
+    {
+      "id": "unrelated-tail-control-fault",
+      "refusedAsTailLoss": true,
+      "contract": "application-success",
+      "observedType": "NotSupportedException"
     }
   ],
   "hashes": {
     "session.json": "90a66f3ba042ae9d5048fafbab7a7f5d66246b084c00cda19989ba90278d4f19",
     "Generated.cs": "45632ddc88c3fd4d78122fb8ef6d2579987df1a00e02a8eb52a68f5271b919cc",
-    "Program.cs": "dd3957ce51ccb66d0dd9d370fe0506c869118bf520188a9be7c2b746f423d133",
-    "Runtime.dll": "00ecd9eedafdc86e98fb7a1d614bacadc4692df12aa51da8504e75fb6e2fe5ac",
+    "Program.cs": "310700b72e8d1f769a0a9711747607ec33adbde69f3f9f68bdc30c29692e57d3",
+    "Runtime.dll": "a9370dc8f876aaa04480f87817782b5a513bda5da4d015eaee6aea5cacd00b94",
     "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
     "symbols.json": "a2e0d976fc645e5b7b4c15eba828e29bb0e6cd4e3c360c5910705206180883d3",
     "declarations.json": "902814ac8a5b7ab987dfff20d4e2ef5c7dea6e4ddb06ea7d577f4d5caee6b70d",
     "authoring.json": "7b10e97eac246adcbe4a940815d67322791cbbef919339ed1c97161c265af34a",
     "pipe-cases.json": "0992b1fbb409bd6030802cd7d8ec0606da71b37a617e73c8236f9402d597f90c",
     "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
-    "pipe-raw.json": "450125273b3f611a4259f773ca9cf64a8fa968fa4cd5e293319242f562d70d58"
+    "pipe-raw.json": "f0fe1bdf1067650d49abfd9307c4337a0e6f20e64193e751b47396a3113ac98d"
   },
   "sourceHashes": {
     "examples/offline-session-transport/author.mjs": "2f58587ee9ca3785ba4b5f23a0f590b321251ce383c708e554e0da6a6eac1b8e",
@@ -146,17 +181,17 @@
     "examples/offline-leader-jsonrpc/parser.mjs": "689a7f112cf921f08534ebc9b2d9aea4d4e6c32cc7124775898c85081fbd145a",
     "examples/offline-leader-jsonrpc/recipes.mjs": "834197c9abdc2fe90e315271f747011c88df6d4910f564ec0e08c0e2cdfb6912",
     "examples/offline-session-transport/run.mjs": "f159ff43a27cf6194ad0cff3a83d9dd7226ed17d9f2d595ab766a476036b2bff",
-    "examples/offline-session-transport/compile.mjs": "d27415099221cc43ed69fa35116e8e44c898bfae85c1f8b1b0a42d7eb390ce6b",
+    "examples/offline-session-transport/compile.mjs": "0ab994bc9bed68c18d350bbdfd891f943253fb1f47edb271a880fc4e6b27e6b0",
     "examples/dynamic-worker-collector/compile-runtime.mjs": "7875c9a4475d46843f1e4d4fb2ce6109e94dcd72913ad6b1d2050b42c4b40553",
-    "examples/offline-session-transport/test-runtime.mjs": "c593626457704e98d4f745d1f2b81e54e5b92379a46adb4a1917edc9c0e6fff6",
+    "examples/offline-session-transport/test-runtime.mjs": "8a4546a7e8c72a120345085d7dcb728ea954dcc8e5f6cf9adc351ecc68951c51",
     "examples/offline-leader-jsonrpc/cases.mjs": "21fa3f4b25ea59667ab6ee5a226954fe069c9168b59f097d78fbe359b86660e3",
     "examples/offline-leader-team/cases.mjs": "bd8e310390de6d0f9281c617ab011877923919a2fa64759bee5a364b0803379e",
     "examples/member-lifecycle/cases.mjs": "5a4adca1161df48a502707a2c5381737be0a7454d722278e695669c9fb9754dd",
     "examples/member-concurrency/cases.mjs": "7eade6ea601f840db63fe2c6391eaf47bfa5dbbc2f092488f16ecd8951495a3e",
     "examples/member-controller/cases.mjs": "d38683a6d815b3bee7927c95578bfa6b99a2fa109637dfc98869f4f668f322e4",
     "examples/member-integration/cases.mjs": "32c0893fe929483fd6994d99fe3f31f6b7212596e2cb1a35785f9f475fdf06c5",
-    "examples/offline-session-transport/verify.mjs": "3dc33c75972bfd4fdad329b9ad1346d88b8f29574e130dfe7803c4f5b32df9eb",
-    "examples/offline-session-transport/pipe.template.cs": "3b8166d28a7c073c53c3eb71972b007ceb0c1648fffbafce9ca58a29cdabff78",
+    "examples/offline-session-transport/verify.mjs": "82521aba2ee373b238bc78240d764720ff4cf85ec6a527927653acc3419c0c4d",
+    "examples/offline-session-transport/pipe.template.cs": "2449f876039a5d826e6d4dc1de70ff787df632b1a96ddcb2e83ba8868572c2e2",
     "examples/offline-leader-jsonrpc/runtime.template.cs": "d9f9ffd1410ad8b1e79f1fe06ba96e5d3995ede80bcc6a494eccb20904704d9f"
   },
   "verification": {
@@ -175,33 +210,63 @@
     ],
     "artifactHashClosure": true,
     "sourceHashClosure": true,
-    "actualPipeRows": 17,
-    "negativeControls": 4
+    "actualPipeRows": 18,
+    "negativeControls": 4,
+    "verificationGuards": 1,
+    "readBytesMatchSent": true
   },
   "checks": {
-    "releaseBuild": {
-      "workers": 1,
-      "errors": 0,
-      "warnings": 0
+    "revisionOf": "08ed17df46dff79f754db220d8b594354d43b45a",
+    "fresh": {
+      "focused": 1,
+      "positivePipeCasesPerReplay": 13,
+      "causalNegativeControlsPerReplay": 4,
+      "unrelatedFaultGuardsPerReplay": 1,
+      "movedReplay": true
     },
-    "fast": 864,
-    "focused": 1,
-    "serialAuthoringScripts": 47,
-    "positivePipeCasesPerReplay": 13,
-    "compiledNegativeControlsPerReplay": 4,
+    "unchangedGraphArtifacts": {
+      "session.json": "90a66f3ba042ae9d5048fafbab7a7f5d66246b084c00cda19989ba90278d4f19",
+      "Generated.cs": "45632ddc88c3fd4d78122fb8ef6d2579987df1a00e02a8eb52a68f5271b919cc",
+      "symbols.json": "a2e0d976fc645e5b7b4c15eba828e29bb0e6cd4e3c360c5910705206180883d3",
+      "declarations.json": "902814ac8a5b7ab987dfff20d4e2ef5c7dea6e4ddb06ea7d577f4d5caee6b70d",
+      "authoring.json": "7b10e97eac246adcbe4a940815d67322791cbbef919339ed1c97161c265af34a"
+    },
     "logSha256": {
-      "aggregate.log": "dff6ea4328a6b1a2ef4e2e3e103bd2f4a1346f2520c44b6b8f563a7910ddfa56",
-      "author.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
       "compile.log": "dcaa4bc35d88e795f50eddd9214f344f21c4a98bfbfc5d8d547c9d7b5bfc1327",
-      "fast-build.log": "2e78925e1d846287b2c9c045690008ed6aef3d7010dbbd63df2f72e52a0923aa",
-      "fast-restore.log": "d0895193915ecf87c0e9e31cc0174395de8e43b1b40993242122830244937e73",
-      "fast.log": "d09f8e26d89b2ce4c225f8c8693694c6b62d9b1e527408d28b38f7ea5db84ccd",
-      "focused.log": "4184daa656ca88553f97ec61e4aec00b880a652a358adec775d6dbf7e962b71b",
+      "focused.log": "31f28a55f17be4a485d16fda3fde4d2d6843380dd1ac870cfd2b7370a5ed2d35",
+      "initial-compile.log": "dcaa4bc35d88e795f50eddd9214f344f21c4a98bfbfc5d8d547c9d7b5bfc1327",
+      "initial-runtime.log": "79e35053ab6f9eaea5d50a3f7cff092107794657261caf891cfed4af73b4bf67",
       "moved-compile.log": "dcaa4bc35d88e795f50eddd9214f344f21c4a98bfbfc5d8d547c9d7b5bfc1327",
-      "moved-runtime.log": "95ec0edd70d2bc10eb53f5c7c735b381055011dbec5f63115ae0aa35269c724e",
-      "replay.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
-      "runtime.log": "95ec0edd70d2bc10eb53f5c7c735b381055011dbec5f63115ae0aa35269c724e",
+      "moved-reopen.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
+      "moved-runtime.log": "79e35053ab6f9eaea5d50a3f7cff092107794657261caf891cfed4af73b4bf67",
+      "reopen.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
+      "runtime.log": "79e35053ab6f9eaea5d50a3f7cff092107794657261caf891cfed4af73b4bf67",
       "verify.log": "679f02285cb3845564d77c3288cff07d8e78ad16e1a1d117d4e803afcff769ac"
+    },
+    "reusedPriorChecks": {
+      "candidate": "08ed17df46dff79f754db220d8b594354d43b45a",
+      "freshRevisionRuns": false,
+      "releaseBuild": {
+        "workers": 1,
+        "errors": 0,
+        "warnings": 0
+      },
+      "fast": 864,
+      "serialAuthoringScripts": 47,
+      "logSha256": {
+        "aggregate.log": "dff6ea4328a6b1a2ef4e2e3e103bd2f4a1346f2520c44b6b8f563a7910ddfa56",
+        "author.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
+        "compile.log": "dcaa4bc35d88e795f50eddd9214f344f21c4a98bfbfc5d8d547c9d7b5bfc1327",
+        "fast-build.log": "2e78925e1d846287b2c9c045690008ed6aef3d7010dbbd63df2f72e52a0923aa",
+        "fast-restore.log": "d0895193915ecf87c0e9e31cc0174395de8e43b1b40993242122830244937e73",
+        "fast.log": "d09f8e26d89b2ce4c225f8c8693694c6b62d9b1e527408d28b38f7ea5db84ccd",
+        "focused.log": "4184daa656ca88553f97ec61e4aec00b880a652a358adec775d6dbf7e962b71b",
+        "moved-compile.log": "dcaa4bc35d88e795f50eddd9214f344f21c4a98bfbfc5d8d547c9d7b5bfc1327",
+        "moved-runtime.log": "95ec0edd70d2bc10eb53f5c7c735b381055011dbec5f63115ae0aa35269c724e",
+        "replay.log": "51a5db48237d88f9fbc7c9df149492d523a251817e23fd8e3c4f34838ccafaf4",
+        "runtime.log": "95ec0edd70d2bc10eb53f5c7c735b381055011dbec5f63115ae0aa35269c724e",
+        "verify.log": "679f02285cb3845564d77c3288cff07d8e78ad16e1a1d117d4e803afcff769ac"
+      }
     }
   }
 }

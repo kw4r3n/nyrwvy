@@ -66,10 +66,30 @@ Synthetic Git/provider effects are reused from the maintained fixture; these
 are not physical integration Git or live-model runs.
 
 Four deliberately wrong compiled host variants drop an EOF tail, rewrite IDs,
-duplicate cleanup, or block a cancelled read. The same acceptance used for the
-paired positive case rejects each. The negative flags are fixture controls,
-outside the supported path. No expected positive output is derived from a
-second parser or a host Team controller.
+duplicate cleanup, or block a cancelled read. Each must first show its intended
+cause and satisfy the rest of its paired lifecycle, then fail the specific
+positive contract for that cause. Tail loss requires a healthy graceful result,
+once-only cleanup, an observed dropped frame and the missing correlated reply.
+ID corruption requires the graph's correct reply and the altered delivered ID;
+duplicate cleanup requires two actual close observations with a healthy result;
+blocked read requires an observed wait, delivered cancellation, provider cleanup,
+absent application release and watchdog reaping. Arbitrary failures do not count.
+A fifth compiled row deliberately throws an unrelated `NotSupportedException`:
+the causal checker refuses it as tail-loss evidence. This verification guard is
+separate from the four intended negative controls. All flags are fixture controls
+outside the supported path. No expected positive output is derived from a second
+parser or a host Team controller.
+
+Independent review found that the earlier `drop-tail` EOF probe threw before
+dropping anything. The verification revision supports the reader's recorded
+synchronous EOF probe, records the drop, and strengthens all four control checks.
+The authored graph and transport policy are unchanged.
+
+The review also measured a closed stdout reader during held integration: local
+success and once-only release were reported after commit/head/save, while the
+peer received no terminal notification. Local success does not establish terminal
+delivery. This verification-only revision does not fix that limitation, retained
+stdin drainage, or EOF detection during a blocked foreground fold.
 
 ## Reproduce
 
@@ -92,6 +112,9 @@ Bundles retain the reviewed/committed snapshot and transcript, symbols,
 declarations, unedited emitted C#, generated effects/pipe host, compiled assembly,
 runtime configuration, fixture scenarios, exact peer write bytes/signals/EOF,
 actual read bytes, effect events, stdout lines, outcomes and hash closure.
+Hash closure covers the declared artifact/application-source set. It excludes
+the transcript, mutable scenario file, tool binaries, compiler and reference-pack
+bytes; it is not complete environment closure.
 Moved replay verifies exact snapshot/source/host/assembly bytes and identical
 peer actions, wire outputs and terminal outcomes. Concurrent effect interleavings
 may differ; both runs independently satisfy the same happens-before contracts.
@@ -104,6 +127,7 @@ may differ; both runs independently satisfy the same happens-before contracts.
 | Proven | Active-Member/queued-command root cancellation; protected held integration tail; once-only application release and joined peer-closed input |
 | Reused | Graph JSON parser/binding, admission, Members, integration ledger, close intent, explicit joins, post-release success terminal; default entry regressions |
 | Missing | Historical private Rrawrlet artifacts; durable restart/reconciliation application; autonomous deadline/escalation for a peer retaining stdin |
+| Measured limit | Peer-retained stdin prevents final drainage; held foreground fold delays EOF; closed stdout can lose the terminal despite local success |
 | Unverified | EOF detection during blocked foreground folds, write/backpressure failures, frame-byte bounds before decoding, arbitrary host failure, multi-client transports, full MCP/JSON-RPC or Python equivalence, process groups, live providers/physical Git, budgets and unbounded fairness |
 
 The language already expresses this measured boundary. The demonstrated gap

@@ -10,7 +10,13 @@ sealed class RecordedInput : System.IO.Stream
  public override long Seek(long offset,System.IO.SeekOrigin origin)=>throw new NotSupportedException();
  public override void SetLength(long value)=>throw new NotSupportedException();
  public override void Write(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
- public override int Read(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
+ public override int Read(byte[] buffer,int offset,int count)
+ {
+  // StreamReader.EndOfStream may probe synchronously in the tail-loss control.
+  int n=inner.Read(buffer,offset,count);
+  Effects.Observe(new {operation="pipe-read",hex=Convert.ToHexString(buffer.AsSpan(offset,n)),synchronous=true});
+  return n;
+ }
  public override async System.Threading.Tasks.ValueTask<int> ReadAsync(Memory<byte> buffer,CancellationToken token=default)
  {
   int n=await inner.ReadAsync(buffer,token);
@@ -32,13 +38,17 @@ sealed class Pipe : @@TRANSPORT@@, IDisposable
   // Console's OS read can stay blocked after cancellation on Linux. Cancel
   // this wait, retain the read, and join it in Dispose after peer stdin EOF.
   pending=input.ReadLineAsync(CancellationToken.None).AsTask();
+  if(control=="uninterruptible-read")Effects.Observe(new {operation="uninterruptible-read-wait"});
   var line=(control=="uninterruptible-read"?pending:pending.WaitAsync(NyRuntime.Cancellation.Value)).GetAwaiter().GetResult();
   pending=null;
   if(line==null){effects.InputEnded();return NyOption<NyStr>.None();}
   Effects.Observe(new {operation="readLine",line});
   // Compiled negative control: a final unterminated frame is read by the
   // same platform reader, then incorrectly dropped. Acceptance detects loss.
-  if(control=="drop-tail" && input.EndOfStream){effects.InputEnded();return NyOption<NyStr>.None();}
+  // Verification guard recreates the former unrelated exception; it must be
+  // refused as tail-loss evidence, even though positive acceptance rejects it.
+  if(control=="drop-tail-fault"){Effects.Observe(new {operation="tail-control-fault"});throw new NotSupportedException("unrelated tail-control fault");}
+  if(control=="drop-tail" && input.EndOfStream){Effects.Observe(new {operation="tail-dropped",line});effects.InputEnded();return NyOption<NyStr>.None();}
   return NyOption<NyStr>.Some(line);
  }
  public void Dispose()
