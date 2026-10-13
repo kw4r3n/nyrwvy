@@ -20,7 +20,7 @@ const start=(worker,values)=>({kind:'taskStart',scope:p('scope'),worker,item:uni
 const mr=(input,okBody,errBody)=>({kind:'matchResult',input,okBody,errBody})
 const exclusive=op=>({kind:'boolOr',left:eqStr(op,text('spawn')),right:{kind:'boolOr',left:eqStr(op,text('integrate')),right:{kind:'boolOr',left:eqStr(op,text('discard')),right:eqStr(op,text('finish'))}}})
 
-export async function author(s,{recoverCompleted=true,protectDetermined=true}={}){
+export async function author(s,{recoverCompleted=true,protectDetermined=true,retainCloseIntent=true}={}){
  await serialized(s,{protectDetermined})
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'AdmissionTicket',typeKind:{kind:'product',fields:fields({slot:int,parent:handle,relay:task(result(unit)),snapshot:cell,next:cell,exclusive:bool})}},
@@ -124,12 +124,30 @@ export async function author(s,{recoverCompleted=true,protectDetermined=true}={}
   bind(complete(p('last'),p('initial')),
    bind({kind:'listEffectFold',source:p('requests'),seed:construct('AdmissionOwner',{initial:p('initial'),last:p('last'),tickets:L(K)}),function:'admissionFold',context:ctx({host:p('host'),scope:p('scope')})},
     bind({kind:'listEffectFold',source:f(pat(),'AdmissionOwner','tickets'),seed:unitValue,function:'admissionDrainTicket',context:[]},ok(unitValue)))))
- await s.create('admissionScope',{host:cap('Host'),scope,requests:list(Q)},result(unit),
+ const signalParams=retainCloseIntent?{closingSignal:oneShot(unit)}:{}
+ const initialLoop=bind(construct('State',{entries:L(named('Entry')),next:integer(1),closing:boolean(false),closingSignal:retainCloseIntent?p('closingSignal'):pat()}),
+  bind({kind:'oneShotCreate',scope:p('scope'),valueType:S},direct('admissionLoop',{host:p('host'),scope:p('scope'),requests:p('requests'),initial:pat('value',1),last:pat()})))
+ await s.create('admissionScope',{host:cap('Host'),scope,requests:list(Q),...signalParams},result(unit),retainCloseIntent?initialLoop:
   bind({kind:'oneShotCreate',scope:p('scope'),valueType:unit},
-   bind(construct('State',{entries:L(named('Entry')),next:integer(1),closing:boolean(false),closingSignal:pat()}),
-    bind({kind:'oneShotCreate',scope:p('scope'),valueType:S},direct('admissionLoop',{host:p('host'),scope:p('scope'),requests:p('requests'),initial:pat('value',1),last:pat()})))))
+   initialLoop))
+ // Only the close latch belongs to the protected scope. The original scope
+ // starts the whole admission task, whose own scope still links cancellation
+ // to every request, Member and state handoff. Wait for that drained task before
+ // the latch's scope closes; no worker can observe premature latch closure.
+ if(retainCloseIntent){
+  await s.create('admissionCancellable',{host:cap('Host'),requests:list(Q),closingSignal:oneShot(unit),item:unit},result(unit),
+   {kind:'taskScope',body:'admissionScope',context:ctx({host:p('host'),requests:p('requests'),closingSignal:p('closingSignal')})})
+  await s.create('admissionCloseLifetime',{host:cap('Host'),requests:list(Q),executionScope:scope,scope},result(unit),
+   bind({kind:'oneShotCreate',scope:p('scope'),valueType:unit},
+    bind({kind:'taskStart',scope:p('executionScope'),worker:'admissionCancellable',item:unitValue,context:ctx({host:p('host'),requests:p('requests'),closingSignal:pat()})},
+     matchOption(first({kind:'taskWait',tasks:L(task(result(unit)),pat()),mode:'all'}),matchOption(pat(),pat(),err(text('missing'),unit)),err(text('missing'),unit)))))
+  await s.create('admissionCloseShield',{host:cap('Host'),requests:list(Q),executionScope:scope,item:unit},result(unit),
+   {kind:'taskScope',body:'admissionCloseLifetime',context:ctx({host:p('host'),requests:p('requests'),executionScope:p('executionScope')})})
+  await s.create('admissionExecutionScope',{host:cap('Host'),requests:list(Q),scope},result(unit),
+   {kind:'cancellationShield',body:'admissionCloseShield',context:ctx({host:p('host'),requests:p('requests'),executionScope:p('scope')})})
+ }
  await s.create('admissionResource',{host:cap('Host'),requests:list(Q),handle:unit},result(unit),
-  {kind:'taskScope',body:'admissionScope',context:ctx({host:p('host'),requests:p('requests')})})
+  {kind:'taskScope',body:retainCloseIntent?'admissionExecutionScope':'admissionScope',context:ctx({host:p('host'),requests:p('requests')})})
  await s.create('concurrentRun',{host:cap('Host'),requests:list(Q)},result(unit),
   {kind:'useResource',acquire:io('open'),releaseCapability:p('host'),capability:'Host',releaseOperation:'close',body:'admissionResource',context:ctx({host:p('host'),requests:p('requests')})})
  const declarations=await s.call('inspect',{view:'declarations'})

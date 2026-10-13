@@ -1,0 +1,314 @@
+{
+  "scripts": 11,
+  "realRunsPerGraph": 22,
+  "exactVirtualTaskRoot": 11,
+  "baselineFailures": [
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "external",
+      "rejected": true
+    }
+  ],
+  "afterPasses": [
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "virtual"
+    },
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "task"
+    },
+    {
+      "id": "cancel-before-close-publication",
+      "mode": "external"
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "virtual"
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "task"
+    },
+    {
+      "id": "cancel-close-during-cleanup",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-typed-snapshot",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-raw-snapshot",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-release-fault",
+      "mode": "external"
+    },
+    {
+      "id": "close-before-cancel",
+      "mode": "virtual"
+    },
+    {
+      "id": "close-before-cancel",
+      "mode": "task"
+    },
+    {
+      "id": "close-before-cancel",
+      "mode": "external"
+    },
+    {
+      "id": "checks-before-close",
+      "mode": "virtual"
+    },
+    {
+      "id": "checks-before-close",
+      "mode": "task"
+    },
+    {
+      "id": "checks-before-close",
+      "mode": "external"
+    },
+    {
+      "id": "cancel-only-close-caller",
+      "mode": "virtual"
+    },
+    {
+      "id": "cancel-only-close-caller",
+      "mode": "task"
+    },
+    {
+      "id": "cancel-only-close-caller",
+      "mode": "external"
+    },
+    {
+      "id": "cancel-queued-close",
+      "mode": "virtual"
+    },
+    {
+      "id": "cancel-queued-close",
+      "mode": "task"
+    },
+    {
+      "id": "cancel-queued-close",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-undetermined-provider",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-completed-after-cancel",
+      "mode": "external"
+    }
+  ],
+  "controls": [
+    {
+      "id": "close-publication-lost",
+      "rejected": true
+    },
+    {
+      "id": "late-checks-run",
+      "rejected": true
+    },
+    {
+      "id": "already-entered-checks-erased",
+      "rejected": true
+    },
+    {
+      "id": "queued-close-invented",
+      "rejected": true
+    },
+    {
+      "id": "queued-caller-protected",
+      "rejected": true
+    },
+    {
+      "id": "snapshot-token-exposed",
+      "rejected": true
+    },
+    {
+      "id": "cleanup-downgrades-completion",
+      "rejected": true
+    },
+    {
+      "id": "undetermined-completion-retained",
+      "rejected": true
+    },
+    {
+      "id": "duplicate-cleanup",
+      "rejected": true
+    },
+    {
+      "id": "raw-fault-loses-cancellation",
+      "rejected": true
+    },
+    {
+      "id": "release-fault-loses-cancellation",
+      "rejected": true
+    },
+    {
+      "id": "early-release",
+      "rejected": true
+    }
+  ],
+  "independentOracle": {
+    "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "sourceProofs": {
+      "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+      "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+      "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+      "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+    },
+    "contracts": 11
+  },
+  "wholePythonParity": false,
+  "limits": [
+    "Virtual and real share the C# emitter/runtime",
+    "C# raw snapshot faults propagate; Python records failed snapshot",
+    "Only admitted close publishes intent; bare owner cancellation without close remains separate",
+    "Checks already entered finish; no atomic cross-task check-start cutoff is claimed",
+    "Queued mutation protection remains separate; queued callers cancel independently"
+  ]
+}
