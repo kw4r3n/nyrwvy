@@ -9,6 +9,7 @@ Small, self-contained programs that exercise the maintained authoring tools. Eac
 - [`member-lifecycle/`](member-lifecycle/README.md): bounded offline Member lifecycle controller, actual Python Team differential oracle, unedited C# runtime checks, and explicit cancellation/fault fidelity gaps.
 - [`member-controller/`](member-controller/README.md): serialized offline lifecycle/integration composition, 22 independent oracle matches and an explicit raw commit-fault gap.
 - [`member-snapshot-faults/`](member-snapshot-faults/README.md): opt-in snapshot-only ExceptionCatch composition, retained failed Final and an explicit Python cancellation-class divergence.
+- [`task-cancellation-outcome/`](task-cancellation-outcome/README.md): explicit worker-local cancellation-to-Result composition, wrong-boundary controls and real exception identity/stack proof; existing task and Member policies unchanged.
 - [`member-integration/`](member-integration/README.md): bounded sequential integration/rollback policy over observed facts, synthetic Git effects, and unchanged Python Team comparison.
 - [`member-lifecycle-followup/`](member-lifecycle-followup/README.md): no-core cancellable observer and tagged provider-effect adaptations, with raw-fault controls retained.
 - [`verification-planner/`](verification-planner/README.md): a four-function pure program kept as a snapshot plus its generated C# runner; its README records how it was authored and maintained through the tools, and `--test --maintained` checks all 1,024 input combinations.

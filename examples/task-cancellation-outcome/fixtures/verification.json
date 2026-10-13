@@ -1,0 +1,234 @@
+{
+  "environment": {
+    "dotnet": "10.0.112",
+    "node": "26.11.1",
+    "bun": "1.4.3",
+    "shell": "Nushell",
+    "dependencies": "copied unchanged root and tools/nyrwvy-mcp workspace node_modules from task-3 checkout; no fresh npm ci"
+  },
+  "execution": "all final checks serial across individual test projects; Node test-concurrency=1; .NET MaxCpuCount=1/collection parallelism disabled",
+  "aggregates": {
+    "fast-dotnet": [
+      {
+        "passed": 864,
+        "total": 864,
+        "assembly": "Nyrwvy.Core.Tests.dll"
+      }
+    ],
+    "extended-core": [
+      {
+        "passed": 123,
+        "total": 123,
+        "assembly": "Nyrwvy.Core.Tests.dll"
+      }
+    ],
+    "extended-project": [
+      {
+        "passed": 31,
+        "total": 31,
+        "assembly": "Nyrwvy.Extended.Tests.dll"
+      }
+    ],
+    "adapters": {
+      "tests": 8,
+      "passed": 8,
+      "failed": 0
+    },
+    "node": {
+      "tests": 47,
+      "passed": 47,
+      "failed": 0
+    },
+    "mcp": {
+      "tests": 12,
+      "passed": 12,
+      "failed": 0
+    },
+    "bun": {
+      "passed": 23,
+      "failed": 0
+    }
+  },
+  "logs": [
+    {
+      "path": "artifacts/task-cancellation-outcome/final-authoring.log",
+      "sha256": "3de08fc25dc09792a6e8fd4096a04534d777cc9d49132bb6a0e72f9dd30246fa",
+      "bytes": 163
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/final-runtime.log",
+      "sha256": "7863e284aca8e982a1b7b6959b7fa0eaeb79106ba307a3a2d409446ac2f8e2da",
+      "bytes": 64
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/final-replay.log",
+      "sha256": "e276ae5ec45f80eee01003c1a48e2145bd1ce69b4d10e78281fbab4b5c5c9b1d",
+      "bytes": 162
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/moved-runtime.log",
+      "sha256": "7863e284aca8e982a1b7b6959b7fa0eaeb79106ba307a3a2d409446ac2f8e2da",
+      "bytes": 64
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/release-build.log",
+      "sha256": "5feb062e655ce3553bef59a3b20ef544b72efca596a23cf0b20b0f692bfe63d8",
+      "bytes": 2077
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/fast-dotnet.log",
+      "sha256": "3ee34f26ebd8901e572be6082e6ea5df1ec80d5eb49b2b335dd46d3d707579a6",
+      "bytes": 407
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/extended-core.log",
+      "sha256": "71ee03851ad26354e743fe2803a4c8cef47780bee3b6031e40ea40aa2f41f959",
+      "bytes": 411
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/extended-project.log",
+      "sha256": "476b16be6c69f2be60262e9e8b51d9aa2c412795432a23bc783fc300ffe98c54",
+      "bytes": 419
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/extended-dotnet.log",
+      "sha256": "ab7a25f210cd858a0ec91f47ee5f77a186da7c5527a14c94d7903284e63dcc40",
+      "bytes": 830
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/typecheck.log",
+      "sha256": "e9d6d2a67d2dad01f7641f3d101cb4e56eda77d9d034013cf23bb233aaaab8db",
+      "bytes": 248
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/typecheck-initial.log",
+      "sha256": "cfd09e12cf6b9afa42270cf5d7041a5efbacefbfa834b079a06e10854ac6df5e",
+      "bytes": 1041
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/adapters.log",
+      "sha256": "c27675899e7b17a314dcfb6c5f86f272747a3ce92e7e2a172e2085950ae5eec0",
+      "bytes": 850
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/node.log",
+      "sha256": "d81fb15f16947119e3bf0a163a1f573bf70631f1f5041804068dcfa54c24f291",
+      "bytes": 7593
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/mcp.log",
+      "sha256": "557389457bc07007bda486e76a78dbdfe450639826569a725aad165d0d884f60",
+      "bytes": 1212
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/bun.log",
+      "sha256": "8a113cc41b645c2a644722308bc90bf3d3e231de023ef019da6464eb156cdf97",
+      "bytes": 2204
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/partition.log",
+      "sha256": "51bb1a8591bbe8c7a3221112d7acc78dacf0c1dbdeb04faf2fa20b48e394b9a4",
+      "bytes": 68
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/fish-contract.log",
+      "sha256": "e94f941e298b7e479f4d71780d002223dbbf3aa7c430904fae848fe9968c26af",
+      "bytes": 58
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/fish-syntax.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/whitespace.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/runtime-first.log",
+      "sha256": "d3d5ba3fd53b7fd3d8f9e1cb5c8ac769372b725525d00409b09eb79b9e313a9e",
+      "bytes": 2608
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/runtime-diagnostic.log",
+      "sha256": "b3cdd5353556f0a92549ec84852d7623edf6e0dca1ab32ae89be491bfa62c247",
+      "bytes": 1299
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/runtime-corrected.log",
+      "sha256": "2a2fd07dc0226bff74298a07be4cd676b1d6420b18081f9a8f607ddb8a217925",
+      "bytes": 64
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/focused-node.log",
+      "sha256": "5fc22f4c72e69543dfc8f967545bb492301341bef606248e31d8c400384967e4",
+      "bytes": 246
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/bundle/transcript.jsonl",
+      "sha256": "f5da887b7752c0b1c640617588b4609f8239676ad68e977d0622c3c405ba1cba",
+      "bytes": 1058865
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/final-bundle/transcript.jsonl",
+      "sha256": "00b15c8f0a376e42fe757c820bf5022f316db1ba18dab380d5d386449f62be41",
+      "bytes": 751499
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/final-moved/transcript.jsonl",
+      "sha256": "e5fcd8e458b979c93363a2536427c11c251ff9820aa163d78b70279eaa59973a",
+      "bytes": 1086401
+    }
+  ],
+  "sources": [
+    {
+      "path": "examples/task-cancellation-outcome/author.mjs",
+      "sha256": "7a097653b566eeeb4d6c7d58fc827fa558ca92c2ed9247ff2dd59560ea3ee3e1"
+    },
+    {
+      "path": "examples/task-cancellation-outcome/run.mjs",
+      "sha256": "ae612cf9b09b7ba947102e090ba8d9fd7a3ad5b6b1565e39684ebc6590116af7"
+    },
+    {
+      "path": "examples/task-cancellation-outcome/test-runtime.mjs",
+      "sha256": "aae2a8da6cd9d609d5755d8da7d4ce02ea733df91c4e042d1aa4da414c7197cc"
+    },
+    {
+      "path": "examples/task-cancellation-outcome/runtime.tests.cs",
+      "sha256": "0a3c37ba19601834b6ee16936db044ba884eaa123d8c70d00d809f8b1b896f3c"
+    },
+    {
+      "path": ".opencode/tests/nyrwvy-authoring-task-cancellation-outcome.test.mjs",
+      "sha256": "5d553709ed2bb82622544b0f0d360a56efa0d785c03cee89485aa9f5bbdcbf17"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "259b2d8ac500aeed6ccff9ab093736ea46f8d30ea55028073b0dc65afcdf75e6"
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/verify.nu",
+      "sha256": "d792683c9d502939744e97ed0cadc8622406860379f470c5f2f8df2610f33736"
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/finish.nu",
+      "sha256": "14e41e5519cc9323aa16b451e028fe81ed2b4150717e469a4e8c14c50d834b8e"
+    },
+    {
+      "path": "artifacts/task-cancellation-outcome/resume.nu",
+      "sha256": "f4264e2cfd4b70b99eba22f095ca62fcb5b99759ef8784584168934634d25d96"
+    }
+  ],
+  "diagnostics": [
+    "initial sandbox build failed without diagnostic text; expanded build allowed",
+    "initial run used invalid Unit Result wire encoding; corrected",
+    "initial C# harness missed generated namespace and assumed NyStr.From; corrected",
+    "first substantive real run passed 9 boundary controls then read token state after Close; corrected observation to before Close (Close intentionally cancels)",
+    "initial typecheck lacked copied nested MCP workspace dependencies; copied the existing workspace dependency directory",
+    "initial solution-level Extended command passed but ran two projects concurrently despite per-host settings; corrected final invocation to separate serial project commands",
+    "terminal exec-server disconnected during the initial serial Node aggregate; upon recovery session/runner/aggregate absent, with no saved result and no outcome counted; resumed only interrupted Node and remaining checks with direct streaming logs; executor and surviving resumed process/session verified after reported desktop restart",
+    "expanded SDK/compiler/test execution approved; no automatic approval rejection"
+  ],
+  "independentReview": "pending; local commit only; parent handles PR after review",
+  "evidenceRoot": "/home/kw4/Documents/Codex/2026-10-14/task-5/nyrwvy/artifacts/task-cancellation-outcome"
+}
