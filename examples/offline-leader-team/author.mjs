@@ -18,10 +18,10 @@ const workerParams={host:cap('Host'),scope,previous:C,next:C,snapshot:C,request:
 const workerContext=values({...workerParams,item:undefined});delete workerContext.item
 const exception=gen('exception')
 
-export async function author(s){
+export async function author(s,{wireTurn}={}){
  await admission(s) // Maintained defaults: linked provider cancellation, protected determined tail.
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
-  {displayName:'LeaderTurn',typeKind:{kind:'product',fields:[{displayName:'label',type:string},{displayName:'commands',type:list(Q)}]}}
+  {displayName:'LeaderTurn',typeKind:{kind:'product',fields:[{displayName:'label',type:string},{displayName:wireTurn?'lines':'commands',type:list(wireTurn?string:Q)}]}}
  ]}}))
  // Only independently owned command workers choose a cancellation Result.
  // Neither Member workers, supervisor faults, cleanup nor release is adapted.
@@ -69,9 +69,10 @@ export async function author(s){
  // report; requests cross the same admission path while tickets span turns.
  await s.create('sessionReport',{owner:W},string,
   fold(f(direct('admissionCurrent',{owner:p('owner')}),'State','entries'),text(''),'renderFold',{mode:text('inspect')}),[])
+ if(wireTurn)await wireTurn(s)
  await s.create('sessionTurn',{host:cap('Host'),scope,acc:W,item:Turn,wrongBoundary:bool},W,
   bind(reply(concat(text('@leader:'),f(p('item'),'LeaderTurn','label')),direct('sessionReport',{owner:p('acc')})),
-   fold(f(p('item'),'LeaderTurn','commands'),p('acc'),'sessionCommandFold',{host:p('host'),scope:p('scope'),wrongBoundary:p('wrongBoundary')})))
+   fold(f(p('item'),'LeaderTurn',wireTurn?'lines':'commands'),p('acc'),wireTurn?'wireFold':'sessionCommandFold',{host:p('host'),scope:p('scope'),wrongBoundary:p('wrongBoundary')})))
  // Close cutoff precedes Member drainage. Then join every command AND supervisor
  // before the final registry inspection; scope exit is an additional safety net.
  await s.create('sessionDrainTicket',{acc:unit,item:K},unit,

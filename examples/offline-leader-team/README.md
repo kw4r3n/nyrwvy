@@ -66,8 +66,10 @@ timing is supplementary and does not establish real barrier ordering.
 This milestone uses the maintained typed Request relay. The full historical
 JSON-RPC relay from probe 9 was documented with private scripts/snapshots outside
 this repository; no reusable local artifact was found. JSON envelope parsing,
-keyword binding and full JSON-RPC composition are **unverified here**. The
-scripted Leader consumes graph reports in script order; it does not perform LLM
+keyword binding and full historical JSON-RPC composition are **unverified here**.
+The [separate JSON-RPC continuation](../offline-leader-jsonrpc/README.md) now
+re-authors and tests a documented bounded wire subset through this same session.
+The scripted Leader consumes graph reports in script order; it does not perform LLM
 planning. No whole-owner Python policy equivalence is claimed. Python's retained
 mutator shutdown is a separate application policy, not a missing primitive.
 
