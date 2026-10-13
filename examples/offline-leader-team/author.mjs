@@ -18,7 +18,11 @@ const workerParams={host:cap('Host'),scope,previous:C,next:C,snapshot:C,request:
 const workerContext=values({...workerParams,item:undefined});delete workerContext.item
 const exception=gen('exception')
 
-export async function author(s,{wireTurn}={}){
+export async function author(s,{wireTurn,sessionInput}={}){
+ // Optional application input loop; the default finite turns and all lifetime,
+ // admission and terminal functions keep the same bodies and ownership shape.
+ const inputParams=sessionInput?.parameters??{turns:list(Turn)}, inputContext=values(inputParams)
+ const foldInput=sessionInput?.fold??(owner=>fold(p('turns'),owner,'sessionTurn',{host:p('host'),scope:p('scope'),wrongBoundary:p('wrongBoundary')}))
  await admission(s) // Maintained defaults: linked provider cancellation, protected determined tail.
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'LeaderTurn',typeKind:{kind:'product',fields:[{displayName:'label',type:string},{displayName:wireTurn?'lines':'commands',type:list(wireTurn?string:Q)}]}}
@@ -86,28 +90,28 @@ export async function author(s,{wireTurn}={}){
   bind(direct('sessionBegin',{host:p('host'),scope:p('scope'),owner:p('owner'),wrongBoundary:p('wrongBoundary'),
    request:construct('Request',{op:text('begin'),target:integer(0),previous:integer(0),mode:text('finish'),limit:integer(5000),label:text('@auto-close')})}),
    bind(direct('admissionAwaitNew',{owner:pat()}),direct('sessionTerminal',{host:p('host'),owner:pat()}))))
- await s.create('sessionScope',{host:cap('Host'),scope,turns:list(Turn),closingSignal:oneShot(unit),wrongBoundary:bool},result(string),
+ await s.create('sessionScope',{host:cap('Host'),scope,...inputParams,closingSignal:oneShot(unit),wrongBoundary:bool},result(string),
   bind({kind:'oneShotCreate',scope:p('scope'),valueType:S},
    bind(construct('State',{entries:L(named('Entry')),next:integer(1),closing:boolean(false),closingSignal:p('closingSignal')}),
     bind({kind:'oneShotComplete',cell:pat('value',1),value:pat()},
-     bind(fold(p('turns'),construct('AdmissionOwner',{initial:pat('value',1),last:pat('value',2),tickets:L(K)}),'sessionTurn',{host:p('host'),scope:p('scope'),wrongBoundary:p('wrongBoundary')}),
+     bind(foldInput(construct('AdmissionOwner',{initial:pat('value',1),last:pat('value',2),tickets:L(K)})),
       direct('sessionFinish',{host:p('host'),scope:p('scope'),owner:pat(),wrongBoundary:p('wrongBoundary')}))))))
- await s.create('sessionCancellable',{host:cap('Host'),turns:list(Turn),closingSignal:oneShot(unit),wrongBoundary:bool,item:unit},result(string),
-  {kind:'taskScope',body:'sessionScope',context:ctx({host:p('host'),turns:p('turns'),closingSignal:p('closingSignal'),wrongBoundary:p('wrongBoundary')})})
+ await s.create('sessionCancellable',{host:cap('Host'),...inputParams,closingSignal:oneShot(unit),wrongBoundary:bool,item:unit},result(string),
+  {kind:'taskScope',body:'sessionScope',context:ctx({host:p('host'),...inputContext,closingSignal:p('closingSignal'),wrongBoundary:p('wrongBoundary')})})
  // Reuse the protected close-latch lifetime shape; other cells and all work
  // remain linked to the cancellable execution owner.
- await s.create('sessionCloseLifetime',{host:cap('Host'),turns:list(Turn),executionScope:scope,scope,wrongBoundary:bool},result(string),
+ await s.create('sessionCloseLifetime',{host:cap('Host'),...inputParams,executionScope:scope,scope,wrongBoundary:bool},result(string),
   bind({kind:'oneShotCreate',scope:p('scope'),valueType:unit},
-   bind({kind:'taskStart',scope:p('executionScope'),worker:'sessionCancellable',item:unitValue,context:ctx({host:p('host'),turns:p('turns'),closingSignal:pat(),wrongBoundary:p('wrongBoundary')})},
+   bind({kind:'taskStart',scope:p('executionScope'),worker:'sessionCancellable',item:unitValue,context:ctx({host:p('host'),...inputContext,closingSignal:pat(),wrongBoundary:p('wrongBoundary')})},
     matchOption({kind:'listItemAt',list:{kind:'taskWait',tasks:L(task(result(string)),pat()),mode:'all'},index:integer(0)},matchOption(pat(),pat(),err(text('pending'))),err(text('missing'))))))
- await s.create('sessionCloseShield',{host:cap('Host'),turns:list(Turn),executionScope:scope,wrongBoundary:bool,item:unit},result(string),
-  {kind:'taskScope',body:'sessionCloseLifetime',context:ctx({host:p('host'),turns:p('turns'),executionScope:p('executionScope'),wrongBoundary:p('wrongBoundary')})})
- await s.create('sessionExecutionScope',{host:cap('Host'),turns:list(Turn),scope,wrongBoundary:bool},result(string),
-  {kind:'cancellationShield',body:'sessionCloseShield',context:ctx({host:p('host'),turns:p('turns'),executionScope:p('scope'),wrongBoundary:p('wrongBoundary')})})
- await s.create('sessionResource',{host:cap('Host'),turns:list(Turn),handle:unit,wrongBoundary:bool},result(string),
-  {kind:'taskScope',body:'sessionExecutionScope',context:ctx({host:p('host'),turns:p('turns'),wrongBoundary:p('wrongBoundary')})})
- await s.create('sessionRun',{host:cap('Host'),turns:list(Turn),wrongBoundary:bool},result(string),
-  mr({kind:'useResource',acquire:io('open',{}),releaseCapability:p('host'),capability:'Host',releaseOperation:'close',body:'sessionResource',context:ctx({host:p('host'),turns:p('turns'),wrongBoundary:p('wrongBoundary')})},
+ await s.create('sessionCloseShield',{host:cap('Host'),...inputParams,executionScope:scope,wrongBoundary:bool,item:unit},result(string),
+  {kind:'taskScope',body:'sessionCloseLifetime',context:ctx({host:p('host'),...inputContext,executionScope:p('executionScope'),wrongBoundary:p('wrongBoundary')})})
+ await s.create('sessionExecutionScope',{host:cap('Host'),...inputParams,scope,wrongBoundary:bool},result(string),
+  {kind:'cancellationShield',body:'sessionCloseShield',context:ctx({host:p('host'),...inputContext,executionScope:p('scope'),wrongBoundary:p('wrongBoundary')})})
+ await s.create('sessionResource',{host:cap('Host'),...inputParams,handle:unit,wrongBoundary:bool},result(string),
+  {kind:'taskScope',body:'sessionExecutionScope',context:ctx({host:p('host'),...inputContext,wrongBoundary:p('wrongBoundary')})})
+ await s.create('sessionRun',{host:cap('Host'),...inputParams,wrongBoundary:bool},result(string),
+  mr({kind:'useResource',acquire:io('open',{}),releaseCapability:p('host'),capability:'Host',releaseOperation:'close',body:'sessionResource',context:ctx({host:p('host'),...inputContext,wrongBoundary:p('wrongBoundary')})},
    bind(reply(text('terminal'),pat()),ok(pat('value',1))),err(pat('error'))))
  // Compiled placement control uses the identical command worker and acceptance
  // contract. Catching its wait chooses a local Err but leaves the owned task

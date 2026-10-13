@@ -10,10 +10,12 @@ const member=(v,items)=>items.map(x=>eqStr(v,text(x))).reduce(or)
 const defaultRequest=()=>construct('Request',{op:text('inspect'),label:text(''),mode:text('all'),target:integer(0),previous:integer(0),limit:integer(5000)})
 const decoded=(code,id=text('null'),notification=boolean(false),request=defaultRequest())=>construct('WireDecoded',{code:integer(code),id,notification,request})
 const intValue=(v,fallback)=>cond(missing(v),integer(fallback),some(unary('stringParseInt64',scalar(v)),x=>x,integer(-1)))
-export async function author(s){
- await sessionAuthor(s,{wireTurn:async s=>{await parser(s);await defineWire(s)}})
- await s.create('wireRun',{host:cap('Host'),turns:list(named('LeaderTurn')),wrongBoundary:bool},result(string),
-  {kind:'matchResult',input:direct('sessionRun',{host:p('host'),turns:p('turns'),wrongBoundary:p('wrongBoundary')}),
+export async function author(s,{sessionInput}={}){
+ const inputParams=sessionInput?.parameters??{turns:list(named('LeaderTurn'))}
+ const inputContext=Object.fromEntries(Object.keys(inputParams).map(k=>[k,p(k)]))
+ await sessionAuthor(s,{sessionInput,wireTurn:async s=>{await parser(s);await defineWire(s);await sessionInput?.define(s)}})
+ await s.create('wireRun',{host:cap('Host'),...inputParams,wrongBoundary:bool},result(string),
+  {kind:'matchResult',input:direct('sessionRun',{host:p('host'),...inputContext,wrongBoundary:p('wrongBoundary')}),
    okBody:bind(invoke(p('host'),'Host','reply',{label:text('@wire-terminal'),record:concat(text('{"jsonrpc":"2.0","method":"session/terminal","params":{"report":'),direct('wireQuote',{value:pat()}),text('}}'))}),ok(pat('value',1))),errBody:err(pat('error'))})
  const declarations=await s.call('inspect',{view:'declarations'})
  const artifact=await s.call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:declarations.capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:declarations.capabilities.map(c=>c.id)}}})
