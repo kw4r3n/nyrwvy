@@ -1,0 +1,390 @@
+{
+  "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "sourceProofs": {
+    "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+    "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+    "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+  },
+  "results": [
+    {
+      "id": "ordinary-raw-snapshot",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "error": "Snapshot failed: raw snapshot fault",
+      "commit": null,
+      "checks": "",
+      "outcome": "ok",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "failed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "error": "Snapshot failed: raw snapshot fault",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "failed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "error": "Snapshot failed: raw snapshot fault",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "failed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "raw-snapshot-release-precedence",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "error": "Snapshot failed: raw snapshot fault",
+      "commit": null,
+      "checks": "",
+      "outcome": "error:release fault",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "failed"
+      ],
+      "diagnostics": [
+        {
+          "message": "RuntimeError exception in shielded future",
+          "exception": "release fault"
+        }
+      ]
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "error": "Snapshot failed: snapshot failure",
+      "commit": null,
+      "checks": "",
+      "outcome": "ok",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "failed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "error": null,
+      "commit": "commit1",
+      "checks": "passed",
+      "outcome": "ok",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "checks",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "completed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "successful-snapshot-close",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "error": null,
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "completed"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "error": null,
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "error:release fault",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "completed"
+      ],
+      "diagnostics": [
+        {
+          "message": "RuntimeError exception in shielded future",
+          "exception": "release fault"
+        }
+      ]
+    },
+    {
+      "id": "raw-checks-fault",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "error": null,
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "ok",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "checks",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": "RuntimeError",
+      "savedStatuses": [
+        "running"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "boundaryStatus": "running",
+      "status": "stopped",
+      "error": null,
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": true
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": null,
+      "savedStatuses": [
+        "running",
+        "stopped"
+      ],
+      "diagnostics": []
+    },
+    {
+      "id": "explicit-snapshot-oce",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "error": null,
+      "commit": null,
+      "checks": "",
+      "outcome": "ok",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "taskFault": "CancelledError",
+      "savedStatuses": [
+        "running"
+      ],
+      "diagnostics": []
+    }
+  ]
+}

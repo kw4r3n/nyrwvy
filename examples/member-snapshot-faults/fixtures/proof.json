@@ -1,0 +1,343 @@
+{
+  "scripts": 11,
+  "realRunsPerGraph": 22,
+  "exactVirtualTaskRoot": 11,
+  "baselineFailures": [
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "external",
+      "rejected": true
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "virtual",
+      "rejected": true
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "task",
+      "rejected": true
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "external",
+      "rejected": true
+    }
+  ],
+  "afterPasses": [
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "virtual"
+    },
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "task"
+    },
+    {
+      "id": "ordinary-raw-snapshot",
+      "mode": "external"
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "virtual"
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "task"
+    },
+    {
+      "id": "held-raw-owner-cancel",
+      "mode": "external"
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "virtual"
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "task"
+    },
+    {
+      "id": "admitted-close-raw-snapshot",
+      "mode": "external"
+    },
+    {
+      "id": "raw-snapshot-release-precedence",
+      "mode": "virtual"
+    },
+    {
+      "id": "raw-snapshot-release-precedence",
+      "mode": "task"
+    },
+    {
+      "id": "raw-snapshot-release-precedence",
+      "mode": "external"
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "virtual"
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "task"
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "external"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "virtual"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "task"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "external"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "virtual"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "task"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "external"
+    },
+    {
+      "id": "explicit-snapshot-oce",
+      "mode": "virtual"
+    },
+    {
+      "id": "explicit-snapshot-oce",
+      "mode": "task"
+    },
+    {
+      "id": "explicit-snapshot-oce",
+      "mode": "external"
+    }
+  ],
+  "preserved": [
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "virtual"
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "task"
+    },
+    {
+      "id": "typed-snapshot-failure",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-checks",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-close",
+      "mode": "external"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "virtual"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "task"
+    },
+    {
+      "id": "successful-snapshot-release-fault",
+      "mode": "external"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "virtual"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "task"
+    },
+    {
+      "id": "raw-checks-fault",
+      "mode": "external"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "virtual"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "task"
+    },
+    {
+      "id": "undetermined-provider-cancel",
+      "mode": "external"
+    }
+  ],
+  "controls": [
+    {
+      "id": "ordinary-fault-escapes",
+      "rejected": true
+    },
+    {
+      "id": "failed-snapshot-runs-checks",
+      "rejected": true
+    },
+    {
+      "id": "failed-final-lost",
+      "rejected": true
+    },
+    {
+      "id": "inspection-before-join",
+      "rejected": true
+    },
+    {
+      "id": "duplicate-cleanup",
+      "rejected": true
+    },
+    {
+      "id": "duplicate-release",
+      "rejected": true
+    },
+    {
+      "id": "early-release",
+      "rejected": true
+    },
+    {
+      "id": "release-fault-swallowed",
+      "rejected": true
+    },
+    {
+      "id": "checks-fault-swallowed",
+      "rejected": true
+    },
+    {
+      "id": "close-intent-lost",
+      "rejected": true
+    },
+    {
+      "id": "success-checks-erased",
+      "rejected": true
+    },
+    {
+      "id": "undetermined-provider-snapshotted",
+      "rejected": true
+    },
+    {
+      "id": "snapshot-token-exposed",
+      "rejected": true
+    },
+    {
+      "id": "oce-divergence-hidden",
+      "rejected": true
+    }
+  ],
+  "independentOracle": {
+    "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "sourceProofs": {
+      "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+      "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+      "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+      "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+    },
+    "contracts": 11
+  },
+  "cancellationDivergence": {
+    "realCSharp": "explicit OCE escapes before; becomes failed Final after",
+    "actualPython": "explicit CancelledError escapes snapshot catch; completed status with no commit; task cancelled",
+    "virtual": "ordinary synthetic host throw only; exception class is not measured"
+  },
+  "wholePythonParity": false,
+  "limits": [
+    "Virtual and real share the C# emitter/runtime",
+    "ExceptionCatch catches all System.Exception including OCE; opaque Exception has no class test",
+    "Opt-in only; admission and serialized defaults unchanged",
+    "Checks and commit publication remain outside snapshot catch",
+    "Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope",
+    "Bare owner shutdown, queued handler protection and atomic check cutoff remain separate",
+    "No live providers, physical Git recovery, unbounded interleavings or restart persistence claim"
+  ]
+}
