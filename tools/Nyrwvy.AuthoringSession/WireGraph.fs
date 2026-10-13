@@ -187,6 +187,7 @@ module internal WireGraph =
         | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
             let namedContext name bindings = context bindings |> List.map (fun (_, value) -> name, value)
             tagged "exceptionCatch" ([ "bodyFunctionId", identity body; "handlerFunctionId", identity handler ] @ namedContext "bodyContext" bodyContext @ namedContext "handlerContext" handlerContext)
+        | SemanticNodeKind.ExceptionIsCancellation value -> tagged "exceptionIsCancellation" [ "valueNodeId", identity value ]
         | SemanticNodeKind.ExceptionMessage value -> tagged "exceptionMessage" [ "valueNodeId", identity value ]
         | SemanticNodeKind.ExceptionRethrow(value, resultType) -> tagged "exceptionRethrow" [ "valueNodeId", identity value; "resultType", typeRef resultType ]
         | SemanticNodeKind.CancellationShield(body, bindings) -> tagged "cancellationShield" ([ "bodyFunctionId", identity body ] @ context bindings)

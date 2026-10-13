@@ -490,6 +490,7 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ArgumentBinding list
     /// Explicit host fault recovery. Contexts evaluate before the protected Unit body.
     | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: ArgumentBinding list * handlerFunctionId: FunctionId * handlerContext: ArgumentBinding list
+    | ExceptionIsCancellation of exceptionValue: GraphNodeId
     | ExceptionMessage of exceptionValue: GraphNodeId
     | ExceptionRethrow of exceptionValue: GraphNodeId * resultType: TypeRef
     /// Runs a Unit -> Result<T, E> body with ambient cancellation masked. Context evaluates first.
@@ -851,6 +852,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.FunctionReference _ -> []
         | SemanticNodeKind.FunctionInvoke(value, arguments) -> value :: arguments
         | SemanticNodeKind.ExceptionCatch(_, bodyContext, _, handlerContext) -> contextValues bodyContext @ contextValues handlerContext
+        | SemanticNodeKind.ExceptionIsCancellation value
         | SemanticNodeKind.ExceptionMessage value
         | SemanticNodeKind.ExceptionRethrow(value, _) -> [ value ]
         | SemanticNodeKind.CancellationShield(_, context) -> contextValues context
@@ -1097,6 +1099,7 @@ module SemanticNodeShape =
                 )
             | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
                 SemanticNodeKind.ExceptionCatch(body, mapContextValues mapNodeId bodyContext, handler, mapContextValues mapNodeId handlerContext)
+            | SemanticNodeKind.ExceptionIsCancellation value -> SemanticNodeKind.ExceptionIsCancellation(mapNodeId value)
             | SemanticNodeKind.ExceptionMessage value -> SemanticNodeKind.ExceptionMessage(mapNodeId value)
             | SemanticNodeKind.ExceptionRethrow(value, resultType) -> SemanticNodeKind.ExceptionRethrow(mapNodeId value, resultType)
             | SemanticNodeKind.CancellationShield(functionId, context) ->
@@ -1312,6 +1315,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
         | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionIsCancellation _
         | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.ExceptionRethrow _
         | SemanticNodeKind.CancellationShield _
@@ -1533,6 +1537,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.CancellationRequested
         | SemanticNodeKind.UseResource _
         | SemanticNodeKind.ExceptionCatch _
+        | SemanticNodeKind.ExceptionIsCancellation _
         | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.CancellationShield _
         | SemanticNodeKind.TaskScope _
@@ -1618,6 +1623,7 @@ module SemanticNodeShape =
                 reference (FunctionReferenceRole.CapabilityImplementation operationId) [] functionId),
             []
         | SemanticNodeKind.CapabilityInvoke(_, operationId, _) -> [], [ operationId ]
+        | SemanticNodeKind.ExceptionIsCancellation _
         | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.ExceptionRethrow _
         | SemanticNodeKind.ParameterReference _
@@ -1789,6 +1795,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.CapabilityInvoke _ -> true
+        | SemanticNodeKind.ExceptionIsCancellation _
         | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.ParameterReference _
         | SemanticNodeKind.PatternReference _

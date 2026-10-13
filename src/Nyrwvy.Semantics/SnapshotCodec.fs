@@ -777,6 +777,9 @@ module SnapshotCodec =
             writer.WriteString("handlerFunctionId", StableId.value handler)
             writeNamedCallbackContext "bodyContext" writer bodyContext
             writeNamedCallbackContext "handlerContext" writer handlerContext
+        | SemanticNodeKind.ExceptionIsCancellation value ->
+            writer.WriteString("kind", "exceptionIsCancellation")
+            writer.WriteString("valueNodeId", StableId.value value)
         | SemanticNodeKind.ExceptionMessage value ->
             writer.WriteString("kind", "exceptionMessage")
             writer.WriteString("valueNodeId", StableId.value value)
@@ -1862,6 +1865,9 @@ module SnapshotCodec =
             | "exceptionCatch" ->
                 ensureProperties "ExceptionCatch node" (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId"; "bodyContext"; "handlerContext" ]) element
                 SemanticNodeKind.ExceptionCatch(readId<FunctionTag> "bodyFunctionId" element, readNamedCallbackContext "bodyContext" element, readId<FunctionTag> "handlerFunctionId" element, readNamedCallbackContext "handlerContext" element)
+            | "exceptionIsCancellation" ->
+                ensureProperties "ExceptionIsCancellation node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ExceptionIsCancellation(readId<GraphNodeTag> "valueNodeId" element)
             | "exceptionMessage" ->
                 ensureProperties "ExceptionMessage node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.ExceptionMessage(readId<GraphNodeTag> "valueNodeId" element)

@@ -147,6 +147,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ParallelAll _
                 | TypedSemanticNodeKind.CancellationRequested
                 | TypedSemanticNodeKind.ExceptionCatch _
+                | TypedSemanticNodeKind.ExceptionIsCancellation _
                 | TypedSemanticNodeKind.ExceptionMessage _
                 | TypedSemanticNodeKind.ExceptionRethrow _
                 | TypedSemanticNodeKind.CancellationShield _

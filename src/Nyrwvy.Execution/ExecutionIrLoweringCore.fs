@@ -572,6 +572,8 @@ module ExecutionIr =
                             match lowerCallArguments bodyContext, lowerCallArguments handlerContext with
                             | Ok bodyContext, Ok handlerContext -> Ok(addInstruction currentBlock node (ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext)))
                             | Error error, _ | _, Error error -> Error error
+                        | TypedSemanticNodeKind.ExceptionIsCancellation value ->
+                            requireNodeValue environment value |> Result.map (fun value -> addInstruction currentBlock node (ExecutionInstructionKind.ExceptionIsCancellation value))
                         | TypedSemanticNodeKind.ExceptionMessage value ->
                             requireNodeValue environment value |> Result.map (fun value -> addInstruction currentBlock node (ExecutionInstructionKind.ExceptionMessage value))
                         | TypedSemanticNodeKind.ExceptionRethrow(value, resultType) ->

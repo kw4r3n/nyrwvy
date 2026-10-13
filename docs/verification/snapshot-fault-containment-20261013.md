@@ -1,5 +1,8 @@
 # Opt-in snapshot-fault containment — 2026-10-13
 
+Historical PR391 evidence. The next milestone adds generic cancellation
+classification and refines the opt-in handler; see [the current proof](exception-is-cancellation-20261014.md).
+
 The opt-in admission/controller recipe now contains ordinary raw Host.snapshot
 exceptions as failed Final values and skips checks. It uses the existing
 ExceptionCatch and typed Result composition; the catch encloses only the snapshot

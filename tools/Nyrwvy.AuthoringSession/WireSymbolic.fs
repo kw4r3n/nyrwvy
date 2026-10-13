@@ -653,6 +653,7 @@ module internal WireSymbolic =
             let body = resolveReferencedFunction declarations parameterContext (property "body" element)
             let handler = resolveReferencedFunction declarations parameterContext (property "handler" element)
             ExpressionRecipe.ExceptionCatch(body.Id, namedCallbackContext "bodyContext" body, handler.Id, namedCallbackContext "handlerContext" handler)
+        | "exceptionIsCancellation" -> unary "exception-is-cancellation recipe" ExpressionRecipe.ExceptionIsCancellation
         | "exceptionMessage" -> unary "exception-message recipe" ExpressionRecipe.ExceptionMessage
         | "exceptionRethrow" ->
             ensureFields "exception-rethrow recipe" [ "kind"; "value"; "resultType" ] [ "kind"; "value"; "resultType" ] element

@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
-    let schemaVersion = 11
+    let schemaVersion = 12
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -603,6 +603,7 @@ module ExecutionIrSerializer =
         | ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
             [ property "kind" (quote "exceptionCatch"); property "bodyFunctionId" (stableIdValue body); property "handlerFunctionId" (stableIdValue handler) ]
             @ writeNamedCallbackContext "bodyContext" bodyContext @ writeNamedCallbackContext "handlerContext" handlerContext
+        | ExecutionInstructionKind.ExceptionIsCancellation value -> writeUnaryInstruction "exceptionIsCancellation" value
         | ExecutionInstructionKind.ExceptionMessage value -> writeUnaryInstruction "exceptionMessage" value
         | ExecutionInstructionKind.ExceptionRethrow(value, resultType) -> writeUnaryInstruction "exceptionRethrow" value @ [ property "resultType" (writeTypeRef resultType) ]
         | ExecutionInstructionKind.CancellationShield(bodyFunctionId, context) ->
@@ -898,11 +899,13 @@ module ExecutionIrSerializer =
                     TaskTypes.mentionsException instruction.Result.Type
                     || match instruction.Kind with
                        | ExecutionInstructionKind.ExceptionCatch _
+                       | ExecutionInstructionKind.ExceptionIsCancellation _
                        | ExecutionInstructionKind.ExceptionMessage _
                        | ExecutionInstructionKind.ExceptionRethrow _ -> true
                        | _ -> false))
 
-        let version = if hasException then schemaVersion elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
+        let hasClassification = blocks |> List.exists (fun block -> block.Instructions |> List.exists (fun instruction -> match instruction.Kind with | ExecutionInstructionKind.ExceptionIsCancellation _ -> true | _ -> false))
+        let version = if hasClassification then schemaVersion elif hasException then 11 elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
             [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)

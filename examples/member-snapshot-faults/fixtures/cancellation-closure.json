@@ -1,0 +1,723 @@
+{
+  "base": "9e56e835e0978d539f41778f8e2149c8c4b2b279",
+  "baseTree": "3d48017c00e0fafa548fc399d450e95047fa0736",
+  "branch": "feat/exception-is-cancellation",
+  "checkout": "/home/kw4/Documents/Codex/2026-10-14/task/nyrwvy",
+  "preservedCheckout": {
+    "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy",
+    "head": "46110d3701bfb897a7e0083f7afcaab51f7e56eb",
+    "tree": "3d48017c00e0fafa548fc399d450e95047fa0736",
+    "status": ""
+  },
+  "oracle": {
+    "path": "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+    "head": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "tree": "b26815ab2cc17c1e045f3cde1dc896b265c23851",
+    "status": ""
+  },
+  "oracleSourceProofs": {
+    "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+    "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+    "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+  },
+  "baseEmissionComparison": {
+    "priorAuthoringBinary": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll",
+    "binarySha256": "65dc1da607611e2fd2b4628f0fc2afb24ea6d5e5365a72f5d91a5b8b19e41cd2",
+    "defaultGraphSha256": "70809495a2136ae0d130c9d621d8cf7cc67b747c1c0a5fc85a0f3a4d0bfbc01a",
+    "sameDefaultGeneratedSource": true,
+    "generatedSha256": "1b17e8f58c8fc67cb01650d2416f3fd520620b437ae7f26c80fce9ed14420e81",
+    "priorAndBaseSourceTreeEqual": true
+  },
+  "publication": "Local commit only. Parent independent review pending; do not push before parent confirms. Parent handles PR/merge.",
+  "semantics": {
+    "name": "ExceptionIsCancellation",
+    "signature": "Exception -> Bool",
+    "pure": true,
+    "csharp": "edi.SourceException is System.OperationCanceledException",
+    "catchBehaviorUnchanged": true,
+    "predicateMinimumSnapshotJson": 17,
+    "predicateMinimumNyason": "nayamnyam.snapshot.v13",
+    "predicateInspectionIr": 12,
+    "runtimeTaskPolicyUnchanged": true
+  },
+  "composition": {
+    "option": "containSnapshotFaults",
+    "default": false,
+    "before": {
+      "functions": 125,
+      "nodes": 2748
+    },
+    "after": {
+      "functions": 127,
+      "nodes": 2760
+    },
+    "handler": "Rethrow original cancellation; recover ordinary faults as typed Err",
+    "boundary": "snapshot invocation only"
+  },
+  "exactRecipeAndReaderProbe": {
+    "semanticallyReady": true,
+    "savedGraphUnchanged": true,
+    "evidence": "artifacts/cancellation-predicate/generic/exact-wire-evidence.json"
+  },
+  "generic": {
+    "realControls": 37,
+    "classCases": 16,
+    "compiledAlteredPolicyObservations": 48,
+    "productionSensitivityRejections": 32,
+    "sourceUnchanged": true,
+    "samePathAndMovedPathReplay": true
+  },
+  "snapshot": {
+    "scripts": 11,
+    "realRunsPerGraph": 22,
+    "exactVirtualTaskRoot": 10,
+    "baselineFailures": [
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "external",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "external",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "external",
+        "rejected": true
+      }
+    ],
+    "afterPasses": [
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "virtual"
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "task"
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "external"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "external"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "virtual"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "task"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "external"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "task"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "external"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "virtual"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "task"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "external"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "task"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "external"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "external"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "virtual"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "task"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "external"
+      }
+    ],
+    "preserved": [
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "virtual"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "task"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "external"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "task"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "external"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "external"
+      }
+    ],
+    "controls": [
+      {
+        "id": "ordinary-fault-escapes",
+        "rejected": true
+      },
+      {
+        "id": "failed-snapshot-runs-checks",
+        "rejected": true
+      },
+      {
+        "id": "failed-final-lost",
+        "rejected": true
+      },
+      {
+        "id": "inspection-before-join",
+        "rejected": true
+      },
+      {
+        "id": "duplicate-cleanup",
+        "rejected": true
+      },
+      {
+        "id": "duplicate-release",
+        "rejected": true
+      },
+      {
+        "id": "early-release",
+        "rejected": true
+      },
+      {
+        "id": "release-fault-swallowed",
+        "rejected": true
+      },
+      {
+        "id": "checks-fault-swallowed",
+        "rejected": true
+      },
+      {
+        "id": "close-intent-lost",
+        "rejected": true
+      },
+      {
+        "id": "success-checks-erased",
+        "rejected": true
+      },
+      {
+        "id": "undetermined-provider-snapshotted",
+        "rejected": true
+      },
+      {
+        "id": "snapshot-token-exposed",
+        "rejected": true
+      },
+      {
+        "id": "virtual-fake-ordinary-escape",
+        "rejected": true
+      },
+      {
+        "id": "real-oce-swallowed",
+        "rejected": true
+      },
+      {
+        "id": "real-task-state-erased",
+        "rejected": true
+      },
+      {
+        "id": "real-phase-lost",
+        "rejected": true
+      },
+      {
+        "id": "real-commit-published",
+        "rejected": true
+      },
+      {
+        "id": "real-drain-skipped",
+        "rejected": true
+      }
+    ],
+    "independentOracle": {
+      "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+      "sourceProofs": {
+        "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+        "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+        "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+        "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+      },
+      "contracts": 11
+    },
+    "cancellationClassification": {
+      "realCSharp": "explicit clear-token OCE escapes before and after; joined Member task faulted with original OCE; completed phase, no commit or Final; drained before release",
+      "actualPython": "explicit CancelledError escapes snapshot catch; Member task cancelled; completed status, no commit/checks/final save; drained before release",
+      "virtual": "ordinary synthetic host throw only; recovered after; exception class is not measured"
+    },
+    "wholePythonParity": false,
+    "limits": [
+      "Virtual and real share the C# emitter/runtime",
+      "Catch still captures all System.Exception including OCE; opt-in handler uses generic ExceptionIsCancellation and ExceptionRethrow",
+      "Opt-in only; admission and serialized defaults unchanged",
+      "Checks and commit publication remain outside snapshot catch",
+      "Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope",
+      "Bare owner shutdown, queued handler protection and atomic check cutoff remain separate",
+      "No live providers, physical Git recovery, unbounded interleavings or restart persistence claim"
+    ]
+  },
+  "aggregateCounts": {
+    "fast": {
+      "passed": [
+        "864"
+      ],
+      "failed": [
+        "0"
+      ]
+    },
+    "extended": {
+      "passed": [
+        "123",
+        "31"
+      ],
+      "failed": [
+        "0",
+        "0"
+      ]
+    },
+    "adapters": {
+      "passed": [
+        "8"
+      ],
+      "failed": [
+        "0"
+      ]
+    },
+    "node": {
+      "passed": [
+        "46"
+      ],
+      "failed": [
+        "0"
+      ]
+    },
+    "mcp": {
+      "passed": [
+        "12"
+      ],
+      "failed": [
+        "0"
+      ]
+    },
+    "bun": {
+      "passed": [
+        "23"
+      ],
+      "failed": [
+        "0"
+      ]
+    }
+  },
+  "checks": [
+    "Release solution build -m:1 --no-restore: zero warnings/errors",
+    "54 initial focused .NET checks; 864 final fast checks include viewer assertion",
+    "Serial .NET fast and extended, adapter, Node, MCP and Bun suites",
+    "Both adapter/Bun typechecks",
+    "Suite partition, tracked fish syntax and fish contract",
+    "git diff --check"
+  ],
+  "commands": [
+    "nu -c \"dotnet build Nyrwvy.slnx -c Release --no-restore -m:1\"",
+    "nu /tmp/aggregate.nu (initial script retained at artifacts/cancellation-predicate/run-aggregate-initial.nu; corrected reproduction uses run-aggregate.nu)",
+    "node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-*.test.mjs .opencode/tests/nyrwvy-evaluation-transport.test.mjs scripts/tests/*.test.mjs (final rerun: node-rerun.log)",
+    "node artifacts/cancellation-predicate/probe-exact-wire.mjs",
+    "python3 artifacts/cancellation-predicate/compare-base-emission.py",
+    "node examples/exception-boundary/run.mjs artifacts/cancellation-predicate/generic",
+    "node examples/exception-boundary/test-runtime.mjs artifacts/cancellation-predicate/generic",
+    "node examples/exception-boundary/run.mjs --replay artifacts/cancellation-predicate/generic",
+    "node examples/exception-boundary/run.mjs --replay artifacts/cancellation-predicate/generic-moved",
+    "node examples/exception-boundary/test-runtime.mjs artifacts/cancellation-predicate/generic-moved",
+    "node examples/member-snapshot-faults/run.mjs artifacts/cancellation-predicate/before --baseline",
+    "node examples/member-snapshot-faults/test-runtime.mjs artifacts/cancellation-predicate/before",
+    "node examples/member-snapshot-faults/run.mjs artifacts/cancellation-predicate/after",
+    "node examples/member-snapshot-faults/test-runtime.mjs artifacts/cancellation-predicate/after",
+    "python3 examples/member-snapshot-faults/oracle.py /home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle artifacts/cancellation-predicate/before/cases.json artifacts/cancellation-predicate/oracle-evidence.json",
+    "node examples/member-snapshot-faults/prove.mjs artifacts/cancellation-predicate/before artifacts/cancellation-predicate/after",
+    "node examples/member-snapshot-faults/run.mjs --replay artifacts/cancellation-predicate/after",
+    "node examples/member-snapshot-faults/prove.mjs artifacts/cancellation-predicate/before artifacts/cancellation-predicate/after --replay",
+    "node examples/member-snapshot-faults/run.mjs --replay artifacts/cancellation-predicate/after-moved",
+    "node examples/member-snapshot-faults/test-runtime.mjs artifacts/cancellation-predicate/after-moved",
+    "node examples/member-snapshot-faults/prove.mjs artifacts/cancellation-predicate/before artifacts/cancellation-predicate/after-moved --replay"
+  ],
+  "diagnosticAttempts": {
+    "vstestSandboxSocketDenied": "focused-core.log",
+    "supplementaryTaskStateExpectationCorrected": [
+      "snapshot-before-runtime.log",
+      "snapshot-before-runtime-debug.log"
+    ],
+    "initialNodeAggregate": {
+      "passed": 45,
+      "failed": 1,
+      "log": "node.log",
+      "case": "existing parent-protected-integration-clear pre-join peer view running vs stopped"
+    },
+    "focusedOwnerRerun": {
+      "passed": 1,
+      "failed": 0,
+      "log": "owner-cancellation-rerun.log"
+    },
+    "bunPathSelector": "bun.log",
+    "autoReviewRejections": 0
+  },
+  "limits": [
+    "Virtual/real share emitter; actual pinned Python is independent",
+    "Clear-token explicit C# OCE task faults; Python task cancels; neither is a failed Final",
+    "Retained C# phase/commit observation is after explicit join, not a post-scope registry API",
+    "No whole-shutdown parity",
+    "No queued-handler/bare-owner/atomic-cutoff expansion",
+    "Existing owner comparison reads a peer before explicit join; initial aggregate exposed timing-sensitive running/stopped view; no policy/assertion change",
+    "No live provider, credential/access change, deletion, push or merge"
+  ],
+  "changedSourceSha256": {
+    ".opencode/tests/nyrwvy-authoring-exception-boundary.test.mjs": "8f7546ab62e3958eeadfa3a9040108c88f234c6c4d2f6f7ed8787e54bc759765",
+    ".opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs": "a420c5df2126f455977de726d94f3e8503db48e9042fadd82bcf03cfb5500345",
+    "docs/specs/csharp-backend.md": "1b1daca1c80355aefda7c181d741973261da0c1a6ac1c2aff6494d0641a9b689",
+    "docs/specs/exception-boundary.md": "e736dbaed2597cb2757b7cd9426c990d0c343a4494d0c97b56efb69d4beaa7c8",
+    "docs/specs/expression-authoring.md": "7156e5101e4590d629b8c23f00a04f90d0ab018ffa7202980d25322828c052b7",
+    "docs/specs/schema-evolution-policy.md": "1c36e1c3ceb711c46e0f234bbdf32d71b3d359d9910df662ed159ce0d5974cf0",
+    "docs/verification/exception-is-cancellation-20261014.md": "979e20c23e301e20ac6d858ce4041e37498e3a5eeb40fa0ae0cee2252ae6eb85",
+    "docs/verification/snapshot-fault-containment-20261013.md": "7f6651dca28ebfcb7fcb33fd1bc2170c5c42d2dc0b4dc813c5a02ae793114748",
+    "examples/exception-boundary/README.md": "19c944843c56478fc0a51a5142b354962d3d2d9152cb259ce4d68f9a23e4ecf6",
+    "examples/exception-boundary/author.mjs": "d876d501581466ea0fa6c5989d3ec14d6957dc0c07dba6d6368f23be78757e00",
+    "examples/exception-boundary/runtime-expected.json": "92477bdf2a708f75df942cac41f39ce67670bbca74312b390bfc9c69f07b7e7d",
+    "examples/exception-boundary/runtime.tests.cs": "25a4ada955dc92fddf5fd621bd2c6739c8b17f3ff40b6c13819ac94c0bff9e17",
+    "examples/exception-boundary/test-runtime.mjs": "0105ff714504a89c428320590f31ff9b54934152b292099abdd0a8077426a2cd",
+    "examples/member-lifecycle/author.mjs": "ec3d9238686549bb68edfcd1cf8d21ce7e69ae616f7160eb394e97525f9afd4e",
+    "examples/member-snapshot-faults/README.md": "6c87f4ec898a6e7367b632428f96f0c7c1cac1d050d04c2969b986040bb87515",
+    "examples/member-snapshot-faults/fixtures/proof.json": "5ec293072d48cfa975558ea1b11284ec151b877a34fe5e7c2ff642009554febe",
+    "examples/member-snapshot-faults/fixtures/runtime-observations.json": "528f3352657b50908170430085e4dc3fbcc23e0a19a10ba15182c04ea4dc2151",
+    "examples/member-snapshot-faults/prove.mjs": "80b838813fb4ce6b7871a58908ddf3cf9c6f805eac00bd57036eeeb1a8f5d0fb",
+    "examples/member-snapshot-faults/run.mjs": "622f449dd9ef05b9d930fd3357680e9782d9b4c0d875851b22442242f2a8cf30",
+    "examples/member-snapshot-faults/runtime.template.cs": "6fed93cc567e9dc5e907275a454670a0048f7bc07243b54fab4d092ee7e35d36",
+    "examples/member-snapshot-faults/test-runtime.mjs": "7326e7e93b320e9622a0fb3b0d9112e2caa060edd295d3c804019840da016c5a",
+    "src/Nyrwvy.Backend.CSharp/CSharpBackendEmitter.fs": "9958424fe311eae2e8fca90e752cedec7f738670f2a1bece8ecdf3fcfc3998f7",
+    "src/Nyrwvy.Execution/ExecutionIrAnalysis.fs": "9745359561e8b9fcdccb39bdfbeb8da2999c1455ba88cc916fa8d5f1c2184b81",
+    "src/Nyrwvy.Execution/ExecutionIrLoweringCore.fs": "276f4d8e36f104506bae1a7afc8a7dc1493efaf5972c996fee8d61c8ca14b426",
+    "src/Nyrwvy.Execution/ExecutionIrModel.fs": "fe22755a3dda7945095691acab7977a3b3c90e504525896e00c1f1214e9f2eec",
+    "src/Nyrwvy.Execution/ExecutionIrSerializer.fs": "e9a2fd5e9727a1222bf815ca7f9f1e0082fe01983ec0271b12dddea1c7ed74b6",
+    "src/Nyrwvy.Execution/TypedSemanticIr.fs": "b8ef6b93bfb7f5f4ed999e739b3e90ef45ba519c260edf5fd6a994875e64edac",
+    "src/Nyrwvy.Execution/TypedSemanticIrSerializer.fs": "05339d0a0619b7d621e40b549e4f6c00656ad8b918effc794db0878f7b5ab691",
+    "src/Nyrwvy.Semantics/AgentExpressionStructuralWorkflow.fs": "148e45ee3e2f6e8b14a7219b938c1b3816833c2d91b21e8e5ee3ce270704a3ca",
+    "src/Nyrwvy.Semantics/AgentParameterTypeMigrationWorkflow.fs": "0f7c391b8d15a8d835423b0fadc92a8fa842aebc4d1f36acf7909a1821ead0d1",
+    "src/Nyrwvy.Semantics/Foundation.fs": "d29646a5e5dbaf447d4f848a48e6b4aab6bea97650664dd9a077e0bd8899289c",
+    "src/Nyrwvy.Semantics/NyasonCodec.fs": "0eedbfd5c7b5034ab0c681b919fcbf85aec814cbb6c27ffb1b05feee1f6c623a",
+    "src/Nyrwvy.Semantics/SemanticFacts.fs": "16c7daafee5e606e2afd984d94f0db8bf0780db7fcba39a30c817b6b44ab9ebf",
+    "src/Nyrwvy.Semantics/SnapshotCodec.fs": "a00e070dc874020ed6eeff94d1a46769fc8847711f35ce45cada08d22a2bf614",
+    "src/Nyrwvy.Semantics/SnapshotSchema.fs": "cee58bf134d1675d7db1df181b0f69c6ec7b40b1c1c74e52f6db5aead28d7e2b",
+    "src/Nyrwvy.Semantics/StructuralContracts.fs": "4728410fcbcdb8f9fc57a439e8c0e9e82a7cd01141bbb06edf9f1ddee34a162b",
+    "src/Nyrwvy.Semantics/Validation.fs": "83e3b3aeec66b3d7a5657ac3167917ed5ddd78639271af802fefc90527c30aac",
+    "src/Nyrwvy.Viewer/ViewerHtml.fs": "95454e34ca6c4a0240fcfbf163cf810618316cc8e3a99f51634a3c87e70993dd",
+    "src/Nyrwvy.Viewer/ViewerModel.fs": "8e569923178f5c8ca367968a17b6c65c44012ea7b3824c9bf537ea0c1072d591",
+    "tests/Nyrwvy.Core.Tests/AgentPureExpressionStructuralWorkflowTests.fs": "f61b1329b7c3bfb2ffdff05ed4f438af1a3e61b7079c8e84a9277d73cc4b8155",
+    "tests/Nyrwvy.Core.Tests/ExceptionBoundaryTests.fs": "f5c4fee7cfb5a5e293de9a9840076072f81102432f4d372493b67c4a1d2c8ab2",
+    "tests/Nyrwvy.Core.Tests/FoundationTests.fs": "5903798808c7345c5ff675cb0c16509a1fad5351b54d7f8ca1c1dca2e4521fe9",
+    "tests/Nyrwvy.Core.Tests/SnapshotSchemaTests.fs": "a2b503bec080386139de84f4de6047c16ff724456997b2500fa5973c78de1849",
+    "tests/Nyrwvy.Core.Tests/TypedSemanticIrTests.fs": "321bb3875b71ab5201caf773167339bcd670610d81fda5c9caa1f6e5628562da",
+    "tools/Nyrwvy.AuthoringSession/WireGraph.fs": "9b749b1ef3962bc7b6d48b3f71cce7e357b574f7ef888b928e220d5d17fcd3f3",
+    "tools/Nyrwvy.AuthoringSession/WireRecipe.fs": "2e5f0d3f8c245e49d62d172b58883ddae2360ca76ae3d8ee2f5f423c84d5d1fc",
+    "tools/Nyrwvy.AuthoringSession/WireSymbolic.fs": "5c382a8eb1e9f42d58a8455a61642b339465aaf0253fd527bed31ce61666c30c",
+    "tools/nyrwvy-agent/recipe-reference.mjs": "a8f31d427cfccfe182657974adb4fb31a298d6200f3e805535b9a6006d034885"
+  },
+  "artifactSha256": {
+    "artifacts/cancellation-predicate/adapters.log": "fa1a5be14ed1e4f1435a9d60d1d6ebe60cbbece0c5a38e33d96cbc79245a1da0",
+    "artifacts/cancellation-predicate/after/Generated.cs": "f42b12b217bae28de23809179c3e5d3ea6bfb13495c4abe335297129aaa496fe",
+    "artifacts/cancellation-predicate/after/Runtime.Program.cs": "7112d0434f37f5e2686af32913187b4f78f38c59f99e604b7dd939784c16d2ff",
+    "artifacts/cancellation-predicate/after/authoring.json": "20ad073e3d1c3c05ce4463752d9678a9185bd4e052810f9ee68ecbf6cb81b114",
+    "artifacts/cancellation-predicate/after/bundle-identity.json": "a867f1f731a1df3d489d6820efc1b2034e5c0ab2f63404e34136495e63784e3a",
+    "artifacts/cancellation-predicate/after/cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+    "artifacts/cancellation-predicate/after/controller.json": "fc67c25967ca180058fef7d781b76f51d280d437e6f37fa9a4a95b74b209bffc",
+    "artifacts/cancellation-predicate/after/evidence.json": "f9c8647b2acbe244effaeac3a5cd97c383d38350ccde9dd9192e539b5f826ee9",
+    "artifacts/cancellation-predicate/after/oracle-evidence.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+    "artifacts/cancellation-predicate/after/proof.json": "5ec293072d48cfa975558ea1b11284ec151b877a34fe5e7c2ff642009554febe",
+    "artifacts/cancellation-predicate/after/replay-evidence.json": "ba62d231b3afb76b37aeb2227195fcd7bd2098bd242a7fc1f18c09941da3e21e",
+    "artifacts/cancellation-predicate/after/replay-identity.json": "a867f1f731a1df3d489d6820efc1b2034e5c0ab2f63404e34136495e63784e3a",
+    "artifacts/cancellation-predicate/after/replay-proof.json": "5ec293072d48cfa975558ea1b11284ec151b877a34fe5e7c2ff642009554febe",
+    "artifacts/cancellation-predicate/after/runtime-evidence.json": "476a1f24a9b4463b5bda21e8f1765d48a0a52bced1863956c94fc18d5ab91ae4",
+    "artifacts/cancellation-predicate/after/runtime-raw.json": "670d3617fcde2144f02c5afb11bd1c46db5c8f5cb4f39c34fd5cc6fb3a3cc3f1",
+    "artifacts/cancellation-predicate/after/symbols.json": "d8d2df2c654d4f7a0b71c5c503011068d96f8e19b0a94d7969da25807c9cbe83",
+    "artifacts/cancellation-predicate/after/transcript.jsonl": "75266e7ca8f04ec49877ae41328de8517ed04618ee313e432ddff633fc68290d",
+    "artifacts/cancellation-predicate/after-moved/Generated.cs": "f42b12b217bae28de23809179c3e5d3ea6bfb13495c4abe335297129aaa496fe",
+    "artifacts/cancellation-predicate/after-moved/Runtime.Program.cs": "7112d0434f37f5e2686af32913187b4f78f38c59f99e604b7dd939784c16d2ff",
+    "artifacts/cancellation-predicate/after-moved/authoring.json": "20ad073e3d1c3c05ce4463752d9678a9185bd4e052810f9ee68ecbf6cb81b114",
+    "artifacts/cancellation-predicate/after-moved/bundle-identity.json": "a867f1f731a1df3d489d6820efc1b2034e5c0ab2f63404e34136495e63784e3a",
+    "artifacts/cancellation-predicate/after-moved/cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+    "artifacts/cancellation-predicate/after-moved/controller.json": "fc67c25967ca180058fef7d781b76f51d280d437e6f37fa9a4a95b74b209bffc",
+    "artifacts/cancellation-predicate/after-moved/evidence.json": "f9c8647b2acbe244effaeac3a5cd97c383d38350ccde9dd9192e539b5f826ee9",
+    "artifacts/cancellation-predicate/after-moved/oracle-evidence.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+    "artifacts/cancellation-predicate/after-moved/proof.json": "14823b41822111ff574e33af2b8af7541a3d9c4780e3a1497a03652b1e502a4f",
+    "artifacts/cancellation-predicate/after-moved/replay-evidence.json": "c85ac9c1305fedce21727fe1a53e87664c854e654baadcd67a942769475220ad",
+    "artifacts/cancellation-predicate/after-moved/replay-identity.json": "a867f1f731a1df3d489d6820efc1b2034e5c0ab2f63404e34136495e63784e3a",
+    "artifacts/cancellation-predicate/after-moved/replay-proof.json": "5ec293072d48cfa975558ea1b11284ec151b877a34fe5e7c2ff642009554febe",
+    "artifacts/cancellation-predicate/after-moved/runtime-evidence.json": "a47c59db30268d0f9dd8a09cdc32978ecf459f23167f71e7022f65d12c3ed118",
+    "artifacts/cancellation-predicate/after-moved/runtime-raw.json": "82d8ab82dbc42c80bf7621869e576c46da9f61e95677fcb1d843ab9ea106ca8c",
+    "artifacts/cancellation-predicate/after-moved/symbols.json": "d8d2df2c654d4f7a0b71c5c503011068d96f8e19b0a94d7969da25807c9cbe83",
+    "artifacts/cancellation-predicate/after-moved/transcript.jsonl": "8cd23b939ce3c607c9364dc35b034cb35000c4ee6010aea3b564eb9f8a4c0689",
+    "artifacts/cancellation-predicate/base-emission-comparison.json": "1a9d67a26724f76ee2c0cead4bccdc0fdeeb27873e0967e4a9bb71da57db176a",
+    "artifacts/cancellation-predicate/base-emission.log": "03338039b6fd7f220262d05f66515c64b8875fa3f3b6214ea3047d0999c8689b",
+    "artifacts/cancellation-predicate/before/Generated.cs": "1b17e8f58c8fc67cb01650d2416f3fd520620b437ae7f26c80fce9ed14420e81",
+    "artifacts/cancellation-predicate/before/Runtime.Program.cs": "85fa65b45fd6b433449f3d2cb1b8efc740f886571d9477f010bd5fb4766ac454",
+    "artifacts/cancellation-predicate/before/authoring.json": "1f6114fb3063c383a009840bd4842b491fc0a7535f1ec50e50499ba9d1238277",
+    "artifacts/cancellation-predicate/before/bundle-identity.json": "ff2bfb750d41baa355f2ac88446eeded52612de6778039279030e584731d09b5",
+    "artifacts/cancellation-predicate/before/cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+    "artifacts/cancellation-predicate/before/controller.json": "70809495a2136ae0d130c9d621d8cf7cc67b747c1c0a5fc85a0f3a4d0bfbc01a",
+    "artifacts/cancellation-predicate/before/evidence.json": "8d1456e24d14737295b64ccc25f939727ac40fc44b618def43f10324224bede6",
+    "artifacts/cancellation-predicate/before/runtime-evidence.json": "fb299ff04a8336b425534e428e47fb0f2deef6f94e304f822ae71498381f9464",
+    "artifacts/cancellation-predicate/before/runtime-raw.json": "4e70fe6c69b5f80094bcff616d2939809f55882932050da7bf3b2af3d650370b",
+    "artifacts/cancellation-predicate/before/symbols.json": "1525c1f2e39f021817efd92bf30dde08f87e86370c3cd7264d05e98f29d3d829",
+    "artifacts/cancellation-predicate/before/transcript.jsonl": "25ec673e29fa8e36d1a04ef5f0381643ab2fbb3422848f2e81946a1b95f7790c",
+    "artifacts/cancellation-predicate/build.log": "68208e5d6a1b8ec889c5b7a2cc9941744da3bb96519539df96181a07b4745e4f",
+    "artifacts/cancellation-predicate/bun-expanded.log": "c0fda3918ceb22f2452077b66595be851d56d2c2c9b5d944402b8a37f72b2688",
+    "artifacts/cancellation-predicate/bun-version.log": "bd31e8d9cf8d14a1e9e3fdf3b9f6a524819aed0d1b14627523c6765767c7d8f1",
+    "artifacts/cancellation-predicate/bun.log": "39984d17824ce1d2c901cb2dd44759573e37daf4093a5aa9ff7ad63ce75b6829",
+    "artifacts/cancellation-predicate/compare-base-emission.py": "402352d3bfa21fdee02ec37928ebf80ecfc4c08a735cc1a94c953e37d9c2e5db",
+    "artifacts/cancellation-predicate/dotnet-version.log": "754d4ec29eaf73ed9f365df0dcc770212d046e7629c4d89ba54da43163a8c24d",
+    "artifacts/cancellation-predicate/exact-wire.log": "39a525f53bd7cd94407c94b24f6cb77bacad36b7a3837ee5f349b6ab587abdca",
+    "artifacts/cancellation-predicate/extended.log": "a95e27ce8bb8e00bd3fc5854161f5392f4903eb7f55cfb523307d808e1888693",
+    "artifacts/cancellation-predicate/fast.log": "d3c2a839c9f8caa1172e1c5953d1774efc8be1219b1272eb56290ad6167e7c17",
+    "artifacts/cancellation-predicate/final-build.log": "167421a0980b0bad1b55ab8e2489c94ea3c2f4b5ff4cc86fc6ef3438f2b83dda",
+    "artifacts/cancellation-predicate/fish-contract.log": "e94f941e298b7e479f4d71780d002223dbbf3aa7c430904fae848fe9968c26af",
+    "artifacts/cancellation-predicate/fish-syntax.log": "5865cea3132782e6e6dd88cc3ea366003b54276a0948d688d42f9a5db748bce8",
+    "artifacts/cancellation-predicate/focused-core-expanded.log": "4a1be8498de852405cfb992da64a0794b259da6ee97f76effa2f64d9de26f504",
+    "artifacts/cancellation-predicate/focused-core.log": "09f78b892249c1100ba1ad5395416e6cd39ec5cd55a587e8ca31bcf94a700ced",
+    "artifacts/cancellation-predicate/generate-closure.py": "8026859613aafb768b11bd79c6e4dbdd7635e92a2118f7254898f8c0600504e1",
+    "artifacts/cancellation-predicate/generic/Generated.cs": "641181d883b3048816fb17c99594dd03f6b7e8b081c36ec13b6d35605a088595",
+    "artifacts/cancellation-predicate/generic/Program.cs": "baac6ac2326aa1703ff8e42a636405b57f792365fd19e8ce16e88d91248feefd",
+    "artifacts/cancellation-predicate/generic/Runtime.dll": "ab91b77be15db3b5f53e62b8e33acb1ce5e979886378c3fb8f9a472bdc761ab2",
+    "artifacts/cancellation-predicate/generic/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "artifacts/cancellation-predicate/generic/authoring.json": "90a88c99d710223ec6b208b532ecd8241c1554a7fdeb229e8d2f10a88fef1a5e",
+    "artifacts/cancellation-predicate/generic/declarations.json": "7264724ea5bcaf073c48f5ed00041df555f2035277856c63d90b8b6b906a7016",
+    "artifacts/cancellation-predicate/generic/evidence.json": "c68a407fbf5be2b3090936725c5fa17301876903f34e931fc76aa4c5e8f2c0aa",
+    "artifacts/cancellation-predicate/generic/exact-wire-evidence.json": "3b9b5294c9b6889023d3809b54f9038248c28c51323bae523aa93fc36cdca56b",
+    "artifacts/cancellation-predicate/generic/exceptions.json": "48819b000cccd8aaaa65b41beb290807e3ad3f54f8be1a121b8eb004d2054fda",
+    "artifacts/cancellation-predicate/generic/identity.json": "12bdbf3fe77d93ae4d6e1ed7df6a9907c1484b7907e2628bcc2a9f9d68cae250",
+    "artifacts/cancellation-predicate/generic/replay-evidence.json": "c68a407fbf5be2b3090936725c5fa17301876903f34e931fc76aa4c5e8f2c0aa",
+    "artifacts/cancellation-predicate/generic/runtime-evidence.json": "d30108939d179d4569249a9168c4c21ee664645c9588cc0f79fcb803df3bd040",
+    "artifacts/cancellation-predicate/generic/symbols.json": "319e8487dbbcb2601c3513292e61214844c38da9db83f457c9798f596bd5583f",
+    "artifacts/cancellation-predicate/generic/transcript.jsonl": "c6497c6d607fc149855e1ddd0d4522686dd2d3a9b892da0508043b0d85fdc1a5",
+    "artifacts/cancellation-predicate/generic-author.log": "a087a4d19425f02740a142f980c63e9debc44fb853228f3def1c244f30347545",
+    "artifacts/cancellation-predicate/generic-moved/Generated.cs": "641181d883b3048816fb17c99594dd03f6b7e8b081c36ec13b6d35605a088595",
+    "artifacts/cancellation-predicate/generic-moved/Program.cs": "baac6ac2326aa1703ff8e42a636405b57f792365fd19e8ce16e88d91248feefd",
+    "artifacts/cancellation-predicate/generic-moved/Runtime.dll": "ab91b77be15db3b5f53e62b8e33acb1ce5e979886378c3fb8f9a472bdc761ab2",
+    "artifacts/cancellation-predicate/generic-moved/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "artifacts/cancellation-predicate/generic-moved/authoring.json": "90a88c99d710223ec6b208b532ecd8241c1554a7fdeb229e8d2f10a88fef1a5e",
+    "artifacts/cancellation-predicate/generic-moved/declarations.json": "7264724ea5bcaf073c48f5ed00041df555f2035277856c63d90b8b6b906a7016",
+    "artifacts/cancellation-predicate/generic-moved/evidence.json": "c68a407fbf5be2b3090936725c5fa17301876903f34e931fc76aa4c5e8f2c0aa",
+    "artifacts/cancellation-predicate/generic-moved/exceptions.json": "48819b000cccd8aaaa65b41beb290807e3ad3f54f8be1a121b8eb004d2054fda",
+    "artifacts/cancellation-predicate/generic-moved/identity.json": "12bdbf3fe77d93ae4d6e1ed7df6a9907c1484b7907e2628bcc2a9f9d68cae250",
+    "artifacts/cancellation-predicate/generic-moved/replay-evidence.json": "c68a407fbf5be2b3090936725c5fa17301876903f34e931fc76aa4c5e8f2c0aa",
+    "artifacts/cancellation-predicate/generic-moved/runtime-evidence.json": "d30108939d179d4569249a9168c4c21ee664645c9588cc0f79fcb803df3bd040",
+    "artifacts/cancellation-predicate/generic-moved/symbols.json": "319e8487dbbcb2601c3513292e61214844c38da9db83f457c9798f596bd5583f",
+    "artifacts/cancellation-predicate/generic-moved/transcript.jsonl": "d27fb8e5ad78719aabea7e81537acd1d8c622bedbd54b286090c06ef903bc872",
+    "artifacts/cancellation-predicate/generic-moved-replay.log": "17039619ba39883e830fddfe33a3a842947e4b5c812dd767ee92d68d2da13b7c",
+    "artifacts/cancellation-predicate/generic-moved-runtime.log": "4a6671d6bc39ef71d9d5fa68ec5b80e1c5b8780893c601d3ece3f7c5d68a207c",
+    "artifacts/cancellation-predicate/generic-priority-runtime.log": "4a6671d6bc39ef71d9d5fa68ec5b80e1c5b8780893c601d3ece3f7c5d68a207c",
+    "artifacts/cancellation-predicate/generic-replay.log": "a087a4d19425f02740a142f980c63e9debc44fb853228f3def1c244f30347545",
+    "artifacts/cancellation-predicate/generic-runtime.log": "9867dc03c5e6340d6fdd17f05cb28a476cb2c971a21b70594482faf9249a9ad8",
+    "artifacts/cancellation-predicate/mcp.log": "cf18c5b228e5882ce2c369e414f5db449dbe359f4583afc575160e32adace997",
+    "artifacts/cancellation-predicate/node-rerun.log": "0510de8932810f6485556e7ba670f27012e87a669ec115dda00d326ab6674d52",
+    "artifacts/cancellation-predicate/node-version.log": "ff9f714664f5d87ac6548bb3700b0c18bd57add52ac986b01d4aec21543ccfda",
+    "artifacts/cancellation-predicate/node.log": "27eec786900ed6fdde90b4fb2fe02f28cb59ec6d879ac854dc55e6b5f5725f63",
+    "artifacts/cancellation-predicate/nushell-version.log": "7c4299d830b3ec7b3e84b31d35d0b0422275b0150f9b60ffabf2516db01be688",
+    "artifacts/cancellation-predicate/oracle-evidence.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+    "artifacts/cancellation-predicate/owner-cancellation-rerun.log": "d1132944c31f98f6a8daed537e1587185d3210cf0dafb6c3ee2d24974ad95058",
+    "artifacts/cancellation-predicate/partition.log": "51bb1a8591bbe8c7a3221112d7acc78dacf0c1dbdeb04faf2fa20b48e394b9a4",
+    "artifacts/cancellation-predicate/probe-exact-wire.mjs": "46e61d055154358885da910ef44560386cf02a1f02cfd1c34b3f49cdfc97fd5c",
+    "artifacts/cancellation-predicate/python-oracle.log": "0ead28eee6960db0c8e18c3bcbf8641e8ed7290c5554589c2bec43d428fa34da",
+    "artifacts/cancellation-predicate/python-version.log": "0366d77cc1f1ac88ea458231ba4f639323d5caf34de0d50b7618277fd4395f1f",
+    "artifacts/cancellation-predicate/run-aggregate-initial.nu": "471c4f467dd8bcdd5bfa1a933a9f3400fccbee3339713a83f60fec2d15bb1434",
+    "artifacts/cancellation-predicate/run-aggregate.nu": "8480551a3612ca6373d6c15cb205ffd32921bc0946fdf37f4283ddd6885c2600",
+    "artifacts/cancellation-predicate/snapshot-after-author.log": "b8e92ec7c62e9919dd6d07ff1cfaf0867d1dad64c2665aef2d540a45c6bbd6c0",
+    "artifacts/cancellation-predicate/snapshot-after-runtime.log": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923",
+    "artifacts/cancellation-predicate/snapshot-before-author.log": "7c886a8b4df6756854cb1f6fff7017ba2923a4803b72c06d13c9d5cd1f37773a",
+    "artifacts/cancellation-predicate/snapshot-before-runtime-debug.log": "e99085dad765cb622c1b0a900de652e767c3289e5d28ff173cffa0829b02a441",
+    "artifacts/cancellation-predicate/snapshot-before-runtime-pass.log": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923",
+    "artifacts/cancellation-predicate/snapshot-before-runtime.log": "be551ef3e875d610fcfade3d896856f1f4a26dd7adee224af00919f69d35291e",
+    "artifacts/cancellation-predicate/snapshot-final-moved-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-final-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-final-replay-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-moved-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-moved-replay.log": "9c069f16438c45081f2411ebfbf2e70b37c953107f8584d1ca65377fbdba81cf",
+    "artifacts/cancellation-predicate/snapshot-moved-runtime.log": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923",
+    "artifacts/cancellation-predicate/snapshot-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-replay-proof.log": "28ac44b90b29f2582a7b51e7345357b4399bcc1c8a15703027e5b4f233ed580f",
+    "artifacts/cancellation-predicate/snapshot-replay.log": "b8e92ec7c62e9919dd6d07ff1cfaf0867d1dad64c2665aef2d540a45c6bbd6c0",
+    "artifacts/cancellation-predicate/typecheck.log": "e9d6d2a67d2dad01f7641f3d101cb4e56eda77d9d034013cf23bb233aaaab8db",
+    "artifacts/cancellation-predicate/whitespace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "hashClosureRule": "This file is excluded from its own hash map. Exact final commit and tree are returned to the parent; no self-referential commit placeholder."
+}

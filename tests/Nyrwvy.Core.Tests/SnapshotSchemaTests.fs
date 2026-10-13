@@ -80,7 +80,9 @@ module SnapshotSchemaTests =
 
     /// One program per gated construct (two for the types that can appear without their nodes).
     let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
-        [ "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
+        [ "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
+              create "isCancellation" [ "exception", generic BuiltinGenericType.Exception [] ] boolType [] (ExpressionRecipe.ExceptionIsCancellation(slot 0)) |> ignore)
+          "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
               let result = generic BuiltinGenericType.Result [ stringType; stringType ]
               let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.StringLiteral "ok"))
               let handler = create "handler" [ "exception", generic BuiltinGenericType.Exception [] ] result [] (ExpressionRecipe.ExceptionRethrow(slot 0, result))
@@ -162,7 +164,8 @@ module SnapshotSchemaTests =
     let ``a gated construct is written at its minimum version and rejected one version below`` (name: string) =
         let _, feature, define = cases |> List.find (fun (caseName, _, _) -> caseName = name)
         let snapshot = build define
-        Assert.Equal<Set<SnapshotSchemaFeature>>(Set.singleton feature, SnapshotSchema.usedFeatures snapshot)
+        let expectedFeatures = if feature = SnapshotSchemaFeature.ExceptionIsCancellation then Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ] else Set.singleton feature
+        Assert.Equal<Set<SnapshotSchemaFeature>>(expectedFeatures, SnapshotSchema.usedFeatures snapshot)
         let minimum = SnapshotSchema.minimumVersion feature
         let label = SnapshotSchema.featureName feature
         let previous = SnapshotSchema.supported |> List.findBack (fun version -> version.Json < minimum.Json)

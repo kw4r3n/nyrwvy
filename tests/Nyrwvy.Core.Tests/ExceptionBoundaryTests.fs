@@ -125,3 +125,38 @@ module ExceptionBoundaryTests =
                 Assert.False(response.GetProperty("ok").GetBoolean())
                 Assert.Contains("MissingEffectRequirement", response.ToString())
                 Assert.Equal<byte>(before, File.ReadAllBytes path))
+
+    [<Fact>]
+    let ``cancellation classification is pure Bool with gated persistence and full operand validation`` () =
+        fixture (fun session path ->
+            create session "isCancellation" ($"""[{{"displayName":"exception","type":{exceptionType}}}]""") """{"kind":"primitive","primitive":"bool"}""" """{"kind":"exceptionIsCancellation","value":{"kind":"parameter","name":"exception"}}"""
+            let original = snapshot path
+            let fn = original.Functions |> List.find (fun fn -> fn.DisplayName = "isCancellation")
+            let node = ValueGraph.collectNodes fn.Body |> List.find (fun n -> match n.Kind with SemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false)
+            Assert.False(SemanticNodeShape.isIntrinsicallyEffectful node)
+            Assert.Empty(SnapshotValidator.validate original)
+            let json = SnapshotCodec.serialize original |> unwrap
+            Assert.Contains("\"schemaVersion\":17", json)
+            Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":17", "\"schemaVersion\":16"))))
+            let nyason = NyasonCodec.serialize original |> unwrap
+            Assert.Contains("nayamnyam.snapshot.v13", nyason)
+            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
+            Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v13", "nayamnyam.snapshot.v12"))))
+            let typed = TypedSemanticIr.project original |> unwrap
+            Assert.Contains("\"schemaVersion\":12", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains("exceptionIsCancellation", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
+            Assert.Contains("\"schemaVersion\":12", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
+            let viewer = SemanticQuery.focusFunction original fn.Id |> unwrap |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+            Assert.Contains("exception is cancellation", viewer)
+            let source = (session.EmitCSharp CSharpBackendProfile.empty |> unwrap).Source
+            Assert.Contains(".SourceException is System.OperationCanceledException", source)
+            let before = File.ReadAllBytes path
+            let bad = propose session "invalidClassification" "[]" """{"kind":"primitive","primitive":"bool"}""" """{"kind":"exceptionIsCancellation","value":{"kind":"stringLiteral","value":"cancelled"}}"""
+            Assert.False(bad.GetProperty("ok").GetBoolean())
+            Assert.Contains("ExceptionValueTypeMismatch", bad.ToString())
+            Assert.Equal<byte>(before, File.ReadAllBytes path)
+            let broken = { original with Functions = original.Functions |> List.map (fun f -> if f.Id = fn.Id then { f with Parameters = f.Parameters |> List.map (fun p -> { p with Type = TypeRef.Primitive PrimitiveType.String }) } else f) }
+            Assert.Contains(SnapshotValidator.validate broken, fun d -> d.Code = "ExceptionValueTypeMismatch")
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> unwrap
+            Assert.Equal(source, (reopened.EmitCSharp CSharpBackendProfile.empty |> unwrap).Source))

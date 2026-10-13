@@ -18,6 +18,7 @@ const csType=t=>t.kind==='primitive'?({string:'NyStr',unit:'NyUnit',int64:'long'
 const effectNames={open:'Open',close:'Close',workspaceCreate:'WorkspaceCreate',workspaceDiscard:'WorkspaceDiscard',provider:'Provider',memberClose:'MemberClose',snapshot:'Snapshot',checks:'Checks',gate:'Gate',reply:'Reply',step:'Step'}
 const variables={HOST:symbol('capabilities',host.id),RUN:symbol('functions',run.id),RUN_HOST:symbol('parameters',find(run.parameters,'host').id),RUN_REQUESTS:symbol('parameters',find(run.parameters,'requests').id),CALLER_RUN:symbol('functions',caller.id),CALLER_HOST:symbol('parameters',find(caller.parameters,'host').id),CALLER_REQUESTS:symbol('parameters',find(caller.parameters,'requests').id),REQUEST:symbol('types',request.id),
  METHODS:host.operations.map(o=>`public ${csType(o.resultType)} ${symbol('capabilityOperations',o.id)}(${o.parameters.map(p=>`${csType(p.type)} ${p.displayName==='base'?'basis':p.displayName}`).join(',')}) => ${effectNames[o.displayName]}(${o.parameters.map(p=>p.displayName==='base'?'basis':p.displayName).join(',')});`).join('\n'),
+ SETTLEMENT:symbol('functions',find(graph.functions,'memberSettlement').id),
  REQUESTARGS:request.fields.map(f=>`${symbol('fields',f.id)}: ${f.type.primitive==='string'?`(NyStr)r.GetProperty("${f.displayName}").GetString()!`:`r.GetProperty("${f.displayName}").GetInt64()`}`).join(',')}
 const program=(await readFile(new URL('./runtime.template.cs',import.meta.url),'utf8')).replace(/@@([A-Z_]+)@@/g,(_,k)=>{assert.ok(variables[k],k);return variables[k]})
 const scratch=await mkdtemp(join(tmpdir(),'member-runtime-'))
@@ -32,12 +33,13 @@ try {
  assert.equal(results.length,cases.length*2)
  for(const row of results){
   const c=cases.find(x=>x.id===row.id)
-  assert.equal(row.response.ok,!(c.releaseFault||c.checksFault||(authoring.baseline&&['raw','oce'].includes(c.snapshotFault))),JSON.stringify(row.response.error))
+  assert.equal(row.response.ok,!(c.releaseFault||c.checksFault||c.snapshotFault==='oce'||(authoring.baseline&&c.snapshotFault==='raw')),JSON.stringify(row.response.error))
   const calls=row.response.ok?row.response.result.calls:row.response.error.calls
   const release=calls.findIndex(x=>x.operation==='close')
   assert.ok(calls.every((x,i)=>!['workspaceCreate','workspaceDiscard','step','provider','memberClose','snapshot','checks'].includes(x.operation)||i<release),'all worker/mutation effects precede release')
   assert.ok(row.MaxActive<=2)
-  row.checks=normalize(c,row.response);if(!authoring.baseline)acceptance(c,row.checks)
+  row.checks=normalize(c,row.response);if(!authoring.baseline&&c.snapshotFault!=='oce')acceptance(c,row.checks)
+  if(c.snapshotFault==='oce'){assert.equal(row.memberObservation.taskCancelled,false);assert.equal(row.memberObservation.taskFaulted,true);assert.equal(row.memberObservation.cancellationException,true);assert.equal(row.memberObservation.scopePreservesIdentity,true);assert.equal(row.memberObservation.phase,'completed');assert.equal(row.memberObservation.commitPublished,false);assert.equal(row.memberObservation.finalReturned,false);assert.equal(row.memberObservation.drained,true);assert.equal(row.memberObservation.released,1)}
   assert.equal(row.Opened,1);assert.equal(row.Closed,1)
   console.log(`PASS: real runtime ${row.id}`)
  }

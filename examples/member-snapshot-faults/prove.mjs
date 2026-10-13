@@ -10,8 +10,15 @@ const redIds=new Set(['ordinary-raw-snapshot','held-raw-owner-cancel','admitted-
 for(const c of cases){
  const a=acceptance(c,normalize(c,av.find(x=>x.checks.id===c.id).response)),b=normalize(c,bv.find(x=>x.checks.id===c.id).response)
  for(const [mode,rowsA,rowsB] of [['virtual',[a],[b]],...['task','external'].map(mode=>[mode,ar.results.filter(x=>x.id===c.id&&x.mode===mode).map(x=>normalize(c,x.response)),br.results.filter(x=>x.id===c.id&&x.mode===mode).map(x=>normalize(c,x.response))])]){
-  assert.equal(rowsA.length,1);assert.equal(rowsB.length,1);acceptance(c,rowsA[0])
-  assert.deepEqual(project(rowsA[0]),project(a),`${c.id} ${mode} exact protected observations`)
+  assert.equal(rowsA.length,1);assert.equal(rowsB.length,1)
+  if(c.snapshotFault==='oce'&&mode!=='virtual'){
+   assert.equal(rowsA[0].outcome,'error:explicit snapshot cancellation')
+   assert.equal(rowsA[0].effects.filter(x=>x==='checks').length,0)
+   assert.deepEqual(project(rowsA[0]),project(rowsB[0]),'explicit OCE retains baseline propagation')
+  }else{
+   acceptance(c,rowsA[0])
+   assert.deepEqual(project(rowsA[0]),project(a),`${c.id} ${mode} exact protected observations`)
+  }
   assert.deepEqual(project(rowsB[0]),project(b),`${c.id} ${mode} exact baseline observations`)
   passed.push({id:c.id,mode})
   assert.deepEqual(rowsA[0].effects,rowsB[0].effects,'same bounded external effects, including once cleanup/release')
@@ -29,7 +36,15 @@ for(const c of cases){
 }
 const realOce=br.results.filter(x=>x.id==='explicit-snapshot-oce');assert.ok(realOce.every(x=>x.response.error.exceptionType==='System.OperationCanceledException'))
 const pOce=oracle.results.find(x=>x.id==='explicit-snapshot-oce');assert.equal(pOce.taskFault,'CancelledError');assert.equal(pOce.status,'completed');assert.equal(pOce.commit,null)
-assert.ok(ar.results.filter(x=>x.id==='explicit-snapshot-oce').every(x=>x.response.ok))
+const afterOce=ar.results.filter(x=>x.id==='explicit-snapshot-oce')
+const checkOce=row=>{
+ assert.equal(row.response.ok,false)
+ assert.equal(row.response.error.exceptionType,'System.OperationCanceledException')
+ assert.deepEqual(row.memberObservation,{taskCancelled:false,taskFaulted:true,cancellationException:true,scopePreservesIdentity:true,phase:'completed',commitPublished:false,finalReturned:false,drained:true,released:1})
+}
+assert.equal(afterOce.length,2);for(const row of afterOce)checkOce(row)
+assert.equal(pOce.membersDrained,true);assert.equal(pOce.checks,'')
+assert.equal(pOce.savedStatuses.at(-1),'running','Python cancellation skips final save')
 const controls=[]
 for(const [id,caseId,mutate] of [
  ['ordinary-fault-escapes','ordinary-raw-snapshot',r=>r.outcome='error:raw snapshot fault'],
@@ -45,8 +60,15 @@ for(const [id,caseId,mutate] of [
  ['success-checks-erased','successful-snapshot-checks',r=>r.effects=r.effects.filter(x=>x!=='checks')],
  ['undetermined-provider-snapshotted','undetermined-provider-cancel',r=>r.effects.splice(-1,0,'snapshot')],
  ['snapshot-token-exposed','held-raw-owner-cancel',r=>r.replies.find(x=>x.label==='@snapshot:entry').record='cancelled'],
- ['oce-divergence-hidden','explicit-snapshot-oce',r=>r.outcome='error:explicit snapshot cancellation'],
+ ['virtual-fake-ordinary-escape','explicit-snapshot-oce',r=>r.outcome='error:explicit snapshot cancellation'],
 ]){const c=cases.find(x=>x.id===caseId),r=structuredClone(av.find(x=>x.checks.id===caseId).checks);mutate(r);assert.throws(()=>acceptance(c,r));controls.push({id,rejected:true})}
-const proof={scripts:cases.length,realRunsPerGraph:ar.results.length,exactVirtualTaskRoot:cases.length,baselineFailures:red,afterPasses:passed,preserved,controls,independentOracle:{pin:oracle.pin,sourceProofs:oracle.sourceProofs,contracts:oracle.results.length},cancellationDivergence:{realCSharp:'explicit OCE escapes before; becomes failed Final after',actualPython:'explicit CancelledError escapes snapshot catch; completed status with no commit; task cancelled',virtual:'ordinary synthetic host throw only; exception class is not measured'},wholePythonParity:false,limits:['Virtual and real share the C# emitter/runtime','ExceptionCatch catches all System.Exception including OCE; opaque Exception has no class test','Opt-in only; admission and serialized defaults unchanged','Checks and commit publication remain outside snapshot catch','Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope','Bare owner shutdown, queued handler protection and atomic check cutoff remain separate','No live providers, physical Git recovery, unbounded interleavings or restart persistence claim']}
+for(const [id,mutate] of [
+ ['real-oce-swallowed',r=>r.response={ok:true}],
+ ['real-task-state-erased',r=>r.memberObservation.taskFaulted=false],
+ ['real-phase-lost',r=>r.memberObservation.phase='failed'],
+ ['real-commit-published',r=>r.memberObservation.commitPublished=true],
+ ['real-drain-skipped',r=>r.memberObservation.drained=false],
+]){const row=structuredClone(afterOce[0]);mutate(row);assert.throws(()=>checkOce(row));controls.push({id,rejected:true})}
+const proof={scripts:cases.length,realRunsPerGraph:ar.results.length,exactVirtualTaskRoot:cases.filter(c=>c.snapshotFault!=="oce").length,baselineFailures:red,afterPasses:passed,preserved,controls,independentOracle:{pin:oracle.pin,sourceProofs:oracle.sourceProofs,contracts:oracle.results.length},cancellationClassification:{realCSharp:'explicit clear-token OCE escapes before and after; joined Member task faulted with original OCE; completed phase, no commit or Final; drained before release',actualPython:'explicit CancelledError escapes snapshot catch; Member task cancelled; completed status, no commit/checks/final save; drained before release',virtual:'ordinary synthetic host throw only; recovered after; exception class is not measured'},wholePythonParity:false,limits:['Virtual and real share the C# emitter/runtime','Catch still captures all System.Exception including OCE; opt-in handler uses generic ExceptionIsCancellation and ExceptionRethrow','Opt-in only; admission and serialized defaults unchanged','Checks and commit publication remain outside snapshot catch','Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope','Bare owner shutdown, queued handler protection and atomic check cutoff remain separate','No live providers, physical Git recovery, unbounded interleavings or restart persistence claim']}
 await writeFile(join(after,process.argv.includes('--replay')?'replay-proof.json':'proof.json'),JSON.stringify(proof,null,2)+'\n')
-console.log(`PASS: ${red.length} baseline RED assertions; ${passed.length} protected passes; ${preserved.length} preserved controls; ${controls.length} record controls; ${cases.length} actual Python contracts; explicit cancellation divergence`)
+console.log(`PASS: ${red.length} baseline RED assertions; ${passed.length} protected passes; ${preserved.length} preserved controls; ${controls.length} record controls; ${cases.length} actual Python contracts; bounded cancellation classification and separate task states`)

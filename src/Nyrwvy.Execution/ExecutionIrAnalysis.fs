@@ -45,6 +45,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.UseResource(_, _, _, body, _) -> true, [ body ]
         | TypedSemanticNodeKind.CancellationRequested -> true, []
         | TypedSemanticNodeKind.ExceptionCatch(body, _, handler, _) -> true, [ body; handler ]
+        | TypedSemanticNodeKind.ExceptionIsCancellation _ -> false, []
         | TypedSemanticNodeKind.ExceptionMessage _ -> false, []
         | TypedSemanticNodeKind.ExceptionRethrow _ -> true, []
         | TypedSemanticNodeKind.CancellationShield(body, _) -> true, [ body ]

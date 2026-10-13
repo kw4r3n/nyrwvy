@@ -202,6 +202,7 @@ type ExecutionInstructionKind =
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
     | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: ExecutionCallArgument list * handlerFunctionId: FunctionId * handlerContext: ExecutionCallArgument list
+    | ExceptionIsCancellation of exceptionValue: ExecutionValueId
     | ExceptionMessage of exceptionValue: ExecutionValueId
     | ExceptionRethrow of exceptionValue: ExecutionValueId * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -293,6 +294,7 @@ module ExecutionInstructionKind =
             [ callback FunctionReferenceRole.Worker functionId; ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.CancellationRequested -> [ ExecutionInstructionUse.ConcurrencyRuntime ]
         | ExecutionInstructionKind.ExceptionCatch(body, _, handler, _) -> [ callback FunctionReferenceRole.Body body; callback FunctionReferenceRole.Body handler ]
+        | ExecutionInstructionKind.ExceptionIsCancellation _
         | ExecutionInstructionKind.ExceptionMessage _
         | ExecutionInstructionKind.ExceptionRethrow _ -> []
         | ExecutionInstructionKind.CancellationShield(functionId, _) ->

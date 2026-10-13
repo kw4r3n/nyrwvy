@@ -153,6 +153,7 @@ module FoundationTests =
                 | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.TaskScope _
                 | SemanticNodeKind.ExceptionCatch _
+                | SemanticNodeKind.ExceptionIsCancellation _
                 | SemanticNodeKind.ExceptionMessage _
                 | SemanticNodeKind.ExceptionRethrow _
                 | SemanticNodeKind.CancellationShield _

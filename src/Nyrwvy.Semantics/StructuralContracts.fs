@@ -206,6 +206,7 @@ module ValueDependency =
             :: contextDependencies context
         | SemanticNodeKind.CancellationRequested -> []
         | SemanticNodeKind.ExceptionCatch(_, bodyContext, _, handlerContext) -> contextDependencies bodyContext @ contextDependencies handlerContext
+        | SemanticNodeKind.ExceptionIsCancellation value
         | SemanticNodeKind.ExceptionMessage value
         | SemanticNodeKind.ExceptionRethrow(value, _) -> [ create ValueDependencyRole.Value value ]
         | SemanticNodeKind.CancellationShield(_, context) ->

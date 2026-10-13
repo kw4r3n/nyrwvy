@@ -1,11 +1,11 @@
 # Opt-in snapshot-fault containment
 
 Pass `containSnapshotFaults:true` to the controller, admission or owner author.
-The default remains false. Two ordinary graph functions compose the existing
-`ExceptionCatch` around `Host.snapshot` and return a typed Err to the existing
-failed-Final branch. Commit publication, checks, memberClose and outer release
-stay outside that boundary. No core/runtime/schema or generated-source edit is
-needed. `ExceptionMessage` becomes the intermediate Err; Final retains status,
+The default remains false. Two ordinary graph functions compose
+`ExceptionCatch` around `Host.snapshot`. Its handler uses the generic pure
+`ExceptionIsCancellation`: cancellation rethrows original dispatch information;
+ordinary faults return a typed Err to the existing failed-Final branch. Commit publication, checks, memberClose and outer release
+stay outside that boundary. The classifier requires snapshot JSON v17 / Nyason v13; generated C# is unedited. `ExceptionMessage` becomes the intermediate Err; Final retains status,
 commit and checks only, so this does not preserve Python's diagnostic text.
 
 Eleven bounded scripts cover ordinary raw snapshot failure, held owner/root
@@ -37,18 +37,24 @@ The independent oracle verifies exact HEAD and source bytes against Python
 It calls actual execute, wait, inspect, stop, close, lock and await_cleanup.
 Only provider/Git/check/save effects are synthetic. No policy method is copied.
 The routine Node regression uses the retained independent Python fixture.
-Fourteen record-mutation controls test comparison sensitivity; these are not
+Nineteen record-mutation controls test comparison sensitivity; these are not
 compiled graph mutants. Installed Roslyn compiles Generated.cs unedited, offline.
 Virtual and real use the same C# emitter/runtime.
 
-`ExceptionCatch` catches `System.OperationCanceledException`. The opaque
-Exception has no class test. The real host throws an explicit OCE even with a
-clear token: baseline propagates it; opt-in containment returns failed Final.
-Actual Python's `except Exception` excludes an explicit `CancelledError`: its
-Member task cancels, leaves status completed with no commit, skips checks, and
-does not write the final save. Virtual fake `throw` is an ordinary host exception;
-it does not measure exception class. No message/token heuristic is used.
-This divergence is intentional evidence for an opt-in boundary, not full parity.
+`ExceptionCatch` still captures OCE; the opt-in handler rethrows it. Real C#
+throws a clear-token OCE: baseline and opt-in both propagate it. A separate
+compiled invocation of the same emitted Member settlement callback joins its
+actual task before reading its completed phase and absent commit. It returns no
+Final, faults the task with OCE (IsCanceled is false), and drains before release;
+scope propagation preserves original identity. This harness observes existing
+runtime objects; it does not construct a substitute graph policy.
+
+Actual pinned Python excludes CancelledError from `except Exception`: its task
+is cancelled, retains completed status with no commit/checks/final save, and
+drains before release. Task state and retained phase/outcome are distinct
+observations. Virtual fake `throw` is ordinary and is recovered by the opt-in
+handler; it does not measure exception class. Virtual and real share the emitter;
+Python is the independent oracle. No whole-shutdown parity claim is made.
 
 Raw checks faults still propagate in the graph. Python's raw check failure
 faults the Member task after capturing its commit; the full records stay separate.
@@ -60,5 +66,5 @@ the original release-fault behavior in both variants.
 Queued-handler protection, bare-owner shutdown, an atomic concurrent check
 cutoff, arbitrary fault classes/interleavings, live provider shutdown, physical
 Git recovery and restart persistence are excluded. Defaults and earlier fixtures
-remain unchanged. See the [verification report](../../docs/verification/snapshot-fault-containment-20261013.md)
-and [verified closure](fixtures/verified-closure.json).
+remain unchanged. See the [verification report](../../docs/verification/exception-is-cancellation-20261014.md)
+and [current closure](fixtures/cancellation-closure.json).

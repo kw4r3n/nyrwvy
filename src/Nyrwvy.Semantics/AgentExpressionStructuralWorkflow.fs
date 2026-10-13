@@ -138,6 +138,7 @@ type ExpressionRecipe =
     | CancellationRequested
     /// The body's one unbound Unit parameter is supplied while ambient cancellation is masked.
     | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: (ParameterId * ExpressionRecipe) list * handlerFunctionId: FunctionId * handlerContext: (ParameterId * ExpressionRecipe) list
+    | ExceptionIsCancellation of exceptionValue: ExpressionRecipe
     | ExceptionMessage of exceptionValue: ExpressionRecipe
     | ExceptionRethrow of exceptionValue: ExpressionRecipe * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -356,6 +357,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
         | ExpressionRecipe.CancellationRequested -> recipe
         | ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext) -> ExpressionRecipe.ExceptionCatch(body, pairs bodyContext, handler, pairs handlerContext)
+        | ExpressionRecipe.ExceptionIsCancellation value -> ExpressionRecipe.ExceptionIsCancellation(go value)
         | ExpressionRecipe.ExceptionMessage value -> ExpressionRecipe.ExceptionMessage(go value)
         | ExpressionRecipe.ExceptionRethrow(value, resultType) -> ExpressionRecipe.ExceptionRethrow(go value, mapType resultType)
         | ExpressionRecipe.CancellationShield(body, context) -> ExpressionRecipe.CancellationShield(body, pairs context)
@@ -681,6 +683,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ParallelAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.CancellationRequested -> Seq.empty
         | ExpressionRecipe.ExceptionCatch(_, bodyContext, _, handlerContext) -> (bodyContext @ handlerContext) |> Seq.map snd
+        | ExpressionRecipe.ExceptionIsCancellation value
         | ExpressionRecipe.ExceptionMessage value
         | ExpressionRecipe.ExceptionRethrow(value, _) -> Seq.singleton value
         | ExpressionRecipe.CancellationShield(_, context) -> context |> Seq.map snd
@@ -1770,6 +1773,11 @@ module AgentExpressionStructuralWorkflow =
                     | _ -> Error(diagnostic "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>.")
                 | Ok _, Ok _ -> Error(diagnostic "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>.")
                 | Error error, _ | _, Error error -> Error error
+            | ExpressionRecipe.ExceptionIsCancellation value ->
+                match infer frames value with
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) -> Ok boolType
+                | Ok _ -> Error(diagnostic "ExceptionValueTypeMismatch" "ExceptionIsCancellation requires Exception.")
+                | Error error -> Error error
             | ExpressionRecipe.ExceptionMessage value ->
                 match infer frames value with
                 | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) -> Ok stringType
@@ -2610,6 +2618,7 @@ module AgentExpressionStructuralWorkflow =
             let handlerNodes, handlerBindings = materializeContext handler handlerContext
             let nodeId = StableIdAllocator.newGraphNodeId ()
             bodyNodes @ handlerNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ExceptionCatch(body, bodyBindings, handler, handlerBindings) } ], nodeId
+        | ExpressionRecipe.ExceptionIsCancellation value -> unary SemanticNodeKind.ExceptionIsCancellation value
         | ExpressionRecipe.ExceptionMessage value -> unary SemanticNodeKind.ExceptionMessage value
         | ExpressionRecipe.ExceptionRethrow(value, resultType) -> unary (fun value -> SemanticNodeKind.ExceptionRethrow(value, resultType)) value
         | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->
