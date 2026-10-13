@@ -1,0 +1,276 @@
+{
+  "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+  "sourceProofs": {
+    "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+    "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+    "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+    "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+  },
+  "results": [
+    {
+      "id": "determined-snapshot",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "determined-raw-snapshot",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "determined-typed-snapshot",
+      "boundaryStatus": "completed",
+      "status": "failed",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "determined-cleanup",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "determined-failed-cleanup",
+      "boundaryStatus": "failed",
+      "status": "failed",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "undetermined-provider",
+      "boundaryStatus": "running",
+      "status": "stopped",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": true
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "cancel-before-completed-provider-return",
+      "boundaryStatus": "running",
+      "status": "stopped",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": true
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "undetermined-entry",
+      "boundaryStatus": "running",
+      "status": "stopped",
+      "commit": null,
+      "checks": "",
+      "outcome": "cancelled",
+      "effects": [
+        "memberClose",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": true
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "settled-before-cancel",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "commit": "commit1",
+      "checks": "passed",
+      "outcome": "cancelled",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "checks",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": []
+    },
+    {
+      "id": "determined-release-fault",
+      "boundaryStatus": "completed",
+      "status": "completed",
+      "commit": "commit1",
+      "checks": "",
+      "outcome": "error:release fault",
+      "effects": [
+        "provider",
+        "memberClose",
+        "snapshot",
+        "release"
+      ],
+      "tokens": [
+        {
+          "effect": "memberClose",
+          "cancelled": false
+        },
+        {
+          "effect": "snapshot",
+          "cancelled": false
+        }
+      ],
+      "released": 1,
+      "membersDrained": true,
+      "agentsClosed": 1,
+      "diagnostics": [
+        {
+          "message": "RuntimeError exception in shielded future",
+          "exception": "release fault"
+        }
+      ]
+    }
+  ]
+}

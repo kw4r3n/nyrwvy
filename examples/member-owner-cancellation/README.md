@@ -1,5 +1,10 @@
 # Whole-owner cancellation and shutdown
 
+The default authoring API now protects determined Member settlement. This
+historical runner explicitly selects `protectDetermined:false` to reproduce
+the earlier six and eleven fixtures. The new bounded before/after matrix is in
+[member-determined-settlement](../member-determined-settlement/README.md).
+
 The completed-mutation milestone adds a composition-only state recovery path.
 The default admission authoring recipe polls successful completed exclusive
 task results after reading its handoffs. Parent cancellation still closes those

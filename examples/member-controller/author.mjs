@@ -83,4 +83,4 @@ export const extension={continueBody:(body,reject)=>cond({kind:'boolOr',left:A(p
   cond({kind:'boolAnd',left:eqStr(field(req,'Request','op'),text('gate')),right:eqStr(field(req,'Request','mode'),text('settle'))},bind(io('gate',{label}),direct('wait',{host:p('host'),state:p('state'),target,mode:text('all'),limit:integer(5000),label})),
   cond(eqStr(field(req,'Request','op'),text('observe')),direct('observeRequest',{...args,label}),
    cond(eqStr(field(req,'Request','op'),text('finish')),direct('finishRequest',{...args,label,mode:field(req,'Request','mode')}),fallback))))}
-export const author=s=>lifecycle(s,extension)
+export const author=(s,{protectDetermined=false}={})=>lifecycle(s,{...extension,protectDetermined})

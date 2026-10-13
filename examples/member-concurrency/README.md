@@ -22,6 +22,11 @@ the existing cancellation shield and exception boundary. Close publishes
 ownership interval. The owner joins every request supervisor before its
 TaskScope exits, and releases one resource after all owned tasks drain.
 
+Member status is now captured before cleanup, followed by a shielded settlement
+tail. Parent cancellation still promptly reaches undetermined provider work;
+it no longer interrupts a determined snapshot or downgrades a completion during
+cleanup. See the [bounded settlement proof](../member-determined-settlement/README.md).
+
 The real and Python runs use explicit held workspace, commit and close-drain
 events. Python uses actual pinned Team methods, asyncio.Lock and await_cleanup;
 ContextVar attributes effects to individual requests, including shielded child
