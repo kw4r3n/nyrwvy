@@ -1,5 +1,13 @@
 # Whole-owner cancellation and shutdown — 2026-10-13
 
+**Correction, 2026-10-14:** The integration scripts' request-ticket joins did
+not join peer Member 2 before inspection. Independent review forced a legitimate
+pre-completion `running` observation while drainage and once-only release still
+passed. The [separate harness repair](owner-prejoin-observation-20261014.md)
+adds an explicit Member join and retains deterministic old RED/new GREEN
+evidence. This record and its fixture hashes describe the historical revision;
+their successful observations did not establish that missing completion order.
+
 The admission recipe now has a bounded, reproducible parent-cancellation probe
 and one composition-only return adaptation. **Six scripts / twelve real runs
 agree exactly with virtual execution on their observable C# records. They do

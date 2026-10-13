@@ -4,7 +4,15 @@ import {join} from 'node:path'
 import {normalize,projection,validate} from './cases.mjs'
 const dir=process.argv[2],replay=process.argv.includes('--replay'),json=async p=>JSON.parse(await readFile(p,'utf8'))
 const cases=await json(join(dir,'cases.json')),adapted=cases[0].adapted,recovered=cases[0].recovered,recoveryMatrix=cases.length>6
-const expected=await json(new URL(`./fixtures/nyrwvy-${recovered?'recovered':recoveryMatrix?'recovery-baseline':adapted?'adapted':'baseline'}.json`,import.meta.url)),python=await json(new URL(`./fixtures/${recoveryMatrix?'recovery-oracle-expected':'oracle-expected'}.json`,import.meta.url))
+// Preserve the historical fixtures and their hash closures. The repaired
+// script adds one explicit joined reply; every original golden field remains
+// exact, including the terminal peer state that the old script raced to read.
+const withCompletionReply=row=>{
+ const c=cases.find(c=>c.id===row.id)
+ return c?.kind==='integration'&&c.script.some(r=>r.label==='settled-b')?
+  {...row,replies:[...row.replies,{label:'settled-b',record:'2,stopped,w2,base,0,false,,,;'}].sort((a,b)=>a.label.localeCompare(b.label))}:row
+}
+const expected=(await json(new URL(`./fixtures/nyrwvy-${recovered?'recovered':recoveryMatrix?'recovery-baseline':adapted?'adapted':'baseline'}.json`,import.meta.url))).map(withCompletionReply),python=await json(new URL(`./fixtures/${recoveryMatrix?'recovery-oracle-expected':'oracle-expected'}.json`,import.meta.url))
 const virtual=await json(join(dir,replay?'replay-evidence.json':'evidence.json')),real=await json(join(dir,'runtime-evidence.json'))
 const at=(row,operation,patch)=>row.events.findIndex(e=>e.operation===operation&&e.patch===patch)
 function validatePython(c,row){
@@ -47,7 +55,7 @@ try{
  for(const c of cases){const row=validatePython(c,actual.results.find(x=>x.id===c.id));assert.deepEqual(row.diagnostics,python.results.find(x=>x.id===c.id).diagnostics)}
 }catch(error){if(error.code!=='ENOENT')throw error}
 if(adapted&&!recoveryMatrix){
- const baseline=await json(new URL('./fixtures/nyrwvy-baseline.json',import.meta.url))
+ const baseline=(await json(new URL('./fixtures/nyrwvy-baseline.json',import.meta.url))).map(withCompletionReply)
  for(const row of expected){const before=baseline.find(x=>x.id===row.id);assert.deepEqual({...row,outcome:before.outcome},before,'only the owner return contract changes')}
 }
 if(adapted){const control=await json(join(dir,replay?'replay-control.json':'control.json'));assert.equal(control.response.result.actual.isOk,true)}

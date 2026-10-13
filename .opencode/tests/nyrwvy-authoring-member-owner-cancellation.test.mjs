@@ -9,6 +9,9 @@ test('owner cancellation reports after drain and retains explicit Python shutdow
  const run=(script,...args)=>execFileSync('node',[`examples/member-owner-cancellation/${script}.mjs`,...args],{cwd:resolve('.'),encoding:'utf8',timeout:90000})
  try{
   run('run',bundle);run('test-runtime',bundle);run('verify',bundle)
+  run('prove-prejoin',bundle,join(root,'schedules'))
+  const proof=JSON.parse(await readFile(join(root,'schedules','prejoin-proof.json'),'utf8'))
+  assert.equal(proof.red,4);assert.equal(proof.green,8)
   run('run','--replay',bundle);run('verify',bundle,'--replay')
   await cp(bundle,moved,{recursive:true})
   run('run','--replay',moved);run('verify',moved,'--replay')

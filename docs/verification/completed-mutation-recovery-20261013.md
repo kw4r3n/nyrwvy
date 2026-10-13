@@ -1,5 +1,12 @@
 # Completed mutation state after owner cancellation — 2026-10-13
 
+**Correction, 2026-10-14:** The inherited owner integration script could inspect
+peer Member 2 before its cancelled task completed. The
+[pre-join harness repair](owner-prejoin-observation-20261014.md) adds its explicit
+join and reruns this eleven-case matrix under controlled provider schedules.
+The historical fixture hashes remain unchanged. The state-recovery runtime
+and its existing Python-policy divergences are unchanged by this repair.
+
 The admission recipe now retains completed immutable mutation state after
 parent cancellation closes its handoffs. In the held-commit acceptance case,
 the retained Member has `integrated-head`, with exactly one commit, HEAD read
