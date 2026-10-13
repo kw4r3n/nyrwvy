@@ -154,6 +154,7 @@ type ViewerNodeRole =
     | ParallelAll
     | CancellationRequested
     | ExceptionCatch
+    | ExceptionIsCancellation
     | ExceptionMessage
     | ExceptionRethrow
     | CancellationShield
@@ -424,6 +425,7 @@ module ViewerProjection =
         | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
         | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
         | SemanticNodeKind.ExceptionCatch _ -> ViewerNodeRole.ExceptionCatch, []
+        | SemanticNodeKind.ExceptionIsCancellation _ -> ViewerNodeRole.ExceptionIsCancellation, []
         | SemanticNodeKind.ExceptionMessage _ -> ViewerNodeRole.ExceptionMessage, []
         | SemanticNodeKind.ExceptionRethrow _ -> ViewerNodeRole.ExceptionRethrow, []
         | SemanticNodeKind.CancellationShield _ -> ViewerNodeRole.CancellationShield, []

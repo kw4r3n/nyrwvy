@@ -1,6 +1,6 @@
 // Generic fault handling composed with existing cleanup, scopes and cancellation.
 import {define as shieldDefinitions} from '../cleanup-shield/author.mjs'
-import {cap,unit,string,unitValue,p,text,pat,bind,ok,err,result,invoke,direct,cancellation,cond} from '../dynamic-worker-collector/lib.mjs'
+import {cap,unit,string,unitValue,p,text,pat,bind,ok,err,result,invoke,direct,cancellation,cond,bool,boolean} from '../dynamic-worker-collector/lib.mjs'
 const host=cap('Probe'),R=result(string),exception={kind:'builtinGeneric',generic:'exception',arguments:[]}
 const ctx=o=>Object.entries(o).map(([parameter,value])=>({parameter,value}))
 const io=(operation,args={})=>invoke(p('host'),'Probe',operation,args)
@@ -14,6 +14,15 @@ export async function author(s){
  await create('faultBody',{host,item:unit},io('step',{phase:text('fault')}))
  await create('faultRethrow',{host,exception},bind(io('report',{message:text('caught')}),rethrow()))
  await create('faultRecover',{host,exception},bind(io('report',{message:cond(cancellation,text('restored-cancelled'),text('restored-clear'))}),err({kind:'exceptionMessage',value:p('exception')})))
+ const predicate={kind:'exceptionIsCancellation',value:p('exception')}
+ await s.create('isCancellation',{exception},bool,predicate,[])
+ for(const [name,condition] of [['selective',direct('isCancellation',{exception:p('exception')})],['inverted',{kind:'boolNot',value:predicate}],['alwaysCancel',boolean(true)],['neverCancel',boolean(false)]]){
+  await create(name+'Handler',{host,exception},cond(condition,rethrow(),err({kind:'exceptionMessage',value:p('exception')})))
+  await create(name+'Catch',{host},catcher('faultBody',{host:p('host')},name+'Handler',{host:p('host')}))
+ }
+ await create('typedOk',{item:unit},ok(text('typed ok')))
+ await create('typedErr',{item:unit},err(text('typed err')))
+ for(const name of ['typedOk','typedErr'])await create(name+'Catch',{host},catcher(name,{},'faultRecover',{host:p('host')}))
  await create('faultCatch',{host,item:unit},catcher('faultBody',{host:p('host')},'faultRethrow',{host:p('host')}))
  await create('faultNested',{host,item:unit},shield('faultCatch',{host:p('host')}))
  await create('faultOuter',{host},catcher('faultNested',{host:p('host')},'faultRecover',{host:p('host')}))

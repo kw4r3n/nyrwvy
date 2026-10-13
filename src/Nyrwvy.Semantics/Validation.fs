@@ -1450,6 +1450,8 @@ module SnapshotValidator =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) as bodyResult), Some handlerResult when bodyResult = handlerResult -> ()
                         | Some _, Some _ -> add "ExceptionCatchResultMismatch" "ExceptionCatch callbacks must return the same Result<T, E>."
                         | _ -> ()
+                    | SemanticNodeKind.ExceptionIsCancellation value ->
+                        if nodeType value <> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) then add "ExceptionValueTypeMismatch" "ExceptionIsCancellation requires an Exception value."
                     | SemanticNodeKind.ExceptionMessage value ->
                         if nodeType value <> Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])) then add "ExceptionValueTypeMismatch" "ExceptionMessage requires an Exception value."
                     | SemanticNodeKind.ExceptionRethrow(value, resultType) ->
@@ -2234,6 +2236,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ParallelAll _
                 | SemanticNodeKind.CancellationRequested
                 | SemanticNodeKind.ExceptionCatch _
+                | SemanticNodeKind.ExceptionIsCancellation _
                 | SemanticNodeKind.ExceptionMessage _
                 | SemanticNodeKind.ExceptionRethrow _
                 | SemanticNodeKind.CancellationShield _

@@ -22,3 +22,13 @@ node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-exceptio
 
 No real provider, account, filesystem recovery or integration Git effects run.
 The mock's five/ten-second waits are failure guards, not timing assertions.
+
+The compiled fixture now has 37 controls. Sixteen classification cases cross
+clear/cancelled ambient tokens with ordinary misleading-message faults, OCE
+wrappers, OCE with absent/clear/cancelled/other tokens, TaskCanceledException and
+an OCE subclass. The selective handler recovers ordinary faults and rethrows
+cancellation with original identity and host stack. A pure helper and authored
+inverted/constant handlers are compiled in the same unedited source and expose
+policy sensitivity. Ok/typed Err/Abort bypass Catch; earlier body/context,
+cleanup/drain and release priority controls remain in the fixture. Virtual fake
+throws remain ordinary exceptions and do not establish exception class.

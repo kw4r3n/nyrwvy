@@ -4,7 +4,7 @@ import {mkdtemp,readFile,cp,copyFile,rm} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
-test('opt-in snapshot catch retains failed Final and measures cancellation-class divergence',{timeout:240000},async()=>{
+test('opt-in snapshot catch retains failed Final and propagates cancellation with separate task and drain observations',{timeout:240000},async()=>{
  const root=await mkdtemp(join(tmpdir(),'nyrwvy-snapshot-faults-')),before=join(root,'before'),after=join(root,'after'),moved=join(root,'moved')
  const run=(script,...args)=>execFileSync('node',[`examples/member-snapshot-faults/${script}.mjs`,...args],{cwd:resolve('.'),encoding:'utf8',timeout:90000})
  try{

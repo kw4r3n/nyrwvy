@@ -276,6 +276,7 @@ module internal WireRecipe =
         | "exceptionCatch" ->
             ensureFields "exception-catch recipe" [ "kind"; "bodyFunctionId"; "handlerFunctionId"; "bodyContext"; "handlerContext" ] [ "kind"; "bodyFunctionId"; "handlerFunctionId" ] element
             ExpressionRecipe.ExceptionCatch(id<FunctionTag> "bodyFunctionId" element, namedCallbackContext "bodyContext", id<FunctionTag> "handlerFunctionId" element, namedCallbackContext "handlerContext")
+        | "exceptionIsCancellation" -> unary "exception-is-cancellation recipe" ExpressionRecipe.ExceptionIsCancellation
         | "exceptionMessage" -> unary "exception-message recipe" ExpressionRecipe.ExceptionMessage
         | "exceptionRethrow" ->
             ensureFields "exception-rethrow recipe" [ "kind"; "value"; "resultType" ] [ "kind"; "value"; "resultType" ] element

@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
-    let schemaVersion = 11
+    let schemaVersion = 12
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -683,6 +683,9 @@ module TypedSemanticIrSerializer =
             writer.WriteString("handlerFunctionId", StableId.value handler)
             writeNamedCallbackContext "bodyContext" writer bodyContext
             writeNamedCallbackContext "handlerContext" writer handlerContext
+        | TypedSemanticNodeKind.ExceptionIsCancellation value ->
+            writer.WriteString("kind", "exceptionIsCancellation")
+            writer.WriteString("valueNodeId", StableId.value value)
         | TypedSemanticNodeKind.ExceptionMessage value ->
             writer.WriteString("kind", "exceptionMessage")
             writer.WriteString("valueNodeId", StableId.value value)
@@ -941,13 +944,15 @@ module TypedSemanticIrSerializer =
             hasExceptionSignature || hasExceptionField
             || uses (function
                 | TypedSemanticNodeKind.ExceptionCatch _
+                | TypedSemanticNodeKind.ExceptionIsCancellation _
                 | TypedSemanticNodeKind.ExceptionMessage _
                 | TypedSemanticNodeKind.ExceptionRethrow _ -> true
                 | _ -> false)
             || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsException fn.Body)
 
         let version =
-            if hasException then schemaVersion
+            if uses (function | TypedSemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false) then schemaVersion
+            elif hasException then 11
             elif hasOneShotSignature || hasOneShotField
                || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsOneShot fn.Body) then 10
             elif uses (function TypedSemanticNodeKind.OneShotCreate _ | TypedSemanticNodeKind.OneShotComplete _ | TypedSemanticNodeKind.OneShotWait _ -> true | _ -> false) then 10

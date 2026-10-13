@@ -193,6 +193,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
     | CancellationRequested
     | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: TypedSemanticArgument list * handlerFunctionId: FunctionId * handlerContext: TypedSemanticArgument list
+    | ExceptionIsCancellation of exceptionValue: GraphNodeId
     | ExceptionMessage of exceptionValue: GraphNodeId
     | ExceptionRethrow of exceptionValue: GraphNodeId * resultType: TypeRef
     | CancellationShield of bodyFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -388,6 +389,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ParallelAll _
         | TypedSemanticNodeKind.CancellationRequested
         | TypedSemanticNodeKind.ExceptionCatch _
+        | TypedSemanticNodeKind.ExceptionIsCancellation _
         | TypedSemanticNodeKind.ExceptionMessage _
         | TypedSemanticNodeKind.ExceptionRethrow _
         | TypedSemanticNodeKind.CancellationShield _
@@ -556,6 +558,7 @@ module TypedSemanticNodeKind =
             sourceListNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.CancellationRequested -> []
         | TypedSemanticNodeKind.ExceptionCatch(_, bodyContext, _, handlerContext) -> (bodyContext @ handlerContext) |> List.map (fun argument -> argument.ValueNodeId)
+        | TypedSemanticNodeKind.ExceptionIsCancellation value
         | TypedSemanticNodeKind.ExceptionMessage value
         | TypedSemanticNodeKind.ExceptionRethrow(value, _) -> [ value ]
         | TypedSemanticNodeKind.CancellationShield(_, context) -> context |> List.map (fun argument -> argument.ValueNodeId)
@@ -931,6 +934,7 @@ module TypedSemanticIr =
                     | SemanticNodeKind.CancellationRequested -> Ok TypedSemanticNodeKind.CancellationRequested
                     | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
                         Ok(TypedSemanticNodeKind.ExceptionCatch(body, projectContext bodyContext, handler, projectContext handlerContext))
+                    | SemanticNodeKind.ExceptionIsCancellation value -> Ok(TypedSemanticNodeKind.ExceptionIsCancellation value)
                     | SemanticNodeKind.ExceptionMessage value -> Ok(TypedSemanticNodeKind.ExceptionMessage value)
                     | SemanticNodeKind.ExceptionRethrow(value, resultType) -> Ok(TypedSemanticNodeKind.ExceptionRethrow(value, resultType))
                     | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->

@@ -627,6 +627,7 @@ module AgentPureExpressionStructuralWorkflowTests =
               "ParallelAll"
               "CancellationRequested"
               "ExceptionCatch"
+              "ExceptionIsCancellation"
               "ExceptionMessage"
               "ExceptionRethrow"
               "CancellationShield"

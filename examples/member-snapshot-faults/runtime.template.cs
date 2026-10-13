@@ -50,10 +50,24 @@ sealed class Effects : @@HOST@@
 }
 static class Program
 {
+ static object ObserveCancelledMember()
+ {
+  using var sample=JsonDocument.Parse("{\"boundary\":\"snapshot\",\"order\":\"none\",\"snapshotFault\":\"oce\",\"function\":\"concurrentRun\"}");
+  using var root=new CancellationTokenSource();var effects=new Effects(sample.RootElement,root,"task");
+  var scope=new NyTaskScope(root.Token);var phase=scope.CreateOneShot<NyStr>();var commit=scope.CreateOneShot<NyStr>();var closing=scope.CreateOneShot<NyUnit>();
+  effects.Open();effects.Gate("release-effect");
+  var member=scope.Start(()=>NyFunctions.@@SETTLEMENT@@(effects,1,"w1",phase,"completed",closing,commit,NyUnit.Value));
+  bool finalReturned=false;Exception? error=null;try{member.Running.GetAwaiter().GetResult();finalReturned=true;}catch(Exception fault){error=fault;}
+  var retained=phase.Wait(NyOption<long>.Some(0));var published=commit.Wait(NyOption<long>.Some(0));
+  if(!member.Running.IsFaulted||member.Running.IsCanceled||error is not OperationCanceledException||!retained.HasValue||retained.Value.ToString()!="completed"||published.HasValue||finalReturned)throw new Exception("cancelled Member observation");
+  Exception? scopeFault=null;try{scope.Close(false);}catch(Exception fault){scopeFault=fault;}finally{effects.Close(NyUnit.Value);}
+  if(!ReferenceEquals(error,scopeFault))throw new Exception("scope retains original OCE");
+  return new {taskCancelled=member.Running.IsCanceled,taskFaulted=member.Running.IsFaulted,cancellationException=error is OperationCanceledException,scopePreservesIdentity=ReferenceEquals(error,scopeFault),phase=retained.Value.ToString(),commitPublished=published.HasValue,finalReturned,drained=member.Running.IsCompleted&&effects.Active==0,released=effects.Closed};
+ }
  public static void Main(string[] args){ThreadPool.SetMinThreads(16,16);using var data=JsonDocument.Parse(System.IO.File.ReadAllText(args[0]));foreach(var c in data.RootElement.EnumerateArray())foreach(var mode in new[]{"task","external"}){
   using var root=new CancellationTokenSource();NyRuntime.Cancellation.Value=root.Token;var effects=new Effects(c,root,mode);object response;
   try{var requests=c.GetProperty("script").EnumerateArray().Select(r=>new @@REQUEST@@(@@REQUESTARGS@@)).ToArray();var result=c.TryGetProperty("function",out _)?NyFunctions.@@CALLER_RUN@@(@@CALLER_HOST@@:effects,@@CALLER_REQUESTS@@:NyList<@@REQUEST@@>.Create(requests)):NyFunctions.@@RUN@@(@@RUN_HOST@@:effects,@@RUN_REQUESTS@@:NyList<@@REQUEST@@>.Create(requests));response=new {ok=true,result=new {actual=new {isOk=result.IsOk,error=result.IsOk?"":result.ErrorValue.ToString()},calls=effects.Calls}};}
   catch(Exception error){response=new {ok=false,error=new {message=error.Message,exceptionType=error.GetType().FullName,calls=effects.Calls}};}
-  effects.Driver.GetAwaiter().GetResult();NyRuntime.Cancellation.Value=default;Console.WriteLine(JsonSerializer.Serialize(new {id=c.GetProperty("id").GetString(),mode,effects.MaxActive,effects.Opened,effects.Closed,response}));
+  effects.Driver.GetAwaiter().GetResult();NyRuntime.Cancellation.Value=default;Console.WriteLine(JsonSerializer.Serialize(new {id=c.GetProperty("id").GetString(),mode,effects.MaxActive,effects.Opened,effects.Closed,response,memberObservation=c.TryGetProperty("snapshotFault",out var fault)&&fault.GetString()=="oce"?ObserveCancelledMember():null}));
  }}
 }

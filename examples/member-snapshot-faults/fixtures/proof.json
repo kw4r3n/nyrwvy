@@ -1,7 +1,7 @@
 {
   "scripts": 11,
   "realRunsPerGraph": 22,
-  "exactVirtualTaskRoot": 11,
+  "exactVirtualTaskRoot": 10,
   "baselineFailures": [
     {
       "id": "ordinary-raw-snapshot",
@@ -311,7 +311,27 @@
       "rejected": true
     },
     {
-      "id": "oce-divergence-hidden",
+      "id": "virtual-fake-ordinary-escape",
+      "rejected": true
+    },
+    {
+      "id": "real-oce-swallowed",
+      "rejected": true
+    },
+    {
+      "id": "real-task-state-erased",
+      "rejected": true
+    },
+    {
+      "id": "real-phase-lost",
+      "rejected": true
+    },
+    {
+      "id": "real-commit-published",
+      "rejected": true
+    },
+    {
+      "id": "real-drain-skipped",
       "rejected": true
     }
   ],
@@ -325,15 +345,15 @@
     },
     "contracts": 11
   },
-  "cancellationDivergence": {
-    "realCSharp": "explicit OCE escapes before; becomes failed Final after",
-    "actualPython": "explicit CancelledError escapes snapshot catch; completed status with no commit; task cancelled",
-    "virtual": "ordinary synthetic host throw only; exception class is not measured"
+  "cancellationClassification": {
+    "realCSharp": "explicit clear-token OCE escapes before and after; joined Member task faulted with original OCE; completed phase, no commit or Final; drained before release",
+    "actualPython": "explicit CancelledError escapes snapshot catch; Member task cancelled; completed status, no commit/checks/final save; drained before release",
+    "virtual": "ordinary synthetic host throw only; recovered after; exception class is not measured"
   },
   "wholePythonParity": false,
   "limits": [
     "Virtual and real share the C# emitter/runtime",
-    "ExceptionCatch catches all System.Exception including OCE; opaque Exception has no class test",
+    "Catch still captures all System.Exception including OCE; opt-in handler uses generic ExceptionIsCancellation and ExceptionRethrow",
     "Opt-in only; admission and serialized defaults unchanged",
     "Checks and commit publication remain outside snapshot catch",
     "Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope",

@@ -831,6 +831,7 @@ module NyasonCodec =
         | SemanticNodeKind.CancellationRequested -> record "cancellation-requested" [ nodeId ]
         | SemanticNodeKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
             record "exception-catch" ([ nodeId; "body", encodeId "function" body; "handler", encodeId "function" handler ] @ encodeNamedCallbackContext "body-context" bodyContext @ encodeNamedCallbackContext "handler-context" handlerContext)
+        | SemanticNodeKind.ExceptionIsCancellation value -> encodeUnaryNode "exception-is-cancellation" nodeId value
         | SemanticNodeKind.ExceptionMessage value -> encodeUnaryNode "exception-message" nodeId value
         | SemanticNodeKind.ExceptionRethrow(value, resultType) -> record "exception-rethrow" [ nodeId; "value", encodeId "node" value; "result-type", encodeTypeRef resultType ]
         | SemanticNodeKind.CancellationShield(bodyFunctionId, context) ->
@@ -1581,6 +1582,7 @@ module NyasonCodec =
             let fields = recordFields "exception-catch" [ "id"; "body"; "handler" ] [ "body-context"; "handler-context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.ExceptionCatch(decodeId<FunctionTag> "function" (require "body" fields), decodeNamedCallbackContext "body-context" fields, decodeId<FunctionTag> "function" (require "handler" fields), decodeNamedCallbackContext "handler-context" fields) }
+        | NyasonValue.Record("exception-is-cancellation", _) -> decodeUnaryNode "exception-is-cancellation" value SemanticNodeKind.ExceptionIsCancellation
         | NyasonValue.Record("exception-message", _) -> decodeUnaryNode "exception-message" value SemanticNodeKind.ExceptionMessage
         | NyasonValue.Record("exception-rethrow", _) ->
             let fields = recordFields "exception-rethrow" [ "id"; "value"; "result-type" ] [] value

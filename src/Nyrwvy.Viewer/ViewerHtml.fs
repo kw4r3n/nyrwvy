@@ -253,6 +253,7 @@ module ViewerHtml =
         | ViewerNodeRole.ParallelAll -> "parallel all"
         | ViewerNodeRole.CancellationRequested -> "cancellation requested"
         | ViewerNodeRole.ExceptionCatch -> "exception catch"
+        | ViewerNodeRole.ExceptionIsCancellation -> "exception is cancellation"
         | ViewerNodeRole.ExceptionMessage -> "exception message"
         | ViewerNodeRole.ExceptionRethrow -> "exception rethrow"
         | ViewerNodeRole.CancellationShield -> "cancellation shield"

@@ -436,6 +436,7 @@ module internal SignatureMigrationCore =
                 |> Result.bind (fun () -> nonCallTargetUse handler)
                 |> Result.bind (fun () -> rewritePairs bodyContext)
                 |> Result.bind (fun bodyContext -> rewritePairs handlerContext |> Result.map (fun handlerContext -> ExpressionRecipe.ExceptionCatch(body, bodyContext, handler, handlerContext)))
+            | ExpressionRecipe.ExceptionIsCancellation value -> rewrite value |> Result.map ExpressionRecipe.ExceptionIsCancellation
             | ExpressionRecipe.ExceptionMessage value -> rewrite value |> Result.map ExpressionRecipe.ExceptionMessage
             | ExpressionRecipe.ExceptionRethrow(value, resultType) -> rewrite value |> Result.map (fun value -> ExpressionRecipe.ExceptionRethrow(value, resultType))
             | ExpressionRecipe.CancellationShield(bodyFunctionId, context) ->

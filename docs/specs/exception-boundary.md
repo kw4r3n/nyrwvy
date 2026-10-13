@@ -9,20 +9,28 @@ contexts bypass this boundary. A handler exception propagates to an enclosing
 boundary, rather than invoking the same handler again.
 
 The zero-argument builtin `Exception` holds captured dispatch information.
-`ExceptionMessage` reads its message. `ExceptionRethrow(value, resultType)`
+`ExceptionMessage` reads its message. `ExceptionIsCancellation(value)` is a pure
+`Exception -> Bool` classifier. In C# it tests the original captured dispatch
+information’s `SourceException is System.OperationCanceledException`, including
+`TaskCanceledException` and other subclasses. Messages, ambient/exception token
+state or identity, and nested `InnerException` do not participate. An ordinary
+wrapper around an OCE remains ordinary. The predicate does not request, clear or
+mask cancellation. `ExceptionRethrow(value, resultType)`
 rethrows the original exception object and retains its dispatch stack;
 `resultType` ascribes its typed expression position, with no runtime return value.
 The type is opaque, non-equatable and run-local. It cannot cross capability or
 run-value boundaries, including through named types and containers. There is no
-constructor, exception class test, automatic translation or exception persistence.
+constructor, general exception type-name/reflection API, automatic translation or exception persistence.
 
 Catch is explicit and includes `OperationCanceledException`. Catching an OCE
 does not clear/request cancellation or prescribe an Err. A handler may rethrow
-it unchanged or deliberately choose a result. Typed Err and function Abort
+it unchanged or deliberately choose a result. To recover ordinary faults while
+propagating cancellation, use a Conditional on `ExceptionIsCancellation` whose
+true branch is `ExceptionRethrow` and false branch returns the recovery Result. Typed Err and function Abort
 are Result control flow, so neither invokes the exception handler. Exceptions
 outside a boundary continue to propagate through existing ownership rules.
 
-Catch/rethrow are ordered control effects. Message access is a pure lookup.
+Catch/rethrow are ordered control effects. Message access and cancellation classification are pure lookups.
 This boundary does not mask cancellation, start/cancel tasks, drain a scope,
 or release resources. Compose CancellationShield, TaskScope and UseResource
 for those policies. A shield restores its caller token before an outer catch
@@ -38,7 +46,21 @@ use `bodyFunctionId`/`handlerFunctionId`. Saved context arrays are omitted when
 empty and sorted canonically. Snapshot JSON v16 / Nyason v12 are the minimum
 versions for these nodes or the Exception type; older graphs keep their schemas.
 The informational typed and execution IR version is 11 for exception-bearing
-programs. These IR dumps remain write-only inspection formats.
+programs. The classifier requires snapshot JSON v17 / Nyason v13 and informational
+IR v12; programs without it retain their existing minimum versions. These IR
+dumps remain write-only inspection formats.
 
 See [the generic fixture](../../examples/exception-boundary/README.md) and
 [controller verification](../verification/member-controller-20261012.md).
+
+A selective ordinary recipe handler returning `Result<String,String>` is:
+
+```json
+{"kind":"conditional","condition":{"kind":"exceptionIsCancellation","value":{"kind":"parameter","name":"exception"}},"whenTrue":{"kind":"exceptionRethrow","value":{"kind":"parameter","name":"exception"},"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"string"},{"kind":"primitive","primitive":"string"}]}},"whenFalse":{"kind":"resultErr","error":{"kind":"exceptionMessage","value":{"kind":"parameter","name":"exception"}},"okType":{"kind":"primitive","primitive":"string"}}}
+```
+
+The exact recipe uses the same unary `value` field; saved snapshots and both IR
+projections use `valueNodeId` / `valueId` according to their existing unary-node
+convention. This generic primitive does not prescribe controller policy or alter
+task fault/cancellation, cleanup, release priority or retained outcome rules.
+See [the classification proof](../verification/exception-is-cancellation-20261014.md).

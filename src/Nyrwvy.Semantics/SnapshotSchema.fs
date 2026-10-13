@@ -4,6 +4,7 @@ namespace Nyrwvy.Core
 /// `SnapshotSchema.minimumVersions`.
 [<RequireQualifiedAccess>]
 type SnapshotSchemaFeature =
+    | ExceptionIsCancellation
     | ExceptionBoundary
     | CancellationShield
     /// CapabilityConstruct.
@@ -59,12 +60,15 @@ module SnapshotSchema =
 
     let private v16 = version 16 "nayamnyam.snapshot.v12"
 
+    let private v17 = version 17 "nayamnyam.snapshot.v13"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
+        [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
+          SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
           SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
           SnapshotSchemaFeature.CapabilityConstruct, v10, "Capability construction"
@@ -94,6 +98,7 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _
         | SemanticNodeKind.ExceptionMessage _
         | SemanticNodeKind.ExceptionRethrow _ -> Some SnapshotSchemaFeature.ExceptionBoundary

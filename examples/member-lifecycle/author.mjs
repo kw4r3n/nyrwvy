@@ -58,14 +58,15 @@ export async function author(s, extension) {
  await s.create('afterChecks',{host:cap('Host'),id:int,commit:string,closingSignal:closingCell},R,
   matchOption({kind:'oneShotWait',cell:p('closingSignal'),limit:some(integer(0))},ok(final(text('completed'),p('commit'))),
    bind(io('checks',{id:p('id'),commit:p('commit')}),ok(final(text('completed'),p('commit'),pat())))))
- // Opt-in host snapshot boundary only. ExceptionCatch includes OCE; the opaque
- // Exception has no class test, so this intentionally does not claim Python
- // CancelledError parity. Publication, checks and cleanup stay outside.
+ // Opt-in snapshot recovery rethrows original cancellation and recovers ordinary
+ // exceptions. Publication, checks and cleanup stay outside the boundary.
  if(extension?.containSnapshotFaults){
   await s.create('snapshotInvoke',{host:cap('Host'),id:int,workspace:string,item:unit},result(string),
    io('snapshot',{id:p('id'),workspace:p('workspace')}))
   await s.create('snapshotFault',{exception:{kind:'builtinGeneric',generic:'exception',arguments:[]}},result(string),
-   err({kind:'exceptionMessage',value:p('exception')}),[])
+   cond({kind:'exceptionIsCancellation',value:p('exception')},
+    {kind:'exceptionRethrow',value:p('exception'),resultType:result(string)},
+    err({kind:'exceptionMessage',value:p('exception')})),[])
  }
  const snapshotResult=extension?.containSnapshotFaults?
   {kind:'exceptionCatch',body:'snapshotInvoke',bodyContext:context({host:p('host'),id:p('id'),workspace:p('workspace')}),handler:'snapshotFault',handlerContext:[]}:io('snapshot',{id:p('id'),workspace:p('workspace')})

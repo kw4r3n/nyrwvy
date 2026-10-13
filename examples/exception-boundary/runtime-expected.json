@@ -1,0 +1,154 @@
+{
+  "controls": [
+    {
+      "control": "identity-stack-raw-clear",
+      "passed": true
+    },
+    {
+      "control": "identity-stack-OCE-clear",
+      "passed": true
+    },
+    {
+      "control": "identity-stack-raw-cancelled",
+      "passed": true
+    },
+    {
+      "control": "identity-stack-OCE-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-ordinary-cancel-message-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-wrapper-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-none-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-clear-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-cancelled-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-other-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-task-cancelled-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-subclass-ambient-clear",
+      "passed": true
+    },
+    {
+      "control": "classification-ordinary-cancel-message-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-wrapper-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-none-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-clear-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-cancelled-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-oce-other-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-task-cancelled-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "classification-subclass-ambient-cancelled",
+      "passed": true
+    },
+    {
+      "control": "typed-err-bypasses",
+      "passed": true
+    },
+    {
+      "control": "typed-ok-bypasses",
+      "passed": true
+    },
+    {
+      "control": "typed-abort",
+      "passed": true
+    },
+    {
+      "control": "typed-abort-pending-cancel",
+      "passed": true
+    },
+    {
+      "control": "outer-release-success-ordinary",
+      "passed": true
+    },
+    {
+      "control": "outer-release-success-OCE",
+      "passed": true
+    },
+    {
+      "control": "outer-release-fault-ordinary",
+      "passed": true
+    },
+    {
+      "control": "outer-release-fault-OCE",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-parentCancel-originalFault-ordinary",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-parentCancel-originalFault-OCE",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-parentCancel-rollbackFault-ordinary",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-parentCancel-rollbackFault-OCE",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-TaskCancel-originalFault-ordinary",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-TaskCancel-originalFault-OCE",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-TaskCancel-rollbackFault-ordinary",
+      "passed": true
+    },
+    {
+      "control": "nested-drain-release-TaskCancel-rollbackFault-OCE",
+      "passed": true
+    },
+    {
+      "control": "context-fault-bypasses-handler",
+      "passed": true
+    }
+  ],
+  "compiledPolicyObservations": 48,
+  "productionSensitivityRejections": 32
+}

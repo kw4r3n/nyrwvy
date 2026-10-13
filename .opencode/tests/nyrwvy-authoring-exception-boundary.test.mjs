@@ -20,7 +20,7 @@ test('explicit exception boundary preserves dispatch, cancellation, typed abort 
   for(const name of ['exceptions.json','Generated.cs','symbols.json'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
   run('test-runtime',bundle)
   const real=await json(join(bundle,'runtime-evidence.json'))
-  assert.equal(real.controls.length,13)
+  assert.equal(real.controls.length,37)
   assert.ok(real.controls.every(c=>c.passed))
   assert.equal(real.sourceUnchanged,true)
  }finally{await rm(root,{recursive:true,force:true})}

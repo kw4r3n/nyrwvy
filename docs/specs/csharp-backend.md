@@ -191,3 +191,9 @@ do not create merge values. No host exception or hidden default value represents
 an abort. Existing UseResource and ParallelAll cleanup/failure policies apply at
 the callee/worker Result boundary. See [typed function abort](typed-function-abort.md).
 Programs without an abort terminator retain Execution IR serialization schema 6.
+
+`ExceptionIsCancellation` emits `edi.SourceException is System.OperationCanceledException`
+with a Bool result. It includes subclasses without inspecting message text,
+ambient or exception token state, type names, reflection or InnerException.
+`ExceptionCatch` still captures every System.Exception using ExceptionDispatchInfo;
+selective recovery is ordinary graph composition with Conditional and ExceptionRethrow.
