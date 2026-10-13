@@ -1,0 +1,398 @@
+[
+  {
+    "id": "ordinary-raw-snapshot",
+    "outcome": "error:raw snapshot fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "held-raw-owner-cancel",
+    "outcome": "error:raw snapshot fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "admitted-close-raw-snapshot",
+    "outcome": "error:raw snapshot fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@close-publication",
+        "record": "accepted"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "raw-snapshot-release-precedence",
+    "outcome": "error:raw snapshot fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "typed-snapshot-failure",
+    "outcome": "ok",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot",
+        "record": "clear"
+      },
+      {
+        "label": "settled",
+        "record": "1,failed,w1,base,0,false,,,;"
+      },
+      {
+        "label": "retained",
+        "record": "1,failed,w1,base,0,false,,,;"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "successful-snapshot-checks",
+    "outcome": "ok",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot",
+        "record": "clear"
+      },
+      {
+        "label": "settled",
+        "record": "1,completed,w1,base,0,false,commit1,passed,;"
+      },
+      {
+        "label": "retained",
+        "record": "1,completed,w1,base,0,false,commit1,passed,;"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "checks",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "successful-snapshot-close",
+    "outcome": "err:owner cancelled",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@close-publication",
+        "record": "accepted"
+      },
+      {
+        "label": "@snapshot",
+        "record": "clear"
+      },
+      {
+        "label": "closing",
+        "record": "ok:drained"
+      },
+      {
+        "label": "settled",
+        "record": "1,completed,w1,base,0,false,commit1,,;"
+      },
+      {
+        "label": "retained",
+        "record": "1,completed,w1,base,0,false,commit1,,;"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "successful-snapshot-release-fault",
+    "outcome": "error:release fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@close-publication",
+        "record": "accepted"
+      },
+      {
+        "label": "@snapshot",
+        "record": "clear"
+      },
+      {
+        "label": "closing",
+        "record": "ok:drained"
+      },
+      {
+        "label": "settled",
+        "record": "1,completed,w1,base,0,false,commit1,,;"
+      },
+      {
+        "label": "retained",
+        "record": "1,completed,w1,base,0,false,commit1,,;"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "raw-checks-fault",
+    "outcome": "error:raw checks fault",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot",
+        "record": "clear"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "checks",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "undetermined-provider-cancel",
+    "outcome": "err:owner cancelled",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "settled",
+        "record": "1,stopped,w1,base,0,false,,,;"
+      },
+      {
+        "label": "retained",
+        "record": "1,stopped,w1,base,0,false,,,;"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "close"
+    ],
+    "released": 1
+  },
+  {
+    "id": "explicit-snapshot-oce",
+    "outcome": "error:explicit snapshot cancellation",
+    "replies": [
+      {
+        "label": "a",
+        "record": "spawn:1"
+      },
+      {
+        "label": "@memberClose:entry",
+        "record": "clear"
+      },
+      {
+        "label": "@memberClose",
+        "record": "clear"
+      },
+      {
+        "label": "@snapshot:entry",
+        "record": "clear"
+      }
+    ],
+    "effects": [
+      "provider",
+      "memberClose",
+      "snapshot",
+      "close"
+    ],
+    "released": 1
+  }
+]

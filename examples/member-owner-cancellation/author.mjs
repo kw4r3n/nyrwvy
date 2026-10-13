@@ -5,8 +5,8 @@ import {author as admission} from '../member-concurrency/author.mjs'
 import {unit,unitValue,cap,scope,task,list,result,named,p,pat,bind,direct,invoke,text,integer,ok,err,cond,cancellation,matchOption} from '../dynamic-worker-collector/lib.mjs'
 const R=result(unit),ctx=o=>Object.entries(o).map(([parameter,value])=>({parameter,value}))
 const io=label=>invoke(p('host'),'Host','gate',{label:text(label)})
-export async function author(s,{adapted=true,recoverCompleted=true,protectDetermined=true,retainCloseIntent=true}={}){
- await admission(s,{recoverCompleted,protectDetermined,retainCloseIntent})
+export async function author(s,{adapted=true,recoverCompleted=true,protectDetermined=true,retainCloseIntent=true,containSnapshotFaults=false}={}){
+ await admission(s,{recoverCompleted,protectDetermined,retainCloseIntent,containSnapshotFaults})
  // Check the restored owner token only after concurrentRun has drained its
  // scope and released its resource. Raw drain/release faults still propagate.
  if(adapted)await s.create('ownerCancellationRun',{host:cap('Host'),requests:list(named('Request'))},R,

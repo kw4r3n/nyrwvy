@@ -58,8 +58,19 @@ export async function author(s, extension) {
  await s.create('afterChecks',{host:cap('Host'),id:int,commit:string,closingSignal:closingCell},R,
   matchOption({kind:'oneShotWait',cell:p('closingSignal'),limit:some(integer(0))},ok(final(text('completed'),p('commit'))),
    bind(io('checks',{id:p('id'),commit:p('commit')}),ok(final(text('completed'),p('commit'),pat())))))
+ // Opt-in host snapshot boundary only. ExceptionCatch includes OCE; the opaque
+ // Exception has no class test, so this intentionally does not claim Python
+ // CancelledError parity. Publication, checks and cleanup stay outside.
+ if(extension?.containSnapshotFaults){
+  await s.create('snapshotInvoke',{host:cap('Host'),id:int,workspace:string,item:unit},result(string),
+   io('snapshot',{id:p('id'),workspace:p('workspace')}))
+  await s.create('snapshotFault',{exception:{kind:'builtinGeneric',generic:'exception',arguments:[]}},result(string),
+   err({kind:'exceptionMessage',value:p('exception')}),[])
+ }
+ const snapshotResult=extension?.containSnapshotFaults?
+  {kind:'exceptionCatch',body:'snapshotInvoke',bodyContext:context({host:p('host'),id:p('id'),workspace:p('workspace')}),handler:'snapshotFault',handlerContext:[]}:io('snapshot',{id:p('id'),workspace:p('workspace')})
  await s.create('snapshot',{host:cap('Host'),id:int,workspace:string,closingSignal:closingCell,commitSignal:cell},R,
-  mr(io('snapshot',{id:p('id'),workspace:p('workspace')}),bind({kind:'oneShotComplete',cell:p('commitSignal'),value:pat()},direct('afterChecks',{host:p('host'),id:p('id'),commit:pat('value',1),closingSignal:p('closingSignal')})),ok(final(text('failed')))))
+  mr(snapshotResult,bind({kind:'oneShotComplete',cell:p('commitSignal'),value:pat()},direct('afterChecks',{host:p('host'),id:p('id'),commit:pat('value',1),closingSignal:p('closingSignal')})),ok(final(text('failed')))))
  await s.create('determined',{host:cap('Host'),id:int,workspace:string,phase:cell,status:string,closingSignal:closingCell,commitSignal:cell},R,
   bind({kind:'oneShotComplete',cell:p('phase'),value:p('status')},
    cond(eqStr(p('status'),text('completed')),direct('snapshot',{host:p('host'),id:p('id'),workspace:p('workspace'),closingSignal:p('closingSignal'),commitSignal:p('commitSignal')}),ok(final(p('status'))))))

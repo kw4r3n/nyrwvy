@@ -1,0 +1,1165 @@
+{
+  "base": "86d5262524f0709ee07d3477d56c99e398a116a5",
+  "baseTree": "633b0e797e94292192ed03603e52125533fb189e",
+  "branch": "probe/snapshot-fault-containment",
+  "checkout": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy",
+  "preservedCheckout": {
+    "path": "/home/kw4/Documents/Codex/2026-10-13/task-8/nyrwvy",
+    "head": "1f39f0c21cdc4039ba433c4db794915b49547fca",
+    "tree": "633b0e797e94292192ed03603e52125533fb189e",
+    "status": ""
+  },
+  "oracle": {
+    "path": "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+    "head": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+    "tree": "b26815ab2cc17c1e045f3cde1dc896b265c23851",
+    "status": ""
+  },
+  "publication": "Local checkpoint; wait for parent independent-review confirmation before non-force feature-branch push. Parent handles PR/merge.",
+  "subject": {
+    "option": "containSnapshotFaults",
+    "default": false,
+    "extraFunctions": 2,
+    "extraNodes": 7,
+    "coreRuntimeSchemaCapabilityChanges": false
+  },
+  "proof": {
+    "scripts": 11,
+    "realRunsPerGraph": 22,
+    "exactVirtualTaskRoot": 11,
+    "baselineFailures": [
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "external",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "external",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "virtual",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "task",
+        "rejected": true
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "external",
+        "rejected": true
+      }
+    ],
+    "afterPasses": [
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "virtual"
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "task"
+      },
+      {
+        "id": "ordinary-raw-snapshot",
+        "mode": "external"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "held-raw-owner-cancel",
+        "mode": "external"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "virtual"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "task"
+      },
+      {
+        "id": "admitted-close-raw-snapshot",
+        "mode": "external"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "task"
+      },
+      {
+        "id": "raw-snapshot-release-precedence",
+        "mode": "external"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "virtual"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "task"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "external"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "task"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "external"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "external"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "virtual"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "task"
+      },
+      {
+        "id": "explicit-snapshot-oce",
+        "mode": "external"
+      }
+    ],
+    "preserved": [
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "virtual"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "task"
+      },
+      {
+        "id": "typed-snapshot-failure",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-checks",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-close",
+        "mode": "external"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "task"
+      },
+      {
+        "id": "successful-snapshot-release-fault",
+        "mode": "external"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "virtual"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "task"
+      },
+      {
+        "id": "raw-checks-fault",
+        "mode": "external"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "virtual"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "task"
+      },
+      {
+        "id": "undetermined-provider-cancel",
+        "mode": "external"
+      }
+    ],
+    "controls": [
+      {
+        "id": "ordinary-fault-escapes",
+        "rejected": true
+      },
+      {
+        "id": "failed-snapshot-runs-checks",
+        "rejected": true
+      },
+      {
+        "id": "failed-final-lost",
+        "rejected": true
+      },
+      {
+        "id": "inspection-before-join",
+        "rejected": true
+      },
+      {
+        "id": "duplicate-cleanup",
+        "rejected": true
+      },
+      {
+        "id": "duplicate-release",
+        "rejected": true
+      },
+      {
+        "id": "early-release",
+        "rejected": true
+      },
+      {
+        "id": "release-fault-swallowed",
+        "rejected": true
+      },
+      {
+        "id": "checks-fault-swallowed",
+        "rejected": true
+      },
+      {
+        "id": "close-intent-lost",
+        "rejected": true
+      },
+      {
+        "id": "success-checks-erased",
+        "rejected": true
+      },
+      {
+        "id": "undetermined-provider-snapshotted",
+        "rejected": true
+      },
+      {
+        "id": "snapshot-token-exposed",
+        "rejected": true
+      },
+      {
+        "id": "oce-divergence-hidden",
+        "rejected": true
+      }
+    ],
+    "independentOracle": {
+      "pin": "4bab9e030744a0887c1ee13bdd8fc8db3b98334f",
+      "sourceProofs": {
+        "team.py": "25e6fc65c0947eb74e12425c6c74664bd0c0adc3b80114223c4eabb651a8ccf4",
+        "codex.py": "d2e5f97ac7c1053b841f0263364ff2a28b2e4eb312840ed7686ae6c1663b889a",
+        "runner.py": "3df72a5d33a808734a564519bd4a8094ff8584aeee649bd693f71049bdfac679",
+        "team_tools.py": "67598503bb167a9ac096f44ee9f921204eecb2eb57d41b0eb8fd50c23dd3a228"
+      },
+      "contracts": 11
+    },
+    "cancellationDivergence": {
+      "realCSharp": "explicit OCE escapes before; becomes failed Final after",
+      "actualPython": "explicit CancelledError escapes snapshot catch; completed status with no commit; task cancelled",
+      "virtual": "ordinary synthetic host throw only; exception class is not measured"
+    },
+    "wholePythonParity": false,
+    "limits": [
+      "Virtual and real share the C# emitter/runtime",
+      "ExceptionCatch catches all System.Exception including OCE; opaque Exception has no class test",
+      "Opt-in only; admission and serialized defaults unchanged",
+      "Checks and commit publication remain outside snapshot catch",
+      "Python checks RuntimeError faults its task after commit; graph checks fault propagates through owned scope",
+      "Bare owner shutdown, queued handler protection and atomic check cutoff remain separate",
+      "No live providers, physical Git recovery, unbounded interleavings or restart persistence claim"
+    ]
+  },
+  "bundles": {
+    "before-final": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/before-final",
+      "files": {
+        "Generated.cs": "a003c34f10ac57f8ce1460f2c4554fcef30397579d308b910843e0003e0a7d20",
+        "Runtime.Program.cs": "d207cfa1705aebcbc070637c24bb546cfd5c156192fc02404d7e856fd8612895",
+        "authoring.json": "dabbf572a1bf1afefb3416cd3767574d99096344ddf94e14c94f1859d60b8e87",
+        "bundle-identity.json": "a22c33f515fb4b3f242e0173a50dfde1a71f17aff274f6f6aaa15d8291868947",
+        "cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+        "controller.json": "5d9fa9db738e272f2e0ec65fa3691d522e741353427b50ec007a076330053988",
+        "evidence.json": "298504744d67bde25d2319f262786d75e375cbdc18363caf08c8ccba6ff7a450",
+        "runtime-evidence.json": "2ca34da888108b7f3a50d8386b66b03f48907a71a16f65a39756cb11d804c619",
+        "runtime-raw.json": "34f5d4b329c0d9b37798d64519b0866ae79d6b7cdd177392275cf02f956af471",
+        "symbols.json": "72e76e7bdd1a41483bbf72c86031a75c61d50e4e01a358b1bd1baaed770510a6",
+        "transcript.jsonl": "b29a9ef059a60ca3866cfa08f6340396ea98df8c7d6008020e8c11715d51bb39"
+      }
+    },
+    "after-final": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final",
+      "files": {
+        "Generated.cs": "79270924d1854e42c4c0dc37d4dc6733dabe36c977ffaeaf24bd24fc0c54b515",
+        "Runtime.Program.cs": "e30354a20b9db70c9f472a6a9b4e973ae9a07fb120405143aa606a1e01639585",
+        "authoring.json": "eba760aa472c4a9a99a5443bb90e66a990a8d17114b6c123730e7ba6087e518f",
+        "bundle-identity.json": "076bb823937a847bd65eac82509b79e76c2c06af974c63c2f6b1ab4b45715901",
+        "cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+        "controller.json": "869f4ce544e6e732345470611b8b85112f74dd9338c8b678bd079e0507b03eb2",
+        "evidence.json": "85749143552390bd634a4cc4099b1b04971acc24dbb013bfdca78735e75150b7",
+        "oracle-evidence.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+        "proof.json": "838b0be76ad83239c63c330a92ab8856ada439109eca9b7d50de3581c270130a",
+        "replay-evidence.json": "50e26055ec6e0907b78c57c902e6638bf151afec82e9c77641d9790509dd5343",
+        "replay-identity.json": "076bb823937a847bd65eac82509b79e76c2c06af974c63c2f6b1ab4b45715901",
+        "replay-proof.json": "838b0be76ad83239c63c330a92ab8856ada439109eca9b7d50de3581c270130a",
+        "runtime-evidence.json": "3f736c1683abfc005a17b6efc35af7e07bc2ad3baa6e8d7c8e05e1301200803b",
+        "runtime-raw.json": "8f8aa1882ab6455ce61fa6cf73f617d3c2bf301576f87558463164d76133031e",
+        "symbols.json": "a74e8fce7976ec52a76bdd7e71c41a8ec5c2041a236fc04064011f31db34c79a",
+        "transcript.jsonl": "16735b11f91a0a519c9a597a2998492ee249000cccc64980f2da7095ee61e387"
+      }
+    },
+    "moved-final": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/moved-final",
+      "files": {
+        "Generated.cs": "79270924d1854e42c4c0dc37d4dc6733dabe36c977ffaeaf24bd24fc0c54b515",
+        "Runtime.Program.cs": "e30354a20b9db70c9f472a6a9b4e973ae9a07fb120405143aa606a1e01639585",
+        "authoring.json": "eba760aa472c4a9a99a5443bb90e66a990a8d17114b6c123730e7ba6087e518f",
+        "bundle-identity.json": "076bb823937a847bd65eac82509b79e76c2c06af974c63c2f6b1ab4b45715901",
+        "cases.json": "f2a92e428f3716ceae4d0cc815393211d3a4cbf1490678f4e5edfe4652418861",
+        "controller.json": "869f4ce544e6e732345470611b8b85112f74dd9338c8b678bd079e0507b03eb2",
+        "evidence.json": "85749143552390bd634a4cc4099b1b04971acc24dbb013bfdca78735e75150b7",
+        "oracle-evidence.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+        "proof.json": "838b0be76ad83239c63c330a92ab8856ada439109eca9b7d50de3581c270130a",
+        "replay-evidence.json": "cba5de17ec3911dc9041a68b57e50a1530349897f80ec422062cc3e82ccd2a9c",
+        "replay-identity.json": "076bb823937a847bd65eac82509b79e76c2c06af974c63c2f6b1ab4b45715901",
+        "replay-proof.json": "838b0be76ad83239c63c330a92ab8856ada439109eca9b7d50de3581c270130a",
+        "runtime-evidence.json": "3f736c1683abfc005a17b6efc35af7e07bc2ad3baa6e8d7c8e05e1301200803b",
+        "runtime-raw.json": "8f8aa1882ab6455ce61fa6cf73f617d3c2bf301576f87558463164d76133031e",
+        "symbols.json": "a74e8fce7976ec52a76bdd7e71c41a8ec5c2041a236fc04064011f31db34c79a",
+        "transcript.jsonl": "be71d3726f34faad035dc434ceca1c94b914d1db7f8c4de70ab1673234f0561a"
+      }
+    },
+    "retained-member-controller": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-controller",
+      "files": {
+        "Generated.cs": "e2ad5303a24da8271626f9252b5e4cd26f2d01d7060e8abed1e91716259da9c8",
+        "Runtime.Program.cs": "d5725022b56600a40d9012575ef97f6a075cb9fcd5789fbe50b02a39241faba2",
+        "authoring.json": "7383e5d912804fd24a27a04653137257d544850f922199500cc7adcd56630b09",
+        "bundle-identity.json": "6af67e680bb408dd2686d7b0045513895abb873f5e86ac5cc9cd038f0a36c409",
+        "cases.json": "30d3c16a1000660f45065ca516c40087a30e149ea5b22f5746aba5eab0978b4d",
+        "controller.json": "b1fe04cb4ce223b612134c44a1b5238b38a3792079183b7fd1f0d8d9d40d54d3",
+        "evidence.json": "2bebb88f816fbfac22aa1a42e8fcc2fbd78b1fb8b98bc2bdfdf170b6ddf7a8e8",
+        "oracle-evidence.json": "6d32b04f5fd2e7d5a0d6d1f2ad8aae979318fdce4d31c23f962f286a9b26c939",
+        "runtime-evidence.json": "cf39bf9cdfe5511893c2300662017018d6251b9cc5251a18b633919a37106835",
+        "symbols.json": "2841c40ef66d9784a36973389f34085fb1ae43c98b3c2df04843e31419e41a87",
+        "transcript.jsonl": "e32f8065a259793a24b7d7e3dd32b73d725522003eb3172ba631370e66ec249f"
+      }
+    },
+    "retained-member-concurrency": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency",
+      "files": {
+        "Generated.cs": "7175c649ee6c9ae4b9d3245a02db901351ff3c321202e1a835f4d64a6d74fa82",
+        "Runtime.Program.cs": "3916c7b1c2f55fa8ac64a84b06578da6449df5b076544560263680750381beb3",
+        "authoring.json": "9188caa3b33566a447a635f0b440830feac8a06284626f1c53975f32b5e27922",
+        "bundle-identity.json": "2bb831f6b7a8e308235b6a433087041305bec2eb7445e7ab4948c67d0cb83aa1",
+        "cases.json": "def35a9cb06e1f3af36ec00046e4b2d2ccb6d4ad75cfe025286629f01564e461",
+        "comparison.json": "845a9d53531853a1197c79de397358a8aae6512e8d4640fe1fb7b3ff075bac98",
+        "controller.json": "d947af7945fe3b04409c221c68133dc81669f2ed7deab47227bb23d6667aef6d",
+        "evidence.json": "7f1c8de52030d0a771233e03a98fcb6001112d09397a7d7b6a24dac2a1400572",
+        "oracle-evidence.json": "a202bcde438ca7fa495b0f4b2da89638d05fda21fc832907e7f468b9e62c3fee",
+        "runtime-evidence.json": "ccdba59729c13fe93fc096b1e831a2df09be17bca71c4fad96528db16936e9d2",
+        "runtime-raw.json": "f6e96671978100c8a00b6eec5e449609a8bdc5c89288e94d92e1e9b8b4fb69b7",
+        "symbols.json": "2d316a8098823caa429dd9be16d46a83deacf85d66f2173a834f32f7650d83d2",
+        "transcript.jsonl": "5826393e9204909c18883d88e017d1aa5ab50eaf04023fc3169875a6f7042764"
+      }
+    },
+    "retained-member-owner-cancellation": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation",
+      "files": {
+        "Generated.cs": "88b2cc44a5de41e60176c99a7658a8c4af802248272e64755eeae6b1ace6c52e",
+        "Runtime.Program.cs": "99f1eead54b76c63d82fd4c282a238bf0e56760dbf5d319560afa476e6f08eab",
+        "authoring.json": "d99e4bd45641fb0f502a69bacad0ef083a67da5fc27f9ab091be882b2e259789",
+        "bundle-identity.json": "e51c51f72fdc96ad26a429d1a6980338e9d713c8300c957d6e2272166b3af122",
+        "cases.json": "04171925c217e1e03470fed7f43dbfe42aedd1295da71602ef9a44abbb107280",
+        "comparison.json": "0346e32933521d1331673b4341ecaf0e5ac137a0e0cb094c0f7c5c3263b159ca",
+        "control.json": "ac6e5034b03234f57f63a30b9d88898b5cf13d13952cabe855a85c1c48a93dd7",
+        "controller.json": "e64f19a55974572c4d89811581c5b3c65b78664e2f80e04afce3c98514ee404f",
+        "evidence.json": "2fc8f8778b0e5ff0737ab8471eef5221ba4f97b7582968b50fd33318dac9772a",
+        "oracle-evidence.json": "b9c02cee45306ef61e233474ebf992062339334e08e94f15586ea461b67b0e03",
+        "runtime-evidence.json": "807da17f4734a0c1f21741e296da7a3c21a8136ba6604894aec931495940aa08",
+        "runtime-raw.json": "8289f439ba7efdffd115555b8c3eb0ea8a2ff3744a3f81827416580fac4b6b1b",
+        "symbols.json": "170e861508a7967813701a23d45bfb1763ff90129bfc4fc3c69d3ea60689e952",
+        "transcript.jsonl": "00b1cdfcf00329482d21e43cd391357cb451dfea33f57a9d298914e23d6cd3ab"
+      }
+    },
+    "retained-member-determined-settlement": {
+      "path": "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-determined-settlement",
+      "files": {
+        "Generated.cs": "fc9013ed6790ca1c54d14e3688d64d00af570f63957984338315caa88f9cedbc",
+        "Runtime.Program.cs": "6653af9d9073ffcc9b7905d982031ac50ed9347e7d282add06142c975160cf96",
+        "authoring.json": "d233bd72c31bdde36d21e7082a0f089089cd8ece045f7bc95f114b320074e7c1",
+        "bundle-identity.json": "637a6ebeafc6969975166d908b62b74063504256c89b12f1ea4ed18cc5c1598f",
+        "cases.json": "16b0c82aaecbe6afb41053529441508cebc9f7f2ebb21ecc1fc1d852de4e7c44",
+        "controller.json": "00330d3579e9fdf6f2cd77d99b607264dabaea93084ac1714e55f71da8e6ae80",
+        "evidence.json": "4b6c84df1e1898c2a65f72e8a22551e4a4d43f6f5fde95916322616dd5c796ff",
+        "oracle-evidence.json": "be8a23419bf6c1376d667976ef93b5fd34224478ca437396cad39096235287a9",
+        "runtime-evidence.json": "c61ca7701638e6a5db36e2e6ca30038dd012588622a40b191cb74f71985b2700",
+        "runtime-raw.json": "580819db64d8ec7e464c73a7ed2e262f65996acfe979961a7a72853615e8b8e4",
+        "symbols.json": "d43d8a1251517fe16f5d08ff6341d9e12390650005affecf1d45c72ce41b0dd5",
+        "transcript.jsonl": "8ad667bb717814329c4426fa79813ddfa53f4ee5a0fd5bc077480c42614a6a64"
+      }
+    }
+  },
+  "aggregates": {
+    "commands": [
+      {
+        "name": "before-runtime",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/before-final"
+        ],
+        "exitCode": 0,
+        "seconds": 1.8,
+        "logSha256": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923"
+      },
+      {
+        "name": "after-runtime",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final"
+        ],
+        "exitCode": 0,
+        "seconds": 1.84,
+        "logSha256": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923"
+      },
+      {
+        "name": "proof",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/prove.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/before-final",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final"
+        ],
+        "exitCode": 0,
+        "seconds": 0.11,
+        "logSha256": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809"
+      },
+      {
+        "name": "replay",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/run.mjs",
+          "--replay",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final"
+        ],
+        "exitCode": 0,
+        "seconds": 9.88,
+        "logSha256": "9abaf2cc7547a3b885b93f61f5cb68dcfb2faf69962d98a7d7c0db9ec452663b"
+      },
+      {
+        "name": "replay-proof",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/prove.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/before-final",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final",
+          "--replay"
+        ],
+        "exitCode": 0,
+        "seconds": 0.11,
+        "logSha256": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809"
+      },
+      {
+        "name": "copied-replay",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/run.mjs",
+          "--replay",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/moved-final"
+        ],
+        "exitCode": 0,
+        "seconds": 9.14,
+        "logSha256": "23a04f7bd7aaef41a09da3e2adf37fee09bc989aa77eeb0592aa8e3f4b6eadeb"
+      },
+      {
+        "name": "copied-proof",
+        "command": [
+          "node",
+          "examples/member-snapshot-faults/prove.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/before-final",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/moved-final",
+          "--replay"
+        ],
+        "exitCode": 0,
+        "seconds": 0.11,
+        "logSha256": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809"
+      },
+      {
+        "name": "member-controller-author",
+        "command": [
+          "node",
+          "examples/member-controller/run.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-controller"
+        ],
+        "exitCode": 0,
+        "seconds": 24.28,
+        "logSha256": "bd9c15635b909ab7beb4037e482683f87ad0cb43ac9eb3e7198fd3a5d0738d6d"
+      },
+      {
+        "name": "member-controller-runtime",
+        "command": [
+          "node",
+          "examples/member-controller/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-controller"
+        ],
+        "exitCode": 0,
+        "seconds": 1.76,
+        "logSha256": "6ec0c9adbbda1124e9e435a0ea22e8f21f8c7e645647daee852fd25442cf09ab"
+      },
+      {
+        "name": "member-controller-python",
+        "command": [
+          "python3",
+          "examples/member-controller/oracle.py",
+          "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-controller"
+        ],
+        "exitCode": 0,
+        "seconds": 0.31,
+        "logSha256": "cf29f422d41fda019b71c86d76f6c71bd1e9b8318cd5c48720fce86a151fc610"
+      },
+      {
+        "name": "member-concurrency-author",
+        "command": [
+          "node",
+          "examples/member-concurrency/run.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency"
+        ],
+        "exitCode": 0,
+        "seconds": 19.51,
+        "logSha256": "9976ecd9a02f94a49a1abb6d6adfecd3cb98b78999229c45903262dabb95d236"
+      },
+      {
+        "name": "member-concurrency-runtime",
+        "command": [
+          "node",
+          "examples/member-concurrency/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency"
+        ],
+        "exitCode": 0,
+        "seconds": 1.74,
+        "logSha256": "249fcba9772573b50290bd2f21e295f08724ccfa4f48286fcd08ddbbeba13197"
+      },
+      {
+        "name": "member-concurrency-python",
+        "command": [
+          "python3",
+          "examples/member-concurrency/oracle.py",
+          "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency/cases.json",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency/oracle-evidence.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.11,
+        "logSha256": "20930599dcc4ebdcbc8285d2964eebf06914b78377de964c14eee49fb6abb669"
+      },
+      {
+        "name": "member-concurrency-comparison",
+        "command": [
+          "node",
+          "examples/member-concurrency/verify.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-concurrency"
+        ],
+        "exitCode": 0,
+        "seconds": 0.1,
+        "logSha256": "9d6a389b67cd0396d4eba379a7a72c5fd8b1da4e84b26f44876ae81a17786a5e"
+      },
+      {
+        "name": "member-owner-cancellation-author",
+        "command": [
+          "node",
+          "examples/member-owner-cancellation/run.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation",
+          "--recovered",
+          "--current-close"
+        ],
+        "exitCode": 0,
+        "seconds": 23.0,
+        "logSha256": "f81cf889c3f0325fec8870d69ac92da466596e39451fd99f0f281ac6373b0fe3"
+      },
+      {
+        "name": "member-owner-cancellation-runtime",
+        "command": [
+          "node",
+          "examples/member-owner-cancellation/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation"
+        ],
+        "exitCode": 0,
+        "seconds": 1.82,
+        "logSha256": "fa026b3ca3c46eb65371286636b082ef9f739ccc0baa312e416bf5eec286bc74"
+      },
+      {
+        "name": "member-owner-cancellation-python",
+        "command": [
+          "python3",
+          "examples/member-owner-cancellation/oracle.py",
+          "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation/cases.json",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation/oracle-evidence.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.13,
+        "logSha256": "5d81ebea8e9b0d191d4506bb59ade038b1f286444e315b4d7e955ae52c1b3ac6"
+      },
+      {
+        "name": "member-owner-cancellation-comparison",
+        "command": [
+          "node",
+          "examples/member-owner-cancellation/verify.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-owner-cancellation"
+        ],
+        "exitCode": 0,
+        "seconds": 0.11,
+        "logSha256": "e8180b83aa577d770db6dabd59920422fd91e1d66c2aa538a051d244c3fd4e7c"
+      },
+      {
+        "name": "member-determined-settlement-author",
+        "command": [
+          "node",
+          "examples/member-determined-settlement/run.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-determined-settlement",
+          "--current-close"
+        ],
+        "exitCode": 0,
+        "seconds": 22.03,
+        "logSha256": "f9f91e17290961e6d05608cba37606dfe90d56b0739b6fc7dc769af0a4671b76"
+      },
+      {
+        "name": "member-determined-settlement-runtime",
+        "command": [
+          "node",
+          "examples/member-determined-settlement/test-runtime.mjs",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-determined-settlement"
+        ],
+        "exitCode": 0,
+        "seconds": 1.81,
+        "logSha256": "9b45990e662d2a549f345388693fa058c15b44e6551bac4310a824fa724b3819"
+      },
+      {
+        "name": "member-determined-settlement-python",
+        "command": [
+          "python3",
+          "examples/member-determined-settlement/oracle.py",
+          "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-determined-settlement/cases.json",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/retained-member-determined-settlement/oracle-evidence.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.12,
+        "logSha256": "25879c212e1433a911c10b31953bef3fb881876b51455b7ca930e1cdc8f3bc38"
+      },
+      {
+        "name": "build",
+        "command": [
+          "dotnet",
+          "build",
+          "Nyrwvy.slnx",
+          "--configuration",
+          "Release",
+          "--no-restore"
+        ],
+        "exitCode": 0,
+        "seconds": 2.01,
+        "logSha256": "08caf76d0f2264711add99f0e6953cf4dca83b7730cfd36a80e6c3d9386adf37"
+      },
+      {
+        "name": "fast",
+        "command": [
+          "dotnet",
+          "test",
+          "tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj",
+          "--configuration",
+          "Release",
+          "--no-build",
+          "--no-restore",
+          "--settings",
+          "tests/fast.runsettings"
+        ],
+        "exitCode": 0,
+        "seconds": 12.01,
+        "logSha256": "98308030d10a088308804812431a17f39dc65780e177befd728fd5fda5d0409d"
+      },
+      {
+        "name": "extended",
+        "command": [
+          "dotnet",
+          "test",
+          "Nyrwvy.slnx",
+          "--configuration",
+          "Release",
+          "--no-build",
+          "--no-restore",
+          "--settings",
+          "tests/extended.runsettings"
+        ],
+        "exitCode": 0,
+        "seconds": 84.93,
+        "logSha256": "bbd679d4802fc72ece0850c5215021d1918d9eb4e530574e2b9c6fb8dc2fa1c6"
+      },
+      {
+        "name": "adapters",
+        "command": [
+          "npm",
+          "run",
+          "test:adapters"
+        ],
+        "exitCode": 0,
+        "seconds": 2.38,
+        "logSha256": "d1158cc25b480e2460f24469bfe8a98dbf921a41e01ad43a1359d56401edc1eb"
+      },
+      {
+        "name": "node-initial-setup-failure",
+        "command": [
+          "node",
+          "--experimental-strip-types",
+          "--test",
+          "--test-concurrency=1",
+          ".opencode/tests/nyrwvy-authoring-cleanup-shield.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-exception-boundary.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-close-intent.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-concurrency.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-controller.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-determined-settlement.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-owner-cancellation.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-state-recovery.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-task-wait-observer.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-transport.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-workflow.test.mjs",
+          ".opencode/tests/nyrwvy-evaluation-transport.test.mjs",
+          "scripts/tests/recipe-reference.test.mjs",
+          "scripts/tests/run-fixtures.test.mjs",
+          "scripts/tests/source-ownership.test.mjs",
+          "scripts/tests/verify-local.test.mjs"
+        ],
+        "exitCode": 1,
+        "seconds": 420.47,
+        "logSha256": "a01126f54b5757c9d2e22dd6f2aa4bd7758e638cdb53b25377fbab02dc7ad1fb"
+      },
+      {
+        "name": "node",
+        "command": [
+          "node",
+          "--experimental-strip-types",
+          "--test",
+          "--test-concurrency=1",
+          ".opencode/tests/nyrwvy-authoring-cleanup-shield.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-exception-boundary.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-close-intent.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-concurrency.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-controller.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-determined-settlement.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-owner-cancellation.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-member-state-recovery.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-task-wait-observer.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-transport.test.mjs",
+          ".opencode/tests/nyrwvy-authoring-workflow.test.mjs",
+          ".opencode/tests/nyrwvy-evaluation-transport.test.mjs",
+          "scripts/tests/recipe-reference.test.mjs",
+          "scripts/tests/run-fixtures.test.mjs",
+          "scripts/tests/source-ownership.test.mjs",
+          "scripts/tests/verify-local.test.mjs"
+        ],
+        "exitCode": 0,
+        "seconds": 420.65,
+        "logSha256": "09432fdfad5bb3efdb03e9a0d46963f6d3ef3d6143e9da21c01f1d9d151d3050"
+      },
+      {
+        "name": "mcp",
+        "command": [
+          "npm",
+          "test",
+          "--workspace",
+          "tools/nyrwvy-mcp"
+        ],
+        "exitCode": 0,
+        "seconds": 10.55,
+        "logSha256": "0839d47238ec65e765781a94fa686258ffcf0ac8ddb6455b7b682a68d07ba327"
+      },
+      {
+        "name": "bun-initial-selector-failure",
+        "command": [
+          "bun",
+          "test",
+          ".opencode/tests/evaluation-jsonl-runtime.test.ts",
+          ".opencode/tests/nyrwvy-graph-tools.test.ts",
+          ".opencode/tests/nyrwvy-listmap-eval.test.ts",
+          ".opencode/tests/nyrwvy-structural-eval.test.ts"
+        ],
+        "exitCode": 1,
+        "seconds": 0.08,
+        "logSha256": "b9de4beffd0b37ff250694c26bd11baf850010b007274d418d9813903449e073"
+      },
+      {
+        "name": "bun",
+        "command": [
+          "bun",
+          "test",
+          "./.opencode/tests/evaluation-jsonl-runtime.test.ts",
+          "./.opencode/tests/nyrwvy-graph-tools.test.ts",
+          "./.opencode/tests/nyrwvy-listmap-eval.test.ts",
+          "./.opencode/tests/nyrwvy-structural-eval.test.ts"
+        ],
+        "exitCode": 0,
+        "seconds": 0.07,
+        "logSha256": "588f697e0f13f4f0c0230f3bcb8e3b4917fd04ac7fd2578dd10f12716ac3af0a"
+      },
+      {
+        "name": "types",
+        "command": [
+          "npm",
+          "run",
+          "typecheck"
+        ],
+        "exitCode": 0,
+        "seconds": 5.04,
+        "logSha256": "e9d6d2a67d2dad01f7641f3d101cb4e56eda77d9d034013cf23bb233aaaab8db"
+      },
+      {
+        "name": "partition",
+        "command": [
+          "node",
+          "scripts/check-test-suite-partition.mjs"
+        ],
+        "exitCode": 0,
+        "seconds": 4.82,
+        "logSha256": "37883c9a889dbeb2d5d3b6c6e3b1e9c75e6cfdb52c3f5c60a5962812ea09e67d"
+      },
+      {
+        "name": "fish-contract",
+        "command": [
+          "fish",
+          "scripts/tests/m2-listmap-evaluation-summary.test.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.04,
+        "logSha256": "e94f941e298b7e479f4d71780d002223dbbf3aa7c430904fae848fe9968c26af"
+      },
+      {
+        "name": "fish-syntax-61d98def93",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/lib/m2-listmap-evaluation-summary.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-36adb90106",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/materialize-eval-freeze-compat-refs.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-cf41e3ef03",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/preflight-m2-listmap-opencode.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-878d9696ea",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/preflight-m2-structural-opencode.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-745c9bb5bb",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/run-m2-listmap-controlled-evaluation.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-d393e1ef82",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/test-extended.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-65a6314943",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/test-fast.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-6e4a17c672",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/tests/m2-listmap-evaluation-summary.test.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "fish-syntax-7306e39b2a",
+        "command": [
+          "fish",
+          "--no-execute",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/scripts/validate-scoped-pure-control-flow.fish"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "whitespace",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "exitCode": 0,
+        "seconds": 0.0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "final-python",
+        "command": [
+          "python3",
+          "examples/member-snapshot-faults/oracle.py",
+          "/home/kw4/Documents/Codex/2026-10-12/task-12/rrawrlet-oracle",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final/cases.json",
+          "/home/kw4/Documents/Codex/2026-10-13/task-17/nyrwvy/artifacts/snapshot-faults/after-final/oracle-evidence.json"
+        ],
+        "exitCode": 0,
+        "seconds": 0.12,
+        "logSha256": "0ead28eee6960db0c8e18c3bcbf8641e8ed7290c5554589c2bec43d428fa34da"
+      }
+    ],
+    "counts": {
+      "fast": 862,
+      "extended": 154,
+      "adapters": 8,
+      "node": 46,
+      "mcp": 12,
+      "bun": 23
+    },
+    "build": "Release no restore zero warnings/errors",
+    "typechecks": "adapter and Bun pass",
+    "partition": "disjoint and exhaustive",
+    "fishContract": "pass",
+    "whitespace": "pass",
+    "setupFailure": "Initial Node run passed 45/46; MCP workspace dependencies were omitted from local copy. Restored unchanged dependencies from preserved checkout and reran full Node aggregate. Original failure log retained.",
+    "selectorFailure": "Initial Bun command omitted ./ path prefixes and selected no tests. Corrected invocation reran all Bun tests; original selector error retained.",
+    "logs": {
+      "adapters": "d1158cc25b480e2460f24469bfe8a98dbf921a41e01ad43a1359d56401edc1eb",
+      "after-runtime": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923",
+      "before-runtime": "3dae96960a0b2a447814f7cff82e1bfb30b7355e8ac0275c735e6c6116c02923",
+      "build": "08caf76d0f2264711add99f0e6953cf4dca83b7730cfd36a80e6c3d9386adf37",
+      "bun-initial-selector-failure": "b9de4beffd0b37ff250694c26bd11baf850010b007274d418d9813903449e073",
+      "bun": "588f697e0f13f4f0c0230f3bcb8e3b4917fd04ac7fd2578dd10f12716ac3af0a",
+      "copied-proof": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809",
+      "copied-replay": "23a04f7bd7aaef41a09da3e2adf37fee09bc989aa77eeb0592aa8e3f4b6eadeb",
+      "extended": "bbd679d4802fc72ece0850c5215021d1918d9eb4e530574e2b9c6fb8dc2fa1c6",
+      "fast": "98308030d10a088308804812431a17f39dc65780e177befd728fd5fda5d0409d",
+      "final-python": "0ead28eee6960db0c8e18c3bcbf8641e8ed7290c5554589c2bec43d428fa34da",
+      "fish-contract": "e94f941e298b7e479f4d71780d002223dbbf3aa7c430904fae848fe9968c26af",
+      "fish-syntax-36adb90106": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-61d98def93": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-65a6314943": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-6e4a17c672": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-7306e39b2a": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-745c9bb5bb": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-878d9696ea": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-cf41e3ef03": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fish-syntax-d393e1ef82": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mcp": "0839d47238ec65e765781a94fa686258ffcf0ac8ddb6455b7b682a68d07ba327",
+      "member-concurrency-author": "9976ecd9a02f94a49a1abb6d6adfecd3cb98b78999229c45903262dabb95d236",
+      "member-concurrency-comparison": "9d6a389b67cd0396d4eba379a7a72c5fd8b1da4e84b26f44876ae81a17786a5e",
+      "member-concurrency-python": "20930599dcc4ebdcbc8285d2964eebf06914b78377de964c14eee49fb6abb669",
+      "member-concurrency-runtime": "249fcba9772573b50290bd2f21e295f08724ccfa4f48286fcd08ddbbeba13197",
+      "member-controller-author": "bd9c15635b909ab7beb4037e482683f87ad0cb43ac9eb3e7198fd3a5d0738d6d",
+      "member-controller-python": "cf29f422d41fda019b71c86d76f6c71bd1e9b8318cd5c48720fce86a151fc610",
+      "member-controller-runtime": "6ec0c9adbbda1124e9e435a0ea22e8f21f8c7e645647daee852fd25442cf09ab",
+      "member-determined-settlement-author": "f9f91e17290961e6d05608cba37606dfe90d56b0739b6fc7dc769af0a4671b76",
+      "member-determined-settlement-python": "25879c212e1433a911c10b31953bef3fb881876b51455b7ca930e1cdc8f3bc38",
+      "member-determined-settlement-runtime": "9b45990e662d2a549f345388693fa058c15b44e6551bac4310a824fa724b3819",
+      "member-owner-cancellation-author": "f81cf889c3f0325fec8870d69ac92da466596e39451fd99f0f281ac6373b0fe3",
+      "member-owner-cancellation-comparison": "e8180b83aa577d770db6dabd59920422fd91e1d66c2aa538a051d244c3fd4e7c",
+      "member-owner-cancellation-python": "5d81ebea8e9b0d191d4506bb59ade038b1f286444e315b4d7e955ae52c1b3ac6",
+      "member-owner-cancellation-runtime": "fa026b3ca3c46eb65371286636b082ef9f739ccc0baa312e416bf5eec286bc74",
+      "node-initial-setup-failure": "a01126f54b5757c9d2e22dd6f2aa4bd7758e638cdb53b25377fbab02dc7ad1fb",
+      "node": "09432fdfad5bb3efdb03e9a0d46963f6d3ef3d6143e9da21c01f1d9d151d3050",
+      "partition": "37883c9a889dbeb2d5d3b6c6e3b1e9c75e6cfdb52c3f5c60a5962812ea09e67d",
+      "proof": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809",
+      "replay-proof": "1371ef462f757cd20a2a642059380086d9c08bc7ba6eb48dd62eb08f56c22809",
+      "replay": "9abaf2cc7547a3b885b93f61f5cb68dcfb2faf69962d98a7d7c0db9ec452663b",
+      "types": "e9d6d2a67d2dad01f7641f3d101cb4e56eda77d9d034013cf23bb233aaaab8db",
+      "whitespace": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "sourceHashes": {
+    "examples/member-snapshot-faults/README.md": "79adf2460793897be70a95ae4f0c4a8f10a02b3312ac675756ba6f0f83dd0ce7",
+    "examples/member-snapshot-faults/author.mjs": "741445e6e3c0b9584163ee828a525d6725b4126b859fa60c58aa10aea42b4d02",
+    "examples/member-snapshot-faults/cases.mjs": "f339efc1116dcadef4a547887f58554a62b9849021dbfd57d6ade25e8db54b96",
+    "examples/member-snapshot-faults/oracle.py": "3d494c514b5d4edbaea1ba69b2818607161be1c2d5984ba4814fac98e6cb4430",
+    "examples/member-snapshot-faults/prove.mjs": "73875035198befaf45c62e3beb566e63c352e51e0a8e89ccd5a080989e2d8f11",
+    "examples/member-snapshot-faults/run.mjs": "13bac6b8d76128bf5bae5e8ae5a24c9a7be289073050f5ad1ec7793b8cc267a6",
+    "examples/member-snapshot-faults/runtime.template.cs": "490ac094a129bb3cee7494dab81e4afe9cb11ddc501a69f830b7b1e30dc74eec",
+    "examples/member-snapshot-faults/test-runtime.mjs": "c9e564ef2d7753f9ce2f62830674fe6a0a3fd6736f8a4361c4d8fd62270a7dd6",
+    ".opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs": "80d9be8fbb441f5581a0df995b1f999643b274a2101a03889a569a2e202f0a8b",
+    "docs/verification/snapshot-fault-containment-20261013.md": "484f39e5dedb8737b596a8dcef6da5f61fd45e9f58add4fa2aed582d5f3767ec",
+    "docs/verification/README.md": "e605f01f0939a90eedc07d4afdab86760d46a54afaa8910a2479f80c3c8ddb40",
+    "examples/README.md": "cbaf9bd27bba6a2e5cccef0d28480bfeae968abb76678d68e068e332a2ed6021",
+    "examples/member-lifecycle/author.mjs": "5ac2456954b4c871c055a8fcfba07861377766836b2f0da496272a5436fa2b48",
+    "examples/member-controller/author.mjs": "7020c1962be58e113ddb9dbdf3230bfd3e6237b8756b9b7f44cd3b9e88fdbd86",
+    "examples/member-concurrency/author.mjs": "d69a101a70a832172ef83ca1a773bd150b4c459f356845b9e9c98f419a8a378e",
+    "examples/member-owner-cancellation/author.mjs": "b9474f10f2840408951b151cc699c18d179b4f9f70ce4863e0fde3b778b9250a",
+    "examples/member-close-intent/author.mjs": "e7d66b9e0cf135b29f691719e8d8ecb30bb1a7614ea090f3d341f8d1362a5baf"
+  },
+  "fixtureHashes": {
+    "nyrwvy-after.json": "d7277cca19885a773a3e2dfb5fe3101358509d2ef16cd0a2a941f80d4504cdf0",
+    "nyrwvy-before.json": "b08234fa28b29f93621a7a9bc7b81003fa0d00c0111e2949fcdc9960d44ed26d",
+    "oracle-expected.json": "a461b23499294a17f83dd58c209771eed327fc235b6e244ae9f7430b95f8a664",
+    "proof.json": "838b0be76ad83239c63c330a92ab8856ada439109eca9b7d50de3581c270130a"
+  },
+  "environment": {
+    "shell": "Nushell",
+    "node": "v26.11.1",
+    "dotnet": "10.0.112",
+    "python": "Python 3.14.7",
+    "expandedLocalExecution": "SDK writes, child-process waits and test sockets; no auto-review denial"
+  },
+  "retained": {
+    "serializedScenarios": 51,
+    "serializedRequestAudits": 771,
+    "admissionComparisons": 6,
+    "currentRecoveryScripts": 11,
+    "currentDeterminedScripts": 10,
+    "sameAndCopiedReplay": true
+  },
+  "independentReview": "Pending parent review of exact commit/tree returned in final response; no generic-semantics change required"
+}

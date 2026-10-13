@@ -20,8 +20,8 @@ const start=(worker,values)=>({kind:'taskStart',scope:p('scope'),worker,item:uni
 const mr=(input,okBody,errBody)=>({kind:'matchResult',input,okBody,errBody})
 const exclusive=op=>({kind:'boolOr',left:eqStr(op,text('spawn')),right:{kind:'boolOr',left:eqStr(op,text('integrate')),right:{kind:'boolOr',left:eqStr(op,text('discard')),right:eqStr(op,text('finish'))}}})
 
-export async function author(s,{recoverCompleted=true,protectDetermined=true,retainCloseIntent=true}={}){
- await serialized(s,{protectDetermined})
+export async function author(s,{recoverCompleted=true,protectDetermined=true,retainCloseIntent=true,containSnapshotFaults=false}={}){
+ await serialized(s,{protectDetermined,containSnapshotFaults})
  await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[
   {displayName:'AdmissionTicket',typeKind:{kind:'product',fields:fields({slot:int,parent:handle,relay:task(result(unit)),snapshot:cell,next:cell,exclusive:bool})}},
   {displayName:'AdmissionOwner',typeKind:{kind:'product',fields:fields({initial:S,last:cell,tickets:list(K)})}},
