@@ -17,7 +17,8 @@ export async function suite(bundle,out){
  async function domain(name){const root=join(out,name);await mkdir(join(root,'state'),{recursive:true});const d={root,f:await fixture(join(root,'git')),seq:0};domains.push(d);return d}
  async function run(d,{prefix=false,crash='',held='',admin='',request,settings={},frames=[],storageName='state'}={}){
   const i=++d.seq,state=join(d.root,storageName),scenario={kind:'transport',patch:d.f.patch,providers:{1:'complete'},autoMember:'true',storageDir:state,commitGateFile:join(d.root,'commit-release'),journalGateFile:join(d.root,'journal-release'),snapshotCommit:d.f.selected,fixtureId:await readFile(join(d.f.root,'.git','offline-fixture-id'),'utf8'),gitOwner:owner,crashWindow:crash,...settings}
-  if(admin){scenario[admin+'Request']=join(d.root,`request-${i}.json`);scenario[admin+'Authorization']='offline-owner-'+({disposition:'retain',continuation:'continue',release:'release'})[admin];await writeFile(scenario[admin+'Request'],typeof request==='string'?request:JSON.stringify(request))}
+  if(admin){scenario[admin+'Request']=join(d.root,`request-${i}.json`);scenario[admin+'Authorization']='offline-owner-'+({disposition:'retain',continuation:'continue',release:'release',interruptedContinuation:'retain-continuation'})[admin];await writeFile(scenario[admin+'Request'],typeof request==='string'?request:JSON.stringify(request))}
+  Object.assign(scenario,settings)
   const path=join(d.root,`scenario-${i}.json`);await writeFile(path,JSON.stringify(scenario))
   const before=await store(state),physicalBefore=await inspect(d.f.root),events=[],outputs=[],actions=[]
   const p=spawn('dotnet',[join(bundle,'Runtime.dll'),path],{stdio:['pipe','pipe','pipe'],env:{...process.env,...(held?{PATH:join(d.root,'bin')+':'+process.env.PATH,NYRWVY_HELD_ROOT:d.root,NYRWVY_HELD_COMMAND:held}:{})}})

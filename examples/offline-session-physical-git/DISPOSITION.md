@@ -137,7 +137,8 @@ The separate [continuation procedure](CONTINUATION.md) now tests its own durable
 pending intent/result, mutation custody and crash windows for object/ref tails.
 Retention leaves an abandoned active original domain closed. New completion and
 observation release preserve original uncertainty; renewed mutation admission
-and decisions for interrupted new continuations remain later work.
+remains later work. Separately authorized [interrupted-continuation retention](INTERRUPTION.md)
+now preserves supported unfinished new requests without execution or release.
 
 Run the maintained physical-Git wrapper, or serialize `test-disposition.mjs` for
 fresh original/moved bundles and then `verify-disposition.mjs`. See the

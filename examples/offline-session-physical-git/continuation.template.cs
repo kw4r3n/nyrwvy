@@ -33,13 +33,14 @@
  string NewLaunchKey(string id,int index)=>"physical-continuation-child/v1/"+id+"/"+index;
  string ContinuationResultKey(string id)=>"physical-continuation-result/v1/"+id;
  Dictionary<string,string> OriginalInventory()=>System.IO.Directory.GetFiles(StorageRoot).OrderBy(x=>x,StringComparer.Ordinal).ToDictionary(x=>System.IO.Path.GetFileName(x)!,x=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(x))).ToLowerInvariant());
- void OriginalLineage(ContinuationIntent intent){
+ void OriginalLineage(ContinuationIntent intent,bool interruptedDisposition=false){
   Check(intent.Originals.Count>0,"missing original lineage");
   foreach(var item in intent.Originals){
    Check(System.Text.RegularExpressions.Regex.IsMatch(item.Key,@"\A[0-9a-f]{64}\.json\z"),"invalid lineage filename");
    Check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(System.IO.Path.Combine(StorageRoot,item.Key)))).ToLowerInvariant()==item.Value,"original evidence changed");
   }
   var allowed=intent.Originals.Keys.ToHashSet(StringComparer.Ordinal);
+  if(interruptedDisposition)allowed.Add(System.IO.Path.GetFileName(StoragePath(InterruptedDispositionKey)));
   foreach(string key in new[]{ContinuationKey,ContinuationResultKey(intent.Id),AdmissionKey,ReleaseKey})allowed.Add(System.IO.Path.GetFileName(StoragePath(key)));
   for(int i=0;i<intent.Commands.Length;i++){
    string key=NewLaunchKey(intent.Id,i);allowed.Add(System.IO.Path.GetFileName(StoragePath(key)));

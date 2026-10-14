@@ -4,6 +4,8 @@ Status: Experimental; bounded offline administrative example. Independent review
 is pending. The registry graph, semantic core, runtime, backend and generic opaque
 storage remain unchanged. Public language-composed recovery and renewed mutation
 admission remain missing; this procedure does not implement them in host code.
+Separately authorized [interrupted-continuation retention](INTERRUPTION.md)
+preserves an unfinished new request without mutation or admission release.
 
 An exact `retain-unresolved` result supplies prior evidence. It grants no authority
 to continue Git or open admission. A new `continue-owned-tail` request requires a
@@ -71,8 +73,9 @@ Changed bytes/authority/correlation and a distinct ID refuse.
 Death before intent publication permits fresh explicit execution. Once intent
 is published, a missing new result stays unknown and blocks same and distinct
 IDs, even after an exact join or completed Git state. No command is retried. This
-includes prelaunch, between-command and before-result deaths. A later separately
-authorized interruption decision for that new pending request is future work.
+includes prelaunch, between-command and before-result deaths. A separately
+authorized [interruption decision](INTERRUPTION.md) can retain supported unfinished
+new requests while preserving unknown outcomes and closed admission.
 
 ## Separate observation release
 

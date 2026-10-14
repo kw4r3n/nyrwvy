@@ -6,6 +6,8 @@ authorized `retain-unresolved` request/result for owned absent, object-only,
 ref-only or completed tails. Original records and launch fences remain intact.
 The separately authorized [owned-tail continuation](CONTINUATION.md) adds a new
 pending intent/result and observation admission release for object/ref tails.
+The separate [interrupted-continuation disposition](INTERRUPTION.md) retains a
+supported unfinished new request and its unknown result while keeping admission closed.
 Renewed mutation admission and public language-composed recovery remain missing. See the
 [disposition verification](../../docs/verification/offline-session-git-disposition-20261014.md).
 The [independent-review repair](../../docs/verification/offline-session-git-disposition-review-repair-20261014.md)
@@ -197,7 +199,8 @@ join evidence for supported controlled owners, while preserving these original
 facts. It supplies no continuation authority. The separate [continuation procedure](CONTINUATION.md)
 preserves missing original outcomes and active fences while recording new physical
 operations/results, then explicitly releases observation admission. New mutation
-admission and interrupted-continuation decisions remain later work.
+admission remains later work. [Interrupted-continuation retention](INTERRUPTION.md)
+now records one explicit decision without new execution or admission release.
 Arbitrary running-command
 interruption and descendant ownership require further investigation. Interrupted
 real workspace creation/discard and live

@@ -1,0 +1,174 @@
+{
+  "parent": "260798337cdb9cf59fc79c2e5c88937c77223019",
+  "parentTree": "e328355c32e59a7ca52edba922c32c3247781dbe",
+  "branch": "feat/interrupted-continuation-disposition",
+  "reviewStatus": "independent review pending; no publication",
+  "reuse": {
+    "manifestHash": "6e2e66a44821865fe4603e7d5476dc6fd1b1fa2c2ab45661200f62a4cc6a2710",
+    "checks": 10056,
+    "retained": {
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/independent-authority-values-review.md": "bc8c68a76d240c1a36154ff8a66941c1af068952933834a306ae16adc8edbac0",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/authority-values-findings.json": "b78eab046120d5c8a3f9339b891072297fdb5d6da8e61013022b80d26e7e3bcb",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/evidence/values-review/audit.json": "2c2b3aae3edf2eb662da1925d6a82acbf4c8aafc2e7c16235b3538c5155428d3",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/independent-rereview.md": "7cc6af5022d4e8919d4b52f4a96244a9420f2ec4daccd802c9c8fae85109d30b",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/rereview-findings.json": "fe34623ec8d85df6de9ebf17b78dd1c4595105007ed0e4a91decfdb51b98a97d",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/evidence/repair-review/audit.json": "db0bea6193be046951bb0631b36a8d470cc8a8412aeefddbb32f37f6e8864677",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/independent-review.md": "35be5d5ef7fdf75a83d5fc12bf6c7610a17dfc94e1235f60491e9dcb2dd9b7f0",
+      "/home/kw4/Documents/Codex/2026-10-14/task-49/review-findings.json": "3c1f87a9162215f05df56964e39c8b409ae017fb5f2f7884beb19419a5e4a0ba"
+    },
+    "authorAudit": "96c6766e87352ac9aca88c01f0ae5dd236568003e3e696e02b094c3821fb269c",
+    "reviewAudit": "2c2b3aae3edf2eb662da1925d6a82acbf4c8aafc2e7c16235b3538c5155428d3",
+    "unaffectedCoreGraphOwnerEvidenceReused": true
+  },
+  "probe": {
+    "proofHash": "e06a2fd1b29f50762121669a3900073c08c0dee589424eda521ecf0e05dfe3dc",
+    "rawHash": "65dfeb20e0d6e85861c865cbfb9f5b9628f89c7f0f35770d05b7bd05b83693cd",
+    "processes": 12,
+    "domains": 3,
+    "sigkills": 6
+  },
+  "fresh": {
+    "interruption": {
+      "processes": 728,
+      "domains": 52,
+      "sigkills": 108,
+      "sets": [
+        {
+          "location": "original",
+          "rawHash": "0617f08ccf65ac62aca4effb9d75ca62c232c58210d6286008cb9eae972acd83",
+          "proofHash": "0cfedde3f0db576cc28ba87addfc4fa22eef3e53245eaa552d8d43f9ebdc4a68",
+          "processes": 364,
+          "domains": 26,
+          "sigkills": 54
+        },
+        {
+          "location": "moved",
+          "rawHash": "7652b6ba8fdafb3c0e4d1ef71638715a5cf1e0846d146b91835dc867d4f6d57a",
+          "proofHash": "9c6e28242c546397f5cd40c809456a4563e4ade2d1854c6d91b2028141644c50",
+          "processes": 364,
+          "domains": 26,
+          "sigkills": 54
+        }
+      ]
+    },
+    "continuation": {
+      "processes": 630,
+      "domains": 98,
+      "sigkills": 144,
+      "sets": [
+        {
+          "location": "original",
+          "rawHash": "a5a3c23d20d8c084f6e3b3124dab482ec7ad925a5a7a49f35e3baf6ad50f958a",
+          "proofHash": "03cdd1294e35b24790cff29489ec862e657615cb3b3ff4c2a0a27c6ace16488f",
+          "processes": 315,
+          "domains": 49,
+          "sigkills": 72
+        },
+        {
+          "location": "moved",
+          "rawHash": "9cd5d3b8aba5a01813b28407d35585d2cec2a73c5c03f421fabb02313f167df4",
+          "proofHash": "449bc4b4d04690911e31efdfefdab78ea7d6f642a6299122c24e4264d47c451a",
+          "processes": 315,
+          "domains": 49,
+          "sigkills": 72
+        }
+      ]
+    },
+    "disposition": {
+      "processes": 504,
+      "domains": 70,
+      "sigkills": 66,
+      "sets": [
+        {
+          "location": "original",
+          "rawHash": "8b8f298e8eac4eafd80094d1c4e847599accd4eef47cb3a1d9048fd07d407156",
+          "proofHash": "055dde91193b4f8e766965657e10fa4e7f503e7fa64666e536f5600d0be1cdd7",
+          "processes": 252,
+          "domains": 35,
+          "sigkills": 33
+        },
+        {
+          "location": "moved",
+          "rawHash": "80cbb1897903fa9797c253ca3db26151b5d8026253d8f58c590663f385322e6d",
+          "proofHash": "9584ab34ab880d9ac7ff8e7e5647c76b7b2509db2222479f936d383cd76c9b5b",
+          "processes": 252,
+          "domains": 35,
+          "sigkills": 33
+        }
+      ]
+    }
+  },
+  "totals": {
+    "processes": 1862,
+    "domains": 220,
+    "sigkills": 318
+  },
+  "originalEvidenceComparisons": 4168,
+  "rawInterruptionAudit": {
+    "verdict": "passed",
+    "sets": [
+      {
+        "processes": 364,
+        "retained": 24,
+        "refusals": 156,
+        "replays": 20,
+        "preservedHashes": 2084,
+        "custodyRows": 75
+      },
+      {
+        "processes": 364,
+        "retained": 24,
+        "refusals": 156,
+        "replays": 20,
+        "preservedHashes": 2084,
+        "custodyRows": 75
+      }
+    ],
+    "matchingArtifacts": 18,
+    "crossDomainIndexStatDigestExcluded": true,
+    "scope": "separate disposition only; original/new missing outcomes, records and closed admission preserved"
+  },
+  "artifacts": {
+    "session.json": "71f997a236d26c20a6a4193a2826a8773ade9ef184a7887a02a358a6c71db5a5",
+    "Generated.cs": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+    "symbols.json": "e41a97592abb39c42fe679d60895bfa5c46ae3230297c417cec2e86672fec2bd",
+    "declarations.json": "01e4d801c9264931eb48302b8aa0e6ee8fedf03cb56d7708f4a4e8985c987014",
+    "authoring.json": "47b0483811fd623b9170ceda639036fed354ef773e044d4091846825fa7eb054",
+    "Program.cs": "ce1ecc73fe1d1386918d81991c9e9ad0512cd76990e853af28511575260e7fd0",
+    "Runtime.dll": "48773536fc6709ae9fb7d1721ecc415c956c6fc4964ff09edd655cf69311b2f1",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+    "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+    "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+    "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+    "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+    "restoration-disabled/Program.cs": "78e8d49424cefc6804dd1ffc8b61268a99c175c058fc23f2f040cfdf310d7e90",
+    "restoration-disabled/Runtime.dll": "2b0dc73bf7c2f56edd46cfa48bdfa10d4e3462682fada65a279f50b3c7a4040c",
+    "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+  },
+  "sources": {
+    "interruption.template.cs": "6b685c4fa27c6385961b002c86e34af223ecc5ca45d7229c43a5dc093a2bb989",
+    "interruption-fixture.mjs": "f849c93f709602d99338786dc7d9c90e9c6d70fa90d9170b0c6b01dedc6df128",
+    "test-interruption.mjs": "1a5295b46203a260e17da2f430555c4a37393f77cef316e5dfb6f24771218299",
+    "verify-interruption.mjs": "d9a5b20a960b62570abefe4a94552b5f0846d2d5ae2d1656d194ef6b49f13b5d",
+    "continuation.template.cs": "4852c1aa9f5715e5b2203af3146d5ce422487f450c9910415840a714bb2cbf63",
+    "continuation-fixture.mjs": "c0d4f74cbb230ea326d17c3b6e2353f909aa63d8e03c9d459b24b7bf46da622a",
+    "compile.mjs": "c442de1e196000d6412deb0f5c9ee51b951061af0e3ce15d0028f85e32e31853",
+    "git.template.cs": "5213fe2e7be247170b92f54f97901f0c749e3d0148b40e369e47f6d7bbb5166a",
+    "disposition.template.cs": "188378de1538258ce2ab15e555121da0a4d921bb547f2176f2181ce26f7b4f54",
+    "git-owner.mjs": "5b9bbf5cdf98cc26296df269815d3c5270e8288ec6a56609abb7f4d595045291",
+    "test-continuation.mjs": "13cc3a30b3cad5c9227af893341129c0655eaccd474466664cd0384d8c898ae6",
+    "test-disposition.mjs": "9ef3bf21017774b5b95eaeb4d4cae2a5f8d4f92080558b705202c4fa3da0225c",
+    "verify-continuation.mjs": "9ab7722b6a49ec872450c586f33550f8b3877f9d4bf4b79e14d48a580f86370b",
+    "verify-disposition.mjs": "c009c49cc07abfe5e025f954003388263a84a009724140fb043e2fd36e3d190b"
+  },
+  "sourceScope": "example administrative binding/fixtures/docs only; core, runtime, backend, graph and generic storage/task/shield semantics unchanged",
+  "semanticBoundary": "one separate durable interrupted-continuation disposition receipt, no Git mutation or execution/admission release; both missing request outcomes and all evidence/fences retained; exact accepted authorities and malformed-authority refusal",
+  "execution": {
+    "initialSandboxAttempt": "EPERM after disposable git init; attempt evidence preserved; scoped controlled subprocess waiting approved and probe completed",
+    "remainingBlockers": []
+  },
+  "limits": "one trusted serialized writer, immutable provisioning, intact flushed storage, controlled silent Linux SHA1/single UTF-8 file fixtures; no arbitrary races/descendants, uncooperative termination, saturated creation/feeding, cancellation beyond shields, storage faults/deletion/power loss, multiple writers, full metadata, linked worktrees/live providers, coherent history rewriting, scale/compaction, peer acknowledgement, renewed mutation admission or public graph recovery"
+}
