@@ -25,12 +25,14 @@
   public string[] Args {get;set;}=Array.Empty<string>();public string InputDigest {get;set;}="";
   public int? Pid {get;set;}public int? ExitCode {get;set;}
   public bool InputClosed {get;set;}public bool OutputDrained {get;set;}
+  public string OwnerDigest {get;set;}="";
  }
  void GitChildGuard(){
   string file=StoragePath("physical-child/v1");if(!System.IO.File.Exists(file))return;
   var child=JsonSerializer.Deserialize<GitChild>(System.IO.File.ReadAllText(file))!;
-  Check(child.Version=="1"&&child.Repository==GitRoot&&child.RepositoryId==Setting("fixtureId")&&child.Invocation!=""&&child.Identity!="","Git child ownership");
-  Check(child.State=="quiescent"&&child.Pid.HasValue&&child.ExitCode.HasValue&&child.InputClosed&&child.OutputDrained,"Git child launch unresolved; explicit disposition required");
+  Check((child.Version=="1"||child.Version=="2")&&child.Repository==GitRoot&&child.RepositoryId==Setting("fixtureId")&&child.Invocation!=""&&child.Identity!="","Git child ownership");
+  if(dispositionInspection&&child.State=="active")LoadJoin(child,System.IO.File.ReadAllText(file));
+  else Check(child.State=="quiescent"&&child.Pid.HasValue&&child.ExitCode.HasValue&&child.InputClosed&&child.OutputDrained,"Git child launch unresolved; explicit disposition required");
   var plan=JsonSerializer.Deserialize<GitPlan>(System.IO.File.ReadAllText(StoragePath(PlanKey(child.Identity))))!;
   Check(plan.Version=="3"&&plan.Identity==child.Identity&&plan.Repository==child.Repository&&plan.RepositoryId==child.RepositoryId,"Git child/plan correlation");
   string[] expected=child.Args.FirstOrDefault() switch{
@@ -54,6 +56,8 @@
  }
  string Git(string[] args,string? input=null,bool mutation=false,bool trim=true){
   GitGuard();GitChildGuard();
+  Check(!dispositionInspection||!mutation,"disposition inspection cannot mutate Git");
+  if(mutation&&Setting("gitOwner")!="")return OwnedGit(args,input,trim);
   int deadline=Setting("gitDeadlineMs")==""?10000:int.Parse(Setting("gitDeadlineMs"));Check(deadline>=250&&deadline<=10000,"bounded Git deadline");
   var start=new System.Diagnostics.ProcessStartInfo("git"){WorkingDirectory=GitRoot,UseShellExecute=false,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};
   foreach(var name in start.Environment.Keys.Where(x=>x.StartsWith("GIT_",StringComparison.Ordinal)).ToArray())start.Environment.Remove(name);

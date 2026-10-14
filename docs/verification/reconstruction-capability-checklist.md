@@ -21,7 +21,8 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Peer acknowledgement of outcome | OS accepted writes and correlation ID do not prove peer processing | Missing |
 | Durable outcome retention and request deduplication | Graph-written actual outcome receipt and provenance; cancellation/crash returns the original err:cancelled after receipt, remains unresolved before it; complete effects do not imply success; legacy inferred results need actual evidence | Demonstrated in selected synchronous integration windows, one retained single-writer domain |
 | Restart reconciliation of interrupted mutations | Durable selected intent; absence/applied/partial/unavailable evidence; synthetic and [bounded physical Git](../../examples/offline-session-physical-git/README.md) subprocess-exit SIGKILL windows; conflicting payload and changed candidate stay blocked before retry | Demonstrated for synthetic effects and disposable single-file SHA1 repositories; explicit partial-effect disposition and live provider effects remain missing |
-| Owned physical Git launch boundary | [Child launch fence](offline-session-git-child-20261014.md) retained before creation; controlled surviving-child restart and late object write close before input, timeout joins and bounded output | Demonstrated for selected controlled Linux fixtures; active launches require explicit disposition, arbitrary descendants/races and saturated input remain unverified |
+| Owned physical Git launch boundary | [Child launch fence](offline-session-git-child-20261014.md) retained before creation; controlled surviving-child restart and late object write close before input, timeout joins and bounded output; opt-in [owner join and explicit retention](offline-session-git-disposition-20261014.md) survives launcher death | Demonstrated for selected controlled Linux fixtures; original active fences stay intact after separate retention disposition, arbitrary descendants/races and saturated input remain unverified |
+| Explicit retention of abandoned launches and owned partial tails | [Separate retain-unresolved request/result](../../examples/offline-session-physical-git/DISPOSITION.md), exact controlled join witness and owned absent/object/ref/applied inspection | Demonstrated in bounded administrative fixture mode; original missing outcome preserved, physical continuation/admission release and public language-composed recovery command remain missing |
 | Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
@@ -65,8 +66,10 @@ version-3 launch boundary to the example binding. A held child surviving its par
 demonstrates why complete unchanged Git state alone cannot establish absence.
 Active launches remain unresolved before input even after the child disappears or
 writes late effects. Quiescence and actual request outcomes remain distinct facts.
-Explicit partial-effect continuation/disposition is still missing; this prerequisite
-introduces no generic core primitive or recovery policy.
+The [retention milestone](offline-session-git-disposition-20261014.md) adds separate
+authorized disposition results and controlled owner join witnesses without changing
+the registry graph or any original result/fence. Explicit physical continuation and
+admission release remain missing; no generic core primitive is introduced.
 Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown

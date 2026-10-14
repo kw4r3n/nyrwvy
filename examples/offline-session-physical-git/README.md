@@ -1,12 +1,19 @@
 # Bounded physical Git reconciliation
 
+The [explicit retention disposition](DISPOSITION.md) adds an opt-in controlled
+owner that retains exact child join evidence after launcher death, and a separately
+authorized `retain-unresolved` request/result for owned absent, object-only,
+ref-only or completed tails. Original records and launch fences remain intact.
+Physical continuation and admission release remain unimplemented. See the
+[disposition verification](../../docs/verification/offline-session-git-disposition-20261014.md).
+
 The [child launch milestone](../../docs/verification/offline-session-git-child-20261014.md)
 follows independently approved `6d5058463f6648d5ca0c29492b624196efe8c6da`
 (tree `0abc652ab2625d1b525b6ec228bc9ed2dcbf6c69`). A fresh held-child control
 demonstrated that its absence rule could retry while the original Git child still
 survived its parent. This continuation fences that launch before creation. It is
-the first dependency for explicit disposition of partial effects, which remains
-unimplemented; finishing a physical tail cannot reconstruct a missing request result.
+the first dependency for explicit disposition. Finishing a physical tail cannot
+reconstruct a missing request result. The later retention procedure is linked above.
 
 Physical plans now use payload version 3 in the existing opaque namespace. Versions
 1 and 2 fail closed without migration: they did not record this child-lifetime
@@ -177,12 +184,14 @@ Current-ready association/result consistency does not authenticate old journals,
 every Member value field or coherently rewritten trusted storage. The physical
 plan binds selected facts and a fixture identity; it is not cryptographic attestation.
 
-The next measured boundary is partial-operation continuation: the object-only
-and ref-only crash domains remain unresolved on repeated restart. The binding
-can detect and block these states but supplies no explicit recovery/disposition
-protocol. That protocol must preserve the missing original outcome instead of
-manufacturing success or retrying uncertainty. Active launches also remain blocked
-pending an explicit quiescence/disposition protocol. Arbitrary running-command
+The next measured boundary is partial-operation continuation: object-only and
+ref-only crash domains remain unresolved on repeated startup. The separate
+[retention disposition](DISPOSITION.md) records an authorized decision and exact
+join evidence for supported controlled owners, while preserving these original
+facts. It supplies no physical continuation or admission-release protocol. Such a
+protocol must preserve the missing original outcome instead of manufacturing
+success or retrying uncertainty. Active original launch fences remain intact.
+Arbitrary running-command
 interruption and descendant ownership require further investigation. Interrupted
 real workspace creation/discard and live
 provider effects remain later obligations.
