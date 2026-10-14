@@ -12,7 +12,9 @@ success and `err:cancelled` remain exact. No Git file/ref is restored or removed
 The Nyrwvy registry graph is unchanged. This administrative fixture mode runs
 before that graph and transport input. Physical inspection and process custody
 belong to the example binding; no Git/recovery primitive enters core. A language-
-composed public recovery command and physical continuation remain later work.
+composed public recovery command remains later work. Separately authorized
+[physical continuation and observation release](CONTINUATION.md) is a different
+administrative request; retention never grants that authority.
 The local fixture authorization string is explicit operator input, not a provider
 credential or proof of access-control security.
 
@@ -124,10 +126,11 @@ descendant safety. Uncooperative effects, arbitrary races, power loss/storage
 faults, full Unix/index metadata, linked worktrees/live providers, arbitrary
 scale/compaction, peer acknowledgement and inherited parser limits are unverified.
 
-Next: separately authorized continuation of an owned partial tail, including its
-own durable pending intent, mutation custody and crash windows. Retention leaves
-an abandoned active original domain closed. Continuation/release must preserve
-original uncertainty; physical completion cannot supply the lost original result.
+The separate [continuation procedure](CONTINUATION.md) now tests its own durable
+pending intent/result, mutation custody and crash windows for object/ref tails.
+Retention leaves an abandoned active original domain closed. New completion and
+observation release preserve original uncertainty; renewed mutation admission
+and decisions for interrupted new continuations remain later work.
 
 Run the maintained physical-Git wrapper, or serialize `test-disposition.mjs` for
 fresh original/moved bundles and then `verify-disposition.mjs`. See the

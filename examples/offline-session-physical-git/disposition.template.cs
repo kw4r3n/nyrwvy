@@ -13,25 +13,27 @@
   Check(child.Version=="2"&&child.Pid.HasValue&&child.OwnerDigest!=""&&witness.Version=="1"&&witness.Invocation==child.Invocation&&witness.Identity==child.Identity&&witness.Repository==child.Repository&&witness.RepositoryId==child.RepositoryId&&witness.LaunchDigest==DigestText(raw)&&witness.OwnerDigest==child.OwnerDigest&&witness.OwnerPid==child.Pid&&witness.ChildPid>0&&witness.Args.SequenceEqual(child.Args)&&witness.InputDigest==child.InputDigest&&witness.InputClosed&&witness.OutputDrained&&(witness.ExitCode.HasValue&&witness.ExitSignal==""||!witness.ExitCode.HasValue&&witness.ExitSignal=="SIGKILL"),"controlled child join witness mismatch");
   Check(System.Text.RegularExpressions.Regex.IsMatch(witness.OutputDigest,@"\A[0-9a-f]{64}\z")&&System.Text.RegularExpressions.Regex.IsMatch(witness.ErrorDigest,@"\A[0-9a-f]{64}\z"),"join output capture unavailable");return witness;
  }
- string OwnedGit(string[] args,string? input,bool trim){
+ string OwnedGit(string[] args,string? input,bool trim,string launchKey="physical-child/v1"){
   string owner=System.IO.Path.GetFullPath(Setting("gitOwner"));
   Check(System.IO.File.Exists(owner)&&new System.IO.FileInfo(owner).LinkTarget==null,"controlled child owner unavailable");
   var child=new GitChild{Version="2",Invocation=Guid.NewGuid().ToString("N"),Identity=effectIdentity.Value??"",Repository=GitRoot,RepositoryId=Setting("fixtureId"),Args=args,InputDigest=DigestText(input??""),OwnerDigest=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(owner))).ToLowerInvariant()};
-  Check(child.Identity!="","owned mutation requires identity");AtomicWrite("physical-child/v1",JsonSerializer.Serialize(child));
+  Check(child.Identity!="","owned mutation requires identity");
+  Check(launchKey=="physical-child/v1"||System.Text.RegularExpressions.Regex.IsMatch(launchKey,@"\Aphysical-continuation-child/v1/[a-zA-Z0-9_-]{1,80}/[01]\z")&&!System.IO.File.Exists(StoragePath(launchKey)),"owned launch slot conflict");
+  AtomicWrite(launchKey,JsonSerializer.Serialize(child));
   Observe(new {operation="physical-child-launch",child.Invocation,child.Identity,command=args[0],owner=true});Checkpoint("before-git-child-start");
   var start=new System.Diagnostics.ProcessStartInfo("node"){UseShellExecute=false,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};start.ArgumentList.Add(owner);
   using var process=new System.Diagnostics.Process{StartInfo=start};Check(process.Start(),"controlled owner creation failed");child.Pid=process.Id;
-  string raw=JsonSerializer.Serialize(child);AtomicWrite("physical-child/v1",raw);
+  string raw=JsonSerializer.Serialize(child);AtomicWrite(launchKey,raw);
   int deadline=Setting("gitDeadlineMs")==""?10000:int.Parse(Setting("gitDeadlineMs"));Check(deadline>=250&&deadline<=10000,"bounded owned Git deadline");
   var output=GitOutput(process.StandardOutput);var error=GitOutput(process.StandardError);
-  process.StandardInput.Write(JsonSerializer.Serialize(new {storage=StorageRoot,repository=GitRoot,invocation=child.Invocation,input=input??"",deadlineMs=deadline}));process.StandardInput.Close();
+  process.StandardInput.Write(JsonSerializer.Serialize(new {storage=StorageRoot,repository=GitRoot,invocation=child.Invocation,launchKey,input=input??"",deadlineMs=deadline}));process.StandardInput.Close();
   Observe(new {operation="physical-git-owner-start",child.Invocation,pid=process.Id,command=args[0]});
   // No kill of the owner on launcher loss: it owns root exit and both drains.
   System.Threading.Tasks.Task.WhenAll(output,error,process.WaitForExitAsync()).WaitAsync(TimeSpan.FromMilliseconds(deadline+4000)).GetAwaiter().GetResult();
   Check(process.ExitCode==0,"controlled owner join unavailable");var witness=LoadJoin(child,raw);
   Check(witness.OutputDigest==DigestText(output.Result)&&witness.ErrorDigest==DigestText(error.Result),"controlled owner capture mismatch");
   Check(witness.ExitCode.HasValue,"owned Git child interrupted; inspect separately");
-  child.State="quiescent";child.ExitCode=witness.ExitCode;child.InputClosed=true;child.OutputDrained=true;AtomicWrite("physical-child/v1",JsonSerializer.Serialize(child));
+  child.State="quiescent";child.ExitCode=witness.ExitCode;child.InputClosed=true;child.OutputDrained=true;AtomicWrite(launchKey,JsonSerializer.Serialize(child));
   Observe(new {operation="physical-child-quiescent",child.Invocation,child.Identity,child.Pid,child.ExitCode,owner=true});
   Observe(new {operation="physical-git-exit",command=args[0],args,mutation=true,exitCode=witness.ExitCode,childExited=true});
   Check(witness.ExitCode==0,"Git command failed: "+args[0]+": "+error.GetAwaiter().GetResult());return trim?output.Result.TrimEnd('\r','\n'):output.Result;

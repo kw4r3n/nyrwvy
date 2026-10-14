@@ -4,7 +4,9 @@ The [explicit retention disposition](DISPOSITION.md) adds an opt-in controlled
 owner that retains exact child join evidence after launcher death, and a separately
 authorized `retain-unresolved` request/result for owned absent, object-only,
 ref-only or completed tails. Original records and launch fences remain intact.
-Physical continuation and admission release remain unimplemented. See the
+The separately authorized [owned-tail continuation](CONTINUATION.md) adds a new
+pending intent/result and observation admission release for object/ref tails.
+Renewed mutation admission and public language-composed recovery remain missing. See the
 [disposition verification](../../docs/verification/offline-session-git-disposition-20261014.md).
 The [independent-review repair](../../docs/verification/offline-session-git-disposition-review-repair-20261014.md)
 joins stdin explicitly for ordinary no-input Git, refuses receipt phases that
@@ -192,9 +194,10 @@ The next measured boundary is partial-operation continuation: object-only and
 ref-only crash domains remain unresolved on repeated startup. The separate
 [retention disposition](DISPOSITION.md) records an authorized decision and exact
 join evidence for supported controlled owners, while preserving these original
-facts. It supplies no physical continuation or admission-release protocol. Such a
-protocol must preserve the missing original outcome instead of manufacturing
-success or retrying uncertainty. Active original launch fences remain intact.
+facts. It supplies no continuation authority. The separate [continuation procedure](CONTINUATION.md)
+preserves missing original outcomes and active fences while recording new physical
+operations/results, then explicitly releases observation admission. New mutation
+admission and interrupted-continuation decisions remain later work.
 Arbitrary running-command
 interruption and descendant ownership require further investigation. Interrupted
 real workspace creation/discard and live

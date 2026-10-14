@@ -22,7 +22,8 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Durable outcome retention and request deduplication | Graph-written actual outcome receipt and provenance; cancellation/crash returns the original err:cancelled after receipt, remains unresolved before it; complete effects do not imply success; legacy inferred results need actual evidence | Demonstrated in selected synchronous integration windows, one retained single-writer domain |
 | Restart reconciliation of interrupted mutations | Durable selected intent; absence/applied/partial/unavailable evidence; synthetic and [bounded physical Git](../../examples/offline-session-physical-git/README.md) subprocess-exit SIGKILL windows; conflicting payload and changed candidate stay blocked before retry | Demonstrated for synthetic effects and disposable single-file SHA1 repositories; explicit partial-effect disposition and live provider effects remain missing |
 | Owned physical Git launch boundary | [Child launch fence](offline-session-git-child-20261014.md) retained before creation; controlled surviving-child restart and late object write close before input, timeout joins and bounded output; opt-in [owner join and explicit retention](offline-session-git-disposition-20261014.md) survives launcher death | Demonstrated for selected controlled Linux fixtures; original active fences stay intact after separate retention disposition, arbitrary descendants/races and saturated input remain unverified |
-| Explicit retention of abandoned launches and owned partial tails | [Separate retain-unresolved request/result](../../examples/offline-session-physical-git/DISPOSITION.md), exact controlled join witness and owned absent/object/ref/applied inspection | Demonstrated in bounded administrative fixture mode; original missing outcome preserved, physical continuation/admission release and public language-composed recovery command remain missing |
+| Explicit retention of abandoned launches and owned partial tails | [Separate retain-unresolved request/result](../../examples/offline-session-physical-git/DISPOSITION.md), exact controlled join witness and owned absent/object/ref/applied inspection | Demonstrated in bounded administrative fixture mode; original missing outcome preserved; retention never authorizes continuation/release |
+| Explicit owned partial-tail completion and observation release | [New continuation intent/result and separate release decision](../../examples/offline-session-physical-git/CONTINUATION.md); original records/fences preserved; missing new results block all replay | Demonstrated in bounded offline administrative fixture mode; renewed mutation admission, interrupted-new-request disposition and public language-composed recovery remain missing |
 | Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
@@ -68,8 +69,11 @@ Active launches remain unresolved before input even after the child disappears o
 writes late effects. Quiescence and actual request outcomes remain distinct facts.
 The [retention milestone](offline-session-git-disposition-20261014.md) adds separate
 authorized disposition results and controlled owner join witnesses without changing
-the registry graph or any original result/fence. Explicit physical continuation and
-admission release remain missing; no generic core primitive is introduced.
+the registry graph or any original result/fence. The [continuation milestone](offline-session-git-continuation-20261014.md)
+adds separately authorized completion and observation release for owned object/ref
+tails. It preserves original pending admission and missing outcome, and never
+retries a new intent whose result is missing. Public language-composed recovery
+and renewed mutation admission remain missing; no generic core primitive is introduced.
 Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown

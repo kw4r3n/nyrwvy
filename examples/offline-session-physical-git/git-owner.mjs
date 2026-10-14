@@ -6,7 +6,11 @@ import {createHash} from 'node:crypto'
 import {join} from 'node:path'
 const digest=x=>createHash('sha256').update(x).digest('hex')
 const spec=JSON.parse(fs.readFileSync(0,'utf8'))
-const file=join(spec.storage,digest('physical-child/v1')+'.json')
+// A caller may select a separately retained continuation launch slot. This is
+// mechanical custody only; the example application decides its authority.
+const launchKey=spec.launchKey??'physical-child/v1'
+if(launchKey!=='physical-child/v1'&&!/^physical-continuation-child\/v1\/[a-zA-Z0-9_-]{1,80}\/[01]$(?![\s\S])/.test(launchKey))throw Error('controlled owner launch slot')
+const file=join(spec.storage,digest(launchKey)+'.json')
 const raw=fs.readFileSync(file,'utf8'),record=JSON.parse(raw)
 if(process.platform!=='linux'||record.Version!=='2'||record.State!=='active'||record.Pid!==process.pid||record.Invocation!==spec.invocation||record.Repository!==spec.repository||record.OwnerDigest!==digest(fs.readFileSync(new URL(import.meta.url))))throw Error('controlled owner correlation')
 const args=['-c','core.hooksPath='+join(record.Repository,'disabled-hooks'),'-c','commit.gpgSign=false','-c','core.fsmonitor=false','-c','core.untrackedCache=false',...record.Args]

@@ -192,6 +192,7 @@
  string PhysicalRead(string key,string value){
   if(key!="registry/v1")return value;
   try{
+   if(System.IO.File.Exists(StoragePath("physical-continuation-intent/v1")))return ObservationAdmission(value);
    string launch=StoragePath("physical-child/v1");
    if(System.IO.File.Exists(launch))Check(JsonSerializer.Deserialize<GitChild>(System.IO.File.ReadAllText(launch))!.State=="quiescent","Git child launch unresolved before admission");
    using var json=JsonDocument.Parse(value);var admission=json.RootElement;

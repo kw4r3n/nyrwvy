@@ -1,0 +1,2168 @@
+{
+  "base": "5d71932f44fef4b2f10d7701d5355f449fd70287",
+  "baseTree": "a9227bab3b336d4c2252f961eaf94a4485e3ad5f",
+  "sources": {
+    "compile.mjs": "e2c18324d2203d07a79ede29bf67a90d21897c07e871bd51750ec776c0ab36f0",
+    "continuation-fixture.mjs": "bd5ddd541efa9f4c9226b56e668632e93f8d8122d230e332596815177a8f4add",
+    "continuation.template.cs": "f34d0221753fd93344dd33745164cebdd496a8fbc01acbb3ac6aa78a17fc926f",
+    "git-owner.mjs": "5b9bbf5cdf98cc26296df269815d3c5270e8288ec6a56609abb7f4d595045291",
+    "git.template.cs": "5213fe2e7be247170b92f54f97901f0c749e3d0148b40e369e47f6d7bbb5166a",
+    "disposition.template.cs": "e7753d1da475d8aed7d2e347dabecd0fd1fedcddfdfd3a8d3323fc1291b5d30e",
+    "probe-continuation.mjs": "655d1d73ff2da3634111c7a22ba8d1150341e24403c7be3b7a5296fe046484d1",
+    "test-continuation.mjs": "13cc3a30b3cad5c9227af893341129c0655eaccd474466664cd0384d8c898ae6",
+    "verify-continuation.mjs": "9ab7722b6a49ec872450c586f33550f8b3877f9d4bf4b79e14d48a580f86370b",
+    "test-admission-firewall.mjs": "fa0a5ce60067acbdfbe1461ccca679688bd849195d66ea6a1169d2c417478219",
+    "test-disposition.mjs": "9ef3bf21017774b5b95eaeb4d4cae2a5f8d4f92080558b705202c4fa3da0225c",
+    "test-owner-direct.mjs": "d0cf6574a6fd5dc6cfbccf230412b2a5b565278c2bcd43168a5cb4f6cb6536fe",
+    "test-owner-failures.mjs": "b53141e02d9d72eb830a231107800579a3077696be3afb9fe6b695c39126feb3"
+  },
+  "artifacts": {
+    "session.json": "71f997a236d26c20a6a4193a2826a8773ade9ef184a7887a02a358a6c71db5a5",
+    "Generated.cs": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+    "symbols.json": "e41a97592abb39c42fe679d60895bfa5c46ae3230297c417cec2e86672fec2bd",
+    "declarations.json": "01e4d801c9264931eb48302b8aa0e6ee8fedf03cb56d7708f4a4e8985c987014",
+    "authoring.json": "47b0483811fd623b9170ceda639036fed354ef773e044d4091846825fa7eb054",
+    "Program.cs": "0bc8fca99b0c9e78b59dd491a5d8262377ca935f99bfc77e1668cf896115fc48",
+    "Runtime.dll": "f96c16b08c672137e4d6120d60a9108d2c42c95d1d565c178a4fd370a80fa8cd",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+    "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+    "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+    "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+    "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+    "restoration-disabled/Program.cs": "4e5fb0f86782f234613709953d6f8c0a620b784444a04cccc5134a03a49445c6",
+    "restoration-disabled/Runtime.dll": "abbee1f21747df8c1bd2222fcf4d46dfb8ad727dd97e6b68002baada0ee0b9d9",
+    "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+  },
+  "retained": {
+    "assetAndGraphComparisons": 10006,
+    "packageComparisons": 100,
+    "packages": [
+      {
+        "task": "task-43",
+        "auditHash": "8cf28bf5dafe3a865a15572886e191ee71864bc468770172f7d277fda39d661b",
+        "applicationProcesses": 188,
+        "applicationDomains": 14,
+        "applicationSigkills": 10,
+        "note": "separate retained author/reviewer repair packages; not added to fresh counts"
+      },
+      {
+        "task": "task-46",
+        "auditHash": "f4db7f2e1d4e4964b19b6c7cea2f5fbbb147742ae91eb6145a3d38168d3760e5",
+        "applicationProcesses": 188,
+        "applicationDomains": 14,
+        "applicationSigkills": 10,
+        "note": "separate retained author/reviewer repair packages; not added to fresh counts"
+      }
+    ],
+    "originalLargeMatrices": "historical 686/196/164 author/reviewer packages remain separate; not freshly executed or recounted"
+  },
+  "baseline": {
+    "processes": 6,
+    "domains": 2,
+    "sigkills": 2,
+    "proofHash": "def40909ac63ba585ba6104c8dc726869310854a9c930396b702cd9473c2fe4c",
+    "contract": "retention alone remains closed before input for both active partial tails"
+  },
+  "freshContinuation": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 315,
+        "domains": 49,
+        "sigkills": 72,
+        "rawHash": "535d6a65323890e442dd8d93484abbbf83ad7e010e5b8996754ab39302e0198c",
+        "proofHash": "2ed729858c8986667ed53a0d6af48213f29620b4988f0aa3f4f121b85bc23c08"
+      },
+      {
+        "location": "moved",
+        "processes": 315,
+        "domains": 49,
+        "sigkills": 72,
+        "rawHash": "c7519a1302006bbbe52734338a43cd6be7252a24608182e7e3efda4488556d00",
+        "proofHash": "d1f4cb80f36677559ac0d955a207d5770e02ba61269894c6b9eb56ee19a20a37"
+      }
+    ],
+    "totals": {
+      "processes": 630,
+      "domains": 98,
+      "sigkills": 144
+    },
+    "closureHash": "cfb31192da284920e7a1135218a96ddbdc2a6fc4b398b5a2b01bb489246f7624"
+  },
+  "freshInheritedRegression": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 94,
+        "domains": 7,
+        "sigkills": 5,
+        "proofHash": "96dac6b4d3eec43af780ca2adef2fa12c836397834da059218eca8c317e036b6",
+        "rawHash": "8c217f271c515082e3c4aa78da83cc7ecf31c1a69475990ce765ce90661a2ef6"
+      },
+      {
+        "location": "moved",
+        "processes": 94,
+        "domains": 7,
+        "sigkills": 5,
+        "proofHash": "e5b1b4747a78615a8dd521d4fe01c340f6f7fada203dc5a443316f0ebc5a882a",
+        "rawHash": "3f587ed51248c20715ab8dae8fda65a9f2f1ac53f10f3047e6f52bf63fc7a89f"
+      }
+    ],
+    "totals": {
+      "processes": 188,
+      "domains": 14,
+      "sigkills": 10
+    },
+    "closureHash": "6d9f277cc129f74e57b065181a77b0f93f87a8661d2e94256b0591d4dc33cd35"
+  },
+  "freshMechanical": [
+    {
+      "name": "owner-direct",
+      "ownerProcesses": 15,
+      "domains": 15,
+      "controlledDescriptorHelpers": 0,
+      "proofHash": "ad699926a1d6bdcaff81314c223506559ea28ee30df849ef6bb21bcb7e20473a",
+      "rawHash": "356cebeb80dbcd5e4ad57269e28217114e44db4bc42670c577253da6ff9cfd45",
+      "reusedAfterFirewallOrdering": "owner source and mechanical code unchanged"
+    },
+    {
+      "name": "owner-failures",
+      "ownerProcesses": 8,
+      "domains": 8,
+      "controlledDescriptorHelpers": 2,
+      "proofHash": "86a8a0a719867eb095fda9f9236c354d94d8458a0a1905960bb8bf53160b96bb",
+      "rawHash": "f5bca05678781b0df90d91c065e0ada71771df4715cd55cccf9f5264a39a161e",
+      "reusedAfterFirewallOrdering": "owner source and mechanical code unchanged"
+    }
+  ],
+  "logs": {
+    "closure.json": {
+      "sha256": "a1f4a053ae57d2645260629b2808b88e296962c7720deae97c789d2ee02aaf34",
+      "exitCode": 0,
+      "stdout": "PASS: 315 corresponding application rows and eight exact original/moved artifacts"
+    },
+    "compile-moved-control.json": {
+      "sha256": "e2385dd3dd748f9e095426f296ff79c4e0d60c1cde30a4a48d9154d0618ed422",
+      "exitCode": 0,
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-moved.json": {
+      "sha256": "aa1389e0f5474f9f419de842fc408c407a44111d4dfd4bfd16c5b493624d8a57",
+      "exitCode": 0,
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original-control.json": {
+      "sha256": "c868b10953f7286a1bc80197b0fe5c19f68cfb94c46b1c0bed163ab3870b8acd",
+      "exitCode": 0,
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original.json": {
+      "sha256": "60827381ccdf5995935479d6952e56add3e53090196efe68063538da674ef879",
+      "exitCode": 0,
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "continuation-moved.json": {
+      "sha256": "4a1f9efd6b06f34c62ed733b3bff44cec743d6f5ad814d3e1e7a7649f0d3fa9d",
+      "exitCode": 0,
+      "stdout": "PASS: 315 applications/49 disposable domains/72 kills; distinct continuation and observation release; original uncertainty preserved"
+    },
+    "continuation-original.json": {
+      "sha256": "c792d6d85223e40ef0dbe27a20e8ae1afb33d4284b0f2d707e345ae198f365fb",
+      "exitCode": 0,
+      "stdout": "PASS: 315 applications/49 disposable domains/72 kills; distinct continuation and observation release; original uncertainty preserved"
+    },
+    "firewall-moved.json": {
+      "sha256": "a4629dfd91466e7cae525813548f3730b2528a8ce234c15ba943e26a54143ad3",
+      "exitCode": 0,
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "firewall-original.json": {
+      "sha256": "7e3a66d65b94fbc2efcf288c96b99007ab6c92c72516e197615267b139cdc3e2",
+      "exitCode": 0,
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "inherited-closure.json": {
+      "sha256": "f5a22ba692f454899831a0ebbadfde44f745b96b95cb62a5075d8dc658173d2a",
+      "exitCode": 0,
+      "stdout": "PASS: 188 disposition processes, original/moved semantics and 18 identical artifacts"
+    },
+    "inherited-disposition-moved.json": {
+      "sha256": "cece43045aa9355a64faf64a194848e9f3f2439f2e1f4b1f28334d37a01b1a5f",
+      "exitCode": 0,
+      "stdout": "PASS: 94 disposition/application processes, 7 disposable domains, 5 SIGKILLs"
+    },
+    "inherited-disposition-original.json": {
+      "sha256": "4161d790ad6fc7d53ecbb30e7fc3e818f209e18897bce2d9cd73512d1a453ea0",
+      "exitCode": 0,
+      "stdout": "PASS: 94 disposition/application processes, 7 disposable domains, 5 SIGKILLs"
+    }
+  },
+  "historicalFailures": {
+    "inherited-closure.json": {
+      "sha256": "8b2522715c551f263a8d357ca567a1b7892a0bab1dafa42240b28df883c61661",
+      "exitCode": 1
+    }
+  },
+  "helperObservations": [
+    {
+      "pid": 645459,
+      "observation": "absent"
+    },
+    {
+      "pid": 645587,
+      "observation": "absent"
+    },
+    {
+      "pid": 645605,
+      "observation": "absent"
+    },
+    {
+      "pid": 646716,
+      "observation": "absent"
+    },
+    {
+      "pid": 646732,
+      "observation": "absent"
+    },
+    {
+      "pid": 646858,
+      "observation": "absent"
+    },
+    {
+      "pid": 647778,
+      "observation": "absent"
+    },
+    {
+      "pid": 648535,
+      "observation": "absent"
+    },
+    {
+      "pid": 648699,
+      "observation": "absent"
+    },
+    {
+      "pid": 648707,
+      "observation": "absent"
+    },
+    {
+      "pid": 648723,
+      "observation": "absent"
+    },
+    {
+      "pid": 648881,
+      "observation": "absent"
+    },
+    {
+      "pid": 649025,
+      "observation": "absent"
+    },
+    {
+      "pid": 649174,
+      "observation": "absent"
+    },
+    {
+      "pid": 649319,
+      "observation": "absent"
+    },
+    {
+      "pid": 649462,
+      "observation": "absent"
+    },
+    {
+      "pid": 649610,
+      "observation": "absent"
+    },
+    {
+      "pid": 649758,
+      "observation": "absent"
+    },
+    {
+      "pid": 649883,
+      "observation": "absent"
+    },
+    {
+      "pid": 650223,
+      "observation": "absent"
+    },
+    {
+      "pid": 650547,
+      "observation": "absent"
+    },
+    {
+      "pid": 650875,
+      "observation": "absent"
+    },
+    {
+      "pid": 651203,
+      "observation": "absent"
+    },
+    {
+      "pid": 651338,
+      "observation": "absent"
+    },
+    {
+      "pid": 651491,
+      "observation": "absent"
+    },
+    {
+      "pid": 651652,
+      "observation": "absent"
+    },
+    {
+      "pid": 651779,
+      "observation": "absent"
+    },
+    {
+      "pid": 651790,
+      "observation": "absent"
+    },
+    {
+      "pid": 651891,
+      "observation": "absent"
+    },
+    {
+      "pid": 652060,
+      "observation": "absent"
+    },
+    {
+      "pid": 652068,
+      "observation": "absent"
+    },
+    {
+      "pid": 652167,
+      "observation": "absent"
+    },
+    {
+      "pid": 652334,
+      "observation": "absent"
+    },
+    {
+      "pid": 652342,
+      "observation": "absent"
+    },
+    {
+      "pid": 652440,
+      "observation": "absent"
+    },
+    {
+      "pid": 652611,
+      "observation": "absent"
+    },
+    {
+      "pid": 652619,
+      "observation": "absent"
+    },
+    {
+      "pid": 652721,
+      "observation": "absent"
+    },
+    {
+      "pid": 652884,
+      "observation": "absent"
+    },
+    {
+      "pid": 652892,
+      "observation": "absent"
+    },
+    {
+      "pid": 652992,
+      "observation": "absent"
+    },
+    {
+      "pid": 653159,
+      "observation": "absent"
+    },
+    {
+      "pid": 653170,
+      "observation": "absent"
+    },
+    {
+      "pid": 653269,
+      "observation": "absent"
+    },
+    {
+      "pid": 653416,
+      "observation": "absent"
+    },
+    {
+      "pid": 653564,
+      "observation": "absent"
+    },
+    {
+      "pid": 653582,
+      "observation": "absent"
+    },
+    {
+      "pid": 653675,
+      "observation": "absent"
+    },
+    {
+      "pid": 653919,
+      "observation": "absent"
+    },
+    {
+      "pid": 654196,
+      "observation": "absent"
+    },
+    {
+      "pid": 654443,
+      "observation": "absent"
+    },
+    {
+      "pid": 654546,
+      "observation": "absent"
+    },
+    {
+      "pid": 654701,
+      "observation": "absent"
+    },
+    {
+      "pid": 654802,
+      "observation": "absent"
+    },
+    {
+      "pid": 654969,
+      "observation": "absent"
+    },
+    {
+      "pid": 655069,
+      "observation": "absent"
+    },
+    {
+      "pid": 655087,
+      "observation": "absent"
+    },
+    {
+      "pid": 655244,
+      "observation": "absent"
+    },
+    {
+      "pid": 655342,
+      "observation": "absent"
+    },
+    {
+      "pid": 655360,
+      "observation": "absent"
+    },
+    {
+      "pid": 655532,
+      "observation": "absent"
+    },
+    {
+      "pid": 655634,
+      "observation": "absent"
+    },
+    {
+      "pid": 655652,
+      "observation": "absent"
+    },
+    {
+      "pid": 655779,
+      "observation": "absent"
+    },
+    {
+      "pid": 655787,
+      "observation": "absent"
+    },
+    {
+      "pid": 655936,
+      "observation": "absent"
+    },
+    {
+      "pid": 656041,
+      "observation": "absent"
+    },
+    {
+      "pid": 656049,
+      "observation": "absent"
+    },
+    {
+      "pid": 656291,
+      "observation": "absent"
+    },
+    {
+      "pid": 656299,
+      "observation": "absent"
+    },
+    {
+      "pid": 656547,
+      "observation": "absent"
+    },
+    {
+      "pid": 656557,
+      "observation": "absent"
+    },
+    {
+      "pid": 656803,
+      "observation": "absent"
+    },
+    {
+      "pid": 656811,
+      "observation": "absent"
+    },
+    {
+      "pid": 656910,
+      "observation": "absent"
+    },
+    {
+      "pid": 657067,
+      "observation": "absent"
+    },
+    {
+      "pid": 657075,
+      "observation": "absent"
+    },
+    {
+      "pid": 657176,
+      "observation": "absent"
+    },
+    {
+      "pid": 657343,
+      "observation": "absent"
+    },
+    {
+      "pid": 657351,
+      "observation": "absent"
+    },
+    {
+      "pid": 657453,
+      "observation": "absent"
+    },
+    {
+      "pid": 657585,
+      "observation": "absent"
+    },
+    {
+      "pid": 657922,
+      "observation": "absent"
+    },
+    {
+      "pid": 658099,
+      "observation": "absent"
+    },
+    {
+      "pid": 658107,
+      "observation": "absent"
+    },
+    {
+      "pid": 658206,
+      "observation": "absent"
+    },
+    {
+      "pid": 658445,
+      "observation": "absent"
+    },
+    {
+      "pid": 658455,
+      "observation": "absent"
+    },
+    {
+      "pid": 658556,
+      "observation": "absent"
+    },
+    {
+      "pid": 658794,
+      "observation": "absent"
+    },
+    {
+      "pid": 658802,
+      "observation": "absent"
+    },
+    {
+      "pid": 658901,
+      "observation": "absent"
+    },
+    {
+      "pid": 659139,
+      "observation": "absent"
+    },
+    {
+      "pid": 659147,
+      "observation": "absent"
+    },
+    {
+      "pid": 659250,
+      "observation": "absent"
+    },
+    {
+      "pid": 659488,
+      "observation": "absent"
+    },
+    {
+      "pid": 659496,
+      "observation": "absent"
+    },
+    {
+      "pid": 659597,
+      "observation": "absent"
+    },
+    {
+      "pid": 659834,
+      "observation": "absent"
+    },
+    {
+      "pid": 659842,
+      "observation": "absent"
+    },
+    {
+      "pid": 659945,
+      "observation": "absent"
+    },
+    {
+      "pid": 660370,
+      "observation": "absent"
+    },
+    {
+      "pid": 660496,
+      "observation": "absent"
+    },
+    {
+      "pid": 660514,
+      "observation": "absent"
+    },
+    {
+      "pid": 661622,
+      "observation": "absent"
+    },
+    {
+      "pid": 661637,
+      "observation": "absent"
+    },
+    {
+      "pid": 661765,
+      "observation": "absent"
+    },
+    {
+      "pid": 662678,
+      "observation": "absent"
+    },
+    {
+      "pid": 663458,
+      "observation": "absent"
+    },
+    {
+      "pid": 663619,
+      "observation": "absent"
+    },
+    {
+      "pid": 663628,
+      "observation": "absent"
+    },
+    {
+      "pid": 663648,
+      "observation": "absent"
+    },
+    {
+      "pid": 663803,
+      "observation": "absent"
+    },
+    {
+      "pid": 663951,
+      "observation": "absent"
+    },
+    {
+      "pid": 664097,
+      "observation": "absent"
+    },
+    {
+      "pid": 664242,
+      "observation": "absent"
+    },
+    {
+      "pid": 664391,
+      "observation": "absent"
+    },
+    {
+      "pid": 664538,
+      "observation": "absent"
+    },
+    {
+      "pid": 664681,
+      "observation": "absent"
+    },
+    {
+      "pid": 664811,
+      "observation": "absent"
+    },
+    {
+      "pid": 665149,
+      "observation": "absent"
+    },
+    {
+      "pid": 665481,
+      "observation": "absent"
+    },
+    {
+      "pid": 665814,
+      "observation": "absent"
+    },
+    {
+      "pid": 666144,
+      "observation": "absent"
+    },
+    {
+      "pid": 666279,
+      "observation": "absent"
+    },
+    {
+      "pid": 666437,
+      "observation": "absent"
+    },
+    {
+      "pid": 666588,
+      "observation": "absent"
+    },
+    {
+      "pid": 666717,
+      "observation": "absent"
+    },
+    {
+      "pid": 666725,
+      "observation": "absent"
+    },
+    {
+      "pid": 666826,
+      "observation": "absent"
+    },
+    {
+      "pid": 666991,
+      "observation": "absent"
+    },
+    {
+      "pid": 666999,
+      "observation": "absent"
+    },
+    {
+      "pid": 667099,
+      "observation": "absent"
+    },
+    {
+      "pid": 667260,
+      "observation": "absent"
+    },
+    {
+      "pid": 667271,
+      "observation": "absent"
+    },
+    {
+      "pid": 667373,
+      "observation": "absent"
+    },
+    {
+      "pid": 667540,
+      "observation": "absent"
+    },
+    {
+      "pid": 667548,
+      "observation": "absent"
+    },
+    {
+      "pid": 667648,
+      "observation": "absent"
+    },
+    {
+      "pid": 667815,
+      "observation": "absent"
+    },
+    {
+      "pid": 667823,
+      "observation": "absent"
+    },
+    {
+      "pid": 667925,
+      "observation": "absent"
+    },
+    {
+      "pid": 668092,
+      "observation": "absent"
+    },
+    {
+      "pid": 668100,
+      "observation": "absent"
+    },
+    {
+      "pid": 668201,
+      "observation": "absent"
+    },
+    {
+      "pid": 668346,
+      "observation": "absent"
+    },
+    {
+      "pid": 668495,
+      "observation": "absent"
+    },
+    {
+      "pid": 668514,
+      "observation": "absent"
+    },
+    {
+      "pid": 668602,
+      "observation": "absent"
+    },
+    {
+      "pid": 668838,
+      "observation": "absent"
+    },
+    {
+      "pid": 669089,
+      "observation": "absent"
+    },
+    {
+      "pid": 669342,
+      "observation": "absent"
+    },
+    {
+      "pid": 669442,
+      "observation": "absent"
+    },
+    {
+      "pid": 669617,
+      "observation": "absent"
+    },
+    {
+      "pid": 669715,
+      "observation": "absent"
+    },
+    {
+      "pid": 669883,
+      "observation": "absent"
+    },
+    {
+      "pid": 669986,
+      "observation": "absent"
+    },
+    {
+      "pid": 670004,
+      "observation": "absent"
+    },
+    {
+      "pid": 670158,
+      "observation": "absent"
+    },
+    {
+      "pid": 670259,
+      "observation": "absent"
+    },
+    {
+      "pid": 670277,
+      "observation": "absent"
+    },
+    {
+      "pid": 670449,
+      "observation": "absent"
+    },
+    {
+      "pid": 670546,
+      "observation": "absent"
+    },
+    {
+      "pid": 670565,
+      "observation": "absent"
+    },
+    {
+      "pid": 670696,
+      "observation": "absent"
+    },
+    {
+      "pid": 670704,
+      "observation": "absent"
+    },
+    {
+      "pid": 670850,
+      "observation": "absent"
+    },
+    {
+      "pid": 670941,
+      "observation": "absent"
+    },
+    {
+      "pid": 670949,
+      "observation": "absent"
+    },
+    {
+      "pid": 671186,
+      "observation": "absent"
+    },
+    {
+      "pid": 671194,
+      "observation": "absent"
+    },
+    {
+      "pid": 671444,
+      "observation": "absent"
+    },
+    {
+      "pid": 671452,
+      "observation": "absent"
+    },
+    {
+      "pid": 671700,
+      "observation": "absent"
+    },
+    {
+      "pid": 671708,
+      "observation": "absent"
+    },
+    {
+      "pid": 671810,
+      "observation": "absent"
+    },
+    {
+      "pid": 671969,
+      "observation": "absent"
+    },
+    {
+      "pid": 671977,
+      "observation": "absent"
+    },
+    {
+      "pid": 672074,
+      "observation": "absent"
+    },
+    {
+      "pid": 672242,
+      "observation": "absent"
+    },
+    {
+      "pid": 672250,
+      "observation": "absent"
+    },
+    {
+      "pid": 672352,
+      "observation": "absent"
+    },
+    {
+      "pid": 672484,
+      "observation": "absent"
+    },
+    {
+      "pid": 672817,
+      "observation": "absent"
+    },
+    {
+      "pid": 672997,
+      "observation": "absent"
+    },
+    {
+      "pid": 673005,
+      "observation": "absent"
+    },
+    {
+      "pid": 673106,
+      "observation": "absent"
+    },
+    {
+      "pid": 673345,
+      "observation": "absent"
+    },
+    {
+      "pid": 673353,
+      "observation": "absent"
+    },
+    {
+      "pid": 673451,
+      "observation": "absent"
+    },
+    {
+      "pid": 673688,
+      "observation": "absent"
+    },
+    {
+      "pid": 673696,
+      "observation": "absent"
+    },
+    {
+      "pid": 673799,
+      "observation": "absent"
+    },
+    {
+      "pid": 674036,
+      "observation": "absent"
+    },
+    {
+      "pid": 674044,
+      "observation": "absent"
+    },
+    {
+      "pid": 674142,
+      "observation": "absent"
+    },
+    {
+      "pid": 674383,
+      "observation": "absent"
+    },
+    {
+      "pid": 674391,
+      "observation": "absent"
+    },
+    {
+      "pid": 674493,
+      "observation": "absent"
+    },
+    {
+      "pid": 674730,
+      "observation": "absent"
+    },
+    {
+      "pid": 674740,
+      "observation": "absent"
+    },
+    {
+      "pid": 674839,
+      "observation": "absent"
+    },
+    {
+      "pid": 675086,
+      "observation": "absent"
+    },
+    {
+      "pid": 675094,
+      "observation": "absent"
+    },
+    {
+      "pid": 675110,
+      "observation": "absent"
+    },
+    {
+      "pid": 675499,
+      "observation": "absent"
+    },
+    {
+      "pid": 675507,
+      "observation": "absent"
+    },
+    {
+      "pid": 675523,
+      "observation": "absent"
+    },
+    {
+      "pid": 677858,
+      "observation": "absent"
+    },
+    {
+      "pid": 678566,
+      "observation": "absent"
+    },
+    {
+      "pid": 678940,
+      "observation": "absent"
+    },
+    {
+      "pid": 678948,
+      "observation": "absent"
+    },
+    {
+      "pid": 678964,
+      "observation": "absent"
+    },
+    {
+      "pid": 679356,
+      "observation": "absent"
+    },
+    {
+      "pid": 679364,
+      "observation": "absent"
+    },
+    {
+      "pid": 679380,
+      "observation": "absent"
+    },
+    {
+      "pid": 681693,
+      "observation": "absent"
+    },
+    {
+      "pid": 682395,
+      "observation": "absent"
+    },
+    {
+      "pid": 641299,
+      "observation": "absent"
+    },
+    {
+      "pid": 641307,
+      "observation": "absent"
+    },
+    {
+      "pid": 641327,
+      "observation": "absent"
+    },
+    {
+      "pid": 641334,
+      "observation": "absent"
+    },
+    {
+      "pid": 641354,
+      "observation": "absent"
+    },
+    {
+      "pid": 641361,
+      "observation": "absent"
+    },
+    {
+      "pid": 641381,
+      "observation": "absent"
+    },
+    {
+      "pid": 641388,
+      "observation": "absent"
+    },
+    {
+      "pid": 641408,
+      "observation": "absent"
+    },
+    {
+      "pid": 641415,
+      "observation": "absent"
+    },
+    {
+      "pid": 641435,
+      "observation": "absent"
+    },
+    {
+      "pid": 641442,
+      "observation": "absent"
+    },
+    {
+      "pid": 641462,
+      "observation": "absent"
+    },
+    {
+      "pid": 641469,
+      "observation": "absent"
+    },
+    {
+      "pid": 641492,
+      "observation": "absent"
+    },
+    {
+      "pid": 641499,
+      "observation": "absent"
+    },
+    {
+      "pid": 641519,
+      "observation": "absent"
+    },
+    {
+      "pid": 641526,
+      "observation": "absent"
+    },
+    {
+      "pid": 641546,
+      "observation": "absent"
+    },
+    {
+      "pid": 641553,
+      "observation": "absent"
+    },
+    {
+      "pid": 641573,
+      "observation": "absent"
+    },
+    {
+      "pid": 641580,
+      "observation": "absent"
+    },
+    {
+      "pid": 641600,
+      "observation": "absent"
+    },
+    {
+      "pid": 641607,
+      "observation": "absent"
+    },
+    {
+      "pid": 641627,
+      "observation": "absent"
+    },
+    {
+      "pid": 641634,
+      "observation": "absent"
+    },
+    {
+      "pid": 641654,
+      "observation": "absent"
+    },
+    {
+      "pid": 641661,
+      "observation": "absent"
+    },
+    {
+      "pid": 641681,
+      "observation": "absent"
+    },
+    {
+      "pid": 641688,
+      "observation": "absent"
+    },
+    {
+      "pid": 641840,
+      "observation": "absent"
+    },
+    {
+      "pid": 641833,
+      "observation": "absent"
+    },
+    {
+      "pid": 641996,
+      "observation": "absent"
+    },
+    {
+      "pid": 642003,
+      "observation": "absent"
+    },
+    {
+      "pid": 642010,
+      "observation": "absent"
+    },
+    {
+      "pid": 585970,
+      "observation": "absent"
+    },
+    {
+      "pid": 586303,
+      "observation": "absent"
+    },
+    {
+      "pid": 586319,
+      "observation": "absent"
+    },
+    {
+      "pid": 645466,
+      "observation": "absent"
+    },
+    {
+      "pid": 645594,
+      "observation": "absent"
+    },
+    {
+      "pid": 645612,
+      "observation": "absent"
+    },
+    {
+      "pid": 646724,
+      "observation": "absent"
+    },
+    {
+      "pid": 646739,
+      "observation": "absent"
+    },
+    {
+      "pid": 646865,
+      "observation": "absent"
+    },
+    {
+      "pid": 647786,
+      "observation": "absent"
+    },
+    {
+      "pid": 648542,
+      "observation": "absent"
+    },
+    {
+      "pid": 648714,
+      "observation": "absent"
+    },
+    {
+      "pid": 648730,
+      "observation": "absent"
+    },
+    {
+      "pid": 648706,
+      "observation": "absent"
+    },
+    {
+      "pid": 648888,
+      "observation": "absent"
+    },
+    {
+      "pid": 649032,
+      "observation": "absent"
+    },
+    {
+      "pid": 649181,
+      "observation": "absent"
+    },
+    {
+      "pid": 649326,
+      "observation": "absent"
+    },
+    {
+      "pid": 649469,
+      "observation": "absent"
+    },
+    {
+      "pid": 649617,
+      "observation": "absent"
+    },
+    {
+      "pid": 649765,
+      "observation": "absent"
+    },
+    {
+      "pid": 649890,
+      "observation": "absent"
+    },
+    {
+      "pid": 650230,
+      "observation": "absent"
+    },
+    {
+      "pid": 650554,
+      "observation": "absent"
+    },
+    {
+      "pid": 650884,
+      "observation": "absent"
+    },
+    {
+      "pid": 651210,
+      "observation": "absent"
+    },
+    {
+      "pid": 651345,
+      "observation": "absent"
+    },
+    {
+      "pid": 651498,
+      "observation": "absent"
+    },
+    {
+      "pid": 651659,
+      "observation": "absent"
+    },
+    {
+      "pid": 651789,
+      "observation": "absent"
+    },
+    {
+      "pid": 651797,
+      "observation": "absent"
+    },
+    {
+      "pid": 651898,
+      "observation": "absent"
+    },
+    {
+      "pid": 652067,
+      "observation": "absent"
+    },
+    {
+      "pid": 652075,
+      "observation": "absent"
+    },
+    {
+      "pid": 652174,
+      "observation": "absent"
+    },
+    {
+      "pid": 652341,
+      "observation": "absent"
+    },
+    {
+      "pid": 652349,
+      "observation": "absent"
+    },
+    {
+      "pid": 652447,
+      "observation": "absent"
+    },
+    {
+      "pid": 652626,
+      "observation": "absent"
+    },
+    {
+      "pid": 652618,
+      "observation": "absent"
+    },
+    {
+      "pid": 652728,
+      "observation": "absent"
+    },
+    {
+      "pid": 652899,
+      "observation": "absent"
+    },
+    {
+      "pid": 652891,
+      "observation": "absent"
+    },
+    {
+      "pid": 652999,
+      "observation": "absent"
+    },
+    {
+      "pid": 653166,
+      "observation": "absent"
+    },
+    {
+      "pid": 653177,
+      "observation": "absent"
+    },
+    {
+      "pid": 653276,
+      "observation": "absent"
+    },
+    {
+      "pid": 653423,
+      "observation": "absent"
+    },
+    {
+      "pid": 653589,
+      "observation": "absent"
+    },
+    {
+      "pid": 653571,
+      "observation": "absent"
+    },
+    {
+      "pid": 653682,
+      "observation": "absent"
+    },
+    {
+      "pid": 653926,
+      "observation": "absent"
+    },
+    {
+      "pid": 654203,
+      "observation": "absent"
+    },
+    {
+      "pid": 654450,
+      "observation": "absent"
+    },
+    {
+      "pid": 654553,
+      "observation": "absent"
+    },
+    {
+      "pid": 654708,
+      "observation": "absent"
+    },
+    {
+      "pid": 654809,
+      "observation": "absent"
+    },
+    {
+      "pid": 654976,
+      "observation": "absent"
+    },
+    {
+      "pid": 655094,
+      "observation": "absent"
+    },
+    {
+      "pid": 655076,
+      "observation": "absent"
+    },
+    {
+      "pid": 655251,
+      "observation": "absent"
+    },
+    {
+      "pid": 655367,
+      "observation": "absent"
+    },
+    {
+      "pid": 655349,
+      "observation": "absent"
+    },
+    {
+      "pid": 655540,
+      "observation": "absent"
+    },
+    {
+      "pid": 655659,
+      "observation": "absent"
+    },
+    {
+      "pid": 655641,
+      "observation": "absent"
+    },
+    {
+      "pid": 655786,
+      "observation": "absent"
+    },
+    {
+      "pid": 655794,
+      "observation": "absent"
+    },
+    {
+      "pid": 655943,
+      "observation": "absent"
+    },
+    {
+      "pid": 656048,
+      "observation": "absent"
+    },
+    {
+      "pid": 656056,
+      "observation": "absent"
+    },
+    {
+      "pid": 656306,
+      "observation": "absent"
+    },
+    {
+      "pid": 656298,
+      "observation": "absent"
+    },
+    {
+      "pid": 656555,
+      "observation": "absent"
+    },
+    {
+      "pid": 656564,
+      "observation": "absent"
+    },
+    {
+      "pid": 656818,
+      "observation": "absent"
+    },
+    {
+      "pid": 656810,
+      "observation": "absent"
+    },
+    {
+      "pid": 656917,
+      "observation": "absent"
+    },
+    {
+      "pid": 657082,
+      "observation": "absent"
+    },
+    {
+      "pid": 657074,
+      "observation": "absent"
+    },
+    {
+      "pid": 657183,
+      "observation": "absent"
+    },
+    {
+      "pid": 657358,
+      "observation": "absent"
+    },
+    {
+      "pid": 657350,
+      "observation": "absent"
+    },
+    {
+      "pid": 657460,
+      "observation": "absent"
+    },
+    {
+      "pid": 657592,
+      "observation": "absent"
+    },
+    {
+      "pid": 657929,
+      "observation": "absent"
+    },
+    {
+      "pid": 658114,
+      "observation": "absent"
+    },
+    {
+      "pid": 658106,
+      "observation": "absent"
+    },
+    {
+      "pid": 658213,
+      "observation": "absent"
+    },
+    {
+      "pid": 658453,
+      "observation": "absent"
+    },
+    {
+      "pid": 658462,
+      "observation": "absent"
+    },
+    {
+      "pid": 658564,
+      "observation": "absent"
+    },
+    {
+      "pid": 658801,
+      "observation": "absent"
+    },
+    {
+      "pid": 658809,
+      "observation": "absent"
+    },
+    {
+      "pid": 658908,
+      "observation": "absent"
+    },
+    {
+      "pid": 659146,
+      "observation": "absent"
+    },
+    {
+      "pid": 659154,
+      "observation": "absent"
+    },
+    {
+      "pid": 659257,
+      "observation": "absent"
+    },
+    {
+      "pid": 659503,
+      "observation": "absent"
+    },
+    {
+      "pid": 659495,
+      "observation": "absent"
+    },
+    {
+      "pid": 659604,
+      "observation": "absent"
+    },
+    {
+      "pid": 659849,
+      "observation": "absent"
+    },
+    {
+      "pid": 659841,
+      "observation": "absent"
+    },
+    {
+      "pid": 659952,
+      "observation": "absent"
+    },
+    {
+      "pid": 660377,
+      "observation": "absent"
+    },
+    {
+      "pid": 660521,
+      "observation": "absent"
+    },
+    {
+      "pid": 660503,
+      "observation": "absent"
+    },
+    {
+      "pid": 661629,
+      "observation": "absent"
+    },
+    {
+      "pid": 661644,
+      "observation": "absent"
+    },
+    {
+      "pid": 661772,
+      "observation": "absent"
+    },
+    {
+      "pid": 662685,
+      "observation": "absent"
+    },
+    {
+      "pid": 663465,
+      "observation": "absent"
+    },
+    {
+      "pid": 663638,
+      "observation": "absent"
+    },
+    {
+      "pid": 663627,
+      "observation": "absent"
+    },
+    {
+      "pid": 663655,
+      "observation": "absent"
+    },
+    {
+      "pid": 663810,
+      "observation": "absent"
+    },
+    {
+      "pid": 663958,
+      "observation": "absent"
+    },
+    {
+      "pid": 664105,
+      "observation": "absent"
+    },
+    {
+      "pid": 664249,
+      "observation": "absent"
+    },
+    {
+      "pid": 664398,
+      "observation": "absent"
+    },
+    {
+      "pid": 664545,
+      "observation": "absent"
+    },
+    {
+      "pid": 664688,
+      "observation": "absent"
+    },
+    {
+      "pid": 664818,
+      "observation": "absent"
+    },
+    {
+      "pid": 665156,
+      "observation": "absent"
+    },
+    {
+      "pid": 665488,
+      "observation": "absent"
+    },
+    {
+      "pid": 665821,
+      "observation": "absent"
+    },
+    {
+      "pid": 666154,
+      "observation": "absent"
+    },
+    {
+      "pid": 666286,
+      "observation": "absent"
+    },
+    {
+      "pid": 666444,
+      "observation": "absent"
+    },
+    {
+      "pid": 666598,
+      "observation": "absent"
+    },
+    {
+      "pid": 666732,
+      "observation": "absent"
+    },
+    {
+      "pid": 666724,
+      "observation": "absent"
+    },
+    {
+      "pid": 666835,
+      "observation": "absent"
+    },
+    {
+      "pid": 666998,
+      "observation": "absent"
+    },
+    {
+      "pid": 667006,
+      "observation": "absent"
+    },
+    {
+      "pid": 667106,
+      "observation": "absent"
+    },
+    {
+      "pid": 667270,
+      "observation": "absent"
+    },
+    {
+      "pid": 667279,
+      "observation": "absent"
+    },
+    {
+      "pid": 667380,
+      "observation": "absent"
+    },
+    {
+      "pid": 667555,
+      "observation": "absent"
+    },
+    {
+      "pid": 667547,
+      "observation": "absent"
+    },
+    {
+      "pid": 667655,
+      "observation": "absent"
+    },
+    {
+      "pid": 667822,
+      "observation": "absent"
+    },
+    {
+      "pid": 667830,
+      "observation": "absent"
+    },
+    {
+      "pid": 667932,
+      "observation": "absent"
+    },
+    {
+      "pid": 668099,
+      "observation": "absent"
+    },
+    {
+      "pid": 668107,
+      "observation": "absent"
+    },
+    {
+      "pid": 668208,
+      "observation": "absent"
+    },
+    {
+      "pid": 668353,
+      "observation": "absent"
+    },
+    {
+      "pid": 668521,
+      "observation": "absent"
+    },
+    {
+      "pid": 668502,
+      "observation": "absent"
+    },
+    {
+      "pid": 668609,
+      "observation": "absent"
+    },
+    {
+      "pid": 668845,
+      "observation": "absent"
+    },
+    {
+      "pid": 669096,
+      "observation": "absent"
+    },
+    {
+      "pid": 669349,
+      "observation": "absent"
+    },
+    {
+      "pid": 669449,
+      "observation": "absent"
+    },
+    {
+      "pid": 669624,
+      "observation": "absent"
+    },
+    {
+      "pid": 669722,
+      "observation": "absent"
+    },
+    {
+      "pid": 669890,
+      "observation": "absent"
+    },
+    {
+      "pid": 669993,
+      "observation": "absent"
+    },
+    {
+      "pid": 670011,
+      "observation": "absent"
+    },
+    {
+      "pid": 670168,
+      "observation": "absent"
+    },
+    {
+      "pid": 670266,
+      "observation": "absent"
+    },
+    {
+      "pid": 670284,
+      "observation": "absent"
+    },
+    {
+      "pid": 670456,
+      "observation": "absent"
+    },
+    {
+      "pid": 670553,
+      "observation": "absent"
+    },
+    {
+      "pid": 670572,
+      "observation": "absent"
+    },
+    {
+      "pid": 670711,
+      "observation": "absent"
+    },
+    {
+      "pid": 670703,
+      "observation": "absent"
+    },
+    {
+      "pid": 670857,
+      "observation": "absent"
+    },
+    {
+      "pid": 670948,
+      "observation": "absent"
+    },
+    {
+      "pid": 670956,
+      "observation": "absent"
+    },
+    {
+      "pid": 671193,
+      "observation": "absent"
+    },
+    {
+      "pid": 671201,
+      "observation": "absent"
+    },
+    {
+      "pid": 671459,
+      "observation": "absent"
+    },
+    {
+      "pid": 671451,
+      "observation": "absent"
+    },
+    {
+      "pid": 671718,
+      "observation": "absent"
+    },
+    {
+      "pid": 671707,
+      "observation": "absent"
+    },
+    {
+      "pid": 671817,
+      "observation": "absent"
+    },
+    {
+      "pid": 671984,
+      "observation": "absent"
+    },
+    {
+      "pid": 671976,
+      "observation": "absent"
+    },
+    {
+      "pid": 672081,
+      "observation": "absent"
+    },
+    {
+      "pid": 672260,
+      "observation": "absent"
+    },
+    {
+      "pid": 672249,
+      "observation": "absent"
+    },
+    {
+      "pid": 672359,
+      "observation": "absent"
+    },
+    {
+      "pid": 672491,
+      "observation": "absent"
+    },
+    {
+      "pid": 672824,
+      "observation": "absent"
+    },
+    {
+      "pid": 673012,
+      "observation": "absent"
+    },
+    {
+      "pid": 673004,
+      "observation": "absent"
+    },
+    {
+      "pid": 673113,
+      "observation": "absent"
+    },
+    {
+      "pid": 673360,
+      "observation": "absent"
+    },
+    {
+      "pid": 673352,
+      "observation": "absent"
+    },
+    {
+      "pid": 673458,
+      "observation": "absent"
+    },
+    {
+      "pid": 673703,
+      "observation": "absent"
+    },
+    {
+      "pid": 673695,
+      "observation": "absent"
+    },
+    {
+      "pid": 673806,
+      "observation": "absent"
+    },
+    {
+      "pid": 674043,
+      "observation": "absent"
+    },
+    {
+      "pid": 674051,
+      "observation": "absent"
+    },
+    {
+      "pid": 674149,
+      "observation": "absent"
+    },
+    {
+      "pid": 674390,
+      "observation": "absent"
+    },
+    {
+      "pid": 674401,
+      "observation": "absent"
+    },
+    {
+      "pid": 674500,
+      "observation": "absent"
+    },
+    {
+      "pid": 674739,
+      "observation": "absent"
+    },
+    {
+      "pid": 674747,
+      "observation": "absent"
+    },
+    {
+      "pid": 674846,
+      "observation": "absent"
+    },
+    {
+      "pid": 675101,
+      "observation": "absent"
+    },
+    {
+      "pid": 675117,
+      "observation": "absent"
+    },
+    {
+      "pid": 675093,
+      "observation": "absent"
+    },
+    {
+      "pid": 675514,
+      "observation": "absent"
+    },
+    {
+      "pid": 675530,
+      "observation": "absent"
+    },
+    {
+      "pid": 675506,
+      "observation": "absent"
+    },
+    {
+      "pid": 678955,
+      "observation": "absent"
+    },
+    {
+      "pid": 678971,
+      "observation": "absent"
+    },
+    {
+      "pid": 678947,
+      "observation": "absent"
+    },
+    {
+      "pid": 679371,
+      "observation": "absent"
+    },
+    {
+      "pid": 679387,
+      "observation": "absent"
+    },
+    {
+      "pid": 679363,
+      "observation": "absent"
+    },
+    {
+      "pid": 585977,
+      "observation": "absent"
+    },
+    {
+      "pid": 586310,
+      "observation": "absent"
+    },
+    {
+      "pid": 586326,
+      "observation": "absent"
+    }
+  ],
+  "cleanupScope": "observations only, never production authority; actual launch events, original-state joins and standalone mechanical rows; constructed copy PID fields excluded",
+  "preparatoryExcluded": {
+    "partialSandboxProbe": "evidence/probe: Git init completed, then child wait reported EPERM; directory retained",
+    "initialMatrix": "evidence/initial: 260/38/61; earlier source, excluded from final totals",
+    "controlClosure": "missing control bundle stopped only closure verifier; exact graph copied and remaining checks completed; passed matrices not repeated",
+    "preFirewallMatrix": "evidence/final: 630/98/144 continuation + 188/14/10 regression; excluded after early write-firewall repair",
+    "firewallHarness": "evidence/firewall/control: namespace lookup failed before binding construction; corrected fresh probe retained separately"
+  },
+  "policyBoundary": "administrative example only; core/backend/runtime/storage semantics and registry graph unchanged",
+  "resultBoundary": "new completion only; missing original outcome stays missing; missing new result forbids all replay; release admits observation without original registry replacement",
+  "remainingExecutionBlockers": [],
+  "independentReview": "pending",
+  "publicationAuthorized": false,
+  "limits": "one trusted serialized writer and intact flushed storage; controlled offline Linux standalone SHA1 single-file fixtures; no renewed mutation admission, public graph-composed recovery, interrupted-new-request disposition, arbitrary descendants/races, saturated input, power loss/storage faults/deletion, multiple writers, full Unix/index metadata, linked worktrees/live providers, coherently rewritten history, scale/compaction or peer acknowledgement",
+  "firewall": [
+    {
+      "name": "control-final",
+      "mechanicalProcesses": 1,
+      "applicationGraphRuns": 0,
+      "originalSeedPreserved": true,
+      "changedStorageFiles": 1,
+      "bindingHash": "13b973bda3ba53ae89deafd9cea8b88f8fcbb0ff66581b26b594c295518e73da",
+      "proofHash": "9a3cafbd286795c2920d14b42a2eed88b83a7a7f9b34fa3624e6856e3d31759e"
+    },
+    {
+      "name": "original",
+      "mechanicalProcesses": 1,
+      "applicationGraphRuns": 0,
+      "originalSeedPreserved": true,
+      "changedStorageFiles": 0,
+      "bindingHash": "f96c16b08c672137e4d6120d60a9108d2c42c95d1d565c178a4fd370a80fa8cd",
+      "proofHash": "118cb5a912326dff1d02afb4bba7d24d9137ad56289aacc761215d00a938649b"
+    },
+    {
+      "name": "moved",
+      "mechanicalProcesses": 1,
+      "applicationGraphRuns": 0,
+      "originalSeedPreserved": true,
+      "changedStorageFiles": 0,
+      "bindingHash": "f96c16b08c672137e4d6120d60a9108d2c42c95d1d565c178a4fd370a80fa8cd",
+      "proofHash": "5e92a6cc14500744a4127244c2332b24f95ec89477b3e921acd119851b175a81"
+    }
+  ],
+  "graphReopen": {
+    "reopen-original": "d3666ca8ad151e1493969e84da0d9e1914d0e3c6885398b01a3d6bf950c030d2",
+    "reopen-moved": "0c39eada49ece11c902036a8bf78aeabe5a5df4d615eee256db7781b60717252",
+    "reopen-original-control": "44fc09ed8e2f9c77fa3ba4c35fa0db039583a5981d960475b24d7ff4fe50ae66",
+    "reopen-moved-control": "9d8f1afaadbc4ff58597aa4d5b67f93e966f5762c0fe323a27bc33648a7fd9d4"
+  },
+  "firewallArchive": {
+    "method": "exact pre-repair Program source recovered by reversing only guard placement; offline deterministic build matches retained artifact hashes",
+    "programHash": "823857239c67e32f146f1757fd20e5055a43d1190f1454952e320512841dde14",
+    "generatedHash": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+    "bindingHash": "13b973bda3ba53ae89deafd9cea8b88f8fcbb0ff66581b26b594c295518e73da",
+    "driverHash": "0289fb408cdc387f3c3e36e126f63b65fe4fcdfadd31a37e2b9953f04f131533",
+    "compilation": {
+      "method": "installed-roslyn-no-restore",
+      "sdkVersion": "10.0.112",
+      "referencePackVersion": "10.0.12",
+      "runtimeVersion": "10.0.12",
+      "referenceAssemblyCount": 167,
+      "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
+    },
+    "newEffectRuns": 0
+  }
+}
