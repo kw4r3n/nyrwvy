@@ -1,6 +1,8 @@
 # Fenced physical Git child launch, 2026-10-14
 
-Status: Observed result; independent review and publication pending.
+Status: Observed result; independent review requests the evidence correction
+recorded in [the repair](offline-session-git-child-evidence-repair-20261014.md).
+The scoped implementation passed; revised evidence approval/publication are pending.
 
 Base: independently approved `6d5058463f6648d5ca0c29492b624196efe8c6da`, tree
 `0abc652ab2625d1b525b6ec228bc9ed2dcbf6c69`. Isolated branch:
@@ -35,9 +37,12 @@ Async input, bounded output capture and a shared deadline replace the old synchr
 stdin write followed by timeout. Timeout requests tree termination and bounded
 exit/drain waits. Failed drainage leaves the active record intact. Joined failure
 can retain and replay the graph's exact actual error; missing original outcomes
-remain unresolved. Output overflow can retain an actual graph error while admission
-stays closed because physical child quiescence is unavailable. Those facts are
-separate and neither is rewritten on restart.
+remain unresolved. Output overflow does not retain an actual request outcome:
+the active fence rejects the registry read needed to publish it. The wire reply
+is `err:unresolved`, the journal stays pending with empty result/provenance, and
+neither outcome receipt nor separate outcome exists. Restart closes before input
+and preserves the launch fence and all facts. A child error observation cannot
+supply the missing original request result.
 
 Only example binding, harness, closure, wrapper and documentation change. Existing
 opaque storage, tasks, shields and graph outcome machinery are sufficient. No new
@@ -70,6 +75,8 @@ object creation never clears the fence. Object-only/ref-only/completed physical
 effects still cannot recover the missing original outcome. Timeout/unread-input
 cases join the terminated child and replay the exact actual interruption error.
 Output overflow joins the root but retains the active fence because drainage fails.
+It retains no actual outcome; the new maintained assertions check absent receipt/
+outcome, pending journal, empty registry result and unresolved wire reply.
 Fixture input is small; this does not demonstrate saturated-pipe backpressure.
 
 The inherited matrix preserves once-only same/distinct-ID/lost-response behavior,

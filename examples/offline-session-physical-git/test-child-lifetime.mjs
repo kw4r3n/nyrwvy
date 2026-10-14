@@ -5,7 +5,9 @@ import {join,resolve} from 'node:path'
 import {spawn} from 'node:child_process'
 import {createInterface} from 'node:readline'
 import {fixture,inspect,hash} from './git-fixture.mjs'
-const bundle=resolve(process.argv[2]),out=resolve(process.argv[3]),baseline=process.argv.includes('--baseline')
+import {assertMissingActualOutcome} from './outcome-evidence.mjs'
+const bundle=resolve(process.argv[2]),out=resolve(process.argv[3]),baseline=process.argv.includes('--baseline'),overflowOnly=process.argv.includes('--overflow-only')
+assert.ok(!baseline||!overflowOnly,'baseline and overflow-only are distinct selections')
 const command=(id,op,extra={})=>JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name:'session_command',arguments:{op,label:op,...extra}}})
 const integration=command('same-integration-id','integrate',{target:1}),distinct=command('distinct-id','integrate',{target:1})
 const key=k=>hash(k)+'.json',slot=key('physical-child/v1')
@@ -56,7 +58,7 @@ import fs from 'node:fs';import {execFileSync} from 'node:child_process';
 const args=process.argv.slice(2),root=process.env.NYRWVY_CHILD_ROOT,mode=process.env.NYRWVY_CHILD_MODE;
 const input=mode==='stdin-hold'&&args.includes('commit-tree')?Buffer.alloc(0):fs.readFileSync(0);if(args.includes('commit-tree')){
  fs.writeFileSync(root+'/child-ready.json',JSON.stringify({pid:process.pid,args,inputHex:input.toString('hex')}));
- if(mode==='output-limit'){process.stdout.on('error',()=>{});process.stdout.write('X'.repeat(1048577));}
+ if(mode==='output-limit'||mode==='stderr-output-limit'){const stream=mode==='output-limit'?process.stdout:process.stderr;stream.on('error',()=>{});stream.write('X'.repeat(1048577));}
  while(!fs.existsSync(root+'/child-release'))await new Promise(r=>setTimeout(r,10));
 }
 const output=execFileSync('/usr/bin/git',args,{input,encoding:'utf8'});
@@ -65,7 +67,7 @@ process.stdout.on('error',()=>{});process.stdout.write(output);
 `
  await writeFile(join(bin,'git'),source);await chmod(join(bin,'git'),0o755);return bin
 }
-{
+if(!overflowOnly){
  const d=await domain('surviving-child'),a=await run(d,1,{prefix:true,wrapper:await wrapper(d.root)}),held=JSON.parse(await readFile(join(d.root,'child-ready.json')))
  try{
   assert.ok(await alive(held.pid),'held child survives parent');assert.deepEqual(a.physicalBefore,a.physicalAfter,'held child has not mutated yet')
@@ -79,13 +81,16 @@ process.stdout.on('error',()=>{});process.stdout.write(output);
  }finally{await writeFile(join(d.root,'child-release'),'release\n');await until(()=>exists(join(d.root,'child-done.json')),'helper cleanup');await until(async()=>!await alive(held.pid),'helper exit')}
 }
 if(!baseline){
- for(const mode of ['hold','stdin-hold','output-limit']){
+ for(const mode of overflowOnly?['output-limit','stderr-output-limit']:['hold','stdin-hold','output-limit','stderr-output-limit']){
+  const overflow=mode==='output-limit'||mode==='stderr-output-limit'
   const d=await domain('deadline-'+mode),bin=await wrapper(d.root),started=Date.now(),a=await run(d,1,{prefix:true,wrapper:bin,killHeld:false,helperMode:mode,settings:{gitDeadlineMs:'500'}})
   const held=JSON.parse(await readFile(join(d.root,'child-ready.json'))),record=JSON.parse(a.after[slot]);assert.ok(Date.now()-started<15000);assert.ok(!await alive(held.pid),'terminated child joined')
-  assert.ok(a.events.some(e=>e.operation==='physical-git-termination'));assert.deepEqual(a.physicalBefore,a.physicalAfter);assert.equal(record.State,mode==='output-limit'?'active':'quiescent')
-  const b=await run(d,2,{startupFailure:mode==='output-limit'});if(mode!=='output-limit')assert.equal(response(b),'err:Git command interrupted; physical effect must be inspected');unchanged(b)
-  contracts.push({name:'deadline-'+mode,childTerminatedAndJoined:true,outputDrained:record.OutputDrained,fenceState:record.State,retainedActualFailureReplayed:mode!=='output-limit',inputBackpressureSaturated:false})
+  assert.ok(a.events.some(e=>e.operation==='physical-git-termination'));assert.deepEqual(a.physicalBefore,a.physicalAfter);assert.equal(record.State,overflow?'active':'quiescent')
+  if(overflow)assertMissingActualOutcome(a,{wire:true})
+  const b=await run(d,2,{startupFailure:overflow});if(overflow)assertMissingActualOutcome(b);else assert.equal(response(b),'err:Git command interrupted; physical effect must be inspected');unchanged(b)
+  contracts.push({name:'deadline-'+mode,childTerminatedAndJoined:true,outputDrained:record.OutputDrained,fenceState:record.State,retainedActualFailureReplayed:!overflow,...(overflow?{actualOutcomeAbsent:true,journalPending:true,wireOutcome:'err:unresolved'}:{}),inputBackpressureSaturated:false})
  }
+ if(!overflowOnly){
  for(const crash of ['before-git-child-start','after-git-object','after-git-ref','after-git-worktree']){
   const active=crash==='before-git-child-start',d=await domain(crash),a=await run(d,1,{prefix:true,crash}),b=await run(d,2,{startupFailure:active}),c=await run(d,3,{line:distinct,startupFailure:active})
   if(!active){assert.equal(response(b),'err:unresolved');assert.equal(response(c,'distinct-id'),'err:unresolved')}unchanged(b);unchanged(c)
@@ -102,7 +107,8 @@ if(!baseline){
   if(damage==='restoration'){const {git}=await import('./git-fixture.mjs');git(d.f.root,['read-tree','--reset','-u',d.f.selected])}
   const b=await run(d,2,{settings:damage==='inspection'?{evidence:'unavailable'}:{},startupFailure:damage==='malformed'});if(damage!=='malformed')assert.equal(response(b),'err:unresolved');unchanged(b);contracts.push({name:damage,constructedDamage:true,noReplay:true})
  }
+ }
 }
-const proof={baseline,processes:rows.length,domains:new Set(rows.map(r=>r.name)).size,sigkills:rows.filter(r=>r.signal==='SIGKILL').length,contracts,rawHash:hash(JSON.stringify(rows)),sourceHash:hash(await readFile(new URL(import.meta.url))),limits:['controlled held children, local Git and explicit release; no arbitrary races/uncooperative descendant proof','active launch fence is deliberately not cleared by PID absence or complete physical state; explicit disposition remains missing']}
+const proof={baseline,overflowOnly,processes:rows.length,domains:new Set(rows.map(r=>r.name)).size,sigkills:rows.filter(r=>r.signal==='SIGKILL').length,contracts,rawHash:hash(JSON.stringify(rows)),sourceHash:hash(await readFile(new URL(import.meta.url))),outcomeEvidenceHash:hash(await readFile(new URL('./outcome-evidence.mjs',import.meta.url))),limits:['controlled held children, local Git and explicit release; no arbitrary races/uncooperative descendant proof','active launch fence is deliberately not cleared by PID absence or complete physical state; explicit disposition remains missing']}
 await writeFile(join(out,'raw.json'),JSON.stringify(rows,null,2)+'\n');await writeFile(join(out,'proof.json'),JSON.stringify(proof,null,2)+'\n')
 console.log(`PASS: ${rows.length} serialized child processes, ${proof.sigkills} parent SIGKILLs; ${baseline?'negative baseline demonstrates unsafe retry':'launch fencing and partial/outcome uncertainty'}`)

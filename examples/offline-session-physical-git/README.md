@@ -38,6 +38,11 @@ argument/input/metadata/restoration contradictions. Small fixture input does not
 saturate a pipe, so arbitrary input backpressure remains a separate obligation.
 Old unfenced plans, unavailable inspection and partial state cannot authorize
 replay. No recovery/disposition identity or result is introduced in this milestone.
+Joined failures with a quiescent fence can retain exact actual graph errors.
+Overflow or failed drainage leaves an active fence: registry publication is then
+blocked, the journal remains pending, both actual outcome entries are absent,
+and the wire reply is `err:unresolved`. Child error observations do not supply
+an original request outcome. See the [evidence correction](../../docs/verification/offline-session-git-child-evidence-repair-20261014.md).
 
 The executable-mode repair follows the request-changes candidate
 `98174898cb3ca1db33b44b0453d84304e50c1bd9` (tree
