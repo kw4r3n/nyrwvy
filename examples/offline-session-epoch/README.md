@@ -63,7 +63,12 @@ and distinct unrelated requests remain closed before and after the new effect.
 
 New commands use immutable distinct
 `physical-epoch-child/v1/<effect-token-digest>/<stage>` slots and a separately
-pinned mechanical owner. The original owner/slot contract is unchanged. Actual
+pinned mechanical owner. Epoch inspection, storage and mutation require a
+nonempty JSON-string `gitOwner`, an available ordinary file without symlink
+ancestry, and exact compiled owner length/digest. Each launch rechecks that pin
+before retaining its slot. Direct Git mutation is prohibited in epoch mode;
+empty or unavailable configuration cannot fall back to the original slot.
+The original owner/slot contract is unchanged. Actual
 new graph outcomes retain the inherited shield and publication semantics.
 Identical request replay restores that actual result without repeating Git.
 Missing new results close startup whenever a plan or pending admission exists.
@@ -94,4 +99,6 @@ of this example. Independent review must cover the exact successor commit/tree
 before publication.
 
 See the [verification record](../../docs/verification/offline-session-epoch-20261014.md)
-and [proof manifest](fixtures/proof.json) for final evidence and retained reuse.
+and [proof manifest](fixtures/proof.json) for initial evidence and retained reuse.
+The [owner-dispatch repair](../../docs/verification/offline-session-epoch-owner-repair-20261014.md)
+records P1's exact reproductions and focused repaired controls.

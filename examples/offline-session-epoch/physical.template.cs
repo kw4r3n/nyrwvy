@@ -12,6 +12,15 @@
  }
  string EpochLaunchKey(string[] args)=>"physical-epoch-child/v1/"+DigestText(effectIdentity.Value??"")+"/"+(args[0]=="commit-tree"?0:args[0]=="update-ref"?1:2);
  const string SupportedEpochOwner="@@EPOCH_OWNER_DIGEST@@";
+ const long SupportedEpochOwnerLength=@@EPOCH_OWNER_LENGTH@@;
+ string EpochOwnerPath(){
+  Check(scenario.TryGetProperty("gitOwner",out var supplied)&&supplied.ValueKind==JsonValueKind.String&&!string.IsNullOrEmpty(supplied.GetString()),"epoch requires a nonempty JSON-string owner");
+  string owner=System.IO.Path.GetFullPath(supplied.GetString()!);var file=new System.IO.FileInfo(owner);
+  Check(file.Exists&&file.LinkTarget==null&&file.Length==SupportedEpochOwnerLength,"epoch owner file unavailable or unsupported");
+  for(var directory=file.Directory;directory!=null;directory=directory.Parent)Check(directory.LinkTarget==null,"symlinked epoch owner directory");
+  Check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(owner))).ToLowerInvariant()==SupportedEpochOwner,"epoch owner digest is not pinned");
+  return owner;
+ }
  void EpochChildGuard(){
   string file=StoragePath("epoch/v1/intent");if(!System.IO.File.Exists(file))return;
   using var document=JsonDocument.Parse(System.IO.File.ReadAllText(file));var q=document.RootElement;
@@ -35,6 +44,7 @@
  }
  string EpochFacts(){
   Check(epochMode&&Setting("evidence")!="unavailable"&&Setting("physicalControl")==""&&Setting("worktreeModeControl")=="","enabled epoch inspection required");
+  EpochOwnerPath();
   string receiptRaw=System.IO.File.ReadAllText(StoragePath(InterruptedDispositionKey));using var proof=JsonDocument.Parse(receiptRaw);var r=proof.RootElement;
   string pending=System.IO.File.ReadAllText(StoragePath(ContinuationKey));var continuation=JsonSerializer.Deserialize<ContinuationIntent>(pending)!;
   using var continuationRequest=JsonDocument.Parse(continuation.Request);var c=continuationRequest.RootElement;

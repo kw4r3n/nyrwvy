@@ -2,6 +2,12 @@
 
 Status: Observed result; independent review pending. No publication authorized.
 
+Independent review of the initial head found P1: empty owner configuration
+could use direct Git and overwrite the original fence; an unpinned helper could
+create an object before rejection. The passing matrix below did not cover that
+dispatch boundary. The [owner repair](offline-session-epoch-owner-repair-20261014.md)
+supersedes that missing owner validation while retaining this evidence.
+
 The implementation starts at reviewed/published interruption commit
 `95b331ae008c1504ce3c6c1b0d5675bf43926445`, tree
 `7ced2a777227845abf39b45f2c3c14038d120295`. The author used a fresh isolated
