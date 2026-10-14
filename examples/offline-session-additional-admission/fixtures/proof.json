@@ -1,0 +1,612 @@
+{
+  "status": "author-offline-proof-passed-independent-exact-head-review-required",
+  "base": "98f22b98c2537f24af8095022d4ec6cfe772140f",
+  "baseTree": "9e512d3efa6c316151521a29d08c401fe45c4667",
+  "branch": "feat/one-additional-admission",
+  "claim": "One explicitly authorized additional admission, one new owned Member and one selected synchronous integration; three old unknowns and all prior evidence retained; no further recovery",
+  "focused": {
+    "contracts": [
+      {
+        "name": "typed-opaque-authority-id-envelope-owner-and-exclusive-input-refusals",
+        "passed": true
+      },
+      {
+        "name": "all-twelve-administrative-write-windows-startup-never-completes-exact-explicit-retry-only",
+        "passed": true
+      },
+      {
+        "name": "frozen-inventory-lineage-counter-member-and-custody-contradictions-refuse-before-write",
+        "passed": true
+      },
+      {
+        "name": "member-only-inverse-only-and-pre-snapshot-associations-stay-closed-without-overwrite",
+        "passed": true
+      },
+      {
+        "name": "integration-evidence-and-lineage-without-plan-refuses-before-dispatch-or-replay",
+        "passed": true
+      },
+      {
+        "name": "one-member-counter-plus-one-current-head-base-one-integration-exact-actual-replay-three-old-unknowns",
+        "passed": true
+      },
+      {
+        "name": "no-durable-acceptance-before-physical-intent",
+        "passed": true
+      },
+      {
+        "name": "no-durable-acceptance-before-additional-registry-intent",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-physical-intent",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-additional-registry-intent",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-additional-journal-intent",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-before-git-child-start",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-git-object",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-git-ref",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-after-git-worktree",
+        "passed": true
+      },
+      {
+        "name": "new-unknown-before-additional-registry-publication",
+        "passed": true
+      },
+      {
+        "name": "actual-result-before-response-loss-replays-only-saved-actual",
+        "passed": true
+      },
+      {
+        "name": "unowned-physical-tail-refuses-with-bytes-preserved",
+        "passed": true
+      },
+      {
+        "name": "new-active-and-late-terminal-witness-commit-tree",
+        "passed": true
+      },
+      {
+        "name": "new-active-and-late-terminal-witness-read-tree",
+        "passed": true
+      }
+    ],
+    "additionalRuns": 377,
+    "ancestorRuns": 120,
+    "domains": 15,
+    "kills": 70,
+    "rawHash": "ee833eb84f760d8905e6c45d71b520beb5eb8dd09f46beea5a56d5e95d051de3"
+  },
+  "regressions": {
+    "disposition-regression": {
+      "contracts": [
+        {
+          "name": "strict-identity-authority-owner-and-current-fact-refusals",
+          "passed": true
+        },
+        {
+          "name": "before-disposition-intent",
+          "passed": true
+        },
+        {
+          "name": "after-disposition-intent",
+          "passed": true
+        },
+        {
+          "name": "before-disposition-receipt",
+          "passed": true
+        },
+        {
+          "name": "after-disposition-receipt",
+          "passed": true
+        },
+        {
+          "name": "three-unknowns-and-closed-startup-before-and-after-publication",
+          "passed": true
+        },
+        {
+          "name": "missing-contradictory-ownership-lineage-association-inventory-results-refuse-intact",
+          "passed": true
+        },
+        {
+          "name": "unsupported-after-physical-intent",
+          "passed": true
+        },
+        {
+          "name": "unsupported-before-git-child-start",
+          "passed": true
+        },
+        {
+          "name": "unsupported-after-git-object",
+          "passed": true
+        },
+        {
+          "name": "unsupported-after-git-ref",
+          "passed": true
+        },
+        {
+          "name": "actual-result-excludes-disposition-and-replays-without-effects",
+          "passed": true
+        },
+        {
+          "name": "active-and-late-witness-commit-tree",
+          "passed": true
+        },
+        {
+          "name": "active-and-late-witness-read-tree",
+          "passed": true
+        },
+        {
+          "name": "exact-raw-frame-and-canonical-escaped-typed-id",
+          "passed": true
+        },
+        {
+          "name": "unowned-physical-change-refuses",
+          "passed": true
+        }
+      ],
+      "parentProcesses": 40,
+      "epochProcesses": 30,
+      "dispositionProcesses": 217,
+      "domains": 10,
+      "kills": 34,
+      "parentRawHash": "c51f7c6ed2c3f696101176a0b64f3c1691fb52ff2c58064ea17d086eede14ea2",
+      "epochRawHash": "249ce81f74404d16e0c57acda856d1bb045172b6cb76c4e7d3a5b3b3ab920327",
+      "rawHash": "a130c9ae62cd36f0bd0c86ad1ffbb3d5c24753c0a09b3329648c787aaaf35430"
+    },
+    "epoch-regression": {
+      "contracts": [
+        {
+          "name": "one-activation-one-fresh-member-once-only-mutation",
+          "passed": true
+        },
+        {
+          "name": "invalid-authority-identity-lineage-and-orphan-refusals",
+          "passed": true
+        },
+        {
+          "name": "unsupported-object-only",
+          "passed": true
+        },
+        {
+          "name": "unsupported-ref-only",
+          "passed": true
+        },
+        {
+          "name": "unowned-mode",
+          "passed": true
+        },
+        {
+          "name": "unowned-worktree",
+          "passed": true
+        },
+        {
+          "name": "unowned-index",
+          "passed": true
+        },
+        {
+          "name": "unowned-object",
+          "passed": true
+        },
+        {
+          "name": "unowned-ref",
+          "passed": true
+        },
+        {
+          "name": "before-input",
+          "passed": true
+        },
+        {
+          "name": "member-before-fresh-workspace",
+          "passed": true
+        },
+        {
+          "name": "member-after-epoch-registry-publication",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-before-intent",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-after-intent",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-before-blocked",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-after-blocked",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-before-result",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-after-result",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-before-epoch-registry-publication",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-after-epoch-registry-publication",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-before-activation",
+          "passed": true
+        },
+        {
+          "name": "admission-crash-after-activation",
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-before-epoch-registry-intent",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-before-physical-intent",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-physical-intent",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-epoch-registry-intent",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-epoch-journal-intent",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-before-git-child-start",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-git-object",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-git-ref",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-git-worktree",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-before-epoch-registry-publication",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-epoch-registry-publication",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-before-outcome-receipt",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "mutation-crash-after-epoch-journal-completion",
+          "actualResultRequired": true,
+          "passed": true
+        },
+        {
+          "name": "active-commit-tree",
+          "passed": true,
+          "unknownAndFenced": true
+        },
+        {
+          "name": "active-update-ref",
+          "passed": true,
+          "unknownAndFenced": true
+        },
+        {
+          "name": "active-read-tree",
+          "passed": true,
+          "unknownAndFenced": true
+        }
+      ],
+      "parentProcesses": 152,
+      "epochProcesses": 258,
+      "domains": 38,
+      "parentRawHash": "12336677956fcbf900ef9a6824563ad2c2c3a23c8109f8d81d5e12b298322662",
+      "rawHash": "85f8953e052dc86d22c38a8fe36fc4a9a70440f711b243fa43443d7e6da84b72"
+    },
+    "owner-regression": {
+      "contracts": [
+        {
+          "name": "administrative-owner-omitted",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-empty",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-null",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-number",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-boolean",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-object",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-array",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-whitespace",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-nul",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-missing",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-directory",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-foreign",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-unpinned-comment",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-unpinned-same-size",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-predecessor-owner",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-file-symlink",
+          "passed": true
+        },
+        {
+          "name": "administrative-owner-directory-symlink",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-omitted",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-empty",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-null",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-number",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-boolean",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-object",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-array",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-whitespace",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-nul",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-missing",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-directory",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-foreign",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-unpinned-comment",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-unpinned-same-size",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-predecessor-owner",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-file-symlink",
+          "passed": true
+        },
+        {
+          "name": "integration-owner-directory-symlink",
+          "passed": true
+        },
+        {
+          "name": "pinned-copy-once-only-and-actual-replay",
+          "passed": true
+        },
+        {
+          "name": "uncertainty-after-physical-intent",
+          "passed": true
+        },
+        {
+          "name": "uncertainty-before-git-child-start",
+          "passed": true
+        },
+        {
+          "name": "uncertainty-after-git-worktree",
+          "passed": true
+        },
+        {
+          "name": "uncertainty-after-epoch-registry-publication",
+          "passed": true
+        },
+        {
+          "name": "active-terminal-witness-stays-unknown-and-fenced",
+          "passed": true
+        }
+      ],
+      "parentProcesses": 24,
+      "epochProcesses": 67,
+      "domains": 6,
+      "sigkills": 17,
+      "parentRawHash": "4eee5607364d1ba35bb98dcb6f52a10368842163ecb91e5bacd46302e6080334",
+      "rawHash": "b56baa711dc8911d0cfaf5a4adba3e075b6ac79beb3744cbbe22ce2c054cbd96",
+      "ownerDigest": "987a7bd8f60f4135adc39d2c85f09d7a6673e110d8e3784077d225b7c9015996"
+    }
+  },
+  "red": {
+    "base": "98f22b98c2537f24af8095022d4ec6cfe772140f",
+    "offered": [
+      "{\"jsonrpc\":\"2.0\",\"id\":\"additional-member\",\"method\":\"tools/call\",\"params\":{\"name\":\"session_command\",\"arguments\":{\"op\":\"begin\",\"label\":\"begin\",\"target\":3,\"mode\":\"spawn\"}}}",
+      "{\"jsonrpc\":\"2.0\",\"id\":\"additional-integration\",\"method\":\"tools/call\",\"params\":{\"name\":\"session_command\",\"arguments\":{\"op\":\"integrate\",\"label\":\"integrate\",\"target\":3}}}"
+    ],
+    "member": 3,
+    "readStarted": false,
+    "allStorageAndPhysicalBytesUnchanged": true,
+    "threeUnknownRetained": true,
+    "runs": 9
+  },
+  "redHash": "83a1f935df43cc65edbef587240227c285649b4f6d39ff03c5749987385ba215",
+  "rawHash": "0be540bf3a4b1bc821f6dfaba307550c982c17bec3d9e16a54902dce2069d847",
+  "immutableComparisons": 15564,
+  "repositoryComparisons": 14684,
+  "threeUnknownAbsenceChecks": 1131,
+  "refusals": 291,
+  "acceptedAdministrativeObservations": 40,
+  "closedStartupObservations": 72,
+  "sourceHashes": {
+    "README.md": "4c681d4f3423d290ef0612dffc75a2addb95fb784c8bdaf142a6b789da32fdc4",
+    "author.mjs": "81b6cbee6b5cd2dc33f3ff820d1571168b95e0286d308932eaeb62a74aa3d546",
+    "compile.mjs": "ecdff878f947358cba266b6c307008bde49c32326d6a0ec09b5860d3450ad9ad",
+    "fixture.mjs": "dd8a24046fd580a089d098d9d6a2cce18eada6e94bb038cdea325df36039e4a2",
+    "physical.template.cs": "4ce95e8d99f53a6a391368a1478b4002aa2a55cb973b902e40dd29fa6bd6d0b9",
+    "run.mjs": "934804ec4ce112d9684476ee8d1057040ef4da8036b4889872e97a8f3bbfddf6",
+    "test-runtime.mjs": "41e06d4d77b0191e7945798a4cef4a41a6da3b95db13994620f4ce672db22f88"
+  },
+  "unchangedGraphArtifacts": {
+    "Generated.cs": "ab2514a7036dcb21326395edf578e4770529cde2a47632bfa961094f556fd625",
+    "session.json": "895eb1fea120ae02bacc75c202cfae482ae0f670f60dc560dab73b44ecf3827f",
+    "symbols.json": "769dce0cff054814c7a3384e823ba041e0a000ecee8beb6c2ff1674f6e6c0a04",
+    "declarations.json": "161c7a962e8969fe9f83e0fdd80df2be156d04b80fd7e834375ce64f65fe38ab",
+    "authoring.json": "be3547540854b65e261f9842801484512e3981faabbb33c8f14100bef71776ab"
+  },
+  "closures": {
+    "original-v7": {
+      "Generated.cs": "ab2514a7036dcb21326395edf578e4770529cde2a47632bfa961094f556fd625",
+      "Program.cs": "b91bad54a48cde3d09e475b170cfd9d5fe3901d2ffb153235dd2047d5638828a",
+      "Runtime.dll": "c1e5bfb4c2c041f62ae1422715b835d0058b0cabfafb9a5e66c09944d6fea001",
+      "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+      "authoring.json": "be3547540854b65e261f9842801484512e3981faabbb33c8f14100bef71776ab",
+      "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+      "declarations.json": "161c7a962e8969fe9f83e0fdd80df2be156d04b80fd7e834375ce64f65fe38ab",
+      "session.json": "895eb1fea120ae02bacc75c202cfae482ae0f670f60dc560dab73b44ecf3827f",
+      "symbols.json": "769dce0cff054814c7a3384e823ba041e0a000ecee8beb6c2ff1674f6e6c0a04"
+    },
+    "parent": {
+      "Generated.cs": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+      "Program.cs": "ce1ecc73fe1d1386918d81991c9e9ad0512cd76990e853af28511575260e7fd0",
+      "Runtime.dll": "48773536fc6709ae9fb7d1721ecc415c956c6fc4964ff09edd655cf69311b2f1",
+      "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+      "authoring.json": "47b0483811fd623b9170ceda639036fed354ef773e044d4091846825fa7eb054",
+      "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+      "declarations.json": "01e4d801c9264931eb48302b8aa0e6ee8fedf03cb56d7708f4a4e8985c987014",
+      "session.json": "71f997a236d26c20a6a4193a2826a8773ade9ef184a7887a02a358a6c71db5a5",
+      "symbols.json": "e41a97592abb39c42fe679d60895bfa5c46ae3230297c417cec2e86672fec2bd"
+    },
+    "epoch-parent": {
+      "Generated.cs": "87589fc25200cf7b9f502aa07ccdf1dfd48878fe46558512a7cfc68911c2dcb6",
+      "Program.cs": "a3c4c236bade2f459cfdec303e88cc46cfbdac34ecf24e5cc93cdb21b6ea8de0",
+      "Runtime.dll": "793184ca6767d526a4eec89694cc617797d7265ab2c3b1f9a97c800882476fe0",
+      "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+      "authoring.json": "506c14b9c7dd0be5c3a42c5e7a00218ebc0ce69b2b320db66245a85205764dbe",
+      "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+      "declarations.json": "3e92499638bd13d7bdfe4e21ee4bbc265d95da39d9e0a2470f499ec6ebaa0f39",
+      "session.json": "17b6796d7b07df0882e9f0968b8cce499fb4c66481b9fc1d7885a50eabb4944d",
+      "symbols.json": "7a6e24db74aba504d0f581c18d8d9f5a9d43decea42ac0550cc4fef6160796de"
+    },
+    "disposition-parent": {
+      "Generated.cs": "bec6abbf26e49ce881a0c0a1d94dc4a2be0c9e2869463cd00eb5caa40f24aef6",
+      "Program.cs": "8e836f7e9dca020b5126da46bacb3cf0387dbb6fbaa30865b2e32ee0e1c5bae5",
+      "Runtime.dll": "19fb5834c79959f3b0bee9e6952147f9266e2a4d09aa2a61f79e1dec791c96f5",
+      "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+      "authoring.json": "7282dbfb62fe29036bc0d1c2f60d9186ac27211c752f570b6f74d6e3f4f7a363",
+      "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+      "declarations.json": "9e4d8950b55023e7f727770c99e11f1c9db329a89ef08fa738ee13a5a7458a62",
+      "session.json": "5d7fda23bc3ab9f360b80cde53ce908cb2f47eea08c412cc2d6fb151af336ec6",
+      "symbols.json": "ee7c1be39663ec25eb284b88b2844fae34dda616b882236a53c3e971e2387fb0"
+    }
+  },
+  "relocationArtifactComparisons": 36,
+  "maxCreatedRecipeNodes": 245,
+  "wireBound": 4096,
+  "evidenceBound": 262144,
+  "coreOrAncestorSourceChanged": false,
+  "externalProviderCalls": 0,
+  "publicationPerformed": false,
+  "limits": "One trusted serialized writer; immutable provisioning; intact flushed storage; Linux standalone SHA1/single UTF-8 file fixtures; no arbitrary descendants, storage faults, repeated recovery or live providers"
+}
