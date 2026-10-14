@@ -41,6 +41,9 @@ bounded durable Member/registry/HEAD continuation with existing graph primitives
 Its atomic application publication retains actual outcome data before the scalar
 receipt; pre-publication uncertainty blocks distinct IDs and cannot retry unknown
 effects. Missing registry facts in a nonempty domain close admission.
+The [identity/actual-data repair](offline-session-registry-repair-20261014.md)
+authenticates replayed Member associations and checks all retained current-ready
+actual results before repair or input, including constructed contradiction controls.
 Broader application continuation and the physical mutation/evidence binding
 remain separate proof obligations for an approved isolated offline fixture.
 The current synthetic effect ledger cannot prove physical Git

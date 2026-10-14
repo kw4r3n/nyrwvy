@@ -67,6 +67,7 @@ export async function author(s,{restorationDisabled=false}={}){
     {kind:'stringStartsWith',value:get(p('value'),'id'),prefix:text('journal/v1/')},
     {kind:'stringStartsWith',value:get(p('value'),'token'),prefix:text('journal:')},not(eqStr(get(p('value'),'fingerprint'),text('')))])),
    lt(integer(0),next),eqStr(num(next),get(p('value'),'next')),kind(json(p('value'),'entries'),'array'),
+   eqInt({kind:'listLength',value:entries},{kind:'int64WrappingSubtract',left:next,right:integer(1)}),
    fold(entries,boolean(true),'registryValidateFold',{next,entries}),
    cond(eqStr(get(p('value'),'phase'),text('ready')),and(eqStr(get(p('value'),'outcomeSource'),text('actual')),or({kind:'stringStartsWith',value:get(p('value'),'outcome'),prefix:text('ok:')},{kind:'stringStartsWith',value:get(p('value'),'outcome'),prefix:text('err:')})),and(eqStr(get(p('value'),'outcomeSource'),text('')),eqStr(get(p('value'),'outcome'),text(''))))]))),[])
  // New workers return retained value results in the new owner scope. Interrupted
@@ -80,13 +81,44 @@ export async function author(s,{restorationDisabled=false}={}){
       letIn(wait(handle),()=>({kind:'listAppendItem',list:p('acc'),item:construct('Entry',{id:integerOf(get(p('item'),'id')),workspace:get(p('item'),'workspace'),base:get(p('item'),'base'),previous:integerOf(get(p('item'),'previous')),discarded:eqStr(get(p('item'),'discarded'),text('true')),superseded:eqStr(get(p('item'),'superseded'),text('true')),integrated:get(p('item'),'integrated'),phase,commitSignal,handle})})))))))) ,[])
  const load={host:cap('Host'),scope,closingSignal:oneShot(unit)}
  const initial=construct('State',{entries:L(E),next:integer(1),closing:boolean(false),closingSignal:p('closingSignal')})
+ // A predicted number is an attempted association, never proof of acceptance.
+ // Both the Member fact and inverse admission index must authenticate the
+ // identity/fingerprint retained in the snapshot before reconstruction.
+ await make('registryAssociationMatches',{stored:J,member:int,identity:string,fingerprint:string},bool,
+  all([kind(p('stored'),'object'),...['identity','fingerprint','member'].map(key=>sf(p('stored'),key)),eqStr(get(p('stored'),'identity'),p('identity')),eqStr(get(p('stored'),'fingerprint'),p('fingerprint')),eqStr(get(p('stored'),'member'),num(p('member')))]),[])
+ const association={host:cap('Host'),member:int,identity:string,fingerprint:string}
+ const associationArgs=Object.fromEntries(Object.keys(association).filter(k=>k!=='host').map(k=>[k,p(k)]))
+ await make('registryMemberAdmissionMatches',association,bool,
+  some(io('storageRead',{key:memberKey(p('member'))}),stored=>direct('registryAssociationMatches',{...associationArgs,stored:parse(stored)}),boolean(false)))
+ await make('registryMemberFactsMatch',{host:cap('Host'),item:J},bool,
+  letIn(direct('registryMemberAdmissionMatches',{host:p('host'),member:integerOf(get(p('item'),'id')),identity:get(p('item'),'admission'),fingerprint:get(p('item'),'fingerprint')}),memberMatches=>
+   some(io('storageRead',{key:admissionKey(get(p('item'),'admission'))}),stored=>and(memberMatches,direct('registryAssociationMatches',{member:integerOf(get(p('item'),'id')),identity:get(p('item'),'admission'),fingerprint:get(p('item'),'fingerprint'),stored:parse(stored)})),boolean(false))))
+ await make('registryMemberFactsFold',{host:cap('Host'),acc:bool,item:J},bool,
+  letIn(direct('registryMemberFactsMatch',{host:p('host'),item:p('item')}),matches=>and(p('acc'),matches)))
+ await make('registryJournalFieldsValid',{stored:J},bool,
+  all([kind(p('stored'),'object'),...['version','id','fingerprint','intent','effectIdentity','state','outcomeSource','outcome'].map(key=>sf(p('stored'),key))]),[])
+ await make('registryJournalMatches',{stored:J,value:J},bool,
+  all([direct('registryJournalFieldsValid',{stored:p('stored')}),eqStr(get(p('stored'),'version'),text('1')),
+   ...['id','fingerprint','intent'].map(key=>eqStr(get(p('stored'),key),get(p('value'),key))),eqStr(get(p('stored'),'effectIdentity'),get(p('value'),'token')),
+   cond(eqStr(get(p('stored'),'state'),text('pending')),and(eqStr(get(p('stored'),'outcomeSource'),text('')),eqStr(get(p('stored'),'outcome'),text(''))),
+    all([eqStr(get(p('stored'),'state'),text('done')),eqStr(get(p('stored'),'outcomeSource'),text('actual')),eqStr(get(p('stored'),'outcome'),get(p('value'),'outcome'))]))]),[])
+ await make('registryOutcomeMatches',{host:cap('Host'),value:J,prefix:string},bool,
+  some(io('storageRead',{key:concat(p('prefix'),get(p('value'),'token'))}),stored=>eqStr(stored,get(p('value'),'outcome')),boolean(true)))
+ await make('registryActualMatches',{host:cap('Host'),value:J},bool,
+  some(io('storageRead',{key:get(p('value'),'id')}),stored=>letIn(direct('registryJournalMatches',{stored:parse(stored),value:p('value')}),journalMatches=>
+   letIn(direct('registryOutcomeMatches',{host:p('host'),value:p('value'),prefix:text('outcome/')}),outcomeMatches=>
+    letIn(direct('registryOutcomeMatches',{host:p('host'),value:p('value'),prefix:text('outcome-receipt/')}),receiptMatches=>all([journalMatches,outcomeMatches,receiptMatches])))),boolean(false)))
+ await make('registryRetainedMatches',{host:cap('Host'),value:J},bool,
+  letIn(fold(f(json(p('value'),'entries'),'WireJson','items'),boolean(true),'registryMemberFactsFold',{host:p('host')},true),membersMatch=>
+   letIn(cond(eqStr(get(p('value'),'phase'),text('ready')),direct('registryActualMatches',{host:p('host'),value:p('value')}),boolean(true)),actualMatches=>and(membersMatch,actualMatches))))
  await make('registrySeedReceipt',{host:cap('Host'),value:J,item:unit},result(unit),
   cond(eqStr(get(p('value'),'phase'),text('ready')),
    some(io('storageRead',{key:concat(text('outcome-receipt/'),get(p('value'),'token'))}),stored=>cond(eqStr(stored,get(p('value'),'outcome')),ok(unitValue),err(text('unresolved'),unit)),
     letIn(io('storageWrite',{key:concat(text('outcome-receipt/'),get(p('value'),'token')),value:get(p('value'),'outcome')}),()=>ok(unitValue))),ok(unitValue)))
  await make('registryRestoreState',{...load,value:J},result(S),
-  {kind:'matchResult',input:{kind:'cancellationShield',body:'registrySeedReceipt',context:ctx({host:p('host'),value:p('value')})},okBody:
-   letIn(fold(f(json(p('value'),'entries'),'WireJson','items'),L(E),'registryRestoreEntry',{scope:p('scope')},true),entries=>ok(construct('State',{entries,next:integerOf(get(p('value'),'next')),closing:boolean(false),closingSignal:p('closingSignal')}))),errBody:err(pat('error'),S)})
+  cond(direct('registryRetainedMatches',{host:p('host'),value:p('value')}),
+   {kind:'matchResult',input:{kind:'cancellationShield',body:'registrySeedReceipt',context:ctx({host:p('host'),value:p('value')})},okBody:
+    letIn(fold(f(json(p('value'),'entries'),'WireJson','items'),L(E),'registryRestoreEntry',{scope:p('scope')},true),entries=>ok(construct('State',{entries,next:integerOf(get(p('value'),'next')),closing:boolean(false),closingSignal:p('closingSignal')}))),errBody:err(pat('error'),S)},err(text('unresolved'),S)))
  await make('registryLoad',load,result(S),some(read(),stored=>letIn(parse(stored),value=>
   cond(direct('registryValid',{value}),direct('registryRestoreState',{...Object.fromEntries(Object.keys(load).map(k=>[k,p(k)])),value}),err(text('unresolved'),S))),cond(io('storageEmpty',{}),ok(initial),err(text('unresolved'),S))))
  const scoped={host:cap('Host'),transport:cap('Transport'),scope,closingSignal:oneShot(unit),wrongBoundary:bool}
@@ -139,7 +171,8 @@ export async function author(s,{restorationDisabled=false}={}){
   letIn(direct('admissionCurrent',{owner:p('acc')}),state=>letIn(admission(state),value=>letIn(io('storageWrite',{key:admissionKey(p('identity')),value}),()=>letIn(io('storageWrite',{key:memberKey(f(state,'State','next')),value}),()=>letIn(original,owner=>direct('registrySpawnAwait',{owner,decoded:p('decoded')})))))))
  await make('registrySpawn',route,W,some(io('storageRead',{key:admissionKey(p('identity'))}),stored=>letIn(parse(stored),value=>
   cond(all([kind(value,'object'),...['identity','fingerprint','member'].map(key=>sf(value,key)),eqStr(get(value,'identity'),p('identity'))]),
-   cond(eqStr(get(value,'fingerprint'),p('fingerprint')),some(direct('get',{state:direct('admissionCurrent',{owner:p('acc')}),target:integerOf(get(value,'member'))}),()=>letIn(direct('wireWrite',{host:p('host'),decoded:p('decoded')}),()=>p('acc')),reply(text('err:unresolved'))),reply(text('err:payload-conflict'))),reply(text('err:unresolved')))),
+   cond(eqStr(get(value,'fingerprint'),p('fingerprint')),some(direct('get',{state:direct('admissionCurrent',{owner:p('acc')}),target:integerOf(get(value,'member'))}),()=>
+    cond(direct('registryMemberAdmissionMatches',{host:p('host'),member:integerOf(get(value,'member')),identity:p('identity'),fingerprint:p('fingerprint')}),letIn(direct('wireWrite',{host:p('host'),decoded:p('decoded')}),()=>p('acc')),reply(text('err:unresolved'))),reply(text('err:unresolved'))),reply(text('err:payload-conflict'))),reply(text('err:unresolved')))),
   some(read(),stored=>cond(eqStr(get(parse(stored),'phase'),text('pending')),reply(text('err:unresolved')),direct('registrySpawnNew',Object.fromEntries(Object.keys(route).map(k=>[k,p(k)])))),direct('registrySpawnNew',Object.fromEntries(Object.keys(route).map(k=>[k,p(k)]))))))
  await make('registryRoute',{...wire,decoded:D},W,
   cond(or(d('notification'),eqStr(d('id'),text('null'))),cond(d('notification'),p('acc'),reply(text('err:stable-synchronous-id-required'))),

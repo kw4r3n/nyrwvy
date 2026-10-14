@@ -10,9 +10,11 @@ test('durable registry restores owned Members and HEAD before distinct-ID integr
  try{
   run('run',bundle);run('run',join(bundle,'restoration-disabled'),'--restoration-disabled')
   run('compile',bundle);run('compile',join(bundle,'restoration-disabled'));run('test-runtime',bundle)
+  run('test-repair',bundle,join(bundle,'repair'))
   await cp(bundle,moved,{recursive:true});await rm(join(moved,'runs'),{recursive:true})
+  await rm(join(moved,'repair'),{recursive:true})
   run('run','--replay',moved);run('run','--replay',join(moved,'restoration-disabled'))
-  run('compile',moved);run('compile',join(moved,'restoration-disabled'));run('test-runtime',moved);run('verify',bundle,moved)
+  run('compile',moved);run('compile',join(moved,'restoration-disabled'));run('test-runtime',moved);run('test-repair',moved,join(moved,'repair'));run('verify',bundle,moved)
   const {proof}=JSON.parse(await readFile(join(bundle,'registry-proof.json'),'utf8'))
   assert.deepEqual(proof.find(x=>x.name==='restoration').total,{commit:1,head:1,save:1})
   assert.deepEqual(proof.find(x=>x.name==='restoration-disabled').total,{commit:2,head:2,save:2})

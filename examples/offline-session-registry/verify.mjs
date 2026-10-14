@@ -16,7 +16,7 @@ async function normalizedHost(dir){
  return source
 }
 const files=['Generated.cs','Program.cs','Runtime.dll','Runtime.runtimeconfig.json','session.json','symbols.json','declarations.json','authoring.json','compilation.json']
-const bundles=[],sourceHashes={},stable=[]
+const bundles=[],sourceHashes={},stable=[],repairs=[],repairBundles=[]
 for(const dir of dirs){
  assert.equal(await normalizedHost(dir),await normalizedHost(join(dir,'restoration-disabled')),'identical supported/control binding after declared-symbol normalization')
  const hashes={};for(const prefix of ['','restoration-disabled/'])for(const file of files)hashes[prefix+file]=hash(await readFile(join(dir,prefix+file)))
@@ -38,14 +38,22 @@ for(const dir of dirs){
  }
  bundles.push({dir,hashes,rawHash:proof.hashes.raw,proof:proof.proof})
  stable.push(rows.map(r=>({name:r.name,index:r.index,restorationDisabled:r.restorationDisabled,crash:r.crash,fault:r.fault,actions:r.actions,outputs:r.outputs,exitCode:r.exitCode,signal:r.signal,storageBefore:r.storageBefore,storageAfter:r.storageAfter})))
+ const repaired=JSON.parse(await readFile(join(dir,'repair/proof.json'),'utf8')),repairRows=JSON.parse(await readFile(join(dir,'repair/raw.json'),'utf8'))
+ assert.equal(repaired.rawSha256,hash(await readFile(join(dir,'repair/raw.json'))));assert.equal(repaired.sourceSha256,hash(await readFile(new URL('./test-repair.mjs',import.meta.url))))
+ assert.equal(repaired.seedRawSha256,proof.hashes.raw);assert.equal(repaired.seedInputKind,'fresh baseline-matrix inputs from this repaired bundle')
+ assert.equal(repaired.processes,repairRows.length)
+ for(const [file,value] of Object.entries(repaired.runtimeManifest))assert.equal(value,hashes[file])
+ repairs.push({proof:repaired.proof,rows:repairRows.map(r=>({name:r.name,actions:r.actions,outputs:r.outputs,exitCode:r.exitCode,signal:r.signal,storageBefore:r.storageBefore,storageAfter:r.storageAfter}))})
+ repairBundles.push({dir:join(dir,'repair'),processes:repaired.processes,contracts:repaired.proof.length,rawSha256:repaired.rawSha256,sourceSha256:repaired.sourceSha256,seedRawSha256:repaired.seedRawSha256,runtimeManifest:repaired.runtimeManifest})
 }
 assert.deepEqual(bundles[0].hashes,bundles[1].hashes,'moved artifact bytes');assert.deepEqual(bundles[0].proof,bundles[1].proof);assert.deepEqual(stable[0],stable[1],'fresh moved observations')
+assert.deepEqual(repairs[0],repairs[1],'fresh moved repair controls')
 async function source(path){
  const relative=path.slice(resolve('.').length+1);if(sourceHashes[relative])return
  const bytes=await readFile(path);sourceHashes[relative]=hash(bytes)
  for(const m of bytes.toString().matchAll(/(?:from\s+|import\s*)['"]([^'"]+)['"]/g))if(m[1].startsWith('.'))await source(resolve(path,'..',m[1]))
 }
-for(const file of ['author.mjs','run.mjs','compile.mjs','test-runtime.mjs','verify.mjs'])await source(resolve('examples/offline-session-registry',file))
+for(const file of ['author.mjs','run.mjs','compile.mjs','test-runtime.mjs','test-repair.mjs','verify.mjs'])await source(resolve('examples/offline-session-registry',file))
 for(const file of ['examples/offline-session-journal/storage.template.cs','examples/offline-session-owned-io/pipe.template.cs','examples/offline-session-bounded-input/pipe.template.cs','examples/offline-leader-jsonrpc/runtime.template.cs','.opencode/tests/nyrwvy-authoring-offline-session-registry.test.mjs'])await source(resolve(file))
-await writeFile(join(dirs[0],'verified.json'),JSON.stringify({movedReplay:true,identicalControlBinding:true,normalizedHostHash:hash(await normalizedHost(dirs[0])),inputBytesChecked:true,acceptedWriteBytesChecked:true,artifactHashClosure:true,sourceHashes,bundles,limits:['example-source/artifact closure excludes core/tool implementation, compiler, references, environment and power-loss behavior; core/tool sources remain pinned by base commit','fresh processes and SIGKILL establish selected single-writer windows, not arbitrary interruptions or physical provider/Git safety']},null,2)+'\n')
-console.log(`PASS: moved exact emission/compilation; ${files.length*2} artifacts; ${bundles[0].proof.length} contracts; raw, source and actual byte checks`)
+await writeFile(join(dirs[0],'verified.json'),JSON.stringify({movedReplay:true,identicalControlBinding:true,normalizedHostHash:hash(await normalizedHost(dirs[0])),inputBytesChecked:true,acceptedWriteBytesChecked:true,artifactHashClosure:true,sourceHashes,bundles,repairBundles,limits:['example-source/artifact closure excludes core/tool implementation, compiler, references, environment and power-loss behavior; core/tool sources remain pinned by base commit','fresh processes and SIGKILL establish selected single-writer windows, not arbitrary interruptions or physical/provider safety','the final repair execution reuses the reviewed disabled-control artifact and compilation; its processes are fresh']},null,2)+'\n')
+console.log(`PASS: moved exact emission/compilation; ${files.length*2} artifacts; ${bundles[0].proof.length} baseline and ${repairs[0].proof.length} repair contracts; raw, source and actual byte checks`)

@@ -54,6 +54,10 @@ scalar receipts retain their original meaning and remain usable by the journal.
 If death occurs between steps 4 and 5, startup restores the registry and seeds a
 missing scalar receipt from that retained actual result under a shield. Existing
 contradictory scalar evidence closes admission without rewriting either record.
+Before any seed write or input, the ready publication is checked against the
+current journal's identity, fingerprint, selected intent, effect identity and
+provenance/result, plus every available separate and scalar outcome. Contradictory
+or malformed evidence closes admission without repairing or rewriting any source.
 
 A pending application admission blocks distinct integration IDs and new Member
 admissions. An identical pending ID can use the inherited journal's authoritative
@@ -93,6 +97,13 @@ checks normalized control binding equality, identical causal inputs/actions,
 artifact hashes, stable results/retained storage, and actual pipe bytes. The
 regression reruns this proof in temporary original/moved directories. The prior
 journal and reader-supervision regressions run independently and serially.
+The maintained regression also runs `test-repair.mjs` in both bundles. Those
+focused controls execute the intact capacity rejection/Member-number reuse
+sequence, retain exact cancellation with matching evidence, and distinguish
+constructed contradictory data from natural crash traces. A rejected admission's
+predicted number resolves only when the actual Member fact matches its identity
+and fingerprint. Startup checks each snapshot Member against its Member sidecar
+and inverse admission association; IDs must cover the retained next counter.
 
 ```nu
 node examples/offline-session-registry/run.mjs artifacts/registry/bundle
@@ -100,13 +111,16 @@ node examples/offline-session-registry/run.mjs artifacts/registry/bundle/restora
 node examples/offline-session-registry/compile.mjs artifacts/registry/bundle
 node examples/offline-session-registry/compile.mjs artifacts/registry/bundle/restoration-disabled
 node examples/offline-session-registry/test-runtime.mjs artifacts/registry/bundle
+node examples/offline-session-registry/test-repair.mjs artifacts/registry/bundle artifacts/registry/bundle/repair
 cp -r artifacts/registry/bundle artifacts/registry/moved
 rm -r artifacts/registry/moved/runs
+rm -r artifacts/registry/moved/repair
 node examples/offline-session-registry/run.mjs --replay artifacts/registry/moved
 node examples/offline-session-registry/run.mjs --replay artifacts/registry/moved/restoration-disabled
 node examples/offline-session-registry/compile.mjs artifacts/registry/moved
 node examples/offline-session-registry/compile.mjs artifacts/registry/moved/restoration-disabled
 node examples/offline-session-registry/test-runtime.mjs artifacts/registry/moved
+node examples/offline-session-registry/test-repair.mjs artifacts/registry/moved artifacts/registry/moved/repair
 node examples/offline-session-registry/verify.mjs artifacts/registry/bundle artifacts/registry/moved
 node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-registry.test.mjs
 ```
@@ -133,3 +147,5 @@ must precede publication or integration into main.
 
 See the retained [proof](fixtures/proof.json), [moved closure](fixtures/replay.json)
 and [verification record](../../docs/verification/offline-session-registry-20261014.md).
+The [repair record](../../docs/verification/offline-session-registry-repair-20261014.md)
+separates new execution from reused reviewed evidence.
