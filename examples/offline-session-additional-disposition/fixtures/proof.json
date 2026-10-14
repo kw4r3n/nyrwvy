@@ -1,0 +1,206 @@
+{
+  "contracts": [
+    {
+      "name": "base-red-same-pending-applied-state-no-terminal-receipt",
+      "passed": true
+    },
+    {
+      "name": "six-authorities-envelope-all-bound-fields-reserved-typed-ids-opaque-labels-exclusive-input-owner-refuse",
+      "passed": true
+    },
+    {
+      "name": "opaque-and-omitted-optional-labels-positive",
+      "passed": true
+    },
+    {
+      "name": "request-fits-but-receipt-over-evidence-bound-refuses-before-writes",
+      "passed": true
+    },
+    {
+      "name": "before-terminal-intent",
+      "passed": true
+    },
+    {
+      "name": "after-terminal-intent",
+      "passed": true
+    },
+    {
+      "name": "before-terminal-receipt",
+      "passed": true
+    },
+    {
+      "name": "after-terminal-receipt",
+      "passed": true
+    },
+    {
+      "name": "four-unknowns-all-old-bytes-only-two-records-exact-replay-startup-remains-closed",
+      "passed": true
+    },
+    {
+      "name": "both-slots-preflight-orphan-malformed-mismatch-refuses-before-first-write",
+      "passed": true
+    },
+    {
+      "name": "every-source-reference-remove-corrupt-rehashed-provenance-counter-member-custody-active-late-witness-refuses",
+      "passed": true
+    },
+    {
+      "name": "canonical-typed-positive-number",
+      "passed": true
+    },
+    {
+      "name": "canonical-typed-positive-string",
+      "passed": true
+    },
+    {
+      "name": "unsupported-after-physical-intent",
+      "passed": true
+    },
+    {
+      "name": "unsupported-after-additional-registry-intent",
+      "passed": true
+    },
+    {
+      "name": "unsupported-after-additional-journal-intent",
+      "passed": true
+    },
+    {
+      "name": "unsupported-before-git-child-start",
+      "passed": true
+    },
+    {
+      "name": "unsupported-after-git-object",
+      "passed": true
+    },
+    {
+      "name": "unsupported-after-git-ref",
+      "passed": true
+    },
+    {
+      "name": "already-applied-before-registry-publication-variant",
+      "passed": true
+    },
+    {
+      "name": "ready-registry-pending-journal-actual-result-refuses-disposition-replays-actual-without-effects",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-worktree-content",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-worktree-mode",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-worktree-type",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-index",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-object",
+      "passed": true
+    },
+    {
+      "name": "unowned-physical-ref",
+      "passed": true
+    },
+    {
+      "name": "real-active-and-late-witness-commit-tree",
+      "passed": true
+    },
+    {
+      "name": "real-active-and-late-witness-read-tree",
+      "passed": true
+    }
+  ],
+  "measurements": [
+    {
+      "request": 3772,
+      "receipt": 31361,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3679,
+      "receipt": 31103,
+      "facts": 33455
+    },
+    {
+      "request": 3741,
+      "receipt": 31263,
+      "facts": 33694
+    },
+    {
+      "request": 3800,
+      "receipt": 31578,
+      "facts": 33948
+    }
+  ],
+  "terminalRuns": 479,
+  "ancestorRuns": 152,
+  "domains": 19,
+  "kills": 80,
+  "rawHash": "911171d45afc4235a86374e3107b8278307d604ec7ca97e866fa7a9b8ac70f44",
+  "baseRedHash": "24bfec285f06abd38f1cc38c7e95e5a86f3520c75c01ecfc618b9afc62396347",
+  "rawFileSHA256": "36991c7f90cdc48084daa410574e64e60248d876ce6f7b10cf089e279a6341ec",
+  "baseRedRawFileSHA256": "17df83b782e2478e2ff22bea43d720106df968a1cf2a093d00995672221ea1a7",
+  "administrativeObservations": 388,
+  "acceptedAdministrativeObservations": 15,
+  "closedStartupObservations": 20,
+  "immutableRawValueComparisons": 22819,
+  "artifacts": {
+    "Generated.cs": "104c754ca591004a3f5ea7ab3ca428ca3972f80e7882fef6b891230912a409e8",
+    "Program.cs": "d08984d1c68797cfbb7491980628a9a8844a1bc73fea586fef39374816a37f6e",
+    "Runtime.dll": "80f8d0616b4578a5d324aad05d9979ea2a0dc8f5eb8cd0529fc331e7575e5bff",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "authoring.json": "258e33911b21969a894bfbb2aa1525c73dfb51e1f1933a2c42209ffb895e8421",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "declarations.json": "a698b0ba14b9ef0a7d6b46a96fa81b84c5cd788a11ce9606c4203e6760893550",
+    "session.json": "797f8b78230512ef31062ff248ab237c1d755440803363115b18572cf140df77",
+    "symbols.json": "dd7a7bf96b62935bdbc71a823468449e204e67a831caa09916ad65148ad5a0ab"
+  },
+  "sourceHashes": {
+    "author.mjs": "f6ec07662ebfa296383d0aa5a59bd016fe943a308cfed214d01ed8ec55cff2c5",
+    "compile.mjs": "392cb003be644c6d2e7ad15c6254880ea3aecbdefc522feae331060b6413956e",
+    "fixture.mjs": "5a76318c3e5084d0c8e580d099cf11fd2367bbe5fa7c98572712d7ad0bc02984",
+    "physical.template.cs": "bf0163bdd13c089837a7ab9a010b2fffc8844a82c275c5c3f593efccffc58568",
+    "run.mjs": "b9f8acfb61c72231f6b1dd9c8d8e8394efedc1b2b7f38daadbe6330d6b4fd444",
+    "test-runtime.mjs": "88d63221b8861d34c3f7c51e2db2549e2c2079397c0b0857f6d9166c10d5ed2e",
+    "verify-bundles.mjs": "a87f98ca3476d54a9cb392f2d61d3b0fb13d590849b88fe72344dd32f3b5d515",
+    "README.md": "e0e3a194f25e9c499d4b9674d2b18530e929e3a944f1e2cdec5bfff9ebae45ec"
+  },
+  "encodingFileSHA256": "2616ee4bedf4c57ae34a41fff5e81b1a8e5170a7dc44496dfad2e7ddd3a87000",
+  "persistedGraphSemanticFingerprint": "sha256:5ab1c76540f2efb6dfc1454ee8b4dd5c4845f36e99c7e6e0ca07ae48101502f9",
+  "originalSourcesChanged": false,
+  "coreChanged": false,
+  "newRuntimeCapability": "one terminal retain-unresolved disposition only",
+  "review": "Exact feature commit review is recorded separately in the delegated workspace independent-review receipt; no publication is part of this proof."
+}
