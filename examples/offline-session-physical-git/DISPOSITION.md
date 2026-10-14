@@ -28,6 +28,13 @@ closes stdin, waits for root exit and descriptor closure, drains bounded output,
 and flushes `physical-join/v1/<invocation>` before returning output. Launcher
 SIGKILL cannot turn a missing witness into a join observation.
 
+Empty input is closed without a data write. The owner explicitly awaits stdin's
+finish and close events as well as the child/output close event; root completion
+alone does not establish input closure. Root exit and the deadline share one drain
+timer, so successful bounded drainage cancels every termination timer. The
+[review repair](../../docs/verification/offline-session-git-disposition-review-repair-20261014.md)
+adds ordinary Git foreground/direct-command coverage alongside the held wrappers.
+
 The witness binds the exact raw launch digest, owner script/PID, child PID,
 invocation/effect/repository, arguments/input digest, observed exit code or SIGKILL
 signal, actual input closure, completed drains and output/error digests. Normal
@@ -84,6 +91,14 @@ bytes/entries and pre-worktree bytes/Git mode. Applied state uses inherited exac
 selected tree/HEAD/index-entry/worktree checks. The tail must fit the last invocation
 and caller's expected state. Unowned objects/refs/index/worktree/mode, contradictory
 side receipts, unavailable inspection and faulty evidence controls are refused.
+
+`commit` and `head` receipts require the matching ref state (`ref-only` or `applied`)
+and a last mutation invocation of `update-ref` or `read-tree`. A `save` receipt
+requires `applied` state and a last invocation of `read-tree`. No receipt is valid
+for an absent or object-only tail. Missing receipts remain non-authoritative.
+These checks run before replay of an existing retention result, and refusal never
+rewrites that result or an original application record. ID and output/error digest
+validators use absolute full-string anchors, including final-newline refusal.
 
 Success flushes `physical-disposition/v1/<id>` with request/launch/plan/state/witness
 digests, exact correlation and `ok:retained-unresolved:<state>`. Its

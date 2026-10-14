@@ -11,7 +11,7 @@
  GitJoin LoadJoin(GitChild child,string raw){
   var witness=JsonSerializer.Deserialize<GitJoin>(System.IO.File.ReadAllText(StoragePath("physical-join/v1/"+child.Invocation)))!;
   Check(child.Version=="2"&&child.Pid.HasValue&&child.OwnerDigest!=""&&witness.Version=="1"&&witness.Invocation==child.Invocation&&witness.Identity==child.Identity&&witness.Repository==child.Repository&&witness.RepositoryId==child.RepositoryId&&witness.LaunchDigest==DigestText(raw)&&witness.OwnerDigest==child.OwnerDigest&&witness.OwnerPid==child.Pid&&witness.ChildPid>0&&witness.Args.SequenceEqual(child.Args)&&witness.InputDigest==child.InputDigest&&witness.InputClosed&&witness.OutputDrained&&(witness.ExitCode.HasValue&&witness.ExitSignal==""||!witness.ExitCode.HasValue&&witness.ExitSignal=="SIGKILL"),"controlled child join witness mismatch");
-  Check(System.Text.RegularExpressions.Regex.IsMatch(witness.OutputDigest,"^[0-9a-f]{64}$")&&System.Text.RegularExpressions.Regex.IsMatch(witness.ErrorDigest,"^[0-9a-f]{64}$"),"join output capture unavailable");return witness;
+  Check(System.Text.RegularExpressions.Regex.IsMatch(witness.OutputDigest,@"\A[0-9a-f]{64}\z")&&System.Text.RegularExpressions.Regex.IsMatch(witness.ErrorDigest,@"\A[0-9a-f]{64}\z"),"join output capture unavailable");return witness;
  }
  string OwnedGit(string[] args,string? input,bool trim){
   string owner=System.IO.Path.GetFullPath(Setting("gitOwner"));
@@ -54,7 +54,7 @@
  public string RetainDisposition(string request){
   using var document=JsonDocument.Parse(request);var r=document.RootElement;
   string id=r.GetProperty("id").GetString()!,authorization=r.GetProperty("authorization").GetString()!,invocation=r.GetProperty("invocation").GetString()!,identity=r.GetProperty("identity").GetString()!;
-  Check(System.Text.RegularExpressions.Regex.IsMatch(id,"^[a-zA-Z0-9_-]{1,80}$")&&id!=identity&&authorization!=""&&Setting("dispositionAuthorization")!=""&&authorization==Setting("dispositionAuthorization"),"disposition identity/authorization");
+  Check(System.Text.RegularExpressions.Regex.IsMatch(id,@"\A[a-zA-Z0-9_-]{1,80}\z")&&id!=identity&&authorization!=""&&Setting("dispositionAuthorization")!=""&&authorization==Setting("dispositionAuthorization"),"disposition identity/authorization");
   Check(r.GetProperty("action").GetString()=="retain-unresolved"&&r.GetProperty("repository").GetString()==GitRoot&&r.GetProperty("repositoryId").GetString()==Setting("fixtureId")&&r.GetProperty("launchDigest").GetString()!=""&&r.GetProperty("planDigest").GetString()!=""&&r.GetProperty("expectedState").GetString()!="", "disposition payload");
   Check(Setting("worktreeModeControl")==""&&Setting("physicalControl")=="","disposition requires enabled physical evidence");
   string raw=System.IO.File.ReadAllText(StoragePath("physical-child/v1"));var child=JsonSerializer.Deserialize<GitChild>(raw)!;
@@ -75,7 +75,8 @@
    foreach(string phase in new[]{"commit","head","save"}){
     string receipt=StoragePath("physical-receipt/"+identity+"/"+phase);if(!System.IO.File.Exists(receipt))continue;
     using var proof=JsonDocument.Parse(System.IO.File.ReadAllText(receipt));var row=proof.RootElement;
-    Check(state!="absent"&&row.GetProperty("phase").GetString()==phase&&row.GetProperty("identity").GetString()==identity&&row.GetProperty("Commit").GetString()==plan.Commit,"disposition side receipt mismatch");
+    bool allowed=phase=="save"?state=="applied"&&child.Args[0]=="read-tree":(state=="ref-only"||state=="applied")&&(child.Args[0]=="update-ref"||child.Args[0]=="read-tree");
+    Check(allowed&&row.GetProperty("phase").GetString()==phase&&row.GetProperty("identity").GetString()==identity&&row.GetProperty("Commit").GetString()==plan.Commit,"disposition side receipt mismatch");
    }
    if(child.Args[0]=="commit-tree")Check(state is "absent" or "object-only","disposition command/tail mismatch");
    if(child.Args[0]=="update-ref")Check(state is "object-only" or "ref-only","disposition command/tail mismatch");

@@ -19,23 +19,28 @@ let inputClosed=false,inputFinished=false,failed=false,spawned=false
 const chunks=[[],[]],sizes=[0,0]
 child.once('spawn',()=>{spawned=true})
 child.stdin.on('error',()=>{failed=true})
-child.stdin.on('finish',()=>{inputFinished=true})
-child.stdin.on('close',()=>{inputClosed=inputFinished})
+const inputDone=new Promise(resolve=>{
+ child.stdin.once('finish',()=>{inputFinished=true})
+ child.stdin.once('close',()=>{inputClosed=true;resolve()})
+})
 child.on('error',()=>{failed=true})
 for(const [i,stream] of [child.stdout,child.stderr].entries()){
  stream.on('error',()=>{failed=true})
  stream.on('data',data=>{sizes[i]+=data.length;if(sizes[i]<=1048576)chunks[i].push(data);else{failed=true;child.kill('SIGKILL')}})
 }
 let drainTimer
-const timer=setTimeout(()=>{child.kill('SIGKILL');drainTimer=setTimeout(()=>process.exit(2),2000)},spec.deadlineMs)
-child.once('exit',()=>{drainTimer??=setTimeout(()=>process.exit(2),2000)})
-child.stdin.end(spec.input)
-const [code,signal]=await new Promise(r=>child.once('close',(c,s)=>r([c,s])))
+const armDrain=()=>{drainTimer??=setTimeout(()=>process.exit(2),2000)}
+const timer=setTimeout(()=>{child.kill('SIGKILL');armDrain()},spec.deadlineMs)
+child.once('exit',armDrain)
+// A no-input command can exit without reading stdin. Do not issue even an empty
+// data write, and join the actual input descriptor: child 'close' can precede it.
+if(spec.input==='')child.stdin.end();else child.stdin.end(spec.input)
+const [[code,signal]]=await Promise.all([new Promise(r=>child.once('close',(c,s)=>r([c,s]))),inputDone])
 clearTimeout(timer)
 clearTimeout(drainTimer)
 // 'close' follows root exit and closure of the owned output descriptors. Failed
 // feeding/drainage/capture never publishes a join witness, even with a dead root.
-if(!spawned||failed||!inputClosed)process.exit(2)
+if(!spawned||failed||!inputFinished||!inputClosed)process.exit(2)
 const output=Buffer.concat(chunks[0]),error=Buffer.concat(chunks[1])
 const decode=x=>new TextDecoder('utf8',{fatal:true}).decode(x)
 decode(output);decode(error)

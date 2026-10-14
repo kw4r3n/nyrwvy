@@ -1,7 +1,11 @@
 # Explicit Git retention disposition, 2026-10-14
 
-Status: Observed result; independent review pending. No successor publication is
-authorized by this task.
+Status: Historical observed candidate `7247ba58082cef18000bd8795fe31fef9cf0a466`;
+task-46 independent review requests P2 owner-input/receipt-order and P3 ID repairs.
+The maintained matrix passed, but ordinary no-input Git and future-phase/newline
+controls exposed defects beyond those assertions. See the [review repair](offline-session-git-disposition-review-repair-20261014.md).
+The raw 686-process evidence remains valid for its measured cases, not approval
+of the broader owner/validation claims. No successor publication is authorized.
 
 Base: reviewed `7a06aca1497cb98da89b242e988c3f7d0ec802b3`, tree
 `68a3b5cf9fcaf650fca0861ab739ddd9ec394e98`. Isolated checkout:

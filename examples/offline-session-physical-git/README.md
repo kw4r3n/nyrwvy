@@ -6,6 +6,10 @@ authorized `retain-unresolved` request/result for owned absent, object-only,
 ref-only or completed tails. Original records and launch fences remain intact.
 Physical continuation and admission release remain unimplemented. See the
 [disposition verification](../../docs/verification/offline-session-git-disposition-20261014.md).
+The [independent-review repair](../../docs/verification/offline-session-git-disposition-review-repair-20261014.md)
+joins stdin explicitly for ordinary no-input Git, refuses receipt phases that
+contradict the tail, and enforces full-string IDs/digests. Retention continues to
+preserve original fences and outcome uncertainty.
 
 The [child launch milestone](../../docs/verification/offline-session-git-child-20261014.md)
 follows independently approved `6d5058463f6648d5ca0c29492b624196efe8c6da`
