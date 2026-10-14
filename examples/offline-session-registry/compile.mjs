@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {compile} from '../offline-session-owned-io/compile.mjs'
-export async function compileRegistry(dir,{effectsTransform=source=>source}={}){
+export async function compileRegistry(dir,{effectsTransform=source=>source,hostMethods={}}={}){
 const inherited=await readFile(new URL('../offline-session-owned-io/pipe.template.cs',import.meta.url),'utf8')
 let pipe=await readFile(new URL('../offline-session-bounded-input/pipe.template.cs',import.meta.url),'utf8')
 pipe=pipe.replace('int position,available,activeReads;', 'public Exception? Failure;\n int position,available,activeReads;')
@@ -14,7 +14,7 @@ storage+='\n public bool StorageEmpty(){bool empty=!System.IO.Directory.Exists(S
 storage=storage.replace('AtomicWrite(k,v);Observe', 'if(k=="registry/v1")Checkpoint(v.Contains("\\\"phase\\\":\\\"ready\\\"",StringComparison.Ordinal)?"before-registry-publication":v.Contains("\\\"phase\\\":\\\"pending\\\"",StringComparison.Ordinal)?"before-registry-intent":"before-registry-idle");\n  AtomicWrite(k,v);Observe')
 storage=storage.replace('if(k.StartsWith("journal/v1/"', 'if(k=="registry/v1")Checkpoint(v.Contains("\\\"phase\\\":\\\"ready\\\"",StringComparison.Ordinal)?"after-registry-publication":v.Contains("\\\"phase\\\":\\\"pending\\\"",StringComparison.Ordinal)?"after-registry-intent":"after-registry-idle");\n  if(k.StartsWith("journal/v1/"')
 await compile(dir,{pipeTemplate:inherited.split('sealed class RecordedInput')[0]+pipe+program,
- hostMethods:{storageRead:'StorageRead',storageWrite:'StorageWrite',storageEmpty:'StorageEmpty',digest:'Digest',effectIdentity:'EffectIdentity',effectEvidence:'EffectEvidence'},effectsTransform:source=>effectsTransform(source
+ hostMethods:{storageRead:'StorageRead',storageWrite:'StorageWrite',storageEmpty:'StorageEmpty',digest:'Digest',effectIdentity:'EffectIdentity',effectEvidence:'EffectEvidence',...hostMethods},effectsTransform:source=>effectsTransform(source
  .replace(' @@METHODS@@',storage+'\n @@METHODS@@')
  // Optional deterministic fixture gates. The graph still owns Member policy.
  .replace('this.scenario=scenario;', 'this.scenario=scenario;if(Setting("autoMember")=="true")snapshotReleased.Set();')

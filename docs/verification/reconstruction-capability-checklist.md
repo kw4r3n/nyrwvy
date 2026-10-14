@@ -25,6 +25,7 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Explicit retention of abandoned launches and owned partial tails | [Separate retain-unresolved request/result](../../examples/offline-session-physical-git/DISPOSITION.md), exact controlled join witness and owned absent/object/ref/applied inspection | Demonstrated in bounded administrative fixture mode; original missing outcome preserved; retention never authorizes continuation/release |
 | Explicit owned partial-tail completion and observation release | [New continuation intent/result and separate release decision](../../examples/offline-session-physical-git/CONTINUATION.md); original records/fences preserved; missing new results block all replay | Demonstrated in bounded offline administrative fixture mode; renewed mutation admission and public language-composed recovery remain missing |
 | Separate disposition of an interrupted new continuation | [Exact accepted lineage, per-stage custody and current state](../../examples/offline-session-physical-git/INTERRUPTION.md); one distinct receipt, both unknown outcomes and all fences preserved | Demonstrated in controlled offline fixtures; independent review pending; no execution or admission release; retained active/no-PID slots remain unresolved |
+| One explicit renewed admission epoch | [Graph-authored epoch](../../examples/offline-session-epoch/README.md), frozen predecessor facts, blocked request identities, separate registry and one fresh selected Member/integration | Implemented for an applied, clean, fully owned interrupted tail; independent review pending; broader and repeated recovery remains missing |
 | Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
@@ -75,8 +76,10 @@ adds separately authorized completion and observation release for owned object/r
 tails. It preserves original pending admission and missing outcome, and never
 retries a new intent whose result is missing. [Interrupted-new-request disposition](offline-session-git-interruption-20261014.md)
 adds one separately authorized receipt without changing either outcome, prior
-records, Git facts or admission. Public language-composed recovery
-and renewed mutation admission remain missing; no generic core primitive is introduced.
+records, Git facts or admission. The [bounded epoch example](../../examples/offline-session-epoch/README.md)
+adds graph-composed admission for one fresh Member and one integration while
+preserving those unknowns. General public language-composed recovery and repeated
+renewed admission remain missing; no generic core primitive is introduced.
 Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown
