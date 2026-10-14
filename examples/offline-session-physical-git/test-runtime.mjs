@@ -159,11 +159,12 @@ for(const boundary of ['pending','ready'])for(const contentOnly of [false,true])
  }
  proof.push({name,processes:3,seedSigkill:true,constructedMetadataDamage:true,contentOnlyControl:contentOnly,contractRejected:contentOnly,total:total([a,b,c]),retainedGitMode:contentOnly?'omitted':'100644',changedGitMode:'100755'})
 }
-for(const boundary of ['pending','ready'])for(const damage of ['index-mode','symlink','legacy-content-only-plan']){
+for(const boundary of ['pending','ready'])for(const damage of ['index-mode','symlink','legacy-content-only-plan','legacy-unfenced-plan']){
  const name=`${boundary}-${damage}`,a=await execute(name,1,{crash:boundary==='pending'?'after-intent':'after-effect'}),file=join(a.fixture.root,'file.txt'),state=join(dir,'runs',name,'state')
  if(damage==='index-mode')git(a.fixture.root,['update-index','--chmod=+x','file.txt'])
  if(damage==='symlink'){await rm(file);await symlink('.git/COMMIT_EDITMSG',file)}
  if(damage==='legacy-content-only-plan'){const legacy=plan(a);legacy.Version='1';legacy.Before.Worktree=legacy.Before.Worktree.replace(':100644:',':');legacy.ExpectedWorktree=legacy.ExpectedWorktree.replace(':100644:',':');await writeFile(join(state,key('physical-plan/v1/'+token)),JSON.stringify(legacy))}
+ if(damage==='legacy-unfenced-plan'){const legacy=plan(a);legacy.Version='2';await writeFile(join(state,key('physical-plan/v1/'+token)),JSON.stringify(legacy))}
  for(const index of [2,3]){const r=await execute(name,index,{startupFailure:boundary==='ready'});unchanged(r);noProvider(r);assert.ok(!r.events.some(e=>e.operation==='storage-write-attempt'));if(boundary==='pending')assert.equal(outcome(r),'err:unresolved')}
  proof.push({name,processes:3,seedSigkill:true,constructedMetadataDamage:true,unresolvedWithoutRetryOrRepair:true})
 }

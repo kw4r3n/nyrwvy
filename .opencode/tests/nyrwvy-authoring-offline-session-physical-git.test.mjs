@@ -15,10 +15,11 @@ test('physical Git evidence binds the reviewed registry graph without effect-der
    await rm(join(bundle,'runs'),{recursive:true,force:true})
    run('run','--replay',bundle);run('run','--replay',join(bundle,'restoration-disabled'))
   }else{run('run',bundle);run('run',join(bundle,'restoration-disabled'),'--restoration-disabled')}
-  run('compile',bundle);run('compile',join(bundle,'restoration-disabled'));run('test-runtime',bundle)
+  run('compile',bundle);run('compile',join(bundle,'restoration-disabled'));run('test-runtime',bundle);run('test-child-lifetime',bundle,join(bundle,'child-runs'))
   await cp(bundle,moved,{recursive:true});await rm(join(moved,'runs'),{recursive:true})
+  await rm(join(moved,'child-runs'),{recursive:true})
   run('run','--replay',moved);run('run','--replay',join(moved,'restoration-disabled'))
-  run('compile',moved);run('compile',join(moved,'restoration-disabled'));run('test-runtime',moved);run('verify',bundle,moved)
+  run('compile',moved);run('compile',join(moved,'restoration-disabled'));run('test-runtime',moved);run('test-child-lifetime',moved,join(moved,'child-runs'));run('verify',bundle,moved);run('verify-child-lifetime',join(bundle,'child-runs'),join(moved,'child-runs'))
   const {proof}=JSON.parse(await readFile(join(bundle,'physical-proof.json'),'utf8'))
   assert.deepEqual(proof.find(x=>x.name==='restoration').total,{'commit-tree':1,'update-ref':1,'read-tree':1})
   assert.equal(proof.find(x=>x.name==='receipt-only-control').duplicateGitInvocation,true)

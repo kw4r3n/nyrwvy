@@ -1,4 +1,4 @@
- // Example binding for one trusted writer, quiescent Git subprocess exits and
+ // Example binding for one trusted writer, fenced Git mutation children and
  // intact storage. File flush is inherited; power-loss Git durability is not proved.
  sealed class GitState {
   public string Head {get;set;}=""; public string Symbolic {get;set;}="";
@@ -7,7 +7,7 @@
   public string Worktree {get;set;}="";
  }
  sealed class GitPlan {
-  public string Version {get;set;}="2"; public string Identity {get;set;}="";
+  public string Version {get;set;}="3"; public string Identity {get;set;}="";
   public string Intent {get;set;}=""; public string Repository {get;set;}="";
   public string RepositoryId {get;set;}=""; public string Selected {get;set;}="";
   public string Tree {get;set;}=""; public string Patch {get;set;}="";
@@ -15,6 +15,35 @@
   public bool NoMutation {get;set;}
   public string ExpectedIndex {get;set;}=""; public string ExpectedWorktree {get;set;}="";
   public GitState Before {get;set;}=new();
+ }
+ // This is child observation, never an original request result. A retained active
+ // launch may precede creation or outlive the parent. PID absence cannot clear it.
+ sealed class GitChild {
+  public string Version {get;set;}="1";public string State {get;set;}="active";
+  public string Invocation {get;set;}="";public string Identity {get;set;}="";
+  public string Repository {get;set;}="";public string RepositoryId {get;set;}="";
+  public string[] Args {get;set;}=Array.Empty<string>();public string InputDigest {get;set;}="";
+  public int? Pid {get;set;}public int? ExitCode {get;set;}
+  public bool InputClosed {get;set;}public bool OutputDrained {get;set;}
+ }
+ void GitChildGuard(){
+  string file=StoragePath("physical-child/v1");if(!System.IO.File.Exists(file))return;
+  var child=JsonSerializer.Deserialize<GitChild>(System.IO.File.ReadAllText(file))!;
+  Check(child.Version=="1"&&child.Repository==GitRoot&&child.RepositoryId==Setting("fixtureId")&&child.Invocation!=""&&child.Identity!="","Git child ownership");
+  Check(child.State=="quiescent"&&child.Pid.HasValue&&child.ExitCode.HasValue&&child.InputClosed&&child.OutputDrained,"Git child launch unresolved; explicit disposition required");
+  var plan=JsonSerializer.Deserialize<GitPlan>(System.IO.File.ReadAllText(StoragePath(PlanKey(child.Identity))))!;
+  Check(plan.Version=="3"&&plan.Identity==child.Identity&&plan.Repository==child.Repository&&plan.RepositoryId==child.RepositoryId,"Git child/plan correlation");
+  string[] expected=child.Args.FirstOrDefault() switch{
+   "commit-tree"=>new[]{"commit-tree",plan.Tree,"-p",plan.Before.Head},
+   "update-ref"=>new[]{"update-ref","refs/heads/main",plan.Commit,plan.Before.Head},
+   "read-tree"=>new[]{"read-tree","--reset","-u",plan.Commit},
+   _=>Array.Empty<string>()};
+  Check(expected.Length!=0&&child.Args.SequenceEqual(expected)&&child.InputDigest==DigestText(child.Args[0]=="commit-tree"?child.Identity+"\n":""),"Git child arguments/intent");
+ }
+ async System.Threading.Tasks.Task<string> GitOutput(System.IO.StreamReader reader){
+  var output=new System.Text.StringBuilder();var buffer=new char[4096];int count;
+  while((count=await reader.ReadAsync(buffer))!=0){Check(output.Length+count<=1048576,"bounded Git output exceeded");output.Append(buffer,0,count);}
+  return output.ToString();
  }
  string GitRoot=>System.IO.Path.Combine(System.IO.Path.GetDirectoryName(StorageRoot)!,"git");
  void GitGuard(){
@@ -24,20 +53,46 @@
   Check(!System.IO.File.Exists(System.IO.Path.Combine(GitRoot,".git","objects","info","alternates")),"external object store");
  }
  string Git(string[] args,string? input=null,bool mutation=false,bool trim=true){
-  GitGuard();
+  GitGuard();GitChildGuard();
+  int deadline=Setting("gitDeadlineMs")==""?10000:int.Parse(Setting("gitDeadlineMs"));Check(deadline>=250&&deadline<=10000,"bounded Git deadline");
   var start=new System.Diagnostics.ProcessStartInfo("git"){WorkingDirectory=GitRoot,UseShellExecute=false,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};
   foreach(var name in start.Environment.Keys.Where(x=>x.StartsWith("GIT_",StringComparison.Ordinal)).ToArray())start.Environment.Remove(name);
   foreach(var item in new[]{("GIT_CONFIG_NOSYSTEM","1"),("GIT_CONFIG_GLOBAL","/dev/null"),("GIT_TERMINAL_PROMPT","0"),("GIT_OPTIONAL_LOCKS","0"),
    ("GIT_AUTHOR_NAME","Offline fixture"),("GIT_AUTHOR_EMAIL","fixture@invalid"),("GIT_COMMITTER_NAME","Offline fixture"),("GIT_COMMITTER_EMAIL","fixture@invalid"),
    ("GIT_AUTHOR_DATE","2000-01-01T00:00:00Z"),("GIT_COMMITTER_DATE","2000-01-01T00:00:00Z")})start.Environment[item.Item1]=item.Item2;
   foreach(var arg in new[]{"-c","core.hooksPath="+System.IO.Path.Combine(GitRoot,"disabled-hooks"),"-c","commit.gpgSign=false","-c","core.fsmonitor=false","-c","core.untrackedCache=false"}.Concat(args))start.ArgumentList.Add(arg);
-  using var process=System.Diagnostics.Process.Start(start)!;
-  var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();
-  if(input!=null)process.StandardInput.Write(input);process.StandardInput.Close();
-  if(!process.WaitForExit(10000)){process.Kill(true);process.WaitForExit();throw new InvalidOperationException("Git timeout; uncertain effect");}
-  string output=stdout.GetAwaiter().GetResult(),error=stderr.GetAwaiter().GetResult();
+  GitChild? child=null;
+  if(mutation){
+   child=new(){Invocation=Guid.NewGuid().ToString("N"),Identity=effectIdentity.Value??"",Repository=GitRoot,RepositoryId=Setting("fixtureId"),Args=args,InputDigest=DigestText(input??"")};
+   Check(child.Identity!="","Git mutation requires effect identity");AtomicWrite("physical-child/v1",JsonSerializer.Serialize(child));
+   Observe(new {operation="physical-child-launch",child.Invocation,child.Identity,command=args[0]});Checkpoint("before-git-child-start");
+  }
+  using var process=new System.Diagnostics.Process{StartInfo=start};
+  // If creation fails, leave the pre-launch fence unresolved rather than
+  // asserting that no child exists from an unavailable start observation.
+  Check(process.Start(),"Git child creation failed");
+  if(child!=null){child.Pid=process.Id;AtomicWrite("physical-child/v1",JsonSerializer.Serialize(child));}
+  Observe(new {operation="physical-git-start",command=args[0],mutation,pid=process.Id,invocation=child?.Invocation});
+  var stdout=GitOutput(process.StandardOutput);var stderr=GitOutput(process.StandardError);
+  async System.Threading.Tasks.Task Feed(){try{if(input!=null)await process.StandardInput.WriteAsync(input);}finally{process.StandardInput.Close();}}
+  var feed=Feed();var exited=process.WaitForExitAsync();
+  Exception? failure=null;
+  try{System.Threading.Tasks.Task.WhenAll(feed,stdout,stderr,exited).WaitAsync(TimeSpan.FromMilliseconds(deadline)).GetAwaiter().GetResult();}
+  catch(Exception error){
+   failure=error;Observe(new {operation="physical-git-termination",command=args[0],pid=process.Id,reason=error.GetType().Name});
+   // Failure to terminate/join/drain keeps the active fence. Never publish
+   // quiescence merely because termination was requested or the parent exits.
+   if(!process.HasExited)process.Kill(true);
+   exited.WaitAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();process.StandardInput.Close();
+   try{System.Threading.Tasks.Task.WhenAll(feed,stdout,stderr).WaitAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();}
+   catch{if(!feed.IsCompleted||!stdout.IsCompletedSuccessfully||!stderr.IsCompletedSuccessfully)throw new InvalidOperationException("Git join/drain unresolved; explicit disposition required",error);}
+  }
+  Check(process.HasExited&&feed.IsCompleted&&stdout.IsCompletedSuccessfully&&stderr.IsCompletedSuccessfully,"Git quiescence unavailable");
+  string output=stdout.GetAwaiter().GetResult(),errorText=stderr.GetAwaiter().GetResult();
+  if(child!=null){child.State="quiescent";child.ExitCode=process.ExitCode;child.InputClosed=true;child.OutputDrained=true;AtomicWrite("physical-child/v1",JsonSerializer.Serialize(child));Observe(new {operation="physical-child-quiescent",child.Invocation,child.Identity,child.Pid,child.ExitCode});}
   Observe(new {operation="physical-git-exit",command=args[0],args,mutation,exitCode=process.ExitCode,childExited=true});
-  Check(process.ExitCode==0,"Git command failed: "+args[0]+": "+error);return trim?output.TrimEnd('\r','\n'):output;
+  if(failure!=null)throw new InvalidOperationException("Git command interrupted; physical effect must be inspected",failure);
+  Check(process.ExitCode==0,"Git command failed: "+args[0]+": "+errorText);return trim?output.TrimEnd('\r','\n'):output;
  }
  // Git's regular-file mode records the owner's executable bit. Other Unix
  // permission bits, ownership and timestamps are not tree-mode facts.
@@ -64,7 +119,7 @@
  string PlanKey(string identity)=>"physical-plan/v1/"+identity;
  GitPlan LoadPlan(string identity){
   var plan=JsonSerializer.Deserialize<GitPlan>(System.IO.File.ReadAllText(StoragePath(PlanKey(identity))))!;
-  Check(plan.Version=="2"&&plan.Identity==identity&&plan.Repository==GitRoot&&plan.RepositoryId==Setting("fixtureId"),"physical intent ownership/version");
+  Check(plan.Version=="3"&&plan.Identity==identity&&plan.Repository==GitRoot&&plan.RepositoryId==Setting("fixtureId"),"physical intent ownership/version");
   Check(plan.Before.Symbolic=="refs/heads/main","bounded branch");
   Check(Git(new[]{"rev-parse",plan.Selected+"^{tree}"})==plan.Tree,"selected tree changed");
   Check(Git(new[]{"diff",plan.Before.Head,plan.Selected,"--","file.txt"})==plan.Patch,"selected patch changed");
@@ -132,7 +187,10 @@
  }
  string PhysicalRead(string key,string value){
   if(key!="registry/v1")return value;
-  try{using var json=JsonDocument.Parse(value);var admission=json.RootElement;
+  try{
+   string launch=StoragePath("physical-child/v1");
+   if(System.IO.File.Exists(launch))Check(JsonSerializer.Deserialize<GitChild>(System.IO.File.ReadAllText(launch))!.State=="quiescent","Git child launch unresolved before admission");
+   using var json=JsonDocument.Parse(value);var admission=json.RootElement;
    if(admission.GetProperty("phase").GetString()!="ready")return value;
    string identity=admission.GetProperty("token").GetString()!;
    var plan=LoadPlan(identity);Check(plan.Intent==admission.GetProperty("intent").GetString(),"ready physical intent mismatch");

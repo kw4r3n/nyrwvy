@@ -13,7 +13,7 @@ async function normalizedHost(dir){
 const files=['session.json','Generated.cs','symbols.json','declarations.json','authoring.json','Program.cs','Runtime.dll','Runtime.runtimeconfig.json','compilation.json'],bundles=[]
 const stable=[]
 function normalizedStorage(state){return Object.fromEntries(Object.entries(state).map(([key,value])=>{
- try{const p=JSON.parse(value);if(p.Repository){p.Repository='<fixture>';if(p.RepositoryId!=='unowned')p.RepositoryId='<fixture-id>';p.Before.IndexBytes='<index-stat-bytes>';return [key,JSON.stringify(p)]}}catch{}return [key,value]
+ try{const p=JSON.parse(value);if(p.Repository){p.Repository='<fixture>';if(p.RepositoryId!=='unowned')p.RepositoryId='<fixture-id>';if(p.Before)p.Before.IndexBytes='<index-stat-bytes>';if(p.Invocation){p.Invocation='<child-invocation>';p.Pid='<child-pid>';}return [key,JSON.stringify(p)]}}catch{}return [key,value]
 }))}
 const normalizedState=p=>({...p,index:'<index-stat-bytes>'})
 for(const dir of dirs){
@@ -40,7 +40,7 @@ const raw=JSON.parse(await readFile(join(dirs[0],'physical-raw.json'),'utf8')),e
 assert.deepEqual(enabled.actions,control.actions);assert.deepEqual(enabled.physicalAfter.objects,control.physicalAfter.objects)
 const sourceHashes={}
 async function source(path){const rel=path.slice(resolve('.').length+1);if(sourceHashes[rel])return;const bytes=await readFile(path);sourceHashes[rel]=hash(bytes);for(const m of bytes.toString().matchAll(/(?:from\s+|import\s*)['"]([^'"]+)['"]/g))if(m[1].startsWith('.'))await source(resolve(path,'..',m[1]))}
-for(const file of ['run.mjs','compile.mjs','probe.mjs','git-fixture.mjs','test-runtime.mjs','verify.mjs','git.template.cs'])await source(resolve('examples/offline-session-physical-git',file))
+for(const file of ['run.mjs','compile.mjs','probe.mjs','git-fixture.mjs','test-runtime.mjs','test-child-lifetime.mjs','verify-child-lifetime.mjs','verify.mjs','git.template.cs'])await source(resolve('examples/offline-session-physical-git',file))
 for(const file of ['examples/offline-session-journal/storage.template.cs','examples/offline-session-owned-io/pipe.template.cs','examples/offline-session-bounded-input/pipe.template.cs','examples/offline-leader-jsonrpc/runtime.template.cs','.opencode/tests/nyrwvy-authoring-offline-session-physical-git.test.mjs'])await source(resolve(file))
 await writeFile(join(dirs[0],'physical-verified.json'),JSON.stringify({movedReplay:true,exactArtifactBytes:true,normalizedHostSha256:hash(await normalizedHost(dirs[0])),inputAndAcceptedWriteBytesChecked:true,sourceHashes,bundles,limits:['fixture path/id and per-run index stat-byte hash are normalized only for cross-domain comparison; each absence/restart assertion checks raw bytes locally','example-source/artifact closure excludes installed compiler/reference/runtime/environment closure','single trusted writer, clean provisioned standalone fixtures and subprocess exit checkpoints; no arbitrary interruption/power-loss/multi-writer proof']},null,2)+'\n')
 console.log(`PASS: ${bundles[0].proof.rows*2} fresh physical processes, moved exact emission/compilation, normalized control binding and byte checks`)
