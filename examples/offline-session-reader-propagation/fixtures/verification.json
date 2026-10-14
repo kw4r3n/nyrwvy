@@ -1,0 +1,287 @@
+{
+  "freshFastTests": 864,
+  "freshMaintainedRegressions": 6,
+  "pipeRowsPerBundle": 11,
+  "restartProcessesPerBundle": 2,
+  "artifactHashCount": 44,
+  "sourceHashCount": 29,
+  "passingLogCount": 22,
+  "artifacts": {
+    "final/session.json": "b69af48d5db013b69ce321d9b84c49555c22c264b44f9d6bdc5c4d0987bf9bdd",
+    "final/Generated.cs": "2a52533c776e908b44b5bc740fb36a2de7ed8c024d0d687d391e9c4316dc08cd",
+    "final/Program.cs": "cf289c50857d14ed6746eb0b18ffe81a1062cd7a8afbb83c8581c3e379fed81c",
+    "final/Runtime.dll": "ae96a25c0a5a693ce59e338b7b08bedbba0a32319e8acc279324578b329307cd",
+    "final/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "final/symbols.json": "3b46458b17f586d49e496407a933c104317c538861551f42e8dc9f0bda3be307",
+    "final/declarations.json": "582f1f5a089089ad878caf475df4c5c9bf95f3ad21869c8409e9fb7732f9c2bb",
+    "final/authoring.json": "1bcba03264031fb11b2d401ec6ccce0119f2a2bd47b4acd5923558e1ae0d40e9",
+    "final/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "final/deferred/session.json": "cd6e6c256bb0736fe63856f3ef4386cb8a8104b09781048dee4611c1e6951926",
+    "final/deferred/Generated.cs": "e47fe1951c11ec2d6e6675ce5b3d04eb8e62879b43cf5a14510dfc49c64a8772",
+    "final/deferred/Program.cs": "c75f269382e1d36efcdb7c2f78b35457cf62544c6ffb0d4b47b714356d132aa1",
+    "final/deferred/Runtime.dll": "c09bee3b0c88d3c55d42f1facb3bfb7098e0c0f7b56fce266251d5f094653410",
+    "final/deferred/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "final/deferred/symbols.json": "682314e998b09f03eb0d7a281ef3800a26248c53c130ac74f86d25cf039600bc",
+    "final/deferred/declarations.json": "13232f29763cef132302fcd2f4f494f87a3743d29378588cefc7797e12f2b2bd",
+    "final/deferred/authoring.json": "7275bf0664d1f1c5fba429033e0b48449057bb0f0c01660d2b9449b4f301eccf",
+    "final/deferred/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "final/pipe-cases.json": "8bf9fa45ddb926e239d8b5baec215257bd0f6f9a6a1b87ba59bb7bfbf152562c",
+    "final/pipe-raw.json": "bbf56f9d871c1556ef8b0e9d12be331d5b1d3c2060510203d6a7ce000eae51c3",
+    "final/restart-raw.json": "c3b91e1cd0fa0565b570e8a98f5699a09174acc7cae15ea9aeb8458370c4e644",
+    "final/restart-proof.json": "1926499370969158c3d92f17638b9c8821378ee9f1e5005110aa377a0544ef4b",
+    "moved/session.json": "b69af48d5db013b69ce321d9b84c49555c22c264b44f9d6bdc5c4d0987bf9bdd",
+    "moved/Generated.cs": "2a52533c776e908b44b5bc740fb36a2de7ed8c024d0d687d391e9c4316dc08cd",
+    "moved/Program.cs": "cf289c50857d14ed6746eb0b18ffe81a1062cd7a8afbb83c8581c3e379fed81c",
+    "moved/Runtime.dll": "ae96a25c0a5a693ce59e338b7b08bedbba0a32319e8acc279324578b329307cd",
+    "moved/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "moved/symbols.json": "3b46458b17f586d49e496407a933c104317c538861551f42e8dc9f0bda3be307",
+    "moved/declarations.json": "582f1f5a089089ad878caf475df4c5c9bf95f3ad21869c8409e9fb7732f9c2bb",
+    "moved/authoring.json": "1bcba03264031fb11b2d401ec6ccce0119f2a2bd47b4acd5923558e1ae0d40e9",
+    "moved/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "moved/deferred/session.json": "cd6e6c256bb0736fe63856f3ef4386cb8a8104b09781048dee4611c1e6951926",
+    "moved/deferred/Generated.cs": "e47fe1951c11ec2d6e6675ce5b3d04eb8e62879b43cf5a14510dfc49c64a8772",
+    "moved/deferred/Program.cs": "c75f269382e1d36efcdb7c2f78b35457cf62544c6ffb0d4b47b714356d132aa1",
+    "moved/deferred/Runtime.dll": "c09bee3b0c88d3c55d42f1facb3bfb7098e0c0f7b56fce266251d5f094653410",
+    "moved/deferred/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "moved/deferred/symbols.json": "682314e998b09f03eb0d7a281ef3800a26248c53c130ac74f86d25cf039600bc",
+    "moved/deferred/declarations.json": "13232f29763cef132302fcd2f4f494f87a3743d29378588cefc7797e12f2b2bd",
+    "moved/deferred/authoring.json": "7275bf0664d1f1c5fba429033e0b48449057bb0f0c01660d2b9449b4f301eccf",
+    "moved/deferred/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "moved/pipe-cases.json": "8bf9fa45ddb926e239d8b5baec215257bd0f6f9a6a1b87ba59bb7bfbf152562c",
+    "moved/pipe-raw.json": "6656e5d7cfc9cc95f410ada58d7fb4921e4408ff5273575bc3d07e1a5e36d24c",
+    "moved/restart-raw.json": "a93a6053f266a54939743effd2d7d1c7f5b6b645b59ce22d618aca997fe9698c",
+    "moved/restart-proof.json": "41e491993321b5b36971d05292c20dad10b4e602cb8021cfa18c767772e7d54f"
+  },
+  "sources": {
+    "examples/offline-session-reader-propagation/author.mjs": "3e9ce07303decd89a524317c61096e77fd4554ec2642b5505e45660d53204c91",
+    "examples/offline-session-bounded-input/author.mjs": "40f1decf4fbe00037702baa0247fa227a632c3af6ec6aea5f117287c405c770d",
+    "examples/offline-session-owned-io/author.mjs": "bdc9978b818db1c6289eb8ff1246e06c19fb3c85c660a86d8b3e3d7bc9bc98bb",
+    "examples/offline-leader-jsonrpc/author.mjs": "274379ec3e481808020e356cd9d6ffceedb2533a38f20c0e47a6d27fff62c4bc",
+    "examples/offline-leader-team/author.mjs": "7c1ba72ff4c3b17675b246e5bdb145c147d175c6f52f82b7d21f1057d433a8f0",
+    "examples/member-concurrency/author.mjs": "d69a101a70a832172ef83ca1a773bd150b4c459f356845b9e9c98f419a8a378e",
+    "examples/member-controller/author.mjs": "7020c1962be58e113ddb9dbdf3230bfd3e6237b8756b9b7f44cd3b9e88fdbd86",
+    "examples/member-lifecycle/author.mjs": "ec3d9238686549bb68edfcd1cf8d21ce7e69ae616f7160eb394e97525f9afd4e",
+    "examples/dynamic-worker-collector/lib.mjs": "b35e7e65036e410a182b9db77805fadf3b450380e0a79a573b11f06945a15cf7",
+    "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+    "examples/task-wait-observer/author.mjs": "09a6876affc2eb45099b3d019e282cfc383de8a7f160887260e60c426c6f318c",
+    "examples/offline-leader-jsonrpc/parser.mjs": "689a7f112cf921f08534ebc9b2d9aea4d4e6c32cc7124775898c85081fbd145a",
+    "examples/offline-leader-jsonrpc/recipes.mjs": "834197c9abdc2fe90e315271f747011c88df6d4910f564ec0e08c0e2cdfb6912",
+    "examples/offline-session-reader-propagation/run.mjs": "5608752d03af2113d5e7a9dc6931b58111c226e60ed0a334ce543d4d08684841",
+    "examples/offline-session-reader-propagation/compile.mjs": "77ea5151a7cfd78f78f8135d058ac8d1a8fd4894655f60587a24aa1c1ef8a66a",
+    "examples/offline-session-owned-io/compile.mjs": "ced24c6e62e345f27d19129c0e4fce1890516d6e02cf97ada2f8c3cbd52bbabf",
+    "examples/dynamic-worker-collector/compile-runtime.mjs": "7875c9a4475d46843f1e4d4fb2ce6109e94dcd72913ad6b1d2050b42c4b40553",
+    "examples/offline-session-reader-propagation/test-runtime.mjs": "f05d2c1f9dbc9999980f3278ef2e15062be6db750be60b4d3bce7a330e745b65",
+    "examples/offline-leader-jsonrpc/cases.mjs": "21fa3f4b25ea59667ab6ee5a226954fe069c9168b59f097d78fbe359b86660e3",
+    "examples/offline-leader-team/cases.mjs": "bd8e310390de6d0f9281c617ab011877923919a2fa64759bee5a364b0803379e",
+    "examples/member-lifecycle/cases.mjs": "5a4adca1161df48a502707a2c5381737be0a7454d722278e695669c9fb9754dd",
+    "examples/member-concurrency/cases.mjs": "7eade6ea601f840db63fe2c6391eaf47bfa5dbbc2f092488f16ecd8951495a3e",
+    "examples/member-controller/cases.mjs": "d38683a6d815b3bee7927c95578bfa6b99a2fa109637dfc98869f4f668f322e4",
+    "examples/member-integration/cases.mjs": "32c0893fe929483fd6994d99fe3f31f6b7212596e2cb1a35785f9f475fdf06c5",
+    "examples/offline-session-reader-propagation/verify.mjs": "92a8daa1483d4f4e08218a98ec818c79d6620731e50629770171d12e5ad26013",
+    "examples/offline-session-reader-propagation/probe-restart.mjs": "207276cc9c007aa771775db03caa3cc9be3eac3ac7bf1b653ab02e4a5476647a",
+    "examples/offline-session-owned-io/pipe.template.cs": "4e8fa58eca61678a770188a1447dd3b8dd73ca20c8650a4d64703c4c7a9771f7",
+    "examples/offline-session-bounded-input/pipe.template.cs": "29bbe18ed8073d918b23132f9c10ed892ef867ec900fb69f5b70bc0d75e2a0ea",
+    "examples/offline-leader-jsonrpc/runtime.template.cs": "d9f9ffd1410ad8b1e79f1fe06ba96e5d3995ede80bcc6a494eccb20904704d9f"
+  },
+  "logs": {
+    "restore.json": "5d8bd5dbd4d72c79e16d2231f6a4b53caefec7b07e7ed5b37bbd9f01a0c290d2",
+    "build.json": "a3b8c3ff36168ba987f494dba69bc2d79f5e444975bef83fc4a6714aa19b9ace",
+    "fast-dotnet.json": "563c6ad6753a4c8f34fdbfb54279482a421f69496c0c45f887440bfebae90598",
+    "author-final.json": "1a073ccc68df5496bdacd2407ce3d35cca446b70749e23043c259334a884e187",
+    "author-deferred-final.json": "1a073ccc68df5496bdacd2407ce3d35cca446b70749e23043c259334a884e187",
+    "compile-final.json": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+    "compile-deferred-final.json": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+    "runtime-final.json": "e480aa57c73754dbfceaea2cf9154b6c8f82fba014d79a73fcd25bc3fdf1d885",
+    "restart-final.json": "a66f1d60568faf1587e62c3ba5d8b87f210cca7d87236274d5953048d9d5c8c8",
+    "moved-author.json": "1a073ccc68df5496bdacd2407ce3d35cca446b70749e23043c259334a884e187",
+    "moved-author-deferred.json": "1a073ccc68df5496bdacd2407ce3d35cca446b70749e23043c259334a884e187",
+    "moved-compile.json": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+    "moved-compile-deferred.json": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+    "moved-runtime.json": "e480aa57c73754dbfceaea2cf9154b6c8f82fba014d79a73fcd25bc3fdf1d885",
+    "moved-restart.json": "a66f1d60568faf1587e62c3ba5d8b87f210cca7d87236274d5953048d9d5c8c8",
+    "moved-verify.json": "b34a62d0f0a8dd212670e224d95c5967ea5fd451801ba4299000b22cd2ca9499",
+    "maintained-leader-team.json": "d98c30e773a63e953867fc7e03c655fa1ef32a97ac6328230b4d67a4fe9e1826",
+    "maintained-leader-jsonrpc.json": "a8c2ecdcc2b4a13ab220af30a0af9510f3622491aa17c058f810019ab4242b2e",
+    "maintained-session-transport.json": "ca5e8528fe4edb39787a2e639cf564f43480eade157efc8d0a6ec0792bc76616",
+    "maintained-session-owned-io.json": "bed5126eae8e2736c975c076f07778e30cb62f1e9bb1d64b1ae16efbf6785b0f",
+    "maintained-session-bounded-input.json": "427b92f5c068907b3b45e0d0216ecdb15717056a80a86dd101488fc81c66b9c8",
+    "maintained-session-reader-propagation.json": "111e014cee93e94d5efa74014096949f20bbb519bc7f1b40e6226631380fbc30"
+  },
+  "measurements": [
+    {
+      "bundle": "final",
+      "id": "foreground-oversize",
+      "deferred": false,
+      "readerEndToWitnessCancelMs": 1.7189930000000118,
+      "readerEndToCloseMs": 373.347625,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": true,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "final",
+      "id": "foreground-invalid-utf8",
+      "deferred": false,
+      "readerEndToWitnessCancelMs": 0.9880739999999832,
+      "readerEndToCloseMs": 371.33462699999984,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": true,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "final",
+      "id": "foreground-eof",
+      "deferred": false,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "final",
+      "id": "foreground-healthy",
+      "deferred": false,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "final",
+      "id": "foreground-oversize",
+      "deferred": true,
+      "readerEndToWitnessCancelMs": 386.6021260000002,
+      "readerEndToCloseMs": 400.51529100000016,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "final",
+      "id": "foreground-invalid-utf8",
+      "deferred": true,
+      "readerEndToWitnessCancelMs": 383.87245699999994,
+      "readerEndToCloseMs": 397.79936799999996,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-oversize",
+      "deferred": false,
+      "readerEndToWitnessCancelMs": 1.7917099999999664,
+      "readerEndToCloseMs": 374.435045,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": true,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-invalid-utf8",
+      "deferred": false,
+      "readerEndToWitnessCancelMs": 1.0051460000000816,
+      "readerEndToCloseMs": 371.60855300000014,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": true,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-eof",
+      "deferred": false,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-healthy",
+      "deferred": false,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-oversize",
+      "deferred": true,
+      "readerEndToWitnessCancelMs": 386.9716819999999,
+      "readerEndToCloseMs": 401.57841400000007,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    },
+    {
+      "bundle": "moved",
+      "id": "foreground-invalid-utf8",
+      "deferred": true,
+      "readerEndToWitnessCancelMs": 384.8885919999998,
+      "readerEndToCloseMs": 399.4592069999999,
+      "held": {
+        "ms": 350,
+        "witnessCancelled": false,
+        "outcome": false,
+        "head": false,
+        "release": false
+      }
+    }
+  ],
+  "checkedAt": "2026-10-14T00:03:53.636Z",
+  "preservedCheckouts": {
+    "base": {
+      "path": "/home/kw4/Documents/Codex/2026-10-14/task-23/bounded-session",
+      "sha": "43507a5aee1aa0f706ec4b86e19392936fdcd94a",
+      "tree": "a5ac4707f764dcd2219e7d16badb57a29f5b18c3",
+      "status": ""
+    },
+    "original": {
+      "path": "/home/kw4/Documents/Codex/2026-10-14/task-20/owned-session",
+      "sha": "f62782acd06188f35ba4ccb4fd6c3517a261a956",
+      "tree": "1b5fe82c6d64bd7dfee934e7ff3afbdee0ae416a",
+      "status": ""
+    }
+  }
+}
