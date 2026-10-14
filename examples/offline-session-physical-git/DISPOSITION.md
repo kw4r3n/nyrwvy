@@ -87,6 +87,13 @@ evidence before active-launch inspection. Only this exclusive read-only inspecti
 scope can pass an active witnessed fence; mutation dispatch is refused inside it.
 Application startup still refuses that unchanged active fence.
 
+Both request and current retention authorities must be nonempty JSON strings;
+missing/null/non-string/empty values refuse before publication or replay. Authority
+strings remain exact opaque values with significant whitespace and case; they
+are not trimmed or restricted to the ASCII request-ID grammar. The
+[authority-value repair](../../docs/verification/offline-session-git-authority-values-repair-20261014.md)
+records adjacent continuation/release and historical-ancestry checks.
+
 Inspection distinguishes `absent`, `object-only`, `ref-only` and `applied`.
 Object-only/ref-only requires exact owned object inventory, refs/HEAD, pre-index
 bytes/entries and pre-worktree bytes/Git mode. Applied state uses inherited exact

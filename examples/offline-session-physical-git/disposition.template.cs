@@ -55,8 +55,8 @@
  }
  public string RetainDisposition(string request){
   using var document=JsonDocument.Parse(request);var r=document.RootElement;
-  string id=r.GetProperty("id").GetString()!,authorization=r.GetProperty("authorization").GetString()!,invocation=r.GetProperty("invocation").GetString()!,identity=r.GetProperty("identity").GetString()!;
-  Check(System.Text.RegularExpressions.Regex.IsMatch(id,@"\A[a-zA-Z0-9_-]{1,80}\z")&&id!=identity&&authorization!=""&&Setting("dispositionAuthorization")!=""&&authorization==Setting("dispositionAuthorization"),"disposition identity/authorization");
+  string id=r.GetProperty("id").GetString()!,authorization=AuthorityValue(r,"authorization"),invocation=r.GetProperty("invocation").GetString()!,identity=r.GetProperty("identity").GetString()!;
+  Check(System.Text.RegularExpressions.Regex.IsMatch(id,@"\A[a-zA-Z0-9_-]{1,80}\z")&&id!=identity&&authorization==ScenarioAuthority("dispositionAuthorization"),"disposition identity/authorization");
   Check(r.GetProperty("action").GetString()=="retain-unresolved"&&r.GetProperty("repository").GetString()==GitRoot&&r.GetProperty("repositoryId").GetString()==Setting("fixtureId")&&r.GetProperty("launchDigest").GetString()!=""&&r.GetProperty("planDigest").GetString()!=""&&r.GetProperty("expectedState").GetString()!="", "disposition payload");
   Check(Setting("worktreeModeControl")==""&&Setting("physicalControl")=="","disposition requires enabled physical evidence");
   string raw=System.IO.File.ReadAllText(StoragePath("physical-child/v1"));var child=JsonSerializer.Deserialize<GitChild>(raw)!;

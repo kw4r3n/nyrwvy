@@ -1,0 +1,1195 @@
+{
+  "base": "221c92914d2de8c5dfb6aba55d72ecb50b547c3a",
+  "baseTree": "f05f0dc00fefe37ab61014f5b3c095ebb87cccd2",
+  "finding": "P2-2",
+  "priorFinding": "P2-1 closed; retained separation regressions pass",
+  "sources": {
+    "continuation.template.cs": "fdd98135f142b281eab2b42f1b375c7bfdcc66184331a0d82ce6b74682f88f8e",
+    "disposition.template.cs": "188378de1538258ce2ab15e555121da0a4d921bb547f2176f2181ce26f7b4f54",
+    "test-authority-values.mjs": "6381732b0d78c5f4e85c0c58a6953078133daf5ec08e5e9762f3b65d42786c02",
+    "test-release-authority.mjs": "a712f63baa12ecd4af0575f455afa02bfe23b41c8b308ab279664e2c5ef206d3",
+    "verify-release-authority.mjs": "c46b8a603c08d70906360e9240e6405f064314c56f1aba296f4a703eaefcd38f",
+    "test-disposition.mjs": "9ef3bf21017774b5b95eaeb4d4cae2a5f8d4f92080558b705202c4fa3da0225c",
+    "test-admission-firewall.mjs": "fa0a5ce60067acbdfbe1461ccca679688bd849195d66ea6a1169d2c417478219",
+    "compile.mjs": "e2c18324d2203d07a79ede29bf67a90d21897c07e871bd51750ec776c0ab36f0",
+    "git-owner.mjs": "5b9bbf5cdf98cc26296df269815d3c5270e8288ec6a56609abb7f4d595045291",
+    "git.template.cs": "5213fe2e7be247170b92f54f97901f0c749e3d0148b40e369e47f6d7bbb5166a",
+    "continuation-fixture.mjs": "bd5ddd541efa9f4c9226b56e668632e93f8d8122d230e332596815177a8f4add"
+  },
+  "artifacts": {
+    "session.json": "71f997a236d26c20a6a4193a2826a8773ade9ef184a7887a02a358a6c71db5a5",
+    "Generated.cs": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+    "symbols.json": "e41a97592abb39c42fe679d60895bfa5c46ae3230297c417cec2e86672fec2bd",
+    "declarations.json": "01e4d801c9264931eb48302b8aa0e6ee8fedf03cb56d7708f4a4e8985c987014",
+    "authoring.json": "47b0483811fd623b9170ceda639036fed354ef773e044d4091846825fa7eb054",
+    "Program.cs": "6dfe62c24c70f1dc8c5de08c76639d6dc7f1b66082c4350e15536c86c9a08daa",
+    "Runtime.dll": "7a0e3a77f801493b8a9d4539af0de277447c91fab2ac9aa1d8e5d2537f2bde2d",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+    "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+    "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+    "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+    "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+    "restoration-disabled/Program.cs": "418aaad58441027cf5340dc4a9875f8ff5d25a6b6ed49dd654b4b4d7091c92cd",
+    "restoration-disabled/Runtime.dll": "d98e31ad8f8bc412addba18dae61b569fd02acbcff7f620479ec44771d7193db",
+    "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+  },
+  "retained": {
+    "preparationChecks": 118,
+    "finalChecks": 87,
+    "authorAudit": "c65f2b8599c1923f0780b289fa8d5dbc72bc259ed4eea4390d1563ea10bc11a2",
+    "reviewHashes": {
+      "independent-rereview.md": "7cc6af5022d4e8919d4b52f4a96244a9420f2ec4daccd802c9c8fae85109d30b",
+      "rereview-findings.json": "fe34623ec8d85df6de9ebf17b78dd1c4595105007ed0e4a91decfdb51b98a97d",
+      "rereview-null-authority.mjs": "28a1c98cedff9282ab67c3a702aeab724d5ae093637de0480a7d379d6f026719",
+      "evidence/repair-review/audit.json": "db0bea6193be046951bb0631b36a8d470cc8a8412aeefddbb32f37f6e8864677",
+      "evidence/repair-review/null-authority/proof.json": "e6b7e0de204e6b4679e6ad7eeefbe80c5336d67673bc163ed2bff22ecf854ecd",
+      "evidence/repair-review/null-authority/raw.json": "2e681a7a8fcd4348ead24b44d808810b03f42b22378e5dd98c55e3a029ce522a"
+    },
+    "archivedParent": "source-base/original and moved; no original record/checkout/evidence overwritten"
+  },
+  "baseline": {
+    "release": {
+      "processes": 16,
+      "existingDomain": 1,
+      "violations": [
+        "null-request-null-current"
+      ],
+      "proofHash": "aa191177ee6a8e0395326f84accb9c0791d9f629d781a83d957083bb66ff54b5"
+    },
+    "related": {
+      "processes": 8,
+      "domains": 2,
+      "sigkills": 2,
+      "acceptedNullBoundaries": [
+        "retention",
+        "continuation"
+      ],
+      "proofHash": "4ebb1f096f752226433836673ba307a26949b79c522c1f7237dd3d7d94f32807"
+    },
+    "seed": {
+      "processes": 17,
+      "domains": 1,
+      "sigkills": 1
+    },
+    "excludedFromRepairSuccess": true
+  },
+  "freshAuthorityValues": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 161,
+        "domains": 7,
+        "sigkills": 7,
+        "rawHash": "758917f1b9ca5beb02049af3a499af47c1dea728f59a8b567d1a2f189990a5f0",
+        "proofHash": "a1c8177b255973cc485a35f6da255986d7ee08beaaa301dcc35535b0a564364e"
+      },
+      {
+        "location": "moved",
+        "processes": 161,
+        "domains": 7,
+        "sigkills": 7,
+        "rawHash": "6e0e9dc267e6809514bf036d456f8de4db5da27ed0666ea632674038043058d4",
+        "proofHash": "6552ae0433e3e59a0ee3f607152c7e88a5e5d88d148156c59b20c0dc4d9a33eb"
+      }
+    ],
+    "totals": {
+      "processes": 322,
+      "domains": 14,
+      "sigkills": 14
+    },
+    "historicalInvalidContexts": 3,
+    "historicalDomainsReused": 3
+  },
+  "freshOriginalNullReproducer": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 16,
+        "newDomains": 0,
+        "violations": [],
+        "proofHash": "69e51b581cecdf33a2e011f804024e64f6bdf9479d1121915d82e903aae711fc"
+      },
+      {
+        "location": "moved",
+        "processes": 16,
+        "newDomains": 0,
+        "violations": [],
+        "proofHash": "0b1084bda82b8903de65b463d5d625f856aeea8a1076b16237db1466a10c3ede"
+      }
+    ],
+    "processes": 32,
+    "violations": [],
+    "driverUnchanged": true
+  },
+  "freshP2Separation": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 167,
+        "domains": 8,
+        "sigkills": 14,
+        "rawHash": "132f588813136e422deb91f17049afe683744aebb855ad360fae4670255fc73e",
+        "proofHash": "35f0b24fda84e0edd03e8ee1c8e44d37378ddd779cb4fe8e147adc13f5242061"
+      },
+      {
+        "location": "moved",
+        "processes": 167,
+        "domains": 8,
+        "sigkills": 14,
+        "rawHash": "909aa7be1532757be7cd5099420a49d60a7d28466cf22dbcece7329faf1b3714",
+        "proofHash": "2c50cef4976ff33d78409d492d6f6983e43c06b9b9014759422fb535a4553829"
+      }
+    ],
+    "totals": {
+      "processes": 334,
+      "domains": 16,
+      "sigkills": 28
+    }
+  },
+  "freshDisposition": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 94,
+        "domains": 7,
+        "sigkills": 5,
+        "rawHash": "776f071506c7bdca87d69aa6ba388a3c638554515f7fc02f30a647935030d6e4",
+        "proofHash": "e4d788972dad53067bec4278bca2bfcb5b4575426b0201bde31847f7030b7da1"
+      },
+      {
+        "location": "moved",
+        "processes": 94,
+        "domains": 7,
+        "sigkills": 5,
+        "rawHash": "220294d3a061c92951a8bfc30207a7fcd23c0603d6b02f199602fb86fed3935e",
+        "proofHash": "fb7a7dcb97ccfe01f6cf3000e297e6797636415369f8bfb91614267e2ff76d38"
+      }
+    ],
+    "totals": {
+      "processes": 188,
+      "domains": 14,
+      "sigkills": 10
+    }
+  },
+  "freshP2OriginalDriver": {
+    "processes": 34,
+    "domains": 2,
+    "sigkills": 2,
+    "violations": []
+  },
+  "freshSuccessTotals": {
+    "processes": 910,
+    "freshGitDomains": 46,
+    "sigkills": 54
+  },
+  "freshFirewall": [
+    {
+      "location": "original",
+      "mechanicalProcesses": 1,
+      "proofHash": "8a672ca1c76d75620992b798826bca52d648a7b39154b4bebd62e80ea081cfd9"
+    },
+    {
+      "location": "moved",
+      "mechanicalProcesses": 1,
+      "proofHash": "10d185b3e55b324ca54a2ae1acbd5ea36722661dcaedc65fe9525a412a534db8"
+    }
+  ],
+  "logs": {
+    "compile-moved-control.json": {
+      "sha256": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-moved.json": {
+      "sha256": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original-control.json": {
+      "sha256": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original.json": {
+      "sha256": "0d4f0214a778755f7d652d3faa93ab1ac5f2ee5af56202119169feee0963bae9",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "disposition-closure.json": {
+      "sha256": "91e7eb25887b17122489c1f97c667f647d1049acdb15da42a8590e3b2c9ed21d",
+      "stdout": "PASS: 188 disposition processes, original/moved semantics and 18 identical artifacts"
+    },
+    "disposition-moved.json": {
+      "sha256": "362b2df147b96b8970575c7d6185ccc8da47e3e1c142030375042587609ba0a0",
+      "stdout": "PASS: 94 disposition/application processes, 7 disposable domains, 5 SIGKILLs"
+    },
+    "disposition-original.json": {
+      "sha256": "362b2df147b96b8970575c7d6185ccc8da47e3e1c142030375042587609ba0a0",
+      "stdout": "PASS: 94 disposition/application processes, 7 disposable domains, 5 SIGKILLs"
+    },
+    "firewall-moved.json": {
+      "sha256": "19598b7e67ae5a7ca730957927b0d06ca1211c58745d9e536dd5c3eadef96d3b",
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "firewall-original.json": {
+      "sha256": "19598b7e67ae5a7ca730957927b0d06ca1211c58745d9e536dd5c3eadef96d3b",
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "null-original-moved.json": {
+      "sha256": "12835657207e77a961f3acf35906292823ce19ce69a9df82b29d3bd022d09335",
+      "stdout": "{\n  \"target\": \"221c92914d2de8c5dfb6aba55d72ecb50b547c3a\",\n  \"bindingHash\": \"7a0e3a77f801493b8a9d4539af0de277447c91fab2ac9aa1d8e5d2537f2bde2d\",\n  \"sourceHash\": \"28a1c98cedff9282ab67c3a702aeab724d5ae093637de0480a7d379d6f026719\",\n  \"applicationProcesses\": 16,\n  \"newDomains\": 0,\n  \"existingDomainsReused\": 1,\n  \"rawHash\": \"a6a2f77c23b9dd5c995f43986e47d5fa8f3fa9cda5a8e38dca13c5fc6e86fd1f\",\n  \"violations\": [],\n  \"cases\": [\n    {\n      \"name\": \"valid-distinct\",\n      \"allow\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"contractMatches\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ]\n    },\n    {\n      \"name\": \"null-request-null-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-request-empty-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"empty-request-empty-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-request-string-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"string-request-null-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-prior-continuation\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-prior-retention\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    }\n  ],\n  \"originalSeedPreserved\": true,\n  \"physicalUnchanged\": true,\n  \"originalOutcomeMissing\": true\n}"
+    },
+    "null-original-original.json": {
+      "sha256": "4944802a22e8f12206f2c78312ff6d7d3dc0e8b72e64e3057ec3eb48dec0d488",
+      "stdout": "{\n  \"target\": \"221c92914d2de8c5dfb6aba55d72ecb50b547c3a\",\n  \"bindingHash\": \"7a0e3a77f801493b8a9d4539af0de277447c91fab2ac9aa1d8e5d2537f2bde2d\",\n  \"sourceHash\": \"28a1c98cedff9282ab67c3a702aeab724d5ae093637de0480a7d379d6f026719\",\n  \"applicationProcesses\": 16,\n  \"newDomains\": 0,\n  \"existingDomainsReused\": 1,\n  \"rawHash\": \"a66279624535af37674c22e33dddfc4c2fd257cebe412d9a3411a98ba086f5c2\",\n  \"violations\": [],\n  \"cases\": [\n    {\n      \"name\": \"valid-distinct\",\n      \"allow\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"contractMatches\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ]\n    },\n    {\n      \"name\": \"null-request-null-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-request-empty-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"empty-request-empty-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-request-string-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"string-request-null-current\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-prior-continuation\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    },\n    {\n      \"name\": \"null-prior-retention\",\n      \"allow\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"contractMatches\": true,\n      \"changed\": []\n    }\n  ],\n  \"originalSeedPreserved\": true,\n  \"physicalUnchanged\": true,\n  \"originalOutcomeMissing\": true\n}"
+    },
+    "reopen-moved-control.json": {
+      "sha256": "601cb557e851048d9856f26852968f6cb3db3794a97b504fcad4790ac0b960e5",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-moved.json": {
+      "sha256": "601cb557e851048d9856f26852968f6cb3db3794a97b504fcad4790ac0b960e5",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-original-control.json": {
+      "sha256": "601cb557e851048d9856f26852968f6cb3db3794a97b504fcad4790ac0b960e5",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-original.json": {
+      "sha256": "601cb557e851048d9856f26852968f6cb3db3794a97b504fcad4790ac0b960e5",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "seed-moved.json": {
+      "sha256": "1f45bab1db062a99169b78466d14d6875d5b50abb0883cf07d45b2adbc2de0ce",
+      "stdout": "{\n  \"processes\": 17,\n  \"mismatches\": [],\n  \"cases\": [\n    {\n      \"name\": \"same-continuation-omitted\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-omitted\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-relabelled\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"other-continue\",\n        \"dispositionAuthorization\": \"other-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-bound\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-bound\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-omitted\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {},\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-bound\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    }\n  ]\n}"
+    },
+    "seed-original.json": {
+      "sha256": "1f45bab1db062a99169b78466d14d6875d5b50abb0883cf07d45b2adbc2de0ce",
+      "stdout": "{\n  \"processes\": 17,\n  \"mismatches\": [],\n  \"cases\": [\n    {\n      \"name\": \"same-continuation-omitted\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-omitted\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-relabelled\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"other-continue\",\n        \"dispositionAuthorization\": \"other-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-bound\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-bound\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-omitted\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {},\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-bound\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    }\n  ]\n}"
+    },
+    "separation-closure.json": {
+      "sha256": "71c8703f368ff1964ce5d137ed769541ad8238d27befcc7056e14401ed05ea93",
+      "stdout": "PASS: 167 original/moved authority rows and 18 exact artifacts; three retained invalid activations stay closed"
+    },
+    "separation-moved.json": {
+      "sha256": "8fc4ef2a8e97b88d0ff1f45056d23b1eac2238efeadfe2980fb9a6f55b722f56",
+      "stdout": "PASS: 167 applications/8 fresh domains/14 kills; retained/current authority, replay/startup and release windows; 3 old invalid activations closed"
+    },
+    "separation-original.json": {
+      "sha256": "8fc4ef2a8e97b88d0ff1f45056d23b1eac2238efeadfe2980fb9a6f55b722f56",
+      "stdout": "PASS: 167 applications/8 fresh domains/14 kills; retained/current authority, replay/startup and release windows; 3 old invalid activations closed"
+    },
+    "values-moved.json": {
+      "sha256": "67510fe1b5039bf69bc0425760fe26ccd249d4d4f87f05cbfcfccef395a6f730",
+      "stdout": "PASS: 161 applications/7 fresh domains; all three authority boundaries and 3 invalid historical contexts; exact whitespace semantics preserved"
+    },
+    "values-original.json": {
+      "sha256": "67510fe1b5039bf69bc0425760fe26ccd249d4d4f87f05cbfcfccef395a6f730",
+      "stdout": "PASS: 161 applications/7 fresh domains; all three authority boundaries and 3 invalid historical contexts; exact whitespace semantics preserved"
+    }
+  },
+  "helperObservations": [
+    {
+      "pid": 804926,
+      "state": "absent"
+    },
+    {
+      "pid": 806557,
+      "state": "absent"
+    },
+    {
+      "pid": 806795,
+      "state": "absent"
+    },
+    {
+      "pid": 807029,
+      "state": "absent"
+    },
+    {
+      "pid": 807265,
+      "state": "absent"
+    },
+    {
+      "pid": 807501,
+      "state": "absent"
+    },
+    {
+      "pid": 807739,
+      "state": "absent"
+    },
+    {
+      "pid": 803653,
+      "state": "absent"
+    },
+    {
+      "pid": 803661,
+      "state": "absent"
+    },
+    {
+      "pid": 806445,
+      "state": "absent"
+    },
+    {
+      "pid": 806453,
+      "state": "absent"
+    },
+    {
+      "pid": 806685,
+      "state": "absent"
+    },
+    {
+      "pid": 806693,
+      "state": "absent"
+    },
+    {
+      "pid": 806919,
+      "state": "absent"
+    },
+    {
+      "pid": 806927,
+      "state": "absent"
+    },
+    {
+      "pid": 807155,
+      "state": "absent"
+    },
+    {
+      "pid": 807163,
+      "state": "absent"
+    },
+    {
+      "pid": 807392,
+      "state": "absent"
+    },
+    {
+      "pid": 807400,
+      "state": "absent"
+    },
+    {
+      "pid": 807629,
+      "state": "absent"
+    },
+    {
+      "pid": 807637,
+      "state": "absent"
+    },
+    {
+      "pid": 816569,
+      "state": "absent"
+    },
+    {
+      "pid": 818644,
+      "state": "absent"
+    },
+    {
+      "pid": 818662,
+      "state": "absent"
+    },
+    {
+      "pid": 820579,
+      "state": "absent"
+    },
+    {
+      "pid": 821065,
+      "state": "absent"
+    },
+    {
+      "pid": 821551,
+      "state": "absent"
+    },
+    {
+      "pid": 822037,
+      "state": "absent"
+    },
+    {
+      "pid": 822521,
+      "state": "absent"
+    },
+    {
+      "pid": 823009,
+      "state": "absent"
+    },
+    {
+      "pid": 816461,
+      "state": "absent"
+    },
+    {
+      "pid": 816469,
+      "state": "absent"
+    },
+    {
+      "pid": 818538,
+      "state": "absent"
+    },
+    {
+      "pid": 820472,
+      "state": "absent"
+    },
+    {
+      "pid": 820480,
+      "state": "absent"
+    },
+    {
+      "pid": 820957,
+      "state": "absent"
+    },
+    {
+      "pid": 820965,
+      "state": "absent"
+    },
+    {
+      "pid": 821442,
+      "state": "absent"
+    },
+    {
+      "pid": 821450,
+      "state": "absent"
+    },
+    {
+      "pid": 821928,
+      "state": "absent"
+    },
+    {
+      "pid": 821936,
+      "state": "absent"
+    },
+    {
+      "pid": 822414,
+      "state": "absent"
+    },
+    {
+      "pid": 822422,
+      "state": "absent"
+    },
+    {
+      "pid": 822902,
+      "state": "absent"
+    },
+    {
+      "pid": 822910,
+      "state": "absent"
+    },
+    {
+      "pid": 823760,
+      "state": "absent"
+    },
+    {
+      "pid": 823768,
+      "state": "absent"
+    },
+    {
+      "pid": 823785,
+      "state": "absent"
+    },
+    {
+      "pid": 824173,
+      "state": "absent"
+    },
+    {
+      "pid": 824182,
+      "state": "absent"
+    },
+    {
+      "pid": 824201,
+      "state": "absent"
+    },
+    {
+      "pid": 826670,
+      "state": "absent"
+    },
+    {
+      "pid": 827376,
+      "state": "absent"
+    },
+    {
+      "pid": 802586,
+      "state": "absent"
+    },
+    {
+      "pid": 802594,
+      "state": "absent"
+    },
+    {
+      "pid": 802692,
+      "state": "absent"
+    },
+    {
+      "pid": 811001,
+      "state": "absent"
+    },
+    {
+      "pid": 812668,
+      "state": "absent"
+    },
+    {
+      "pid": 812903,
+      "state": "absent"
+    },
+    {
+      "pid": 813145,
+      "state": "absent"
+    },
+    {
+      "pid": 813383,
+      "state": "absent"
+    },
+    {
+      "pid": 813620,
+      "state": "absent"
+    },
+    {
+      "pid": 813857,
+      "state": "absent"
+    },
+    {
+      "pid": 809711,
+      "state": "absent"
+    },
+    {
+      "pid": 809719,
+      "state": "absent"
+    },
+    {
+      "pid": 812555,
+      "state": "absent"
+    },
+    {
+      "pid": 812563,
+      "state": "absent"
+    },
+    {
+      "pid": 812793,
+      "state": "absent"
+    },
+    {
+      "pid": 812801,
+      "state": "absent"
+    },
+    {
+      "pid": 813029,
+      "state": "absent"
+    },
+    {
+      "pid": 813037,
+      "state": "absent"
+    },
+    {
+      "pid": 813273,
+      "state": "absent"
+    },
+    {
+      "pid": 813281,
+      "state": "absent"
+    },
+    {
+      "pid": 813511,
+      "state": "absent"
+    },
+    {
+      "pid": 813519,
+      "state": "absent"
+    },
+    {
+      "pid": 813747,
+      "state": "absent"
+    },
+    {
+      "pid": 813755,
+      "state": "absent"
+    },
+    {
+      "pid": 828015,
+      "state": "absent"
+    },
+    {
+      "pid": 830092,
+      "state": "absent"
+    },
+    {
+      "pid": 830110,
+      "state": "absent"
+    },
+    {
+      "pid": 831994,
+      "state": "absent"
+    },
+    {
+      "pid": 832483,
+      "state": "absent"
+    },
+    {
+      "pid": 832979,
+      "state": "absent"
+    },
+    {
+      "pid": 833502,
+      "state": "absent"
+    },
+    {
+      "pid": 834005,
+      "state": "absent"
+    },
+    {
+      "pid": 834519,
+      "state": "absent"
+    },
+    {
+      "pid": 827905,
+      "state": "absent"
+    },
+    {
+      "pid": 827913,
+      "state": "absent"
+    },
+    {
+      "pid": 829986,
+      "state": "absent"
+    },
+    {
+      "pid": 831885,
+      "state": "absent"
+    },
+    {
+      "pid": 831893,
+      "state": "absent"
+    },
+    {
+      "pid": 832371,
+      "state": "absent"
+    },
+    {
+      "pid": 832379,
+      "state": "absent"
+    },
+    {
+      "pid": 832872,
+      "state": "absent"
+    },
+    {
+      "pid": 832880,
+      "state": "absent"
+    },
+    {
+      "pid": 833374,
+      "state": "absent"
+    },
+    {
+      "pid": 833382,
+      "state": "absent"
+    },
+    {
+      "pid": 833892,
+      "state": "absent"
+    },
+    {
+      "pid": 833902,
+      "state": "absent"
+    },
+    {
+      "pid": 834405,
+      "state": "absent"
+    },
+    {
+      "pid": 834413,
+      "state": "absent"
+    },
+    {
+      "pid": 835598,
+      "state": "absent"
+    },
+    {
+      "pid": 835606,
+      "state": "absent"
+    },
+    {
+      "pid": 835622,
+      "state": "absent"
+    },
+    {
+      "pid": 836032,
+      "state": "absent"
+    },
+    {
+      "pid": 836040,
+      "state": "absent"
+    },
+    {
+      "pid": 836056,
+      "state": "absent"
+    },
+    {
+      "pid": 838364,
+      "state": "absent"
+    },
+    {
+      "pid": 839070,
+      "state": "absent"
+    },
+    {
+      "pid": 808650,
+      "state": "absent"
+    },
+    {
+      "pid": 808658,
+      "state": "absent"
+    },
+    {
+      "pid": 808761,
+      "state": "absent"
+    },
+    {
+      "pid": 803660,
+      "state": "absent"
+    },
+    {
+      "pid": 803668,
+      "state": "absent"
+    },
+    {
+      "pid": 804933,
+      "state": "absent"
+    },
+    {
+      "pid": 806452,
+      "state": "absent"
+    },
+    {
+      "pid": 806460,
+      "state": "absent"
+    },
+    {
+      "pid": 806564,
+      "state": "absent"
+    },
+    {
+      "pid": 806700,
+      "state": "absent"
+    },
+    {
+      "pid": 806692,
+      "state": "absent"
+    },
+    {
+      "pid": 806802,
+      "state": "absent"
+    },
+    {
+      "pid": 806934,
+      "state": "absent"
+    },
+    {
+      "pid": 806926,
+      "state": "absent"
+    },
+    {
+      "pid": 807036,
+      "state": "absent"
+    },
+    {
+      "pid": 807170,
+      "state": "absent"
+    },
+    {
+      "pid": 807162,
+      "state": "absent"
+    },
+    {
+      "pid": 807272,
+      "state": "absent"
+    },
+    {
+      "pid": 807399,
+      "state": "absent"
+    },
+    {
+      "pid": 807407,
+      "state": "absent"
+    },
+    {
+      "pid": 807508,
+      "state": "absent"
+    },
+    {
+      "pid": 807644,
+      "state": "absent"
+    },
+    {
+      "pid": 807636,
+      "state": "absent"
+    },
+    {
+      "pid": 807746,
+      "state": "absent"
+    },
+    {
+      "pid": 816468,
+      "state": "absent"
+    },
+    {
+      "pid": 816476,
+      "state": "absent"
+    },
+    {
+      "pid": 816576,
+      "state": "absent"
+    },
+    {
+      "pid": 818545,
+      "state": "absent"
+    },
+    {
+      "pid": 818651,
+      "state": "absent"
+    },
+    {
+      "pid": 818669,
+      "state": "absent"
+    },
+    {
+      "pid": 820479,
+      "state": "absent"
+    },
+    {
+      "pid": 820487,
+      "state": "absent"
+    },
+    {
+      "pid": 820586,
+      "state": "absent"
+    },
+    {
+      "pid": 820972,
+      "state": "absent"
+    },
+    {
+      "pid": 820964,
+      "state": "absent"
+    },
+    {
+      "pid": 821072,
+      "state": "absent"
+    },
+    {
+      "pid": 821449,
+      "state": "absent"
+    },
+    {
+      "pid": 821457,
+      "state": "absent"
+    },
+    {
+      "pid": 821558,
+      "state": "absent"
+    },
+    {
+      "pid": 821943,
+      "state": "absent"
+    },
+    {
+      "pid": 821935,
+      "state": "absent"
+    },
+    {
+      "pid": 822044,
+      "state": "absent"
+    },
+    {
+      "pid": 822429,
+      "state": "absent"
+    },
+    {
+      "pid": 822421,
+      "state": "absent"
+    },
+    {
+      "pid": 822528,
+      "state": "absent"
+    },
+    {
+      "pid": 822917,
+      "state": "absent"
+    },
+    {
+      "pid": 822909,
+      "state": "absent"
+    },
+    {
+      "pid": 823016,
+      "state": "absent"
+    },
+    {
+      "pid": 823767,
+      "state": "absent"
+    },
+    {
+      "pid": 823775,
+      "state": "absent"
+    },
+    {
+      "pid": 823792,
+      "state": "absent"
+    },
+    {
+      "pid": 824180,
+      "state": "absent"
+    },
+    {
+      "pid": 824189,
+      "state": "absent"
+    },
+    {
+      "pid": 824208,
+      "state": "absent"
+    },
+    {
+      "pid": 826677,
+      "state": "absent"
+    },
+    {
+      "pid": 827383,
+      "state": "absent"
+    },
+    {
+      "pid": 802593,
+      "state": "absent"
+    },
+    {
+      "pid": 802601,
+      "state": "absent"
+    },
+    {
+      "pid": 802699,
+      "state": "absent"
+    },
+    {
+      "pid": 809726,
+      "state": "absent"
+    },
+    {
+      "pid": 809718,
+      "state": "absent"
+    },
+    {
+      "pid": 811008,
+      "state": "absent"
+    },
+    {
+      "pid": 812570,
+      "state": "absent"
+    },
+    {
+      "pid": 812562,
+      "state": "absent"
+    },
+    {
+      "pid": 812675,
+      "state": "absent"
+    },
+    {
+      "pid": 812800,
+      "state": "absent"
+    },
+    {
+      "pid": 812808,
+      "state": "absent"
+    },
+    {
+      "pid": 812910,
+      "state": "absent"
+    },
+    {
+      "pid": 813044,
+      "state": "absent"
+    },
+    {
+      "pid": 813036,
+      "state": "absent"
+    },
+    {
+      "pid": 813152,
+      "state": "absent"
+    },
+    {
+      "pid": 813280,
+      "state": "absent"
+    },
+    {
+      "pid": 813288,
+      "state": "absent"
+    },
+    {
+      "pid": 813390,
+      "state": "absent"
+    },
+    {
+      "pid": 813526,
+      "state": "absent"
+    },
+    {
+      "pid": 813518,
+      "state": "absent"
+    },
+    {
+      "pid": 813627,
+      "state": "absent"
+    },
+    {
+      "pid": 813762,
+      "state": "absent"
+    },
+    {
+      "pid": 813754,
+      "state": "absent"
+    },
+    {
+      "pid": 813864,
+      "state": "absent"
+    },
+    {
+      "pid": 827912,
+      "state": "absent"
+    },
+    {
+      "pid": 827920,
+      "state": "absent"
+    },
+    {
+      "pid": 828022,
+      "state": "absent"
+    },
+    {
+      "pid": 829993,
+      "state": "absent"
+    },
+    {
+      "pid": 830099,
+      "state": "absent"
+    },
+    {
+      "pid": 830117,
+      "state": "absent"
+    },
+    {
+      "pid": 831900,
+      "state": "absent"
+    },
+    {
+      "pid": 831892,
+      "state": "absent"
+    },
+    {
+      "pid": 832001,
+      "state": "absent"
+    },
+    {
+      "pid": 832386,
+      "state": "absent"
+    },
+    {
+      "pid": 832378,
+      "state": "absent"
+    },
+    {
+      "pid": 832490,
+      "state": "absent"
+    },
+    {
+      "pid": 832879,
+      "state": "absent"
+    },
+    {
+      "pid": 832887,
+      "state": "absent"
+    },
+    {
+      "pid": 832986,
+      "state": "absent"
+    },
+    {
+      "pid": 833381,
+      "state": "absent"
+    },
+    {
+      "pid": 833389,
+      "state": "absent"
+    },
+    {
+      "pid": 833509,
+      "state": "absent"
+    },
+    {
+      "pid": 833909,
+      "state": "absent"
+    },
+    {
+      "pid": 833900,
+      "state": "absent"
+    },
+    {
+      "pid": 834012,
+      "state": "absent"
+    },
+    {
+      "pid": 834420,
+      "state": "absent"
+    },
+    {
+      "pid": 834412,
+      "state": "absent"
+    },
+    {
+      "pid": 834527,
+      "state": "absent"
+    },
+    {
+      "pid": 835613,
+      "state": "absent"
+    },
+    {
+      "pid": 835605,
+      "state": "absent"
+    },
+    {
+      "pid": 835629,
+      "state": "absent"
+    },
+    {
+      "pid": 836063,
+      "state": "absent"
+    },
+    {
+      "pid": 836047,
+      "state": "absent"
+    },
+    {
+      "pid": 836039,
+      "state": "absent"
+    },
+    {
+      "pid": 838371,
+      "state": "absent"
+    },
+    {
+      "pid": 839077,
+      "state": "absent"
+    },
+    {
+      "pid": 808768,
+      "state": "absent"
+    },
+    {
+      "pid": 808665,
+      "state": "absent"
+    },
+    {
+      "pid": 808657,
+      "state": "absent"
+    }
+  ],
+  "cleanupScope": "Actual fresh launch/join observations only; historical/control PID fields excluded. PID observations never authorize continuation/admission.",
+  "authoritySchema": "Required values are exact nonempty JSON strings; missing/null/non-string/empty refused. Optional earlier config permits omission/empty string only. Whitespace/case remain significant, including whitespace-only nonempty values; no trimming or added character grammar. Existing ASCII full-string request ID validation is unchanged.",
+  "historicalPolicy": "Null release, null accepted retention ancestry and null accepted continuation ancestry close/replay-refuse without rewrite; original fences, records, missing success/cancellation and missing new outcomes remain unchanged.",
+  "remainingExecutionBlockers": [],
+  "independentRereview": "pending",
+  "publicationAuthorized": false,
+  "scope": "Controlled offline single-writer Linux SHA1 fixtures; observation admission only, no live/user recovery or generic core/graph/storage schema changes."
+}

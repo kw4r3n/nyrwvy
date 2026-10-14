@@ -30,6 +30,12 @@ retention authority and `gitOwner` to the maintained owner. Authority strings ar
 offline operator inputs, not access-control credentials. IDs use the retained
 1–80-character ASCII boundary with absolute full-string anchors.
 
+Required authority values are exact nonempty JSON strings. Missing, null, numbers,
+booleans, objects, arrays and empty strings refuse before acceptance. Authorities
+are opaque values: whitespace and case are significant, with no trimming or new
+character grammar. A whitespace-only string is nonempty and requires an exact
+explicit match. This does not change the stricter ASCII request-ID grammar.
+
 ## New physical request
 
 Before any new intent or Git mutation, the procedure revalidates prior retention,
@@ -137,6 +143,11 @@ comparison omits only index-stat digest; paths/PIDs remain in raw evidence.
 The [release-authority review repair](../../docs/verification/offline-session-git-release-authority-repair-20261014.md)
 records the original reviewer reproductions and the focused retained/current
 configuration, replay, startup and publication-window checks.
+
+The [authority-value repair](../../docs/verification/offline-session-git-authority-values-repair-20261014.md)
+adds strict JSON type/nonempty checks at retention, continuation, release and
+retained startup boundaries. Optional earlier configuration permits omission or
+an empty string; a present null/non-string setting is malformed and refused.
 
 Scope remains one trusted serialized writer, immutable fixture provisioning,
 intact flushed storage and controlled Linux standalone SHA1/single UTF-8 file
