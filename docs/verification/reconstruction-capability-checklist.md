@@ -2,7 +2,8 @@
 
 This checklist distinguishes demonstrated composition from missing application
 behavior. It is scoped to offline Linux-pipe reconstruction with synthetic
-provider/Git effects. Private historical Rrawrlet artifacts and physical-provider
+providers and synthetic Git effects, plus a bounded disposable physical Git binding.
+Private historical Rrawrlet artifacts and physical-provider
 equivalence are absent. Passing observations do not establish arbitrary race or
 platform coverage. No Rrawrlet-specific core feature is proposed.
 
@@ -19,7 +20,7 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Successful EOF while foreground command is held | Observer completes normally; owner waits for dispatcher and protected gate release | Supported; queued-frame EOF observation still waits for dispatch acknowledgement |
 | Peer acknowledgement of outcome | OS accepted writes and correlation ID do not prove peer processing | Missing |
 | Durable outcome retention and request deduplication | Graph-written actual outcome receipt and provenance; cancellation/crash returns the original err:cancelled after receipt, remains unresolved before it; complete effects do not imply success; legacy inferred results need actual evidence | Demonstrated in selected synchronous integration windows, one retained single-writer domain |
-| Restart reconciliation of interrupted synthetic mutations | Durable selected intent; absence/applied/partial/unavailable evidence; SIGKILL before mutation and after commit/save; conflicting payload and changed candidate stay blocked before retry | Demonstrated in measured windows; physical Git/provider binding remains missing |
+| Restart reconciliation of interrupted mutations | Durable selected intent; absence/applied/partial/unavailable evidence; synthetic and [bounded physical Git](../../examples/offline-session-physical-git/README.md) subprocess-exit SIGKILL windows; conflicting payload and changed candidate stay blocked before retry | Demonstrated for synthetic effects and disposable single-file SHA1 repositories; child-running windows/live provider effects remain missing |
 | Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
@@ -44,10 +45,17 @@ effects. Missing registry facts in a nonempty domain close admission.
 The [identity/actual-data repair](offline-session-registry-repair-20261014.md)
 authenticates replayed Member associations and checks all retained current-ready
 actual results before repair or input, including constructed contradiction controls.
-Broader application continuation and the physical mutation/evidence binding
-remain separate proof obligations for an approved isolated offline fixture.
-The current synthetic effect ledger cannot prove physical Git
-reconciliation or provider equivalence. Multi-writer exclusion, pruning,
+The [physical Git milestone](offline-session-physical-git-20261014.md) binds the
+unchanged reviewed registry graph to real commit-object, ref and index/worktree
+effects in clean disposable fixtures. Complete local inspection, including
+unreachable objects and raw pre-index bytes, is required for safe absence;
+missing receipts alone never authorize retry. Complete Git state without a
+retained actual outcome remains unresolved. Original/moved matrices retain
+once-only lost-response effects and exact cancellation; partial/unowned state
+never automatically retries. This does not establish arbitrary Git interruption,
+partial-operation resumption, linked-worktree lifecycle or provider equivalence.
+The synthetic effect ledger retains its narrower original meaning.
+Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown
 insufficient, and no Rrawrlet-specific core policy is warranted.

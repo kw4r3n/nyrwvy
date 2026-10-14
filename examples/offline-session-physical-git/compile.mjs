@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict'
+import {readFile} from 'node:fs/promises'
+import {compileRegistry} from '../offline-session-registry/compile.mjs'
+const physical=await readFile(new URL('./git.template.cs',import.meta.url),'utf8')
+const replace=(source,from,to)=>{assert.equal(source.split(from).length,2,from);return source.replace(from,to)}
+await compileRegistry(process.argv[2],{effectsTransform:source=>{
+ source=replace(source,' @@METHODS@@',physical+'\n @@METHODS@@')
+ source=replace(source,'NyOption<NyStr>.Some(System.IO.File.ReadAllText(file))','NyOption<NyStr>.Some(PhysicalRead(key.ToString(),System.IO.File.ReadAllText(file)))')
+ assert.equal(source.split('if(k=="registry/v1")Checkpoint(').length,3)
+ source=source.replace('if(k=="registry/v1")Checkpoint(', 'if(k=="registry/v1")PhysicalPrepare(v);\n  if(k=="registry/v1")Checkpoint(')
+ source=replace(source,'  AtomicWrite(k,v);Observe', '  if(k.StartsWith("journal/v1/",StringComparison.Ordinal))PhysicalPrepareJournal(v);\n  AtomicWrite(k,v);Observe')
+ source=replace(source,'PersistEffect(phase,patch.ToString());','PhysicalStep(phase,patch.ToString());')
+ source=replace(source,'"head"=>new[]{"integrated-head"}', '"head"=>new[]{PhysicalHead()}')
+ source=replace(source,'public NyStr EffectEvidence(NyStr identity){','public NyStr EffectEvidence(NyStr identity)=>PhysicalEvidence(identity.ToString());\n NyStr SyntheticEvidence(NyStr identity){')
+ return source
+}})
