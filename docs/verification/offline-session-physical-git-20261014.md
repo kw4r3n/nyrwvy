@@ -1,5 +1,12 @@
 # Bounded physical Git reconciliation, 2026-10-14
 
+This is the retained author record for request-changes candidate
+`98174898cb3ca1db33b44b0453d84304e50c1bd9`. Independent review found that its
+content-only worktree comparison missed executable-mode drift. See the
+[mode repair record](offline-session-physical-git-mode-repair-20261014.md) for
+the corrected binding and fresh evidence; the original counts below remain
+historical and do not establish executable-mode safety.
+
 Base: independently reviewed `b44dbdabb9d17ae8c641acbd1813cb014e39f326`, tree
 `79b5430f90469ff0f1e25d1842853f7ce5ad7b5d`, published draft PR402 on PR401.
 Candidate work is isolated on `feat/physical-git-reconciliation`; publication and

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {readFile,writeFile,mkdir,readdir,rm,access} from 'node:fs/promises'
+import {readFile,writeFile,mkdir,readdir,rm,access,chmod,symlink} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {spawn} from 'node:child_process'
 import {createInterface} from 'node:readline'
@@ -20,11 +20,11 @@ const publication=r=>JSON.parse(r.storageAfter[key('registry/v1')])
 const inspectReply=r=>r.events.findLast(e=>e.operation==='reply'&&arg(e,'label')==='restored')&&arg(r.events.findLast(e=>e.operation==='reply'&&arg(e,'label')==='restored'),'record')
 const plan=r=>JSON.parse(r.storageAfter[key('physical-plan/v1/'+token)])
 const unchanged=r=>{noEffects(r);assert.deepEqual(r.storageBefore,r.storageAfter);assert.deepEqual(r.physicalBefore,r.physicalAfter)}
-async function execute(name,index,{crash='',evidence='',line=integration,fault='',lost=false,witness=false,withPrefix=index===1,inspectMember=false,startupFailure=false,physicalControl='',restorationDisabled=false,customCommands,providerKinds}={}){
+async function execute(name,index,{crash='',evidence='',line=integration,fault='',lost=false,witness=false,withPrefix=index===1,inspectMember=false,startupFailure=false,physicalControl='',worktreeModeControl='',restorationDisabled=false,customCommands,providerKinds}={}){
  const root=join(dir,'runs',name),state=join(root,'state');await mkdir(state,{recursive:true})
  let f;try{f=JSON.parse(await readFile(join(root,'fixture.json'),'utf8'))}catch{f=await fixture(join(root,'git'));await writeFile(join(root,'fixture.json'),JSON.stringify(f))}
  const gate=join(root,'commit-release'),journalGate=join(root,'journal-release');await rm(gate,{force:true});await rm(journalGate,{force:true})
- const scenario={kind:'transport',patch:f.patch,providers:providerKinds??{1:'complete',2:witness?'hold':'complete',3:'complete'},autoMember:'true',storageDir:state,commitGateFile:gate,journalGateFile:journalGate,crashWindow:crash,evidence,snapshotCommit:f.selected,fixtureId:await readFile(join(f.root,'.git','offline-fixture-id'),'utf8'),physicalControl}
+ const scenario={kind:'transport',patch:f.patch,providers:providerKinds??{1:'complete',2:witness?'hold':'complete',3:'complete'},autoMember:'true',storageDir:state,commitGateFile:gate,journalGateFile:journalGate,crashWindow:crash,evidence,snapshotCommit:f.selected,fixtureId:await readFile(join(f.root,'.git','offline-fixture-id'),'utf8'),physicalControl,worktreeModeControl}
  const scenarioFile=join(root,`scenario-${index}.json`);await writeFile(scenarioFile,JSON.stringify(scenario))
  const storageBefore=await storage(state),physicalBefore=await inspect(f.root)
  const child=spawn('dotnet',[join(dir,...(restorationDisabled?['restoration-disabled','Runtime.dll']:['Runtime.dll'])),scenarioFile],{stdio:['pipe','pipe','pipe']})
@@ -143,6 +143,30 @@ for(const damage of ['unreachable-object','head-ref','index-worktree','missing-p
  if(damage==='actual-outcome')await writeFile(join(state,key('outcome/'+token)),'err:contradiction')
  const b=await execute(name,2,{startupFailure:true});unchanged(b);noProvider(b);assert.ok(!b.events.some(e=>e.operation==='storage-write-attempt'));proof.push({name,processes:2,constructedDamage:true,closedBeforeReaderAndRepair:true})
 }
+// Natural seed crashes followed by explicitly constructed Git-metadata damage.
+// The content-only causal control uses the identical graph/compiled binding.
+for(const boundary of ['pending','ready'])for(const contentOnly of [false,true]){
+ const name=`${boundary}-executable-mode${contentOnly?'-content-only-control':''}`,worktreeModeControl=contentOnly?'content-only':''
+ const a=await execute(name,1,{crash:boundary==='pending'?'after-intent':'after-effect',worktreeModeControl}),file=join(a.fixture.root,'file.txt')
+ assert.equal(a.physicalAfter.gitMode,'100644');await chmod(file,0o755)
+ const changed=await inspect(a.fixture.root);assert.equal(changed.gitMode,'100755');assert.equal(changed.worktree,a.physicalAfter.worktree);assert.equal(changed.index,a.physicalAfter.index);assert.equal(changed.refs,a.physicalAfter.refs);assert.deepEqual(changed.objects,a.physicalAfter.objects);assert.ok(changed.status.includes('M file.txt'))
+ const options={worktreeModeControl,startupFailure:boundary==='ready'&&!contentOnly},b=await execute(name,2,options),c=await execute(name,3,options)
+ if(!contentOnly){for(const r of [b,c]){unchanged(r);noProvider(r);assert.equal(r.physicalAfter.worktreeMode,0o755);assert.ok(!r.events.some(e=>e.operation==='storage-write-attempt'));if(boundary==='pending'){assert.equal(outcome(r),'err:unresolved');assert.ok(r.events.some(e=>e.operation==='effect-evidence'&&e.state==='unknown'))}}
+  assert.equal(plan(a).Before.Worktree.split(':')[1],'100644');assert.equal(plan(a).ExpectedWorktree.split(':')[1],'100644')
+ }else{assert.equal(outcome(b),'ok:'+plan(a).Commit);assert.equal(outcome(c),'ok:'+plan(a).Commit)
+  if(boundary==='pending'){assert.deepEqual(physicalCounts(b),{'commit-tree':1,'update-ref':1,'read-tree':1});assert.equal(b.physicalAfter.worktreeMode,0o644);assert.throws(()=>noEffects(b),assert.AssertionError)}
+  else{noEffects(b);assert.equal(b.physicalAfter.worktreeMode,0o755);assert.ok(b.events.some(e=>e.operation==='read-start'));assert.ok(b.events.some(e=>e.operation==='storage-write-attempt'));assert.throws(()=>assert.ok(!b.events.some(e=>e.operation==='read-start')),assert.AssertionError)}
+ }
+ proof.push({name,processes:3,seedSigkill:true,constructedMetadataDamage:true,contentOnlyControl:contentOnly,contractRejected:contentOnly,total:total([a,b,c]),retainedGitMode:contentOnly?'omitted':'100644',changedGitMode:'100755'})
+}
+for(const boundary of ['pending','ready'])for(const damage of ['index-mode','symlink','legacy-content-only-plan']){
+ const name=`${boundary}-${damage}`,a=await execute(name,1,{crash:boundary==='pending'?'after-intent':'after-effect'}),file=join(a.fixture.root,'file.txt'),state=join(dir,'runs',name,'state')
+ if(damage==='index-mode')git(a.fixture.root,['update-index','--chmod=+x','file.txt'])
+ if(damage==='symlink'){await rm(file);await symlink('.git/COMMIT_EDITMSG',file)}
+ if(damage==='legacy-content-only-plan'){const legacy=plan(a);legacy.Version='1';legacy.Before.Worktree=legacy.Before.Worktree.replace(':100644:',':');legacy.ExpectedWorktree=legacy.ExpectedWorktree.replace(':100644:',':');await writeFile(join(state,key('physical-plan/v1/'+token)),JSON.stringify(legacy))}
+ for(const index of [2,3]){const r=await execute(name,index,{startupFailure:boundary==='ready'});unchanged(r);noProvider(r);assert.ok(!r.events.some(e=>e.operation==='storage-write-attempt'));if(boundary==='pending')assert.equal(outcome(r),'err:unresolved')}
+ proof.push({name,processes:3,seedSigkill:true,constructedMetadataDamage:true,unresolvedWithoutRetryOrRepair:true})
+}
 {
  const a=await execute('receipt-only-control',1,{crash:'after-git-object',physicalControl:'receipt-absence'}),b=await execute('receipt-only-control',2,{physicalControl:'receipt-absence'})
  assert.equal(outcome(b),'ok:'+plan(a).Commit);assert.equal(total([a,b])['commit-tree'],2);assert.equal(a.physicalAfter.objects.filter(x=>x.startsWith(plan(a).Commit+' ')).length,1)
@@ -162,5 +186,5 @@ for(const damage of ['unreachable-object','head-ref','index-worktree','missing-p
 }
 await writeFile(join(dir,'physical-raw.json'),JSON.stringify(rows,null,2)+'\n')
 const counts=total(rows),inspectionCommands=rows.reduce((n,r)=>n+r.events.filter(e=>e.operation==='physical-git-exit'&&!e.mutation).length,0)
-await writeFile(join(dir,'physical-proof.json'),JSON.stringify({scope:'disposable standalone SHA1 repository, single plain-text file, one trusted writer, quiescent subprocess exits; no power loss',rows:rows.length,domains:new Set(rows.map(r=>r.name)).size,sigkills:rows.filter(r=>r.signal==='SIGKILL').length,proof,counts,inspectionCommands,headObservationSteps:rows.reduce((n,r)=>n+r.events.filter(e=>e.operation==='physical-head-observed').length,0),identity:{recordKey,token},hashes:{raw:hash(await readFile(join(dir,'physical-raw.json'))),source:hash(await readFile(new URL(import.meta.url)))}},null,2)+'\n')
+await writeFile(join(dir,'physical-proof.json'),JSON.stringify({scope:'disposable standalone SHA1 repository, single plain-text file including Git executable mode, one trusted writer, quiescent subprocess exits; no power loss',rows:rows.length,domains:new Set(rows.map(r=>r.name)).size,sigkills:rows.filter(r=>r.signal==='SIGKILL').length,proof,counts,inspectionCommands,headObservationSteps:rows.reduce((n,r)=>n+r.events.filter(e=>e.operation==='physical-head-observed').length,0),identity:{recordKey,token},hashes:{raw:hash(await readFile(join(dir,'physical-raw.json'))),source:hash(await readFile(new URL(import.meta.url)))}},null,2)+'\n')
 console.log(`PASS: ${rows.length} physical processes; ${proof.length} contracts; ${rows.filter(r=>r.signal==='SIGKILL').length} SIGKILL windows; real Git mutations and read-only inspections counted separately`)

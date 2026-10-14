@@ -54,6 +54,10 @@ retained actual outcome remains unresolved. Original/moved matrices retain
 once-only lost-response effects and exact cancellation; partial/unowned state
 never automatically retries. This does not establish arbitrary Git interruption,
 partial-operation resumption, linked-worktree lifecycle or provider equivalence.
+The [executable-mode repair](offline-session-physical-git-mode-repair-20261014.md)
+adds Git file modes to retained pre-state and applied-state facts. Pending/ready
+mode drift, index-mode changes and symlink substitution fail closed; old
+content-only plans cannot authorize retry or ready receipt repair.
 The synthetic effect ledger retains its narrower original meaning.
 Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity

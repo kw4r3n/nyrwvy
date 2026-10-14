@@ -7,7 +7,7 @@
   public string Worktree {get;set;}="";
  }
  sealed class GitPlan {
-  public string Version {get;set;}="1"; public string Identity {get;set;}="";
+  public string Version {get;set;}="2"; public string Identity {get;set;}="";
   public string Intent {get;set;}=""; public string Repository {get;set;}="";
   public string RepositoryId {get;set;}=""; public string Selected {get;set;}="";
   public string Tree {get;set;}=""; public string Patch {get;set;}="";
@@ -39,12 +39,18 @@
   Observe(new {operation="physical-git-exit",command=args[0],args,mutation,exitCode=process.ExitCode,childExited=true});
   Check(process.ExitCode==0,"Git command failed: "+args[0]+": "+error);return trim?output.TrimEnd('\r','\n'):output;
  }
+ // Git's regular-file mode records the owner's executable bit. Other Unix
+ // permission bits, ownership and timestamps are not tree-mode facts.
+ string FileFact(string name,string mode,string digest)=>name+":"+(Setting("worktreeModeControl")=="content-only"?"":mode+":")+digest;
  string WorktreeState(){
   var rows=new List<string>();
   void Walk(string dir){foreach(string entry in System.IO.Directory.EnumerateFileSystemEntries(dir).OrderBy(x=>x,StringComparer.Ordinal)){
    string name=System.IO.Path.GetRelativePath(GitRoot,entry);if(name==".git"||name=="disabled-hooks")continue;
    Check((System.IO.File.GetAttributes(entry)&System.IO.FileAttributes.ReparsePoint)==0,"symlinked worktree entry");
-   if(System.IO.Directory.Exists(entry))Walk(entry);else rows.Add(name+":"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(entry))).ToLowerInvariant());
+   if(System.IO.Directory.Exists(entry))Walk(entry);else{
+    string mode=(System.IO.File.GetUnixFileMode(entry)&System.IO.UnixFileMode.UserExecute)!=0?"100755":"100644";
+    rows.Add(FileFact(name,mode,Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(entry))).ToLowerInvariant()));
+   }
   }}Walk(GitRoot);return string.Join("\n",rows);
  }
  GitState PhysicalState(){
@@ -58,7 +64,7 @@
  string PlanKey(string identity)=>"physical-plan/v1/"+identity;
  GitPlan LoadPlan(string identity){
   var plan=JsonSerializer.Deserialize<GitPlan>(System.IO.File.ReadAllText(StoragePath(PlanKey(identity))))!;
-  Check(plan.Version=="1"&&plan.Identity==identity&&plan.Repository==GitRoot&&plan.RepositoryId==Setting("fixtureId"),"physical intent ownership");
+  Check(plan.Version=="2"&&plan.Identity==identity&&plan.Repository==GitRoot&&plan.RepositoryId==Setting("fixtureId"),"physical intent ownership/version");
   Check(plan.Before.Symbolic=="refs/heads/main","bounded branch");
   Check(Git(new[]{"rev-parse",plan.Selected+"^{tree}"})==plan.Tree,"selected tree changed");
   Check(Git(new[]{"diff",plan.Before.Head,plan.Selected,"--","file.txt"})==plan.Patch,"selected patch changed");
@@ -79,11 +85,11 @@
   string tree=Git(new[]{"rev-parse",selected+"^{tree}"}),listing=Git(new[]{"ls-tree","-r",selected});
   Check(System.Text.RegularExpressions.Regex.IsMatch(listing,"^100644 blob [0-9a-f]{40}\\tfile.txt$"),"single plain-text file fixture");
   string blob=listing.Split(' ')[2].Split('\t')[0],expectedIndex="100644 "+blob+" 0\tfile.txt";
-  string expectedWorktree="file.txt:"+DigestText(Git(new[]{"show",selected+":file.txt"},trim:false));
+  string expectedWorktree=FileFact("file.txt",listing.Split(' ')[0],DigestText(Git(new[]{"show",selected+":file.txt"},trim:false)));
   string baseListing=Git(new[]{"ls-tree","-r",before.Head});
   Check(System.Text.RegularExpressions.Regex.IsMatch(baseListing,"^100644 blob [0-9a-f]{40}\\tfile.txt$"),"bounded initial tree");
   string baseBlob=baseListing.Split(' ')[2].Split('\t')[0];
-  Check(before.IndexEntries=="100644 "+baseBlob+" 0\tfile.txt"&&before.Worktree=="file.txt:"+DigestText(Git(new[]{"show",before.Head+":file.txt"},trim:false)),"clean owned initial index/worktree");
+  Check(before.IndexEntries=="100644 "+baseBlob+" 0\tfile.txt"&&before.Worktree==FileFact("file.txt",baseListing.Split(' ')[0],DigestText(Git(new[]{"show",before.Head+":file.txt"},trim:false))),"clean owned initial index/worktree");
   string integrated=selectedIntent.RootElement.GetProperty("integrated").GetString()!;bool noMutation=integrated!="";
   string patch=Git(new[]{"diff",before.Head,selected,"--","file.txt"});
   if(noMutation)Check(before.Head==integrated&&before.IndexEntries==expectedIndex&&before.Worktree==expectedWorktree&&patch=="","already integrated physical state");

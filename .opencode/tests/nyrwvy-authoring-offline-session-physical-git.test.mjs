@@ -25,5 +25,9 @@ test('physical Git evidence binds the reviewed registry graph without effect-der
   assert.equal(proof.find(x=>x.name==='graph-control').restoredHeadContractRejected,true)
   assert.equal(proof.find(x=>x.name==='cancel-before-registry-publication').sameId,'err:unresolved')
   assert.equal(proof.find(x=>x.name==='cancel-before-outcome-receipt').sameId,'err:cancelled')
+  for(const boundary of ['pending','ready']){
+   assert.equal(proof.find(x=>x.name===`${boundary}-executable-mode`).contractRejected,false)
+   assert.equal(proof.find(x=>x.name===`${boundary}-executable-mode-content-only-control`).contractRejected,true)
+  }
  }finally{await rm(root,{recursive:true,force:true})}
 })

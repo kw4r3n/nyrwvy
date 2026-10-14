@@ -1,5 +1,5 @@
 // Disposable fixtures only. Never discovers or operates on a user checkout.
-import {mkdir,writeFile,readFile,readdir} from 'node:fs/promises'
+import {mkdir,writeFile,readFile,readdir,lstat} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
@@ -20,6 +20,7 @@ export async function fixture(root){
  git(root,['read-tree','--reset','-u',base]);return {root,base,selected,tree,patch:git(root,['diff',base,selected,'--','file.txt'])}
 }
 export async function inspect(root){
+ const file=join(root,'file.txt'),info=await lstat(file),regular=info.isFile()
  return {head:git(root,['rev-parse','HEAD']),refs:git(root,['show-ref']),objects:git(root,['cat-file','--batch-all-objects','--batch-check=%(objectname) %(objecttype)']).split('\n').sort(),
-  index:hash(await readFile(join(root,'.git','index'))),worktree:await readFile(join(root,'file.txt'),'utf8'),status:git(root,['status','--porcelain=v1','--untracked-files=all'])}
+  index:hash(await readFile(join(root,'.git','index'))),worktree:regular?await readFile(file,'utf8'):null,worktreeType:regular?'file':info.isSymbolicLink()?'symlink':'other',worktreeMode:info.mode&0o777,gitMode:regular?(info.mode&0o100?'100755':'100644'):null,status:git(root,['status','--porcelain=v1','--untracked-files=all'])}
 }
