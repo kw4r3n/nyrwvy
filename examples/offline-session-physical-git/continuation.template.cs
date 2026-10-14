@@ -110,13 +110,22 @@
   string pending=System.IO.File.ReadAllText(StoragePath(ContinuationKey));var intent=JsonSerializer.Deserialize<ContinuationIntent>(pending)!;Check(intent.Id==id,"release continuation identity mismatch");
   string actual=System.IO.File.ReadAllText(StoragePath(ContinuationResultKey(id)));Check(actual==CompletionRecord(intent,pending),"release requires actual new continuation outcome");return actual;
  }
+ void ReleaseAuthorityLineage(JsonElement release,ContinuationIntent intent){
+  using var accepted=JsonDocument.Parse(intent.Request);var continuation=accepted.RootElement;
+  using var prior=JsonDocument.Parse(Required(continuation,"retentionRequest"));var retention=prior.RootElement;
+  string authority=Required(release,"authorization"),continued=Required(continuation,"authorization"),retained=Required(retention,"authorization");
+  // Completion validation authenticates these exact accepted request bytes.
+  // Optional current configuration can confirm them, never relabel their authority.
+  Check(authority!=""&&continued!=""&&retained!=""&&continued!=retained&&authority!=continued&&authority!=retained,"release authority must differ from accepted continuation and retention");
+  Check((Setting("continuationAuthorization")==""||Setting("continuationAuthorization")==continued)&&(Setting("dispositionAuthorization")==""||Setting("dispositionAuthorization")==retained),"current authority configuration contradicts accepted lineage");
+ }
  string ReleaseObservation(string request){
   using var document=JsonDocument.Parse(request);var r=document.RootElement;AdministrativeAuthority(r,"releaseAuthorization","release-observation-admission");
-  Check(Required(r,"id")!=Required(r,"continuationId")&&Required(r,"authorization")!=Setting("continuationAuthorization")&&Required(r,"authorization")!=Setting("dispositionAuthorization"),"separate release decision required");
+  Check(Required(r,"id")!=Required(r,"continuationId"),"separate release decision required");
   dispositionInspection=true;
   try{
    string completion=ValidCompletion(Required(r,"continuationId"));using var cdoc=JsonDocument.Parse(completion);var c=cdoc.RootElement;
-   var intent=JsonSerializer.Deserialize<ContinuationIntent>(System.IO.File.ReadAllText(StoragePath(ContinuationKey)))!;using var originalRequest=JsonDocument.Parse(intent.Request);using var retentionRequest=JsonDocument.Parse(Required(originalRequest.RootElement,"retentionRequest"));Check(Required(r,"id")!=Required(retentionRequest.RootElement,"id"),"release identity must differ from retention");
+   var intent=JsonSerializer.Deserialize<ContinuationIntent>(System.IO.File.ReadAllText(StoragePath(ContinuationKey)))!;ReleaseAuthorityLineage(r,intent);using var originalRequest=JsonDocument.Parse(intent.Request);using var retentionRequest=JsonDocument.Parse(Required(originalRequest.RootElement,"retentionRequest"));Check(Required(r,"id")!=Required(retentionRequest.RootElement,"id"),"release identity must differ from retention");
    Check(Required(r,"continuationDigest")==DigestText(completion)&&Required(r,"observedStateDigest")==Required(c,"stateDigest")&&Required(r,"registryDigest")==Required(c,"registryDigest"),"release decision/state binding");
    string admission=JsonSerializer.Serialize(new {version="1",id=Required(r,"id"),request,requestDigest=DigestText(request),continuationId=Required(r,"continuationId"),continuationDigest=DigestText(completion),stateDigest=Required(c,"stateDigest"),registryDigest=Required(c,"registryDigest"),scope="observation-only",originalOutcome="not-inferred"});
    string pendingFile=StoragePath(AdmissionKey);if(System.IO.File.Exists(pendingFile))Check(System.IO.File.ReadAllText(pendingFile)==admission,"conflicting release intent");
@@ -141,6 +150,7 @@
   Check(Required(r,"requestDigest")==DigestText(request)&&Required(q,"id")==Required(r,"id")&&Required(q,"authorization")!=""&&Required(q,"action")=="release-observation-admission"&&Required(q,"continuationId")==Required(r,"continuationId")&&Required(q,"continuationDigest")==Required(r,"continuationDigest")&&Required(q,"observedStateDigest")==Required(r,"stateDigest")&&Required(q,"registryDigest")==Required(r,"registryDigest"),"release request lineage mismatch");
   dispositionInspection=true;
   try{string completion=ValidCompletion(Required(r,"continuationId"));using var cdoc=JsonDocument.Parse(completion);var c=cdoc.RootElement;
+   ReleaseAuthorityLineage(q,JsonSerializer.Deserialize<ContinuationIntent>(System.IO.File.ReadAllText(StoragePath(ContinuationKey)))!);
    Check(DigestText(completion)==Required(r,"continuationDigest")&&Required(c,"stateDigest")==Required(r,"stateDigest")&&DigestText(registry)==Required(r,"registryDigest")&&Required(c,"registryDigest")==Required(r,"registryDigest"),"released admission facts changed");
   }finally{dispositionInspection=false;}
   observationAdmission=true;Observe(new {operation="physical-observation-admission",id=Required(r,"id"),scope="observation-only",originalOutcome="not-inferred"});return registry;

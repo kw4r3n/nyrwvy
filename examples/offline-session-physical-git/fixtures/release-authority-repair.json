@@ -1,0 +1,686 @@
+{
+  "base": "420a30b753020a361098adc3612a0ee70f6c9091",
+  "baseTree": "e3fa4b524d90a6a4b3f8e1673199caeeeff560e0",
+  "finding": "P2-1",
+  "authorRepair": "release/startup authority separation uses exact accepted continuation and retention requests; nonempty supplied earlier settings must match accepted values before writes/input",
+  "sources": {
+    "continuation.template.cs": "2a7e7fbd6115bcc02ad25d2f282a9b2d4edeb2dfdd2050af7e9ab0622804ea29",
+    "test-release-authority.mjs": "a712f63baa12ecd4af0575f455afa02bfe23b41c8b308ab279664e2c5ef206d3",
+    "verify-release-authority.mjs": "c46b8a603c08d70906360e9240e6405f064314c56f1aba296f4a703eaefcd38f",
+    "compile.mjs": "e2c18324d2203d07a79ede29bf67a90d21897c07e871bd51750ec776c0ab36f0",
+    "continuation-fixture.mjs": "bd5ddd541efa9f4c9226b56e668632e93f8d8122d230e332596815177a8f4add",
+    "git.template.cs": "5213fe2e7be247170b92f54f97901f0c749e3d0148b40e369e47f6d7bbb5166a",
+    "disposition.template.cs": "e7753d1da475d8aed7d2e347dabecd0fd1fedcddfdfd3a8d3323fc1291b5d30e",
+    "git-owner.mjs": "5b9bbf5cdf98cc26296df269815d3c5270e8288ec6a56609abb7f4d595045291",
+    "test-admission-firewall.mjs": "fa0a5ce60067acbdfbe1461ccca679688bd849195d66ea6a1169d2c417478219"
+  },
+  "artifacts": {
+    "session.json": "71f997a236d26c20a6a4193a2826a8773ade9ef184a7887a02a358a6c71db5a5",
+    "Generated.cs": "ea7e8c899d699f28462970a0b01c83ca42c846d066c7e37e81350aa9beb8fcd6",
+    "symbols.json": "e41a97592abb39c42fe679d60895bfa5c46ae3230297c417cec2e86672fec2bd",
+    "declarations.json": "01e4d801c9264931eb48302b8aa0e6ee8fedf03cb56d7708f4a4e8985c987014",
+    "authoring.json": "47b0483811fd623b9170ceda639036fed354ef773e044d4091846825fa7eb054",
+    "Program.cs": "4e67670e83ea34ef86acbce930dfbe4b797ba984d8a5fdb1ddcedb80723a099e",
+    "Runtime.dll": "d54774715157d2c8472ecddd281489780130190052b94a68bb682bad764a7ae3",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+    "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+    "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+    "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+    "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+    "restoration-disabled/Program.cs": "88cf58a1fcc2d8e6f56e83f5625641318bf96c4202ba5b5f4e52afc0ff34daa7",
+    "restoration-disabled/Runtime.dll": "08f468b5a212bba3442e3652cb2ed9acd06df580ff515c9f7bdd38fee38358bd",
+    "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+  },
+  "unchangedContinuationPrefixHash": "d0663300e09c6de67c44522c00bad0f8c5951dcad50855e4d80c0da1009e61b2",
+  "retained": {
+    "preparationHashComparisons": 173,
+    "finalHashComparisons": 114,
+    "authorAudit": "2c2393e6f5c377477320135a0cbc825e97183543746a03f51cb71528aa37ea34",
+    "reviewHashes": {
+      "independent-review.md": "35be5d5ef7fdf75a83d5fc12bf6c7610a17dfc94e1235f60491e9dcb2dd9b7f0",
+      "review-findings.json": "3c1f87a9162215f05df56964e39c8b409ae017fb5f2f7884beb19419a5e4a0ba",
+      "review-authority.mjs": "9fe1aeccdbe4b7c9bdaa50087e349be4e7d177340b488461f576c65849782801",
+      "evidence/audit.json": "e62d94c26089718906963ff21ef4dbc8c70f48087aa3494d3de2fc483f44633e",
+      "evidence/reuse.json": "9572c8f1a87f5e3a22bd7c1114ccdec33b42666791af3b6aebd7bc5be5a3cb45",
+      "evidence/authority/proof.json": "07cd96b2937b2c3870bb3b52578e5fae0472a45f748f154f841bd039c9cbd291",
+      "evidence/authority/raw.json": "a3a2f2e1f6281816743bd9e7790b47b453a948e11c9161eaf939885f7ce00c50",
+      "evidence/authority/application-rows.json": "c1aa3be19509ae6e878c8bfb455d6445972bda1742e91f5e03828866018647ef"
+    },
+    "authorCounts": {
+      "continuation": {
+        "processes": 630,
+        "domains": 98,
+        "sigkills": 144
+      },
+      "regression": {
+        "processes": 188,
+        "domains": 14,
+        "sigkills": 10
+      }
+    },
+    "reviewerCounts": {
+      "continuation": {
+        "processes": 630,
+        "domains": 98,
+        "sigkills": 144
+      },
+      "regression": {
+        "processes": 188,
+        "domains": 14,
+        "sigkills": 10
+      }
+    },
+    "note": "Original broad matrices, original finding/review and archived 18-artifact bundles remain separate; unaffected continuation/custody/disposition/core branches reused, not recounted."
+  },
+  "baselineControl": {
+    "processes": 17,
+    "domains": 1,
+    "sigkills": 1,
+    "violations": [
+      "same-continuation-omitted",
+      "same-retention-omitted",
+      "same-continuation-relabelled"
+    ],
+    "proofHash": "f45e59b47b9c30e4e21428d1ae370aae9e253db65da30ed6b0033447aeb2b95e",
+    "sourceHash": "9fe1aeccdbe4b7c9bdaa50087e349be4e7d177340b488461f576c65849782801",
+    "originalDriverUnmodified": true
+  },
+  "freshFocused": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 167,
+        "domains": 8,
+        "sigkills": 14,
+        "rawHash": "78d3164942a9d9992f256305cff8ff84342bca2a1b5a19bff22accb18134341c",
+        "applicationRowsHash": "b761916bb238c8f6ac3bcd68c127538567ca153ea0008a77e214eab8665e30f4",
+        "proofHash": "bab061e76d204044df24ba9466e4ea474a4d17296b8cf7d82c9ad89a7b7e6ffe",
+        "legacyInvalidActivationObservations": 9
+      },
+      {
+        "location": "moved",
+        "processes": 167,
+        "domains": 8,
+        "sigkills": 14,
+        "rawHash": "85f23ac1bad9a84c88796c98245b4be836de3c40c8e8612ac41d8875ed1d69c3",
+        "applicationRowsHash": "aac6cbbb45c2672deed7bf8a5ebf8f0a8e636dee26765df4f1f6e6926d528df8",
+        "proofHash": "71903959365d674900fcea3e7865914d23ad39bd86080dcdde66fbe227bb557d",
+        "legacyInvalidActivationObservations": 9
+      }
+    ],
+    "totals": {
+      "processes": 334,
+      "domains": 16,
+      "sigkills": 28
+    },
+    "legacyInvalidActivations": 3,
+    "legacyReadOrReplayProcesses": 18,
+    "legacyDisposableDomainsReused": 1,
+    "closureHash": "072f09bc0883496a25409e2e45eb453172a34ccafe2bef18236cab0f93cced3f"
+  },
+  "freshOriginalReviewerReproductions": {
+    "sets": [
+      {
+        "location": "original",
+        "processes": 17,
+        "domains": 1,
+        "sigkills": 1,
+        "violations": [],
+        "sourceHash": "9fe1aeccdbe4b7c9bdaa50087e349be4e7d177340b488461f576c65849782801",
+        "proofHash": "d56b421c0c1cd0977535d5621f169afc4ef620c80f70d6efca587a83927dd2aa",
+        "rawHash": "31c9afb172d35acfbd63f160e433b6ff23647d239e84bc197af794b406f30a01",
+        "applicationRowsHash": "1d40443180e9cce3549dc96d9dc9804206195ed50352cc42eba109be1e2d3a02",
+        "targetBindingHash": "d54774715157d2c8472ecddd281489780130190052b94a68bb682bad764a7ae3",
+        "metadataNote": "Unmodified reviewer driver retains the original candidate literal; target binding/source hashes identify the repaired execution."
+      },
+      {
+        "location": "moved",
+        "processes": 17,
+        "domains": 1,
+        "sigkills": 1,
+        "violations": [],
+        "sourceHash": "9fe1aeccdbe4b7c9bdaa50087e349be4e7d177340b488461f576c65849782801",
+        "proofHash": "05b0369f46c410bb370c6567a1059a6a2ce7317960708015a39b9487ccc0727b",
+        "rawHash": "930e3521f5534463cbee761d8e14513eab3379e57e957a0f98614d07eee84f87",
+        "applicationRowsHash": "5dad2b6df3f15fc754011922694afb1591b60e820c1c855ec3a8c459d5f2e881",
+        "targetBindingHash": "d54774715157d2c8472ecddd281489780130190052b94a68bb682bad764a7ae3",
+        "metadataNote": "Unmodified reviewer driver retains the original candidate literal; target binding/source hashes identify the repaired execution."
+      }
+    ],
+    "totals": {
+      "processes": 34,
+      "domains": 2,
+      "sigkills": 2
+    },
+    "originalDriverUnmodified": true
+  },
+  "freshFirewall": [
+    {
+      "location": "original",
+      "mechanicalProcesses": 1,
+      "newGitDomains": 0,
+      "proofHash": "0d8ab9a65319c7a7c44adb8e058bd46ff32ced673c41e257097a9678cef43f4d"
+    },
+    {
+      "location": "moved",
+      "mechanicalProcesses": 1,
+      "newGitDomains": 0,
+      "proofHash": "d8dcf3d3cbb9bd952a0e3623e011f4a75dd9394f6f545a74313d72bd1ff34733"
+    }
+  ],
+  "logs": {
+    "authority-moved.json": {
+      "sha256": "b79e689fe31cf94a5d0470203cd137c9ececa00c18a8a2195d798d71de059f8d",
+      "stdout": "PASS: 167 applications/8 fresh domains/14 kills; retained/current authority, replay/startup and release windows; 3 old invalid activations closed"
+    },
+    "authority-original.json": {
+      "sha256": "f6f7fd4468cd5cddfd95d5f63b6c9dfd71eba4135e3f80f863468dc804b23f16",
+      "stdout": "PASS: 167 applications/8 fresh domains/14 kills; retained/current authority, replay/startup and release windows; 3 old invalid activations closed"
+    },
+    "closure.json": {
+      "sha256": "71c8703f368ff1964ce5d137ed769541ad8238d27befcc7056e14401ed05ea93",
+      "stdout": "PASS: 167 original/moved authority rows and 18 exact artifacts; three retained invalid activations stay closed"
+    },
+    "compile-moved-control.json": {
+      "sha256": "7cd3d25582df4e90946d0398e74c25a98e8fe5e1d60c35c48a114806a006f8bd",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-moved.json": {
+      "sha256": "7d4252043965e6c6edb7f7ceb9fe80c14628d17f601cc334d7a88e0268e9ec3d",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original-control.json": {
+      "sha256": "540b5c82e93e10f9f4f42affd081c2ab879ed942324c249cba808bd2cf889145",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "compile-original.json": {
+      "sha256": "e36f2873ba268cc0dfd3c5b2ae3fb29a3c4ab6c12269725608b3a997cb7d5bab",
+      "stdout": "PASS: offline Roslyn compilation with unedited Generated.cs"
+    },
+    "firewall-moved.json": {
+      "sha256": "0bd33f0648a3860d2cc0a2bc0ec2e81243301d0d19a2c9849f4db060823814e0",
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "firewall-original.json": {
+      "sha256": "5370570aece03c1324339f71cd73829a463ba9f8c4fe7eba3d48bac40fda4bc4",
+      "stdout": "PASS: admission firewall refuses before any application plan/storage effect"
+    },
+    "original-driver-moved.json": {
+      "sha256": "3a5421b00d13773c88df8297cd7bb4e3f745fddc12fcef040c4623b956f941d7",
+      "stdout": "{\n  \"processes\": 17,\n  \"mismatches\": [],\n  \"cases\": [\n    {\n      \"name\": \"same-continuation-omitted\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-omitted\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-relabelled\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"other-continue\",\n        \"dispositionAuthorization\": \"other-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-bound\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-bound\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-omitted\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {},\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-bound\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    }\n  ]\n}"
+    },
+    "original-driver-original.json": {
+      "sha256": "7aa7708fa7b9735ce5685be3e04d0fd82bc6780db5db8225e56a85a3dad98444",
+      "stdout": "{\n  \"processes\": 17,\n  \"mismatches\": [],\n  \"cases\": [\n    {\n      \"name\": \"same-continuation-omitted\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-omitted\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {},\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-relabelled\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"other-continue\",\n        \"dispositionAuthorization\": \"other-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-continuation-bound\",\n      \"authorization\": \"offline-owner-continue\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"same-retention-bound\",\n      \"authorization\": \"offline-owner-retain\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": false,\n      \"released\": false,\n      \"readStarted\": false,\n      \"changed\": [],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-omitted\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {},\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    },\n    {\n      \"name\": \"distinct-bound\",\n      \"authorization\": \"offline-owner-release\",\n      \"settings\": {\n        \"continuationAuthorization\": \"offline-owner-continue\",\n        \"dispositionAuthorization\": \"offline-owner-retain\"\n      },\n      \"shouldRelease\": true,\n      \"released\": true,\n      \"readStarted\": true,\n      \"changed\": [\n        \"16547cea272c7645db41d4dde616ea37128301389781bbd733c84132dd0e0490.json\",\n        \"21acb2d6917f7f3ad571f9f8233a50b865c2cb11acc3f30bce7e82e6c880c1a5.json\",\n        \"66a64387bd68ef9c15ee98b44326e21fd89a021b7e5374698d6357eeeb1e9845.json\"\n      ],\n      \"contractMatches\": true\n    }\n  ]\n}"
+    },
+    "reopen-moved-control.json": {
+      "sha256": "585d70fbda4a839f5810a10b9fee180d99ce456ecb1f685eeefad7f17a937686",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-moved.json": {
+      "sha256": "9a3593e87ffd013f127addfb54491eb6f6eb7e952f9c2981e0341b116fb18446",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-original-control.json": {
+      "sha256": "c69d800e6f76b88c8830423ec48b10a32183b06cd8ae5734ac24a5c1131e2e46",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    },
+    "reopen-original.json": {
+      "sha256": "10b10142708f3c4ff43b06a9bff9d67be4fd039387b79299f06afa7fb9c15140",
+      "stdout": "PASS: registry graph saved/reopened with exact unedited re-emission"
+    }
+  },
+  "helperObservations": [
+    {
+      "pid": 736386,
+      "observation": "absent"
+    },
+    {
+      "pid": 738454,
+      "observation": "absent"
+    },
+    {
+      "pid": 738475,
+      "observation": "absent"
+    },
+    {
+      "pid": 740359,
+      "observation": "absent"
+    },
+    {
+      "pid": 740845,
+      "observation": "absent"
+    },
+    {
+      "pid": 741338,
+      "observation": "absent"
+    },
+    {
+      "pid": 741825,
+      "observation": "absent"
+    },
+    {
+      "pid": 742315,
+      "observation": "absent"
+    },
+    {
+      "pid": 742802,
+      "observation": "absent"
+    },
+    {
+      "pid": 736276,
+      "observation": "absent"
+    },
+    {
+      "pid": 736284,
+      "observation": "absent"
+    },
+    {
+      "pid": 738349,
+      "observation": "absent"
+    },
+    {
+      "pid": 740248,
+      "observation": "absent"
+    },
+    {
+      "pid": 740256,
+      "observation": "absent"
+    },
+    {
+      "pid": 740735,
+      "observation": "absent"
+    },
+    {
+      "pid": 740743,
+      "observation": "absent"
+    },
+    {
+      "pid": 741226,
+      "observation": "absent"
+    },
+    {
+      "pid": 741235,
+      "observation": "absent"
+    },
+    {
+      "pid": 741715,
+      "observation": "absent"
+    },
+    {
+      "pid": 741723,
+      "observation": "absent"
+    },
+    {
+      "pid": 742204,
+      "observation": "absent"
+    },
+    {
+      "pid": 742212,
+      "observation": "absent"
+    },
+    {
+      "pid": 742692,
+      "observation": "absent"
+    },
+    {
+      "pid": 742701,
+      "observation": "absent"
+    },
+    {
+      "pid": 735592,
+      "observation": "absent"
+    },
+    {
+      "pid": 735600,
+      "observation": "absent"
+    },
+    {
+      "pid": 735699,
+      "observation": "absent"
+    },
+    {
+      "pid": 744613,
+      "observation": "absent"
+    },
+    {
+      "pid": 746717,
+      "observation": "absent"
+    },
+    {
+      "pid": 746735,
+      "observation": "absent"
+    },
+    {
+      "pid": 748718,
+      "observation": "absent"
+    },
+    {
+      "pid": 749235,
+      "observation": "absent"
+    },
+    {
+      "pid": 749719,
+      "observation": "absent"
+    },
+    {
+      "pid": 750203,
+      "observation": "absent"
+    },
+    {
+      "pid": 750704,
+      "observation": "absent"
+    },
+    {
+      "pid": 751210,
+      "observation": "absent"
+    },
+    {
+      "pid": 744503,
+      "observation": "absent"
+    },
+    {
+      "pid": 744511,
+      "observation": "absent"
+    },
+    {
+      "pid": 746613,
+      "observation": "absent"
+    },
+    {
+      "pid": 748609,
+      "observation": "absent"
+    },
+    {
+      "pid": 748617,
+      "observation": "absent"
+    },
+    {
+      "pid": 749125,
+      "observation": "absent"
+    },
+    {
+      "pid": 749133,
+      "observation": "absent"
+    },
+    {
+      "pid": 749610,
+      "observation": "absent"
+    },
+    {
+      "pid": 749618,
+      "observation": "absent"
+    },
+    {
+      "pid": 750094,
+      "observation": "absent"
+    },
+    {
+      "pid": 750102,
+      "observation": "absent"
+    },
+    {
+      "pid": 750594,
+      "observation": "absent"
+    },
+    {
+      "pid": 750602,
+      "observation": "absent"
+    },
+    {
+      "pid": 751081,
+      "observation": "absent"
+    },
+    {
+      "pid": 751089,
+      "observation": "absent"
+    },
+    {
+      "pid": 743822,
+      "observation": "absent"
+    },
+    {
+      "pid": 743830,
+      "observation": "absent"
+    },
+    {
+      "pid": 743934,
+      "observation": "absent"
+    },
+    {
+      "pid": 736291,
+      "observation": "absent"
+    },
+    {
+      "pid": 736283,
+      "observation": "absent"
+    },
+    {
+      "pid": 736393,
+      "observation": "absent"
+    },
+    {
+      "pid": 738356,
+      "observation": "absent"
+    },
+    {
+      "pid": 738482,
+      "observation": "absent"
+    },
+    {
+      "pid": 738461,
+      "observation": "absent"
+    },
+    {
+      "pid": 740263,
+      "observation": "absent"
+    },
+    {
+      "pid": 740255,
+      "observation": "absent"
+    },
+    {
+      "pid": 740366,
+      "observation": "absent"
+    },
+    {
+      "pid": 740742,
+      "observation": "absent"
+    },
+    {
+      "pid": 740750,
+      "observation": "absent"
+    },
+    {
+      "pid": 740852,
+      "observation": "absent"
+    },
+    {
+      "pid": 741242,
+      "observation": "absent"
+    },
+    {
+      "pid": 741233,
+      "observation": "absent"
+    },
+    {
+      "pid": 741345,
+      "observation": "absent"
+    },
+    {
+      "pid": 741730,
+      "observation": "absent"
+    },
+    {
+      "pid": 741722,
+      "observation": "absent"
+    },
+    {
+      "pid": 741832,
+      "observation": "absent"
+    },
+    {
+      "pid": 742211,
+      "observation": "absent"
+    },
+    {
+      "pid": 742219,
+      "observation": "absent"
+    },
+    {
+      "pid": 742322,
+      "observation": "absent"
+    },
+    {
+      "pid": 742708,
+      "observation": "absent"
+    },
+    {
+      "pid": 742700,
+      "observation": "absent"
+    },
+    {
+      "pid": 742809,
+      "observation": "absent"
+    },
+    {
+      "pid": 735607,
+      "observation": "absent"
+    },
+    {
+      "pid": 735709,
+      "observation": "absent"
+    },
+    {
+      "pid": 735599,
+      "observation": "absent"
+    },
+    {
+      "pid": 744510,
+      "observation": "absent"
+    },
+    {
+      "pid": 744518,
+      "observation": "absent"
+    },
+    {
+      "pid": 744620,
+      "observation": "absent"
+    },
+    {
+      "pid": 746620,
+      "observation": "absent"
+    },
+    {
+      "pid": 746742,
+      "observation": "absent"
+    },
+    {
+      "pid": 746724,
+      "observation": "absent"
+    },
+    {
+      "pid": 748616,
+      "observation": "absent"
+    },
+    {
+      "pid": 748624,
+      "observation": "absent"
+    },
+    {
+      "pid": 748725,
+      "observation": "absent"
+    },
+    {
+      "pid": 749140,
+      "observation": "absent"
+    },
+    {
+      "pid": 749132,
+      "observation": "absent"
+    },
+    {
+      "pid": 749242,
+      "observation": "absent"
+    },
+    {
+      "pid": 749625,
+      "observation": "absent"
+    },
+    {
+      "pid": 749617,
+      "observation": "absent"
+    },
+    {
+      "pid": 749726,
+      "observation": "absent"
+    },
+    {
+      "pid": 750109,
+      "observation": "absent"
+    },
+    {
+      "pid": 750101,
+      "observation": "absent"
+    },
+    {
+      "pid": 750210,
+      "observation": "absent"
+    },
+    {
+      "pid": 750609,
+      "observation": "absent"
+    },
+    {
+      "pid": 750601,
+      "observation": "absent"
+    },
+    {
+      "pid": 750711,
+      "observation": "absent"
+    },
+    {
+      "pid": 751096,
+      "observation": "absent"
+    },
+    {
+      "pid": 751088,
+      "observation": "absent"
+    },
+    {
+      "pid": 751217,
+      "observation": "absent"
+    },
+    {
+      "pid": 743829,
+      "observation": "absent"
+    },
+    {
+      "pid": 743837,
+      "observation": "absent"
+    },
+    {
+      "pid": 743941,
+      "observation": "absent"
+    }
+  ],
+  "helperObservationScope": "Actual fresh launch/join observations only; legacy/control PID fields excluded; cleanup never supplies authority",
+  "originalsPreserved": true,
+  "originalOutcomeMissing": true,
+  "preparatory": {
+    "preparation": "Reviewer regression audit exposes totals rather than sets; partial archive was hash-validated before resuming preparation. No application/Git effect occurred in that failed preparation.",
+    "closure": {
+      "path": "closure-preparatory.json",
+      "sha256": "6f9ff82ca7e80a1862963cd26407018a04781b157dc4c3141d9a4e2bcea0a9b8",
+      "sourceHash": "607fe6bdb38e7d8433f6ada2ff51746a8662b7b6bfb6c647f95a2ea7ba680115",
+      "reason": "Literal hashed filenames of random join invocations differed across fresh domains. Corrected comparison validates each invocation/key digest then maps command/multiplicity; passed executions were not repeated."
+    }
+  },
+  "remainingExecutionBlockers": [],
+  "independentRereview": "pending",
+  "publicationAuthorized": false,
+  "scope": "Offline single-writer fixture policy repair; retained original records/fences/unknown outcomes unchanged; no core/graph/storage schema change, renewed mutation admission, public graph recovery, live providers or real repository recovery."
+}

@@ -95,9 +95,18 @@ release can finish these publication windows after a crash; until activation,
 startup is closed. Conflicting requests/records or missing continuation results
 refuse. Release never resumes a pending Git request.
 
+Release authority must differ from the authorities in the exact **accepted**
+continuation request and its nested retention request. Omitted earlier scenario
+authority settings are permitted. Any nonempty `continuationAuthorization` or
+`dispositionAuthorization` supplied during release or startup must match that
+accepted lineage; relabelling configuration cannot replace it. These checks run
+before any release write, including replay of a partially published release.
+
 Before transport input, startup rechecks release request, result, activation,
 original inventory, every new command's join and exact completed physical state.
-Drift or unavailable inspection closes before input. It then passes the unchanged
+Authority separation is rechecked at startup too. Previously invalid activated
+release records stay intact but close before input; no migration or repair is
+inferred. Drift or unavailable inspection closes before input. It then passes the unchanged
 pending registry to the inherited graph to restore original Member values. No
 synthetic `ready` registry or success/cancellation result is supplied.
 
@@ -125,6 +134,9 @@ The [verification record](../../docs/verification/offline-session-git-continuati
 separates baseline, preparatory, fresh continuation, inherited regression and
 mechanical evidence. Local raw storage/physical assertions are exact. Cross-domain
 comparison omits only index-stat digest; paths/PIDs remain in raw evidence.
+The [release-authority review repair](../../docs/verification/offline-session-git-release-authority-repair-20261014.md)
+records the original reviewer reproductions and the focused retained/current
+configuration, replay, startup and publication-window checks.
 
 Scope remains one trusted serialized writer, immutable fixture provisioning,
 intact flushed storage and controlled Linux standalone SHA1/single UTF-8 file
