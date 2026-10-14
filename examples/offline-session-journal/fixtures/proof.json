@@ -1,0 +1,194 @@
+{
+  "scope": "offline Linux pipes, SIGKILL and flushed retained files; single writer; synthetic commit/HEAD/save; no physical Git/provider effects",
+  "rows": 33,
+  "proof": [
+    {
+      "name": "lost-response",
+      "processes": 2,
+      "sameRequestBytes": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      },
+      "returnedOriginal": true
+    },
+    {
+      "name": "lost-response-disabled",
+      "processes": 2,
+      "sameRequestBytes": true,
+      "total": {
+        "commit": 2,
+        "head": 2,
+        "save": 2
+      },
+      "returnedOriginal": false
+    },
+    {
+      "name": "after-intent",
+      "processes": 2,
+      "evidence": "absent",
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      },
+      "result": "ok:integrated-head"
+    },
+    {
+      "name": "after-effect",
+      "processes": 2,
+      "evidence": "applied",
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      },
+      "result": "ok:integrated-head"
+    },
+    {
+      "name": "after-commit",
+      "processes": 2,
+      "evidence": "partial",
+      "total": {
+        "commit": 1,
+        "head": 0,
+        "save": 0
+      },
+      "result": "err:unresolved"
+    },
+    {
+      "name": "unknown-evidence",
+      "processes": 3,
+      "unknownDoesNotRetry": true,
+      "laterAuthoritativeAbsenceRetries": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "conflict-done",
+      "processes": 3,
+      "conflictBeforeEffectObservation": true,
+      "storageUnchanged": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "conflict-pending",
+      "processes": 3,
+      "conflictBeforeEffectObservation": true,
+      "storageUnchanged": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "changed-intent",
+      "processes": 3,
+      "samePayloadChangedCandidateDoesNotRetry": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "same-process-replay",
+      "processes": 1,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "corrupt-journal",
+      "processes": 1,
+      "storageUnchanged": true,
+      "total": {
+        "commit": 0,
+        "head": 0,
+        "save": 0
+      }
+    },
+    {
+      "name": "retained-failure",
+      "processes": 2,
+      "outcome": "err:unknown",
+      "total": {
+        "commit": 0,
+        "head": 0,
+        "save": 0
+      }
+    },
+    {
+      "name": "null-id",
+      "processes": 1,
+      "failedClosed": true,
+      "total": {
+        "commit": 0,
+        "head": 0,
+        "save": 0
+      }
+    },
+    {
+      "name": "notification",
+      "processes": 1,
+      "failedClosed": true,
+      "total": {
+        "commit": 0,
+        "head": 0,
+        "save": 0
+      }
+    },
+    {
+      "name": "async-integrate",
+      "processes": 1,
+      "failedClosed": true,
+      "total": {
+        "commit": 0,
+        "head": 0,
+        "save": 0
+      }
+    },
+    {
+      "name": "journal-reader-oversize",
+      "processes": 2,
+      "exactReaderException": true,
+      "protectedOutcome": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    },
+    {
+      "name": "journal-reader-utf8",
+      "processes": 2,
+      "exactReaderException": true,
+      "protectedOutcome": true,
+      "total": {
+        "commit": 1,
+        "head": 1,
+        "save": 1
+      }
+    }
+  ],
+  "hashes": {
+    "raw": "cd1342a048fd2915eba591d23e81ea26df1b94c46bc997d983cc2a73cb737850",
+    "source": "567e5d1946f086f5ad2626b1b22f21b517098b61898806f297cf36d708471110"
+  },
+  "identity": {
+    "recordKey": "journal/v1/049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c",
+    "token": "journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65",
+    "payloadFingerprint": "e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65"
+  }
+}

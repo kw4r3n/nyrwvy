@@ -18,17 +18,25 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Dispatcher/output failure observation while input stays open | Lost-response restart probe observes failing output, cancels/joins reader and closes once | Demonstrated in restart probe |
 | Successful EOF while foreground command is held | Observer completes normally; owner waits for dispatcher and protected gate release | Supported; queued-frame EOF observation still waits for dispatch acknowledgement |
 | Peer acknowledgement of outcome | OS accepted writes and correlation ID do not prove peer processing | Missing |
-| Durable outcome retention and request deduplication | Same exact integration bytes/ID in a fresh process repeat synthetic mutation after response loss | Missing; next substantial milestone |
-| Restart reconciliation of interrupted external mutations | No journal or real Git HEAD/worktree reconciliation | Missing |
+| Durable outcome retention and request deduplication | Versioned application journal, stable typed-ID digest, exact-frame fingerprint and retained actual outcomes; original/moved fresh-process lost-response proof has one mutation vs two with journal disabled | Demonstrated for synchronous integration in one retained single-writer domain |
+| Restart reconciliation of interrupted synthetic mutations | Durable selected intent; absence/applied/partial/unavailable evidence; SIGKILL before mutation and after commit/save; conflicting payload and changed candidate stay blocked before retry | Demonstrated in measured windows; physical Git/provider binding remains missing |
+| Complete live registry restoration and durable continuation | Prefix rebuilds Member state; completed request replay returns retained outcome without restoring the registry's integrated HEAD | Missing |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
 
-Next milestone: compose an application-level durable request journal with
-ordinary external storage capabilities. Persist stable request identity,
-mutation intent and determined outcome; reopen and reconcile before retrying.
-The acceptance probe must lose an integration response after HEAD/save, restart
-with the same retained journal and request bytes, then return/reconcile the
-original outcome with one total mutation. A paired journal-disabled graph must
-still repeat the effect. Physical Git interruption/reconciliation requires its
-own later binding proof. Existing core primitives have not been shown
-insufficient.
+The [application journal milestone](../../examples/offline-session-journal/README.md)
+now satisfies the lost-response acceptance contract with existing primitives.
+Six explicit SIGKILL rows per bundle distinguish durable intent, partial commit
+and completed save from journal outcome persistence. Request deduplication is
+restricted to synchronous, non-null-ID integration requests. Reused reader
+fixtures remain historical evidence; fresh journal reader rows preserve the
+original cancellation outcome and exact reader exception.
+
+Next substantial milestone: reconstruct a complete durable application
+continuation, including Member/registry state and the integrated HEAD, then
+prove the physical mutation/evidence binding in a separately approved isolated
+offline fixture. The current synthetic effect ledger cannot prove physical Git
+reconciliation or provider equivalence. Multi-writer exclusion, pruning,
+power-loss behavior, peer acknowledgement and historical MCP/Python parity
+remain outside this proof. No existing core primitive has been shown
+insufficient, and no Rrawrlet-specific core policy is warranted.
