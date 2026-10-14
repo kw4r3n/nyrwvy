@@ -1,5 +1,12 @@
 # Durable application journal — 2026-10-14
 
+Historical candidate `6f4c2c3` evidence. Its complete-effect-to-success inference
+was invalidated by independent review: cancellation followed by SIGKILL before
+outcome persistence could become success on restart. The measured 17 contracts
+below did not cover that combination. The
+[actual-outcome repair](offline-session-actual-outcome-20261014.md) supersedes
+that recovery behavior; actual receipt evidence is now required.
+
 The synchronous integration application now retains request identity, exact
 frame payload identity, selected mutation intent and actual outcomes across
 process restart. A lost integration response followed by identical request

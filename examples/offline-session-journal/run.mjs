@@ -5,13 +5,14 @@ import {session} from '../dynamic-worker-collector/lib.mjs'
 import {author,maxFrameBytes} from './author.mjs'
 const replay=process.argv[2]==='--replay',dir=resolve(process.argv[replay?3:2]??'artifacts/journal/bundle')
 const disabled=process.argv.includes('--disabled')
+const receiptDisabled=process.argv.includes('--receipt-disabled')
 await mkdir(dir,{recursive:true})
 if(!replay)assert.deepEqual(await readdir(dir),[],'fresh evidence directory required')
 const s=await session('session',dir)
 try{
  if(!replay){
-  const {artifact,declarations,nodes}=await author(s,{disabled})
-  for(const [name,value] of Object.entries({'symbols.json':artifact.symbols,'declarations.json':declarations,'authoring.json':{base:'8e33e1553397f926d95b335d2bc5f86740b2f9f0',baseTree:'365e6a1cdacc4094529adadf0a18e845e23258f3',maxFrameBytes,disabled,nodes}}))await writeFile(join(dir,name),JSON.stringify(value,null,2)+'\n')
+  const {artifact,declarations,nodes}=await author(s,{disabled,receiptDisabled})
+  for(const [name,value] of Object.entries({'symbols.json':artifact.symbols,'declarations.json':declarations,'authoring.json':{base:'6f4c2c3a8e9dea07ff992de1b29190e82d5bb19e',baseTree:'5c77e7f281a48c1ffdfffca4ce3f23135c5d47d1',maxFrameBytes,disabled,receiptDisabled,nodes}}))await writeFile(join(dir,name),JSON.stringify(value,null,2)+'\n')
   await writeFile(join(dir,'Generated.cs'),artifact.source);await s.call('close')
  }
  await s.call('open',{mode:'open',snapshot:s.snapshot})

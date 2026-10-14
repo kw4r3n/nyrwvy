@@ -31,6 +31,8 @@
  }
  public NyUnit StorageWrite(NyStr key,NyStr value){
   string k=key.ToString(),v=value.ToString();
+  Observe(new {operation="storage-write-attempt",key=k,value=v,cancelled=NyRuntime.CancellationRequested});
+  if(k.StartsWith("outcome-receipt/",StringComparison.Ordinal))Checkpoint("before-outcome-receipt");
   if(k.StartsWith("outcome/",StringComparison.Ordinal))Checkpoint("after-effect");
   AtomicWrite(k,v);Observe(new {operation="storage-written",key=k,value=v,cancelled=NyRuntime.CancellationRequested});
   if(k.StartsWith("journal/v1/",StringComparison.Ordinal)&&v.Contains("\"state\":\"pending\"",StringComparison.Ordinal))Checkpoint("after-intent");
@@ -47,15 +49,17 @@
   Observe(new {operation="effect-persisted",phase,identity=effectIdentity.Value??"unidentified",patch});
  }
  public NyStr EffectEvidence(NyStr identity){
-  string file=StoragePath("synthetic-effects"),state="unknown",outcome="";
+  string file=StoragePath("synthetic-effects"),state="unknown",head="";
   if(Setting("evidence")!="unavailable"){
    var rows=System.IO.File.Exists(file)?JsonSerializer.Deserialize<List<Dictionary<string,string>>>(System.IO.File.ReadAllText(file))!:new();
    var found=rows.Where(x=>x["identity"]==identity.ToString()).ToArray();
    if(found.Length==0)state="absent";
    else if(found.Length==3&&found[0]["phase"]=="commit"&&found[1]["phase"]=="head"&&found[2]["phase"]=="save"){
-    state="applied";outcome="ok:"+found[2]["patch"];
+    state="applied";head=found[2]["patch"];
    }else state="partial";
   }
-  var evidence=JsonSerializer.Serialize(new {state,outcome});
-  Observe(new {operation="effect-evidence",identity=identity.ToString(),state,outcome});return evidence;
+  // Effect completion/HEAD cannot determine success versus cancellation.
+  // Only a graph-written actual outcome receipt can recover that result.
+  var evidence=JsonSerializer.Serialize(new {state,head});
+  Observe(new {operation="effect-evidence",identity=identity.ToString(),state,head});return evidence;
  }

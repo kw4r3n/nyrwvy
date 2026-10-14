@@ -11,12 +11,12 @@ const stringField=(value,key)=>eqStr(f(direct('wireGet',{value,key:text(key)}),'
 const outcomeValid=value=>or({kind:'stringStartsWith',value,prefix:text('ok:')},{kind:'stringStartsWith',value,prefix:text('err:')})
 const parse=source=>direct('journalParse',{source})
 const key=prefix=>concat(text(prefix),p('token'))
-const record=(state,outcome)=>concat(text('{"version":"1","id":'),quote(p('recordKey')),text(',"fingerprint":'),quote(p('fingerprint')),text(',"intent":'),quote(p('intent')),text(',"effectIdentity":'),quote(p('token')),text(',"state":'),quote(text(state)),text(',"outcome":'),quote(outcome),text('}'))
+const record=(state,outcome)=>concat(text('{"version":"1","id":'),quote(p('recordKey')),text(',"fingerprint":'),quote(p('fingerprint')),text(',"intent":'),quote(p('intent')),text(',"effectIdentity":'),quote(p('token')),text(',"state":'),quote(text(state)),text(',"outcomeSource":'),quote(text(state==='done'?'actual':'')),text(',"outcome":'),quote(outcome),text('}'))
 const params={host:cap('Host'),scope,acc:W,decoded:D,fingerprint:string,token:string,recordKey:string,intent:string}
 const args=()=>Object.fromEntries(Object.keys(params).map(k=>[k,p(k)]))
 const create=(s,name,ps,type,body,effects)=>s.create(name,ps,type,resolveFrames(body),effects)
 
-export async function author(s,{disabled=false}={}){
+export async function author(s,{disabled=false,receiptDisabled=false}={}){
  // Extend the example Host declaration with generic external storage/digest and
  // effect-correlation/evidence contracts. These are not runtime/core features.
  const additions=[['storageRead',{key:string},option(string)],['storageWrite',{key:string,value:string},unit],['digest',{value:string},string],['effectIdentity',{identity:string},unit],['effectEvidence',{identity:string},string]]
@@ -46,7 +46,8 @@ export async function author(s,{disabled=false}={}){
  const accept={host:cap('Host'),state:named('State'),target:{kind:'primitive',primitive:'int64'},label:string,outcome:named('Outcome')}
  const rendered={kind:'matchResult',input:f(p('outcome'),'Outcome','result'),okBody:concat(text('ok:'),{kind:'patternReference',slot:'value',scopeDepth:0}),errBody:concat(text('err:'),{kind:'patternReference',slot:'error',scopeDepth:0})}
  await create(s,'journalAcceptProtected',{...accept,item:unit},result(named('State')),
-  letIn(cond({kind:'stringStartsWith',value:p('label'),prefix:text('journal:')},io('storageWrite',{key:concat(text('outcome/'),p('label')),value:rendered}),unitValue),()=>ok(direct('acceptIntegrationOriginal',Object.fromEntries(Object.keys(accept).map(k=>[k,p(k)]))))))
+  letIn(cond({kind:'stringStartsWith',value:p('label'),prefix:text('journal:')},
+   letIn(cond(boolean(receiptDisabled),unitValue,io('storageWrite',{key:concat(text('outcome-receipt/'),p('label')),value:rendered})),()=>io('storageWrite',{key:concat(text('outcome/'),p('label')),value:rendered})),unitValue),()=>ok(direct('acceptIntegrationOriginal',Object.fromEntries(Object.keys(accept).map(k=>[k,p(k)]))))))
  await s.publish(await s.call('replace',{function:'acceptIntegration',replacement:{kind:'matchResult',input:{kind:'cancellationShield',body:'journalAcceptProtected',context:ctx(Object.fromEntries(Object.keys(accept).map(k=>[k,p(k)])))},okBody:pat(),errBody:p('state')}}))
  const request={kind:'productUpdate',type:'Request',source:d('request'),fields:[{field:'label',value:p('token')}]}
  await create(s,'journalApply',params,W,
@@ -54,18 +55,18 @@ export async function author(s,{disabled=false}={}){
    letIn(direct('sessionCommandFold',{host:p('host'),scope:p('scope'),acc:p('acc'),item:request,wrongBoundary:boolean(false)}),owner=>
     some(io('storageRead',{key:key('outcome/')}),outcome=>direct('journalFinish',{...args(),acc:owner,outcome}),
      letIn(direct('journalReply',{host:p('host'),decoded:p('decoded'),outcome:text('err:unresolved')}),()=>owner))),finish(text('err:unknown')))))
- await create(s,'journalReconcile',{...params,expectedIntent:string},W,
+ await create(s,'journalReconcile',{...params,expectedIntent:string,allowRetry:bool},W,
   letIn(parse(io('effectEvidence',{identity:p('token')})),evidence=>
    some(io('storageRead',{key:key('outcome/')}),outcome=>cond(outcomeValid(outcome),finish(outcome,{intent:p('expectedIntent')}),reply(text('err:unresolved'))),
-    cond(and(and(stringField(evidence,'state'),eqStr(get(evidence,'state'),text('applied'))),and(stringField(evidence,'outcome'),outcomeValid(get(evidence,'outcome')))),finish(get(evidence,'outcome'),{intent:p('expectedIntent')}),
-     cond(and(eqStr(get(evidence,'state'),text('absent')),eqStr(p('intent'),p('expectedIntent'))),direct('journalApply',args()),reply(text('err:unresolved')))))))
+    some(io('storageRead',{key:key('outcome-receipt/')}),outcome=>cond(outcomeValid(outcome),finish(outcome,{intent:p('expectedIntent')}),reply(text('err:unresolved'))),
+     cond(and(p('allowRetry'),and(eqStr(get(evidence,'state'),text('absent')),eqStr(p('intent'),p('expectedIntent')))),direct('journalApply',args()),reply(text('err:unresolved')))))))
  await create(s,'journalExisting',{...params,stored:string},W,
   letIn(parse(p('stored')),stored=>
    cond(and(and(eqStr(f(stored,'WireJson','kind'),text('object')),['version','id','fingerprint','intent','effectIdentity','state','outcome'].map(key=>stringField(stored,key)).reduce(and)),and(eqStr(get(stored,'version'),text('1')),eqStr(get(stored,'id'),p('recordKey')))),
     cond(eqStr(get(stored,'fingerprint'),p('fingerprint')),
      cond(eqStr(get(stored,'effectIdentity'),p('token')),
-      cond(and(eqStr(get(stored,'state'),text('done')),outcomeValid(get(stored,'outcome'))),reply(get(stored,'outcome')),
-       cond(eqStr(get(stored,'state'),text('pending')),direct('journalReconcile',{...args(),expectedIntent:get(stored,'intent')}),reply(text('err:unresolved')))),reply(text('err:unresolved'))),reply(text('err:payload-conflict'))),reply(text('err:unresolved')))))
+      cond(and(and(eqStr(get(stored,'state'),text('done')),outcomeValid(get(stored,'outcome'))),and(stringField(stored,'outcomeSource'),eqStr(get(stored,'outcomeSource'),text('actual')))),reply(get(stored,'outcome')),
+       cond(or(eqStr(get(stored,'state'),text('pending')),eqStr(get(stored,'state'),text('done'))),direct('journalReconcile',{...args(),expectedIntent:get(stored,'intent'),allowRetry:eqStr(get(stored,'state'),text('pending'))}),reply(text('err:unresolved')))),reply(text('err:unresolved'))),reply(text('err:payload-conflict'))),reply(text('err:unresolved')))))
  await create(s,'journalRequest',params,W,
   some(io('storageRead',{key:p('recordKey')}),stored=>direct('journalExisting',{...args(),stored}),
    letIn(io('storageWrite',{key:p('recordKey'),value:record('pending',text(''))}),()=>direct('journalApply',args()))))

@@ -16,14 +16,14 @@ const recordKey='journal/v1/'+hash(JSON.stringify('same-integration-id'))
 const token='journal:'+hash(JSON.stringify('same-integration-id'))+':'+hash(integration)
 const before=async root=>{await mkdir(root,{recursive:true});return Object.fromEntries(await Promise.all((await readdir(root)).sort().map(async f=>[f,await readFile(join(root,f),'utf8')])))}
 const total=list=>Object.fromEntries(['commit','head','save'].map(p=>[p,list.reduce((n,r)=>n+phases(r)[p],0)]))
-async function execute(name,index,{disabled=false,lost=false,crash='',evidence='',snapshotCommit='',line=integration,repeat=false,fault='',witness=false,withPrefix=true}={}){
+async function execute(name,index,{disabled=false,receiptDisabled=false,lost=false,crash='',evidence='',snapshotCommit='',line=integration,repeat=false,fault='',witness=false,withPrefix=true}={}){
  const root=join(dir,'runs',name),storageDir=join(root,'state');await mkdir(root,{recursive:true})
  const commitGateFile=join(root,'commit-release'),journalGateFile=join(root,'journal-release'),fixture=join(root,`scenario-${index}.json`)
  await rm(commitGateFile,{force:true});await rm(journalGateFile,{force:true})
  const scenario={kind:'transport',patch:'diff',providers:{1:'complete',...(witness?{2:'hold'}:{})},storageDir,commitGateFile,journalGateFile,crashWindow:crash,evidence,snapshotCommit}
  await writeFile(fixture,JSON.stringify(scenario))
  const storageBefore=await before(storageDir)
- const child=spawn('dotnet',[join(dir,...(disabled?['disabled','Runtime.dll']:['Runtime.dll'])),fixture],{stdio:['pipe','pipe','pipe']})
+ const child=spawn('dotnet',[join(dir,...(disabled?['disabled','Runtime.dll']:receiptDisabled?['receipt-disabled','Runtime.dll']:['Runtime.dll'])),fixture],{stdio:['pipe','pipe','pipe']})
  const events=[],outputs=[],actions=[],times=[],waiters=new Set();let failure,exitCode,signal
  const wake=()=>{for(const w of waiters)w()}
  for(const [stream,target] of [[child.stdout,outputs],[child.stderr,events]])createInterface({input:stream}).on('line',line=>{try{target.push(target===events?JSON.parse(line):line);if(target===events)times.push(performance.now())}catch(e){failure=e}wake()})
@@ -72,8 +72,8 @@ async function execute(name,index,{disabled=false,lost=false,crash='',evidence='
    else{assert.equal(outcome.ok,true);assert.equal(outcome.TerminalWritten,true)}
   }
   if(failure)throw failure
-  assert.ok(events.filter(x=>x.operation==='protected-step'||x.operation==='storage-written'&&x.key.startsWith('outcome/')).every(x=>x.cancelled===false),'determined tail and outcome retention protected')
-  const row={name,index,disabled,lost,crash,fault,scenario,actions,events,outputs,exitCode,signal,storageBefore,storageAfter:await before(storageDir)}
+  assert.ok(events.filter(x=>x.operation==='protected-step'||['storage-written','storage-write-attempt'].includes(x.operation)&&(x.key.startsWith('outcome/')||x.key.startsWith('outcome-receipt/'))).every(x=>x.cancelled===false),'determined tail and outcome retention protected')
+  const row={name,index,disabled,receiptDisabled,lost,crash,fault,scenario,actions,events,outputs,exitCode,signal,storageBefore,storageAfter:await before(storageDir)}
   rows.push(row);return row
  }finally{clearTimeout(timer);if(exitCode===undefined){child.kill('SIGKILL');await ended}}
 }
@@ -136,6 +136,43 @@ for(const fault of ['oversize','utf8']){
  const a=await execute('journal-reader-'+fault,1,{fault,witness:true}),b=await execute('journal-reader-'+fault,2)
  assert.deepEqual(total([a,b]),{commit:1,head:1,save:1});assert.equal(reply(b),record(a).outcome);assert.equal(reply(b),'err:cancelled')
  proof.push({name:a.name,processes:2,exactReaderException:true,protectedOutcome:true,total:total([a,b])})
+}
+// The reviewed failure combined cancellation with a kill before the separate
+// outcome file. Complete effects alone cannot distinguish ok from cancelled.
+const receiptFile=hash('outcome-receipt/'+token)+'.json',outcomeFile=hash('outcome/'+token)+'.json'
+const acceptsCancelled=r=>assert.equal(reply(r),'err:cancelled','recover the actual determined cancellation')
+for(const receiptDisabled of [false,true]){
+ const name=receiptDisabled?'cancel-crash-receipt-disabled':'cancel-crash-receipt',a=await execute(name,1,{receiptDisabled,fault:'utf8',witness:true,crash:'after-effect'}),b=await execute(name,2,{receiptDisabled})
+ assert.equal(a.events.find(x=>x.operation==='storage-write-attempt'&&x.key==='outcome/'+token).value,'err:cancelled')
+ assert.equal(a.storageAfter[outcomeFile],undefined);assert.equal(record(a).state,'pending')
+ assert.equal(b.events.find(x=>x.operation==='effect-evidence').state,'applied');assert.deepEqual(total([a,b]),{commit:1,head:1,save:1})
+ if(receiptDisabled){
+  assert.equal(a.storageAfter[receiptFile],undefined);assert.equal(reply(b),'err:unresolved');assert.equal(record(b).state,'pending');assert.deepEqual(b.storageAfter,a.storageAfter)
+  assert.throws(()=>acceptsCancelled(b),assert.AssertionError,'receipt-disabled graph fails the identical actual-outcome recovery contract')
+ }else{
+  assert.equal(a.storageAfter[receiptFile],'err:cancelled');acceptsCancelled(b);assert.equal(record(b).outcome,'err:cancelled')
+ }
+ proof.push({name,processes:2,actualDeterminedOutcome:'err:cancelled',receiptPersisted:!receiptDisabled,missingSeparateOutcome:true,completeEffectsDoNotInferSuccess:true,result:reply(b),recoveryContractRejected:receiptDisabled,total:total([a,b])})
+}
+for(const fault of ['', 'utf8']){
+ const name=fault?'cancel-crash-before-receipt':'crash-before-receipt',a=await execute(name,1,{fault,witness:!!fault,crash:'before-outcome-receipt'}),b=await execute(name,2)
+ const actual=fault?'err:cancelled':'ok:integrated-head'
+ assert.equal(a.events.find(x=>x.operation==='storage-write-attempt'&&x.key==='outcome-receipt/'+token).value,actual)
+ assert.equal(a.storageAfter[receiptFile],undefined);assert.equal(a.storageAfter[outcomeFile],undefined)
+ assert.equal(b.events.find(x=>x.operation==='effect-evidence').state,'applied');assert.equal(reply(b),'err:unresolved');assert.equal(record(b).state,'pending');assert.deepEqual(b.storageAfter,a.storageAfter);assert.deepEqual(total([a,b]),{commit:1,head:1,save:1})
+ proof.push({name,processes:2,actualDeterminedOutcome:actual,noDurableOutcomeReceipt:true,completeEffectsDoNotInferSuccess:true,result:'err:unresolved',total:total([a,b])})
+}
+// Reuse exact retained 6f4c2c3 storage from author/reviewer observations. Legacy
+// completed records may have been inferred; only an actual stored result can
+// authenticate them. These are input fixtures, not fresh legacy executions.
+const legacy=JSON.parse(await readFile(new URL('./fixtures/legacy-outcome-state.json',import.meta.url),'utf8'))
+for(const c of legacy.cases){
+ const name=c.name,root=join(dir,'runs',name,'state');await mkdir(root,{recursive:true})
+ for(const [file,value] of Object.entries(c.storage))await writeFile(join(root,file),value)
+ const r=await execute(name,1);assert.equal(reply(r),c.expected);assert.deepEqual(phases(r),{commit:0,head:0,save:0})
+ if(c.expected==='err:unresolved')assert.deepEqual(r.storageAfter,r.storageBefore)
+ else{assert.equal(record(r).outcomeSource,'actual');assert.equal(record(r).outcome,c.expected)}
+ proof.push({name,processes:1,reusedLegacyState:true,sourceRawHash:c.sourceRawHash,result:reply(r),noMutation:true,authenticated:c.expected!=='err:unresolved'})
 }
 await writeFile(join(dir,'journal-raw.json'),JSON.stringify(rows,null,2)+'\n')
 await writeFile(join(dir,'journal-proof.json'),JSON.stringify({scope:'offline Linux pipes, SIGKILL and flushed retained files; single writer; synthetic commit/HEAD/save; no physical Git/provider effects',rows:rows.length,proof,hashes:{raw:hash(await readFile(join(dir,'journal-raw.json'))),source:hash(await readFile(new URL('./test-runtime.mjs',import.meta.url)))},identity:{recordKey,token,payloadFingerprint:hash(integration)}},null,2)+'\n')

@@ -19,7 +19,8 @@ const files=['Generated.cs','Program.cs','Runtime.dll','Runtime.runtimeconfig.js
 const bundles=[],sourceHashes={},stable=[]
 for(const dir of dirs){
  assert.equal(await normalizedHost(dir),await normalizedHost(join(dir,'disabled')),'identical supported/control binding after declared-symbol normalization')
- const hashes={};for(const prefix of ['','disabled/'])for(const file of files)hashes[prefix+file]=hash(await readFile(join(dir,prefix+file)))
+ assert.equal(await normalizedHost(dir),await normalizedHost(join(dir,'receipt-disabled')),'identical receipt-enabled/control binding')
+ const hashes={};for(const prefix of ['','disabled/','receipt-disabled/'])for(const file of files)hashes[prefix+file]=hash(await readFile(join(dir,prefix+file)))
  const proof=JSON.parse(await readFile(join(dir,'journal-proof.json'),'utf8')),rows=JSON.parse(await readFile(join(dir,'journal-raw.json'),'utf8'))
  assert.equal(proof.hashes.raw,hash(await readFile(join(dir,'journal-raw.json'))));assert.equal(proof.hashes.source,hash(await readFile(new URL('./test-runtime.mjs',import.meta.url))))
  assert.equal(rows.length,proof.rows)
@@ -36,7 +37,7 @@ for(const dir of dirs){
   assert.ok(encoded.startsWith(written));if(!row.lost&&!row.crash)assert.equal(encoded,written)
  }
  bundles.push({dir,hashes,rawHash:proof.hashes.raw,proof:proof.proof})
- stable.push(rows.map(r=>({name:r.name,index:r.index,disabled:r.disabled,lost:r.lost,crash:r.crash,fault:r.fault,actions:r.actions,outputs:r.outputs,exitCode:r.exitCode,signal:r.signal,storageBefore:r.storageBefore,storageAfter:r.storageAfter})))
+ stable.push(rows.map(r=>({name:r.name,index:r.index,disabled:r.disabled,receiptDisabled:r.receiptDisabled,lost:r.lost,crash:r.crash,fault:r.fault,actions:r.actions,outputs:r.outputs,exitCode:r.exitCode,signal:r.signal,storageBefore:r.storageBefore,storageAfter:r.storageAfter})))
 }
 assert.deepEqual(bundles[0].hashes,bundles[1].hashes,'moved artifact bytes');assert.deepEqual(bundles[0].proof,bundles[1].proof);assert.deepEqual(stable[0],stable[1],'fresh moved observations')
 async function source(path){
@@ -45,6 +46,6 @@ async function source(path){
  for(const m of bytes.toString().matchAll(/(?:from\s+|import\s*)['"]([^'"]+)['"]/g))if(m[1].startsWith('.'))await source(resolve(path,'..',m[1]))
 }
 for(const file of ['author.mjs','run.mjs','compile.mjs','storage.template.cs','test-runtime.mjs','verify.mjs'])await source(resolve('examples/offline-session-journal',file))
-for(const file of ['examples/offline-session-owned-io/pipe.template.cs','examples/offline-session-bounded-input/pipe.template.cs','examples/offline-leader-jsonrpc/runtime.template.cs','.opencode/tests/nyrwvy-authoring-offline-session-journal.test.mjs'])await source(resolve(file))
+for(const file of ['examples/offline-session-owned-io/pipe.template.cs','examples/offline-session-bounded-input/pipe.template.cs','examples/offline-leader-jsonrpc/runtime.template.cs','.opencode/tests/nyrwvy-authoring-offline-session-journal.test.mjs','examples/offline-session-journal/fixtures/legacy-outcome-state.json'])await source(resolve(file))
 await writeFile(join(dirs[0],'verified.json'),JSON.stringify({movedReplay:true,identicalControlBinding:true,normalizedHostHash:hash(await normalizedHost(dirs[0])),inputBytesChecked:true,acceptedWriteBytesChecked:true,artifactHashClosure:true,sourceHashes,bundles,limits:['example-source/artifact closure excludes core/tool implementation, compiler, references, environment and host filesystem durability under power loss; core/tool sources remain pinned by base commit','fresh processes and SIGKILL establish the observed windows, not arbitrary interruption or multi-writer safety']},null,2)+'\n')
-console.log(`PASS: moved exact emission/compilation; ${files.length*2} artifacts; ${bundles[0].proof.length} contracts; raw, source and actual byte checks`)
+console.log(`PASS: moved exact emission/compilation; ${files.length*3} artifacts; ${bundles[0].proof.length} contracts; raw, source and actual byte checks`)
